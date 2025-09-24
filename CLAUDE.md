@@ -32,7 +32,7 @@
 data/
 ├── raw/                    # 生データ（Shift_JIS）
 ├── processed/              # 処理済みデータ
-└── metadata/               # メタデータとログ
+└── logs/                   # ログファイル
 
 # ソースコード（作成予定）
 src/
@@ -63,31 +63,33 @@ scripts/cleanup_old.py      # 古いデータのクリーンアップ
 
 ### 🔍 ファイル検索
 ```bash
-# プロジェクト仕様の確認
-cat .kiro/specs/tokyo-epidemic-data-automation/requirements.md
+# プロジェクト仕様の確認（存在しない場合はスキップ）
+[ -f .kiro/specs/tokyo-epidemic-data-automation/requirements.md ] && \
+  cat .kiro/specs/tokyo-epidemic-data-automation/requirements.md || \
+  echo "requirements.md は未作成です"
 
 # GitHub Actionsワークフローの確認
 ls -la .github/workflows/
 
-# データディレクトリの確認
-ls -la data/
+# データディレクトリの確認（存在しない場合はスキップ）
+[ -d data ] && ls -la data/ || echo "data/ は未作成です"
 ```
 
 ### ✅ ローカルテスト
 ```bash
-# データ取得のテスト
-python scripts/fetch_data.py --test
+# データ取得のテスト（存在しない場合はスキップ）
+[ -f scripts/fetch_data.py ] && python scripts/fetch_data.py --test || echo "scripts/fetch_data.py は未作成です"
 
-# データ検証
-python scripts/validate_data.py data/raw/latest.csv
+# データ検証（存在しない場合はスキップ）
+[ -f scripts/validate_data.py ] && python scripts/validate_data.py data/raw/latest.csv || echo "scripts/validate_data.py は未作成です"
 
-# 処理のテスト
-python scripts/process_data.py --dry-run
+# 処理のテスト（存在しない場合はスキップ）
+[ -f scripts/process_data.py ] && python scripts/process_data.py --dry-run || echo "scripts/process_data.py は未作成です"
 ```
 
 ### 📦 デプロイとスケジューリング
 ```bash
-# GitHub Actionsワークフローの有効化
+# GitHub Actionsワークフローの有効化（要: gh CLI インストール & gh auth login）
 gh workflow enable fetch-data.yml
 
 # 手動実行
@@ -120,7 +122,7 @@ gh workflow run fetch-data.yml
 - **私の役割**: プロジェクトオーナー/データアナリスト
 - **あなたの役割**: 自動化システムの構築を支援する熟練したアシスタント
 - **リロード**: **すべての**アシスタントレスポンスの開始時に、このファイルを再読み込みして準拠を確認してください
-- **確認**: ファイル作成や大きな変更の前に、必ず「実行してよろしいですか？（y/n）」と確認してください
+- **確認**: 破壊的操作（ファイルの削除、大規模変更、データベース更新など）の前に、「実行してよろしいですか？（y/n）」と確認してください
 
 ## 1. プロジェクトコンテキスト
 
@@ -217,7 +219,7 @@ gh workflow run fetch-data.yml
 - **スタイルガイド**: PEP 8準拠
 - **型ヒント**: Python 3.11+の型アノテーションを使用
 - **エラーハンドリング**: 明示的なtry-exceptブロック
-- **ログ**: structuredロギングの使用
+- **ログ**: 構造化ログの使用
 
 ### 3.2 ファイル命名規則
 
@@ -281,6 +283,14 @@ on:
     - cron: '0 10 * * 1'  # 毎週月曜日 19:00 JST
   workflow_dispatch:      # 手動実行も可能
 
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: fetch-data
+  cancel-in-progress: true
+
 jobs:
   fetch-data:
     runs-on: ubuntu-latest
@@ -291,9 +301,19 @@ jobs:
           python-version: '3.11'
       - run: pip install -r requirements.txt
       - run: python scripts/fetch_data.py
-      - run: git add data/
-      - run: git commit -m "データ更新: $(date +'%Y-%m-%d %H:%M')"
-      - run: git push
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Commit and push if changed
+        run: |
+          git add data/
+          if ! git diff --staged --quiet; then
+            git commit -m "データ更新: $(date +'%Y-%m-%d %H:%M')"
+            git push
+          else
+            echo "No changes to commit."
+          fi
 ```
 
 ### 5.2 環境変数とシークレット
@@ -302,6 +322,8 @@ jobs:
 # リポジトリシークレットの設定（必要に応じて）
 GITHUB_TOKEN        # 自動コミット用
 NOTIFICATION_WEBHOOK # 通知用（オプション）
+
+# 注意: シークレットはログに出力されないよう、GitHub Actionsの::add-mask::を使用してマスクしてください
 ```
 
 ## 6. プロジェクト固有のパターン
@@ -309,15 +331,20 @@ NOTIFICATION_WEBHOOK # 通知用（オプション）
 ### 6.1 データ取得パターン
 
 ```python
-# 基本的な取得パターン
+# 基本的な取得パターン（タイムアウトとジッター付き）
 async def fetch_with_retry(url, max_retries=3):
+    import random
     for attempt in range(max_retries):
         try:
-            response = await fetch(url)
+            # fetchはタイムアウト引数に対応している想定
+            response = await fetch(url, timeout=10)
             return response
-        except Exception as e:
-            wait_time = 2 ** attempt
-            await asyncio.sleep(wait_time)
+        except (TimeoutError, FetchError) as e:  # 実際の例外クラスに置き換える
+            if attempt == max_retries - 1:
+                raise
+            # ジッター付き指数バックオフ
+            wait = (2 ** attempt) + random.uniform(0, 0.5)
+            await asyncio.sleep(wait)
     raise MaxRetriesExceeded()
 ```
 
