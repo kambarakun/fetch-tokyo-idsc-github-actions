@@ -4,11 +4,11 @@
 
 ## 最終更新日
 
-2025-09-24
+2025-11-01
 
 ## バージョン
 
-1.0.0
+1.1.0
 
 ==============================================================================
 
@@ -34,27 +34,33 @@ data/
 ├── processed/              # 処理済みデータ
 └── logs/                   # ログファイル
 
-# ソースコード（作成予定）
+# ソースコード
 src/
-├── fetcher/                # データ取得モジュール
-├── processor/              # データ処理モジュール
+├── fetchers/               # データ取得モジュール
+│   ├── base_fetcher.py    # 基本フェッチャー
+│   └── enhanced_fetcher.py # 拡張フェッチャー
+├── managers/               # 管理モジュール
+│   ├── config_manager.py   # 設定管理
+│   └── storage_manager.py  # ストレージ管理
 └── utils/                  # ユーティリティ
+
+# テスト
+tests/
+├── test_enhanced_fetcher.py
+├── test_config_manager.py
+└── test_storage_manager.py
 ```
 
-### 📁 主要スクリプト（作成予定）
+### 📁 主要スクリプト
 ```bash
 # データ取得
 scripts/fetch_data.py       # データ取得メインスクリプト
-scripts/validate_data.py    # データ検証
-scripts/retry_failed.py     # 失敗した取得のリトライ
+scripts/check_missing.py    # 欠番チェックユーティリティ
 
-# データ処理
-scripts/process_data.py     # データ処理と変換
-scripts/generate_report.py  # レポート生成
-
-# ユーティリティ
-scripts/check_duplicates.py # 重複チェック
-scripts/cleanup_old.py      # 古いデータのクリーンアップ
+# パッケージ管理
+pyproject.toml              # プロジェクト設定とパッケージ定義
+uv.lock                     # 依存関係のロックファイル
+requirements.txt            # pip互換性のための依存関係リスト
 ```
 
 ==============================================================================
@@ -77,14 +83,17 @@ ls -la .github/workflows/
 
 ### ✅ ローカルテスト
 ```bash
-# データ取得のテスト（存在しない場合はスキップ）
-[ -f scripts/fetch_data.py ] && python scripts/fetch_data.py --test || echo "scripts/fetch_data.py は未作成です"
+# テストスイートの実行
+uv run pytest
 
-# データ検証（存在しない場合はスキップ）
-[ -f scripts/validate_data.py ] && python scripts/validate_data.py data/raw/latest.csv || echo "scripts/validate_data.py は未作成です"
+# カバレッジレポート付きテスト
+uv run pytest --cov=src --cov-report=html
 
-# 処理のテスト（存在しない場合はスキップ）
-[ -f scripts/process_data.py ] && python scripts/process_data.py --dry-run || echo "scripts/process_data.py は未作成です"
+# データ取得のドライラン
+uv run python scripts/fetch_data.py --dry-run
+
+# 欠番チェック
+uv run python scripts/check_missing.py data/raw
 ```
 
 ### 📦 デプロイとスケジューリング
@@ -102,19 +111,18 @@ gh workflow run fetch-data.yml
 
 ## 📊 プロジェクトの現在のステータス
 
-### 進捗概要（2025-09-24時点）
+### 進捗概要（2025-11-01時点）
 - **仕様定義**: 完了 ✅
-- **GitHub Actions設定**: 基本設定完了（Claude統合済み）
-- **データ取得モジュール**: 未実装 ⏳
-- **データ処理モジュール**: 未実装 ⏳
-- **自動化ワークフロー**: 未実装 ⏳
+- **GitHub Actions設定**: 完了 ✅（データ取得とテストワークフロー）
+- **データ取得モジュール**: 完了 ✅（基本・拡張フェッチャー実装済み）
+- **データ処理モジュール**: 完了 ✅（ストレージ管理、設定管理実装済み）
+- **自動化ワークフロー**: 完了 ✅（週次自動実行設定済み）
+- **テストスイート**: 完了 ✅（50テスト、カバレッジ設定済み）
 
-### 次のステップ
-1. TokyoEpidemicSurveillanceFetcherクラスの実装
-2. GitHub Actionsワークフローの作成
-3. エラーハンドリングとリトライロジックの実装
-4. データ保存とメタデータ管理の実装
-5. 通知システムの設定
+### システムステータス
+- **本番稼働準備完了**
+- 初回実行時は2000年からの全データ取得を推奨
+- 以降は週次の増分更新で運用
 
 ## メタインストラクション：このファイルの使用方法
 
@@ -169,9 +177,134 @@ gh workflow run fetch-data.yml
 - **データサイズ**: 大きなCSVファイルの処理に対応
 - **プライバシー**: 個人情報を含まない集計データのみ
 
-## 2. 開発ワークフロー
+## 2. パッケージ管理ガイドライン
 
-### 2.1 実装アプローチ
+### 2.1 uvの使用（必須）
+
+このプロジェクトでは、Pythonパッケージ管理に**uvを必ず使用**してください。pipやpoetryは使用しません。
+
+#### インストールと基本コマンド
+```bash
+# uvのインストール（初回のみ）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 依存関係のインストール
+uv sync
+
+# 開発用依存関係も含めてインストール
+uv sync --all-extras
+
+# パッケージの追加
+uv add requests  # 本番用
+uv add --dev pytest  # 開発用
+
+# パッケージの削除
+uv remove requests
+
+# スクリプトの実行
+uv run python scripts/fetch_data.py
+uv run pytest
+
+# 仮想環境のアクティベート（通常は不要）
+source .venv/bin/activate
+```
+
+#### 重要な原則
+- **絶対にpip installを直接使わない**
+- **requirements.txtはpip互換性のためのみに存在**（直接編集しない）
+- **pyproject.tomlがマスター定義**
+- **uv.lockファイルは必ずコミット**（再現性の保証）
+
+### 2.2 依存関係の管理
+
+```toml
+# pyproject.toml での依存関係定義
+[project]
+dependencies = [
+    "requests>=2.31.0",  # 本番用依存関係
+    "PyYAML>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",  # 開発用依存関係
+    "pytest-cov>=4.1.0",
+]
+```
+
+## 3. テスト方針
+
+### 3.1 t-wadaアプローチの採用
+
+このプロジェクトでは、和田卓人（t-wada）氏が提唱するテスト駆動開発（TDD）の原則を採用します。
+
+#### 基本原則
+1. **テストファーストではなくテストと共に**
+   - 実装とテストを交互に書く
+   - Red → Green → Refactor のサイクル
+
+2. **AAA（Arrange-Act-Assert）パターン**
+   ```python
+   def test_fetch_with_retry_success(self):
+       # Arrange: 準備
+       mock_response = Mock()
+       mock_response.status_code = 200
+
+       # Act: 実行
+       result = self.fetcher.fetch_with_retry(...)
+
+       # Assert: 検証
+       self.assertTrue(result.success)
+   ```
+
+3. **テストの独立性**
+   - 各テストは独立して実行可能
+   - テスト間の依存関係を排除
+   - setUp/tearDownで状態を管理
+
+4. **テスト名は仕様書**
+   ```python
+   def test_重複データは保存されない(self):
+   def test_エラー時は最大3回リトライする(self):
+   def test_レート制限に達したら待機する(self):
+   ```
+
+### 3.2 テストの実行方法
+
+```bash
+# 全テスト実行
+uv run pytest
+
+# カバレッジ付き実行
+uv run pytest --cov=src --cov-report=html
+
+# 特定のテストのみ実行
+uv run pytest tests/test_enhanced_fetcher.py
+
+# 詳細出力
+uv run pytest -vv
+
+# 並列実行（高速化）
+uv run pytest -n auto
+```
+
+### 3.3 モックとテストダブル
+
+```python
+# 外部APIはモック化
+@patch('requests.Session.post')
+def test_api_call(self, mock_post):
+    mock_post.return_value.status_code = 200
+
+# 時間依存のテストは時刻を固定
+@patch('time.time', return_value=1234567890)
+def test_timestamp(self, mock_time):
+    pass
+```
+
+## 4. 開発ワークフロー
+
+### 4.1 実装アプローチ
 
 #### フェーズ1: 基本実装
 ```python
@@ -201,27 +334,36 @@ gh workflow run fetch-data.yml
 # ドキュメント作成
 ```
 
-### 2.2 開発チェックリスト
+### 4.2 開発チェックリスト
 
-- [ ] TokyoEpidemicSurveillanceFetcherクラスの実装
-- [ ] エラーハンドリングとリトライロジック
-- [ ] データ保存とファイル管理
-- [ ] メタデータとログ記録
-- [ ] GitHub Actionsワークフローの作成
-- [ ] 通知システムの設定
-- [ ] テストとバリデーション
-- [ ] ドキュメント作成
+- [x] TokyoEpidemicSurveillanceFetcherクラスの実装
+- [x] エラーハンドリングとリトライロジック
+- [x] データ保存とファイル管理
+- [x] メタデータとログ記録
+- [x] GitHub Actionsワークフローの作成
+- [x] 通知システムの設定
+- [x] テストとバリデーション
+- [x] ドキュメント作成
 
-## 3. コーディング規約
+### 4.3 新機能追加時のチェックリスト
 
-### 3.1 Pythonコード規約
+- [ ] pyproject.tomlに依存関係を追加（uvを使用）
+- [ ] テストを先に書く（TDDアプローチ）
+- [ ] AAA パターンでテストを構造化
+- [ ] モックを使用して外部依存を排除
+- [ ] カバレッジ80%以上を維持
+- [ ] GitHub Actionsでテスト自動実行を確認
+
+## 5. コーディング規約
+
+### 5.1 Pythonコード規約
 
 - **スタイルガイド**: PEP 8準拠
 - **型ヒント**: Python 3.11+の型アノテーションを使用
 - **エラーハンドリング**: 明示的なtry-exceptブロック
 - **ログ**: 構造化ログの使用
 
-### 3.2 ファイル命名規則
+### 5.2 ファイル命名規則
 
 ```python
 # データファイル
@@ -234,7 +376,7 @@ f"metadata_{timestamp}.json"
 f"fetch_log_{date}.txt"
 ```
 
-### 3.3 ディレクトリ構造
+### 5.3 ディレクトリ構造
 
 ```bash
 data/
@@ -248,9 +390,9 @@ data/
 └── logs/
 ```
 
-## 4. デバッグとトラブルシューティング
+## 6. デバッグとトラブルシューティング
 
-### 4.1 一般的なエラー
+### 6.1 一般的なエラー
 
 | エラー           | 原因                                    | 解決策                          |
 | --------------- | -------------------------------------- | ------------------------------ |
@@ -259,22 +401,22 @@ data/
 | RateLimitError  | APIレート制限                           | 遅延の追加                      |
 | DuplicateError  | 重複データ                              | ハッシュチェックの確認            |
 
-### 4.2 検証スクリプト
+### 6.2 検証スクリプト
 
 ```bash
-# データ検証
-python scripts/validate_data.py --file data/raw/latest.csv
+# テスト実行
+uv run pytest -vv
 
-# 接続テスト
-python scripts/test_connection.py
+# 特定のテストをデバッグ
+uv run pytest tests/test_enhanced_fetcher.py::TestEnhancedEpidemicDataFetcher::test_fetch_with_retry_success -vv
 
 # ログ確認
 tail -f data/logs/fetch_log_$(date +%Y%m%d).txt
 ```
 
-## 5. GitHub Actions設定
+## 7. GitHub Actions設定
 
-### 5.1 ワークフローテンプレート
+### 7.1 ワークフローテンプレート
 
 ```yaml
 name: Fetch Tokyo Epidemic Data
@@ -316,7 +458,7 @@ jobs:
           fi
 ```
 
-### 5.2 環境変数とシークレット
+### 7.2 環境変数とシークレット
 
 ```bash
 # リポジトリシークレットの設定（必要に応じて）
@@ -326,9 +468,9 @@ NOTIFICATION_WEBHOOK # 通知用（オプション）
 # 注意: シークレットはログに出力されないよう、GitHub Actionsの::add-mask::を使用してマスクしてください
 ```
 
-## 6. プロジェクト固有のパターン
+## 8. プロジェクト固有のパターン
 
-### 6.1 データ取得パターン
+### 8.1 データ取得パターン
 
 ```python
 # 基本的な取得パターン（タイムアウトとジッター付き）
@@ -348,7 +490,7 @@ async def fetch_with_retry(url, max_retries=3):
     raise MaxRetriesExceeded()
 ```
 
-### 6.2 データ検証パターン
+### 8.2 データ検証パターン
 
 ```python
 # CSVデータの検証
@@ -360,7 +502,7 @@ def validate_csv(file_path):
     pass
 ```
 
-## 7. 重要な注意事項
+## 9. 重要な注意事項
 
 - **必ず** データ取得前に既存データをチェックして重複を避ける
 - **決して** 個人情報を含むデータを保存しない
@@ -368,41 +510,48 @@ def validate_csv(file_path):
 - **定期的に** 古いデータのアーカイブを検討する
 - **エラー時は** 必ずログを記録し、必要に応じて通知する
 
-## 8. プロジェクト運用ガイドライン
+## 10. プロジェクト運用ガイドライン
 
-### 8.1 日次チェック項目
+### 10.1 日次チェック項目
 
 - [ ] GitHub Actionsの実行状況確認
 - [ ] エラーログの確認
 - [ ] データ整合性チェック
 
-### 8.2 週次メンテナンス
+### 10.2 週次メンテナンス
 
 - [ ] データバックアップの確認
 - [ ] ストレージ使用量の確認
 - [ ] パフォーマンスメトリクスのレビュー
+- [ ] テストカバレッジの確認
 
-### 8.3 月次レビュー
+### 10.3 月次レビュー
 
 - [ ] データ品質レポートの生成
 - [ ] システム改善点の検討
 - [ ] ドキュメントの更新
 
-## 9. リファレンス
+## 11. リファレンス
 
-### 9.1 関連ドキュメント
+### 11.1 関連ドキュメント
 
 - [東京都感染症発生動向情報システム](https://survey.tmiph.metro.tokyo.lg.jp/)
 - [GitHub Actions ドキュメント](https://docs.github.com/ja/actions)
 - [Python asyncio ドキュメント](https://docs.python.org/ja/3/library/asyncio.html)
 
-### 9.2 プロジェクトファイル
+- [uv ドキュメント](https://github.com/astral-sh/uv)
+- [pytest ドキュメント](https://docs.pytest.org/)
+
+### 11.2 プロジェクトファイル
 
 - `.kiro/specs/tokyo-epidemic-data-automation/requirements.md` - 要求仕様
 - `.kiro/specs/tokyo-epidemic-data-automation/design.md` - 設計書
 - `.kiro/specs/tokyo-epidemic-data-automation/tasks.md` - タスク一覧
 
-## 10. トラブルシューティングFAQ
+- `pyproject.toml` - パッケージ定義と設定
+- `config/config.yml` - アプリケーション設定
+
+## 12. トラブルシューティングFAQ
 
 **Q: データ取得が失敗する**
 A: ネットワーク接続、URLの変更、レート制限を確認してください。
@@ -412,6 +561,12 @@ A: Shift_JISエンコーディングが正しく設定されているか確認�
 
 **Q: GitHub Actionsが動作しない**
 A: ワークフローの権限設定とシークレットの設定を確認してください。
+
+**Q: テストが失敗する**
+A: `uv sync --all-extras`で開発用依存関係をインストールしてから`uv run pytest`を実行してください。
+
+**Q: uvコマンドが見つからない**
+A: `curl -LsSf https://astral.sh/uv/install.sh | sh`でuvをインストールしてください。
 
 ---
 
