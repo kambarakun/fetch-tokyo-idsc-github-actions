@@ -6,9 +6,9 @@ from .config_manager import ConfigurationManager, DataCollectionConfig
 from .storage_manager import StorageManager, SaveResult, CommitResult
 
 __all__ = [
+    'CommitResult',
     'ConfigurationManager',
     'DataCollectionConfig',
-    'StorageManager',
     'SaveResult',
-    'CommitResult'
+    'StorageManager'
 ]

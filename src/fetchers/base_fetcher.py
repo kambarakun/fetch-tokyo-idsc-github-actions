@@ -27,8 +27,8 @@ class TokyoEpidemicSurveillanceFetcher:
     週次感染症コード:
         '00':     全て
         '501':    インフルエンザ
-        '2032':   新型コロナウイルス感染症（COVID-19）
-        '300000': 急性呼吸器感染症（ARI）
+        '2032':   新型コロナウイルス感染症(COVID-19)
+        '300000': 急性呼吸器感染症(ARI)
         '10017':  RSウイルス感染症
         '601':    咽頭結膜熱
         '602':    Ａ群溶血性レンサ球菌咽頭炎
@@ -47,7 +47,7 @@ class TokyoEpidemicSurveillanceFetcher:
         '903':    無菌性髄膜炎
         '904':    マイコプラズマ肺炎
         '905':    クラミジア肺炎(オウム病は除く)
-        '2030':   感染性胃腸炎（ロタウイルス）
+        '2030':   感染性胃腸炎(ロタウイルス)
         '200000': COVID-19入院
         '100000': インフルエンザ入院
 
@@ -65,7 +65,7 @@ class TokyoEpidemicSurveillanceFetcher:
 
     集計モード:
         '0': 集計期間内の合計
-        '1': 集計期間内の週毎内訳（epidCodeを指定しないと動作しない）
+        '1': 集計期間内の週毎内訳(epidCodeを指定しないと動作しない)
     """
 
     BASE_URL = 'https://survey.tmiph.metro.tokyo.lg.jp/epidinfo'
@@ -118,7 +118,7 @@ class TokyoEpidemicSurveillanceFetcher:
             total_mode: 集計モード (0=合計, 1=週毎内訳)
 
         Returns:
-            bytes: CSVデータ（Shift_JISエンコード）
+            bytes: CSVデータ(Shift_JISエンコード)
         """
         url = f"{self.BASE_URL}/{endpoint}"
 
@@ -175,7 +175,7 @@ class TokyoEpidemicSurveillanceFetcher:
         total_mode:       str = '0'
     ) -> bytes:
         """
-        定点監視 週報告分 年齢階級別集計表CSVを取得する（男女別を含む）
+        定点監視 週報告分 年齢階級別集計表CSVを取得する(男女別を含む)
         """
         return self._post_request(
             self.ENDPOINT_MAP['0'], '0',

@@ -129,7 +129,7 @@ class DataCollector:
         """特定のデータタイプを収集"""
         is_monthly = 'monthly' in data_type
 
-        # 既存ファイルの確認（増分収集モードの場合）
+        # 既存ファイルの確認(増分収集モードの場合)
         if self.config.collection.incremental_mode:
             existing_files = self.storage.get_existing_files(data_type=data_type)
             missing_params = self.fetcher.get_missing_data(
@@ -148,7 +148,7 @@ class DataCollector:
             batch = missing_params[i:i + batch_size]
             self._process_batch(batch, data_type, is_monthly)
 
-            # 実行時間チェック（GitHub Actions制限対策）
+            # 実行時間チェック(GitHub Actions制限対策)
             if self._check_execution_time():
                 self.logger.warning("実行時間制限に近づいています。処理を中断します。")
                 break
@@ -346,7 +346,7 @@ def main():
     parser.add_argument(
         '--data-types',
         type=str,
-        help='収集するデータタイプ（カンマ区切り）'
+        help='収集するデータタイプ(カンマ区切り)'
     )
 
     parser.add_argument(
@@ -364,7 +364,7 @@ def main():
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='テスト実行（データ保存・コミットをスキップ）'
+        help='テスト実行(データ保存・コミットをスキップ)'
     )
 
     parser.add_argument(

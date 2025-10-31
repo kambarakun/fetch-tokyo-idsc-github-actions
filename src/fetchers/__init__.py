@@ -12,10 +12,10 @@ from .enhanced_fetcher import (
 )
 
 __all__ = [
-    'TokyoEpidemicSurveillanceFetcher',
-    'EnhancedEpidemicDataFetcher',
     'DataFetcherConfig',
+    'EnhancedEpidemicDataFetcher',
     'FetchParams',
     'FetchResult',
-    'FileMetadata'
+    'FileMetadata',
+    'TokyoEpidemicSurveillanceFetcher'
 ]

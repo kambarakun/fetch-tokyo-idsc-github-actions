@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def weeks_in_year(year: int) -> int:
-    """指定年の週数を取得（ISO週番号基準）"""
+    """指定年の週数を取得(ISO週番号基準)"""
     return date(year, 12, 28).isocalendar()[1]
 
 
@@ -111,7 +111,7 @@ def main():
     total_weekly = sum(len(idxs) for idxs in w_map.values())
     total_monthly = sum(len(idxs) for idxs in m_map.values())
 
-    print(f"\n=== 統計情報 ===")
+    print("\n=== 統計情報 ===")
     print(f"週次ファイル: {total_weekly}件")
     print(f"月次ファイル: {total_monthly}件")
     print(f"合計: {total_weekly + total_monthly}件")

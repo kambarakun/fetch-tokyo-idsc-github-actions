@@ -202,7 +202,7 @@ class StorageManager:
             filename = f"{data_type}_{year}_{period}_{timestamp}.csv"
             file_path = dir_path / filename
 
-            # CSVファイル保存（Shift_JISのまま）
+            # CSVファイル保存(Shift_JISのまま)
             file_path.write_bytes(data)
 
             # メタデータ生成

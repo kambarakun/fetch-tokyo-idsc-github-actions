@@ -1,5 +1,5 @@
 """
-拡張版データフェッチャー（リトライ、レート制限、エラーハンドリング機能付き）
+拡張版データフェッチャー(リトライ、レート制限、エラーハンドリング機能付き)
 """
 
 import asyncio
@@ -262,6 +262,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                 'start_sub_period': str(current_period),
                 'end_year': str(current_year),
                 'end_sub_period': str(current_period),
+                'data_type': data_type,
+                'report_type': self._get_report_type(data_type),
                 **kwargs
             }
 
