@@ -184,6 +184,10 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         start_time = time.time()
         retry_count = 0
 
+        # data_typeとreport_typeを分離（メタデータ用）
+        data_type = params.pop('data_type', None)
+        report_type = params.pop('report_type', None)
+
         async def _fetch():
             nonlocal retry_count
             await self.rate_limiter.wait_if_needed()
@@ -193,8 +197,15 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         try:
             data = await self.retry_handler.execute_with_retry(_fetch)
 
+            # メタデータ用のパラメータを復元
+            metadata_params = dict(params)
+            if data_type:
+                metadata_params['data_type'] = data_type
+            if report_type:
+                metadata_params['report_type'] = report_type
+
             # メタデータの生成
-            metadata = self._create_metadata(data, params)
+            metadata = self._create_metadata(data, metadata_params)
 
             return FetchResult(
                 success=True,
@@ -338,6 +349,11 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         # ファイル名の生成
         filename = f"{data_type}_{date_range}_{timestamp.strftime('%Y%m%d_%H%M%S')}.csv"
 
+        # FetchParamsの作成（必須フィールドがある場合のみ）
+        fetch_params = None
+        if params and 'data_type' in params and 'report_type' in params:
+            fetch_params = FetchParams(**params)
+
         return FileMetadata(
             filename=filename,
             data_type=data_type,
@@ -345,7 +361,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             timestamp=timestamp,
             file_size=len(data),
             sha256_hash=data_hash,
-            fetch_params=FetchParams(**params) if params else None
+            fetch_params=fetch_params
         )
 
     def _get_weeks_in_year(self, year: int) -> int:
