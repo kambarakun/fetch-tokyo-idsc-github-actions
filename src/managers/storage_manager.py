@@ -67,7 +67,7 @@ class GitHandler:
             )
             return True
         except subprocess.CalledProcessError as e:
-            logger.exception(f"Failed to add files to git: {e.stderr}")
+            logger.error(f"Failed to add files to git: {e.stderr}")
             return False
 
     def commit(self, message: str) -> CommitResult:
@@ -110,7 +110,7 @@ class GitHandler:
             )
 
         except subprocess.CalledProcessError as e:
-            logger.exception(f"Failed to commit: {e.stderr}")
+            logger.error(f"Failed to commit: {e.stderr}")
             return CommitResult(
                 success=False,
                 error=e.stderr
@@ -241,7 +241,7 @@ class StorageManager:
             )
 
         except Exception as e:
-            logger.error(f"Failed to save file: {e}")
+            logger.exception("Failed to save file")
             return SaveResult(
                 success=False,
                 error=str(e)
@@ -249,9 +249,9 @@ class StorageManager:
 
     def commit_changes(
         self,
-        message: str = None,
-        data_type: str = None,
-        date_range: str = None
+        message: Optional[str] = None,
+        data_type: Optional[str] = None,
+        date_range: Optional[str] = None
     ) -> CommitResult:
         """Git自動コミット"""
         if not self.git_handler.auto_commit:
