@@ -6,7 +6,7 @@ import hashlib
 import json
 import subprocess
 from dataclasses import dataclass, asdict
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 import logging
@@ -59,7 +59,7 @@ class GitHandler:
             if not file_paths:
                 return True
 
-            result = subprocess.run(
+            subprocess.run(
                 ['git', 'add'] + file_paths,
                 capture_output=True,
                 text=True,
@@ -67,7 +67,7 @@ class GitHandler:
             )
             return True
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to add files to git: {e.stderr}")
+            logger.exception(f"Failed to add files to git: {e.stderr}")
             return False
 
     def commit(self, message: str) -> CommitResult:
@@ -110,7 +110,7 @@ class GitHandler:
             )
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to commit: {e.stderr}")
+            logger.exception(f"Failed to commit: {e.stderr}")
             return CommitResult(
                 success=False,
                 error=e.stderr
@@ -254,6 +254,10 @@ class StorageManager:
         date_range: str = None
     ) -> CommitResult:
         """Git自動コミット"""
+        if not self.git_handler.auto_commit:
+            logger.info("Auto commit is disabled. Skipping git commit.")
+            return CommitResult(success=True, message="Auto commit disabled")
+
         if not self.git_handler.is_git_repo():
             logger.warning("Not a git repository. Skipping commit.")
             return CommitResult(success=True, message="Not a git repository")
@@ -409,6 +413,3 @@ class StorageManager:
             'year_stats': year_stats,
             'hash_index_size': len(self.hash_index)
         }
-
-
-from datetime import timedelta

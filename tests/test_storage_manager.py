@@ -90,7 +90,7 @@ class TestStorageManager(unittest.TestCase):
         self.base_path = Path(self.temp_dir)
 
         self.config = {
-            'auto_commit': False,
+            'auto_commit': True,  # テスト用にTrueに変更
             'commit_message_template': 'データ更新: {data_type} - {date_range}',
             'keep_shift_jis': True
         }

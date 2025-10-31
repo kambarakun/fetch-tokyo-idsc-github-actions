@@ -308,7 +308,7 @@ class DataCollector:
             else:
                 self.logger.warning(f"コミット失敗: {commit_result.error}")
         except Exception as e:
-            self.logger.error(f"コミット中にエラー: {e}")
+            self.logger.exception(f"コミット中にエラー: {e}")
 
     def _print_statistics(self):
         """統計情報を出力"""

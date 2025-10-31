@@ -133,7 +133,7 @@ class ConfigurationManager:
 
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                config_dict = yaml.safe_load(f)
+                config_dict = yaml.safe_load(f) or {}
 
             self.config = self._parse_config(config_dict)
 

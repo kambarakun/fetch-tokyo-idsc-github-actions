@@ -134,7 +134,7 @@ class TokyoEpidemicSurveillanceFetcher:
             'val(totalMode)': total_mode
         }
 
-        response = self.session.post(url, data=data)
+        response = self.session.post(url, data=data, timeout=30)
 
         if response.status_code == 200:
             return response.content
