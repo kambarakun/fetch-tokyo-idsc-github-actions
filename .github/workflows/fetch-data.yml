@@ -1,0 +1,233 @@
+name: Fetch Tokyo Epidemic Data
+
+on:
+  schedule:
+    # 毎週月曜日 19:00 JST (10:00 UTC)
+    - cron: '0 10 * * 1'
+  workflow_dispatch:
+    inputs:
+      data_types:
+        description: 'データタイプ（カンマ区切り、空の場合は全て）'
+        required: false
+        default: ''
+      start_year:
+        description: '開始年（デフォルト: 現在年）'
+        required: false
+        default: ''
+      end_year:
+        description: '終了年（デフォルト: 現在年）'
+        required: false
+        default: ''
+      dry_run:
+        description: 'テスト実行（データ取得のみでコミットしない）'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: fetch-data
+  cancel-in-progress: false
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6時間制限
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create directories
+        run: |
+          mkdir -p data/raw data/processed data/logs data/quarantine
+          mkdir -p config
+
+      - name: Set environment variables
+        run: |
+          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
+          echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
+          echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
+
+      - name: Prepare fetch parameters
+        id: params
+        run: |
+          # 入力パラメータの処理
+          DATA_TYPES="${{ github.event.inputs.data_types }}"
+          START_YEAR="${{ github.event.inputs.start_year }}"
+          END_YEAR="${{ github.event.inputs.end_year }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+
+          # デフォルト値の設定
+          if [ -z "$START_YEAR" ]; then
+            START_YEAR="$CURRENT_YEAR"
+          fi
+
+          if [ -z "$END_YEAR" ]; then
+            END_YEAR="$CURRENT_YEAR"
+          fi
+
+          # 環境変数として設定
+          echo "DATA_TYPES=$DATA_TYPES" >> $GITHUB_ENV
+          echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
+          echo "END_YEAR=$END_YEAR" >> $GITHUB_ENV
+          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+
+          echo "Fetch parameters:"
+          echo "  Data types: ${DATA_TYPES:-ALL}"
+          echo "  Start year: $START_YEAR"
+          echo "  End year: $END_YEAR"
+          echo "  Dry run: $DRY_RUN"
+
+      - name: Fetch epidemic data
+        id: fetch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Starting data fetch at $FETCH_TIMESTAMP"
+
+          # メインスクリプトの実行
+          python scripts/fetch_data.py \
+            --start-year "$START_YEAR" \
+            --end-year "$END_YEAR" \
+            ${DATA_TYPES:+--data-types "$DATA_TYPES"} \
+            ${DRY_RUN:+--dry-run} \
+            --log-file "data/logs/fetch_${FETCH_TIMESTAMP}.log" \
+            2>&1 | tee data/logs/console_${FETCH_TIMESTAMP}.log
+
+          # 実行結果の保存
+          echo "FETCH_RESULT=$?" >> $GITHUB_ENV
+
+      - name: Check for changes
+        id: changes
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          # 変更の有無をチェック
+          git add data/
+
+          if git diff --cached --quiet; then
+            echo "No changes detected"
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+          else
+            echo "Changes detected"
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+
+            # 変更ファイル数の取得
+            CHANGED_FILES=$(git diff --cached --name-only | wc -l)
+            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+            echo "Changed files: $CHANGED_FILES"
+          fi
+
+      - name: Commit changes
+        if: env.HAS_CHANGES == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          # コミットメッセージの作成
+          COMMIT_MSG="データ更新: $CURRENT_DATE"
+
+          if [ -n "$DATA_TYPES" ]; then
+            COMMIT_MSG="$COMMIT_MSG - $DATA_TYPES"
+          fi
+
+          if [ "$CHANGED_FILES" -gt 0 ]; then
+            COMMIT_MSG="$COMMIT_MSG ($CHANGED_FILES files)"
+          fi
+
+          # コミット実行
+          git commit -m "$COMMIT_MSG"
+
+          # プッシュ
+          git push
+
+      - name: Create issue on error
+        if: failure() && github.event.inputs.dry_run != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const issueBody = `## データ取得エラー
+
+            データ取得処理でエラーが発生しました。
+
+            ### エラー情報
+            - **日時**: ${date}
+            - **ワークフロー実行**: ${runUrl}
+            - **開始年**: ${process.env.START_YEAR || 'N/A'}
+            - **終了年**: ${process.env.END_YEAR || 'N/A'}
+            - **データタイプ**: ${process.env.DATA_TYPES || 'ALL'}
+
+            ### 対応方法
+            1. 上記のワークフロー実行リンクからログを確認
+            2. エラー内容を特定
+            3. 必要に応じて手動で再実行
+
+            ### 自動ラベル
+            - data-collection
+            - error
+            - automated`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[自動通知] データ取得エラー - ${date}`,
+              body: issueBody,
+              labels: ['data-collection', 'error', 'automated']
+            });
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetch-logs-${{ env.FETCH_TIMESTAMP }}
+          path: data/logs/
+          retention-days: 30
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 📊 データ取得サマリー" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象期間**: $START_YEAR - $END_YEAR" >> $GITHUB_STEP_SUMMARY
+          echo "- **データタイプ**: ${DATA_TYPES:-ALL}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$HAS_CHANGES" = "true" ]; then
+            echo "### ✅ 変更" >> $GITHUB_STEP_SUMMARY
+            echo "- **変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ℹ️ 変更なし" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 ストレージ情報" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          du -sh data/raw/ 2>/dev/null || echo "N/A" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
