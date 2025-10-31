@@ -1,0 +1,299 @@
+"""
+ストレージ管理のユニットテスト
+"""
+
+import unittest
+from unittest.mock import Mock, patch, MagicMock, mock_open
+import json
+import hashlib
+from pathlib import Path
+from datetime import datetime
+import tempfile
+import shutil
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.managers.storage_manager import (
+    StorageManager,
+    SaveResult,
+    CommitResult,
+    GitHandler
+)
+
+
+class TestGitHandler(unittest.TestCase):
+    """GitHandlerのテスト"""
+
+    def setUp(self):
+        self.git_handler = GitHandler(auto_commit=True)
+
+    @patch('subprocess.run')
+    def test_is_git_repo_true(self, mock_run):
+        """Gitリポジトリ判定（True）のテスト"""
+        mock_run.return_value.returncode = 0
+        self.assertTrue(self.git_handler.is_git_repo())
+
+    @patch('subprocess.run')
+    def test_is_git_repo_false(self, mock_run):
+        """Gitリポジトリ判定（False）のテスト"""
+        mock_run.return_value.returncode = 1
+        self.assertFalse(self.git_handler.is_git_repo())
+
+    @patch('subprocess.run')
+    def test_add_files_success(self, mock_run):
+        """ファイル追加成功のテスト"""
+        mock_run.return_value.returncode = 0
+
+        files = [Path('/tmp/test1.csv'), Path('/tmp/test2.csv')]
+        with patch.object(Path, 'exists', return_value=True):
+            result = self.git_handler.add_files(files)
+
+        self.assertTrue(result)
+        mock_run.assert_called_once()
+
+    @patch('subprocess.run')
+    def test_commit_success(self, mock_run):
+        """コミット成功のテスト"""
+        # diff --cachedの結果（変更あり）
+        mock_run.side_effect = [
+            Mock(returncode=1),  # 変更あり
+            Mock(returncode=0, stdout='', stderr=''),  # コミット成功
+            Mock(returncode=0, stdout='abc123\n', stderr='')  # ハッシュ取得
+        ]
+
+        result = self.git_handler.commit("Test commit")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.commit_hash, 'abc123')
+        self.assertEqual(result.message, "Test commit")
+
+    @patch('subprocess.run')
+    def test_commit_no_changes(self, mock_run):
+        """変更なしでのコミットのテスト"""
+        # diff --cachedの結果（変更なし）
+        mock_run.return_value.returncode = 0
+
+        result = self.git_handler.commit("Test commit")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.message, "No changes to commit")
+        self.assertIsNone(result.commit_hash)
+
+
+class TestStorageManager(unittest.TestCase):
+    """StorageManagerのテスト"""
+
+    def setUp(self):
+        # 一時ディレクトリを作成
+        self.temp_dir = tempfile.mkdtemp()
+        self.base_path = Path(self.temp_dir)
+
+        self.config = {
+            'auto_commit': True,  # テスト用にTrueに変更
+            'commit_message_template': 'データ更新: {data_type} - {date_range}',
+            'keep_shift_jis': True
+        }
+
+        self.storage = StorageManager(self.base_path, self.config)
+
+    def tearDown(self):
+        # 一時ディレクトリを削除
+        if Path(self.temp_dir).exists():
+            shutil.rmtree(self.temp_dir)
+
+    def test_organize_file_path_weekly(self):
+        """週次データのファイルパス生成テスト"""
+        path = self.storage.organize_file_path(
+            'sentinel_weekly_gender',
+            2025,
+            10,
+            is_monthly=False
+        )
+
+        # パスが存在することを確認
+        self.assertTrue(path.exists())
+        # 期待されるパス構造を確認
+        self.assertIn('2025', str(path))
+
+    def test_organize_file_path_monthly(self):
+        """月次データのファイルパス生成テスト"""
+        path = self.storage.organize_file_path(
+            'sentinel_monthly_gender',
+            2025,
+            3,
+            is_monthly=True
+        )
+
+        self.assertTrue(path.exists())
+        self.assertIn('2025', str(path))
+        self.assertIn('03', str(path))
+
+    def test_save_with_metadata_success(self):
+        """メタデータ付き保存成功のテスト"""
+        data = b"test,data\n1,2,3"
+        data_hash = hashlib.sha256(data).hexdigest()
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type='test_type',
+            year=2025,
+            period=1,
+            is_monthly=False
+        )
+
+        self.assertTrue(result.success)
+        self.assertIsNotNone(result.file_path)
+        self.assertIsNotNone(result.metadata_path)
+
+        # ファイルが実際に作成されたか確認
+        self.assertTrue(result.file_path.exists())
+        self.assertEqual(result.file_path.read_bytes(), data)
+
+        # メタデータファイルの確認
+        self.assertTrue(result.metadata_path.exists())
+        metadata = json.loads(result.metadata_path.read_text())
+        self.assertEqual(metadata['sha256_hash'], data_hash)
+
+    def test_save_with_metadata_duplicate(self):
+        """重複データの保存テスト"""
+        data = b"duplicate,data"
+        data_hash = hashlib.sha256(data).hexdigest()
+
+        # ハッシュインデックスに追加
+        self.storage.hash_index[data_hash] = '/some/path.csv'
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type='test_type',
+            year=2025,
+            period=1
+        )
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.is_duplicate)
+        self.assertIsNone(result.file_path)
+
+    def test_check_duplicates(self):
+        """重複チェックのテスト"""
+        hash_value = 'abc123'
+
+        # 初回チェック（重複なし）
+        self.assertFalse(self.storage.check_duplicates(hash_value))
+
+        # ハッシュを追加
+        self.storage.hash_index[hash_value] = '/path/to/file.csv'
+
+        # 2回目チェック（重複あり）
+        self.assertTrue(self.storage.check_duplicates(hash_value))
+
+    def test_get_existing_files(self):
+        """既存ファイル取得のテスト"""
+        # テストファイルを作成
+        test_file1 = self.base_path / '2025' / '01' / 'test_type_2025_1.csv'
+        test_file1.parent.mkdir(parents=True, exist_ok=True)
+        test_file1.touch()
+
+        test_file2 = self.base_path / '2025' / '02' / 'other_type_2025_2.csv'
+        test_file2.parent.mkdir(parents=True, exist_ok=True)
+        test_file2.touch()
+
+        # 全ファイル取得
+        files = self.storage.get_existing_files()
+        self.assertEqual(len(files), 2)
+
+        # データタイプでフィルタ
+        files = self.storage.get_existing_files(data_type='test_type')
+        self.assertEqual(len(files), 1)
+        self.assertIn('test_type', files[0].name)
+
+        # 年でフィルタ
+        files = self.storage.get_existing_files(year=2025)
+        self.assertEqual(len(files), 2)
+
+    def test_get_metadata(self):
+        """メタデータ取得のテスト"""
+        # テストファイルとメタデータを作成
+        test_file = self.base_path / 'test.csv'
+        test_file.touch()
+
+        metadata_file = self.base_path / 'test_metadata.json'
+        test_metadata = {
+            'filename': 'test.csv',
+            'data_type': 'test_type',
+            'sha256_hash': 'abc123'
+        }
+        metadata_file.write_text(json.dumps(test_metadata))
+
+        # メタデータ取得
+        metadata = self.storage.get_metadata(test_file)
+
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata['filename'], 'test.csv')
+        self.assertEqual(metadata['sha256_hash'], 'abc123')
+
+    def test_get_metadata_not_found(self):
+        """メタデータが存在しない場合のテスト"""
+        test_file = self.base_path / 'no_metadata.csv'
+        test_file.touch()
+
+        metadata = self.storage.get_metadata(test_file)
+        self.assertIsNone(metadata)
+
+    def test_get_storage_stats(self):
+        """ストレージ統計情報取得のテスト"""
+        # テストファイルを作成
+        test_file = self.base_path / '2025' / '01' / 'sentinel_weekly_test.csv'
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_text('test data')
+
+        stats = self.storage.get_storage_stats()
+
+        self.assertIn('total_files', stats)
+        self.assertIn('total_size_bytes', stats)
+        self.assertIn('file_types', stats)
+        self.assertIn('year_stats', stats)
+        self.assertEqual(stats['total_files'], 1)
+        self.assertGreater(stats['total_size_bytes'], 0)
+
+    @patch.object(GitHandler, 'is_git_repo')
+    @patch.object(GitHandler, 'add_files')
+    @patch.object(GitHandler, 'commit')
+    def test_commit_changes(self, mock_commit, mock_add, mock_is_repo):
+        """変更のコミットのテスト"""
+        mock_is_repo.return_value = True
+        mock_add.return_value = True
+        mock_commit.return_value = CommitResult(
+            success=True,
+            commit_hash='abc123',
+            message='Test commit'
+        )
+
+        result = self.storage.commit_changes(
+            data_type='test_type',
+            date_range='2025-01'
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.commit_hash, 'abc123')
+        mock_add.assert_called_once()
+        mock_commit.assert_called_once()
+
+    def test_get_month_from_week(self):
+        """週番号から月を取得するテスト"""
+        # 2025年の第1週
+        month = self.storage._get_month_from_week(2025, 1)
+        # 第1週は実際の日付に依存するが、通常は1月か12月
+        self.assertIn(month, [1, 12])
+
+        # 2025年の第10週 → 3月
+        month = self.storage._get_month_from_week(2025, 10)
+        self.assertEqual(month, 3)
+
+        # 2025年の最終週 → 12月
+        month = self.storage._get_month_from_week(2025, 52)
+        self.assertEqual(month, 12)
+
+
+if __name__ == '__main__':
+    unittest.main()
