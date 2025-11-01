@@ -106,7 +106,7 @@ uv sync --all-extras
 
   - 毎日 17:00 JST に実行
   - 最新週（現在週）のデータのみチェック・取得
-  - 木曜夕方の更新を確実にキャッチ
+  - 週報データの定期更新を迅速に検出
 
 - **週次実行（Weekly Epidemic Data Full Check）**
   - 毎週木曜日 17:30 JST に実行
@@ -161,13 +161,42 @@ uv run pytest --cov=src --cov-report=html
 
 ## 🛠️ 設定
 
-`config/config.yml` で詳細な設定が可能です：
+### 設定ファイル
 
-- **収集設定**: 対象データタイプ、期間、バッチサイズ
-- **ストレージ設定**: 保存先ディレクトリ、エンコーディング
-- **品質管理**: ファイルサイズ制限、異常検出
-- **通知設定**: GitHub Issues、エラー通知
-- **PR設定**: 自動PR作成時のタイトル形式、説明文テンプレート
+`config/config.yml` で以下の詳細設定が可能です：
+
+#### 収集設定
+
+- **batch_size**: 一度に処理するファイル数（デフォルト: 50）
+- **start_year/end_year**: データ収集期間
+- **data_types**: 収集対象のデータタイプリスト
+- **incremental_mode**: 増分収集モード（既存データをスキップ）
+
+#### ストレージ設定
+
+- **base_directory**: 生データ保存先（デフォルト: `data/raw`）
+- **keep_shift_jis**: Shift_JISエンコーディングの維持（デフォルト: true）
+- **commit_message_template**: コミットメッセージのテンプレート
+
+#### 品質管理
+
+- **file_size_limits**: CSVファイルのサイズ制限（100B - 10MB）
+- **anomaly_detection_enabled**: 異常検出の有効化
+- **quarantine_directory**: 隔離ディレクトリ
+
+#### 通知設定
+
+- **github_issues_enabled**: エラー時のIssue自動作成
+- **issue_labels**: 自動作成されるIssueのラベル
+- **max_issues_per_day**: 1日あたりの最大Issue作成数
+
+### Pull Request設定
+
+自動PR作成は `.github/workflows/fetch-data.yml` で制御されます：
+
+- **タイトル**: コミットメッセージと同じ形式
+- **ラベル**: `data-update`, `automated` が自動付与
+- **本文**: 実行日時、対象期間、変更ファイル数を含む定型フォーマット
 
 ## 🧪 テスト
 
