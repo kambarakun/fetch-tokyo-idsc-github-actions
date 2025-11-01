@@ -97,21 +97,21 @@ class TestStorageManager(unittest.TestCase):
             shutil.rmtree(self.temp_dir)
 
     def test_organize_file_path_weekly(self):
-        """週次データのファイルパス生成テスト"""
+        """週次データのファイルパス生成テスト（フラット構造）"""
         path = self.storage.organize_file_path("sentinel_weekly_gender", 2025, 10, is_monthly=False)
 
         # パスが存在することを確認
         self.assertTrue(path.exists())
-        # 期待されるパス構造を確認
-        self.assertIn("2025", str(path))
+        # フラット構造なのでベースパスと同じ
+        self.assertEqual(path, self.base_path)
 
     def test_organize_file_path_monthly(self):
-        """月次データのファイルパス生成テスト"""
+        """月次データのファイルパス生成テスト（フラット構造）"""
         path = self.storage.organize_file_path("sentinel_monthly_gender", 2025, 3, is_monthly=True)
 
         self.assertTrue(path.exists())
-        self.assertIn("2025", str(path))
-        self.assertIn("03", str(path))
+        # フラット構造なのでベースパスと同じ
+        self.assertEqual(path, self.base_path)
 
     def test_save_with_metadata_success(self):
         """メタデータ付き保存成功のテスト"""
@@ -149,6 +149,27 @@ class TestStorageManager(unittest.TestCase):
         self.assertTrue(result.is_duplicate)
         self.assertIsNone(result.file_path)
 
+    def test_save_with_invalid_data_type(self):
+        """不正なdata_type（パストラバーサル攻撃）のテスト"""
+        data = b"test,data"
+
+        # パストラバーサル攻撃を試みる
+        invalid_data_types = [
+            "../evil",
+            "../../etc/passwd",
+            "test/../../evil",
+            "test;rm -rf /",
+            "test$(whoami)",
+            "test`ls`",
+        ]
+
+        for invalid_type in invalid_data_types:
+            result = self.storage.save_with_metadata(data=data, data_type=invalid_type, year=2025, period=1)
+
+            self.assertFalse(result.success, f"Should reject invalid data_type: {invalid_type}")
+            self.assertIsNotNone(result.error)
+            self.assertIn("Invalid data_type", result.error)
+
     def test_check_duplicates(self):
         """重複チェックのテスト"""
         hash_value = "abc123"
@@ -164,13 +185,11 @@ class TestStorageManager(unittest.TestCase):
 
     def test_get_existing_files(self):
         """既存ファイル取得のテスト"""
-        # テストファイルを作成
-        test_file1 = self.base_path / "2025" / "01" / "test_type_2025_1.csv"
-        test_file1.parent.mkdir(parents=True, exist_ok=True)
+        # テストファイルを作成（フラット構造）
+        test_file1 = self.base_path / "test_type_weekly_2025_01.csv"
         test_file1.touch()
 
-        test_file2 = self.base_path / "2025" / "02" / "other_type_2025_2.csv"
-        test_file2.parent.mkdir(parents=True, exist_ok=True)
+        test_file2 = self.base_path / "other_type_weekly_2025_02.csv"
         test_file2.touch()
 
         # 全ファイル取得
@@ -182,7 +201,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(len(files), 1)
         self.assertIn("test_type", files[0].name)
 
-        # 年でフィルタ
+        # 年でフィルタ（フラット構造ではファイル名から年を抽出）
         files = self.storage.get_existing_files(year=2025)
         self.assertEqual(len(files), 2)
 
@@ -192,7 +211,8 @@ class TestStorageManager(unittest.TestCase):
         test_file = self.base_path / "test.csv"
         test_file.touch()
 
-        metadata_file = self.base_path / "test_metadata.json"
+        # メタデータは.metadataディレクトリに保存
+        metadata_file = self.storage.metadata_dir / "test.json"
         test_metadata = {"filename": "test.csv", "data_type": "test_type", "sha256_hash": "abc123"}
         metadata_file.write_text(json.dumps(test_metadata))
 
@@ -213,9 +233,8 @@ class TestStorageManager(unittest.TestCase):
 
     def test_get_storage_stats(self):
         """ストレージ統計情報取得のテスト"""
-        # テストファイルを作成
-        test_file = self.base_path / "2025" / "01" / "sentinel_weekly_test.csv"
-        test_file.parent.mkdir(parents=True, exist_ok=True)
+        # テストファイルを作成（フラット構造）
+        test_file = self.base_path / "sentinel_weekly_2025_01.csv"
         test_file.write_text("test data")
 
         stats = self.storage.get_storage_stats()
