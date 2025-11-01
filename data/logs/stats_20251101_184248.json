@@ -1,0 +1,12 @@
+{
+  "total_files": 7720,
+  "successful": 7718,
+  "failed": 2,
+  "duplicates": 0,
+  "errors": [
+    "Request failed with status code: 403",
+    "Request failed with status code: 403"
+  ],
+  "start_time": "2025-11-01T15:28:52.359463",
+  "end_time": "2025-11-01T18:42:48.564303"
+}
