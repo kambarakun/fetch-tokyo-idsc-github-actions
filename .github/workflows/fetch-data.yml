@@ -248,26 +248,32 @@ jobs:
 
           # ラベルを作成する（すでに存在する場合は無視される）
           echo "Ensuring required labels exist..."
-          if ! gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>&1 | grep -q "already exists"; then
+
+          # data-updateラベルの作成または確認
+          LABEL_OUTPUT=$(gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>&1 || true)
+          if echo "$LABEL_OUTPUT" | grep -q "already exists"; then
+            echo "  ℹ️ Label 'data-update' already exists"
+          elif [ -z "$LABEL_OUTPUT" ] || echo "$LABEL_OUTPUT" | grep -q "data-update"; then
             echo "  ✓ Created label: data-update"
           else
-            echo "  ℹ️ Label 'data-update' already exists"
+            echo "  ⚠️ Warning: Could not create label 'data-update': $LABEL_OUTPUT"
           fi
 
-          if ! gh label create "automated" --description "Automatically generated" --color "ededed" 2>&1 | grep -q "already exists"; then
+          # automatedラベルの作成または確認
+          LABEL_OUTPUT=$(gh label create "automated" --description "Automatically generated" --color "ededed" 2>&1 || true)
+          if echo "$LABEL_OUTPUT" | grep -q "already exists"; then
+            echo "  ℹ️ Label 'automated' already exists"
+          elif [ -z "$LABEL_OUTPUT" ] || echo "$LABEL_OUTPUT" | grep -q "automated"; then
             echo "  ✓ Created label: automated"
           else
-            echo "  ℹ️ Label 'automated' already exists"
+            echo "  ⚠️ Warning: Could not create label 'automated': $LABEL_OUTPUT"
           fi
 
-          # PR作成前の権限チェック
+          # PR作成前の権限確認（情報提供のみ）
           echo ""
-          echo "Checking GitHub Actions permissions..."
-          if gh api /repos/${{ github.repository }} --jq '.permissions.push' | grep -q "false"; then
-            echo "⚠️ Warning: GitHub Actions may not have write permissions"
-            echo "  Please ensure 'Read and write permissions' is enabled in:"
-            echo "  Settings → Actions → General → Workflow permissions"
-          fi
+          echo "Verifying workflow configuration..."
+          echo "  Token permissions configured in workflow: pull-requests:write, contents:write"
+          echo "  Note: Repository settings must also allow GitHub Actions to create PRs"
 
           # PR作成コマンドの構築
           echo ""
@@ -298,16 +304,17 @@ jobs:
             echo "$PR_CREATE_OUTPUT"
 
             # 特定のエラーをチェックして詳細な情報を提供
-            if echo "$PR_CREATE_OUTPUT" | grep -Fq "GitHub Actions is not permitted"; then
+            if echo "$PR_CREATE_OUTPUT" | grep -Eq "GitHub Actions is not permitted|createPullRequest"; then
               echo ""
-              echo "⚠️ GitHub Actions does not have permission to create pull requests."
+              echo "🔴 GitHub Actions does not have permission to create pull requests."
               echo ""
               echo "📝 To fix this issue, a repository administrator needs to:"
               echo "  1. Go to: Settings → Actions → General → Workflow permissions"
               echo "  2. Select: 'Read and write permissions'"
-              echo "  3. Check: 'Allow GitHub Actions to create and approve pull requests'"
+              echo "  3. Check: '☑ Allow GitHub Actions to create and approve pull requests'"
               echo "  4. Click: 'Save'"
               echo ""
+              echo "This is a repository-level setting that overrides workflow permissions."
               echo "After changing these settings, re-run this workflow."
             elif echo "$PR_CREATE_OUTPUT" | grep -Fq "already exists"; then
               echo ""
