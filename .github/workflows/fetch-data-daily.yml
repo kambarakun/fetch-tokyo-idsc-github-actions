@@ -25,8 +25,10 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: fetch-data-daily
-  cancel-in-progress: true
+  # 日次と週次で同じグループを共有し、データ競合を防ぐ
+  group: fetch-data
+  # 既存の実行をキャンセルしない（データ欠落を防ぐ）
+  cancel-in-progress: false
 
 jobs:
   fetch-data:

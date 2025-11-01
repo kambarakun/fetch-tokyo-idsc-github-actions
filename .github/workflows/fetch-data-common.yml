@@ -86,8 +86,11 @@ jobs:
       - name: Determine fetch parameters
         id: params
         run: |
-          # 開始年の決定
-          if [ "${{ inputs.check_previous_year }}" = "true" ] || ([ "$CURRENT_MONTH" = "01" ] && [ "${{ inputs.schedule_type }}" = "weekly" ]); then
+          # 開始年の決定（undefinedの場合も安全に処理）
+          CHECK_PREV_YEAR="${{ inputs.check_previous_year }}"
+          SCHEDULE_TYPE="${{ inputs.schedule_type }}"
+
+          if [ "${CHECK_PREV_YEAR:-false}" = "true" ] || ([ "$CURRENT_MONTH" = "01" ] && [ "${SCHEDULE_TYPE:-}" = "weekly" ]); then
             START_YEAR="$PREVIOUS_YEAR"
             echo "📅 Including previous year data: $PREVIOUS_YEAR"
             CHECK_PREVIOUS_YEAR="true"
@@ -99,9 +102,9 @@ jobs:
           echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
           echo "END_YEAR=$CURRENT_YEAR" >> $GITHUB_ENV
           echo "CHECK_PREVIOUS_YEAR=$CHECK_PREVIOUS_YEAR" >> $GITHUB_ENV
-          echo "SKIP_EXISTING=${{ inputs.skip_existing }}" >> $GITHUB_ENV
-          echo "FORCE_UPDATE=${{ inputs.force_update }}" >> $GITHUB_ENV
-          echo "DRY_RUN=${{ inputs.dry_run }}" >> $GITHUB_ENV
+          echo "SKIP_EXISTING=${{{ inputs.skip_existing }:-false}" >> $GITHUB_ENV
+          echo "FORCE_UPDATE=${{{ inputs.force_update }:-false}" >> $GITHUB_ENV
+          echo "DRY_RUN=${{{ inputs.dry_run }:-false}" >> $GITHUB_ENV
 
           echo "Fetch parameters:"
           echo "  Start year: $START_YEAR"

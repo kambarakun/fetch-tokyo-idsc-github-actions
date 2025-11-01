@@ -7,8 +7,10 @@
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -280,36 +282,28 @@ class StorageManager:
                 old_data = file_path.read_bytes()
                 old_hash = hashlib.sha256(old_data).hexdigest()
 
-                # ハッシュインデックスから現在のファイルパスのみを削除
-                if old_hash in self.hash_index:
-                    current_entry = self.hash_index[old_hash]
-                    file_path_str = str(file_path)
-
-                    if isinstance(current_entry, str):
-                        # 単一ファイルの場合、パスが一致すれば削除
-                        if current_entry == file_path_str:
-                            del self.hash_index[old_hash]
-                    elif isinstance(current_entry, list) and file_path_str in current_entry:
-                        # 複数ファイルの場合、該当パスのみ削除
-                        current_entry.remove(file_path_str)
-                        # リストが空になったら、エントリ自体を削除
-                        if not current_entry:
-                            del self.hash_index[old_hash]
-                        # 1つだけ残ったら文字列に戻す（サイズ節約）
-                        elif len(current_entry) == 1:
-                            self.hash_index[old_hash] = current_entry[0]
-
-                    # ハッシュインデックスファイルを更新
-                    try:
-                        with self.hash_index_file.open("w") as f:
-                            json.dump(self.hash_index, f, indent=2)
-                    except Exception as e:
-                        logger.warning(f"Failed to update hash index: {e}")
+                # ヘルパーメソッドを使用してハッシュインデックスから削除
+                file_path_str = str(file_path)
+                self._remove_from_hash_index(old_hash, file_path_str)
 
                 logger.info(f"Overwriting existing file: {file_path}")
 
-            # CSVファイル保存(Shift_JISのまま)
-            file_path.write_bytes(data)
+            # CSVファイル保存(Shift_JISのまま) - 原子的書き込みで安全性を確保
+            # 一時ファイルを作成して書き込み
+            temp_fd, temp_path = tempfile.mkstemp(dir=file_path.parent, prefix=f".{file_path.stem}_", suffix=".tmp")
+            try:
+                os.write(temp_fd, data)
+                os.close(temp_fd)
+
+                # 原子的にファイルを置き換え（POSIX準拠）
+                # これにより、書き込み中のエラーでもデータロスを防げる
+                Path(temp_path).replace(file_path)
+            except Exception:
+                # エラー時は一時ファイルをクリーンアップ
+                temp_file = Path(temp_path)
+                if temp_file.exists():
+                    temp_file.unlink()
+                raise
 
             # メタデータ生成
             period_type = "monthly" if is_monthly else "weekly"
@@ -417,6 +411,41 @@ class StorageManager:
             except Exception as e:
                 logger.warning(f"Failed to load hash index: {e}")
         return {}
+
+    def _remove_from_hash_index(self, file_hash: str, file_path: str) -> None:
+        """ハッシュインデックスから特定のファイルパスを削除する（ヘルパーメソッド）
+
+        Args:
+            file_hash: 削除対象のファイルハッシュ
+            file_path: 削除対象のファイルパス
+        """
+        if file_hash not in self.hash_index:
+            return
+
+        current_entry = self.hash_index[file_hash]
+
+        if isinstance(current_entry, str):
+            # 単一ファイルの場合、パスが一致すれば削除
+            if current_entry == file_path:
+                del self.hash_index[file_hash]
+        elif isinstance(current_entry, list) and file_path in current_entry:
+            # 複数ファイルの場合、該当パスのみ削除
+            current_entry.remove(file_path)
+            # リストが空になったら、エントリ自体を削除
+            if not current_entry:
+                del self.hash_index[file_hash]
+            # 1つだけ残ったら文字列に戻す（サイズ節約）
+            elif len(current_entry) == 1:
+                self.hash_index[file_hash] = current_entry[0]
+
+        # ハッシュインデックスファイルを更新
+        try:
+            with self.hash_index_file.open("w") as f:
+                json.dump(self.hash_index, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to update hash index after removal: {e}")
+            # ハッシュインデックス更新失敗は重要なエラーとして扱う
+            raise
 
     def _update_hash_index(self, file_hash: str, file_path: str) -> None:
         """ハッシュインデックスを更新してファイルに保存する。
