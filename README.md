@@ -36,20 +36,18 @@ data/
 │   │   └── *.json                             # 各データファイルのメタデータ
 │   ├── sentinel_weekly_gender_2025_01.csv     # 2025年第1週の性別データ
 │   ├── sentinel_weekly_age_2025_01.csv        # 2025年第1週の年齢群データ
-│   ├── notifiable_weekly_weekly_2025_01.csv   # 2025年第1週の全数把握データ
-│   └── sentinel_monthly_age_monthly_2025_01.csv # 2025年1月の月次年齢群データ
+│   ├── notifiable_weekly_2025_01.csv          # 2025年第1週の全数把握データ
+│   └── sentinel_monthly_age_2025_01.csv       # 2025年1月の月次年齢群データ
 ├── processed/                                  # 処理済みデータ
 └── logs/                                       # ログファイル
 ```
 
 ### ファイル命名規則
 
-- **週次データ**: `{data_type}_{year}_{week:02d}.csv`
-  - 定点サーベイランス: `sentinel_weekly_{type}_{year}_{week:02d}.csv`
-  - 全数把握: `notifiable_weekly_weekly_{year}_{week:02d}.csv`
-  - 例: `sentinel_weekly_gender_2025_01.csv` (2025年第1週)
-- **月次データ**: `{data_type}_monthly_{year}_{month:02d}.csv`
-  - 例: `sentinel_monthly_age_monthly_2025_01.csv` (2025年1月)
+- **共通パターン**: `{data_type}_{year}_{period:02d}.csv`
+  - 週次データ例: `sentinel_weekly_gender_2025_01.csv` (2025年第1週)
+  - 月次データ例: `sentinel_monthly_age_2025_01.csv` (2025年1月)
+  - 全数把握例: `notifiable_weekly_2025_01.csv` (2025年第1週)
 
 ## 📋 主な機能
 
