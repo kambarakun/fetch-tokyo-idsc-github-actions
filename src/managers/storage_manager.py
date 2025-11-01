@@ -276,18 +276,36 @@ class StorageManager:
 
             # 既存ファイルのチェック（force_overwriteの場合、古いハッシュを削除）
             if file_path.exists() and force_overwrite:
-                # 既存ファイルのハッシュを計算して削除
+                # 既存ファイルのハッシュを計算
                 old_data = file_path.read_bytes()
                 old_hash = hashlib.sha256(old_data).hexdigest()
-                # ハッシュインデックスから古いエントリを削除
+
+                # ハッシュインデックスから現在のファイルパスのみを削除
                 if old_hash in self.hash_index:
-                    del self.hash_index[old_hash]
+                    current_entry = self.hash_index[old_hash]
+                    file_path_str = str(file_path)
+
+                    if isinstance(current_entry, str):
+                        # 単一ファイルの場合、パスが一致すれば削除
+                        if current_entry == file_path_str:
+                            del self.hash_index[old_hash]
+                    elif isinstance(current_entry, list) and file_path_str in current_entry:
+                        # 複数ファイルの場合、該当パスのみ削除
+                        current_entry.remove(file_path_str)
+                        # リストが空になったら、エントリ自体を削除
+                        if not current_entry:
+                            del self.hash_index[old_hash]
+                        # 1つだけ残ったら文字列に戻す（サイズ節約）
+                        elif len(current_entry) == 1:
+                            self.hash_index[old_hash] = current_entry[0]
+
                     # ハッシュインデックスファイルを更新
                     try:
                         with self.hash_index_file.open("w") as f:
                             json.dump(self.hash_index, f, indent=2)
                     except Exception as e:
                         logger.warning(f"Failed to update hash index: {e}")
+
                 logger.info(f"Overwriting existing file: {file_path}")
 
             # CSVファイル保存(Shift_JISのまま)
@@ -382,14 +400,15 @@ class StorageManager:
         """
         return file_hash in self.hash_index
 
-    def _load_hash_index(self) -> dict[str, str]:
+    def _load_hash_index(self) -> dict[str, str | list[str]]:
         """ハッシュインデックスをファイルから読み込む。
 
         Returns:
-            ファイルハッシュとファイルパスのマッピング辞書
+            ファイルハッシュとファイルパス（単一または複数）のマッピング辞書
 
         Note:
             ファイルが存在しない場合や読み込みエラーの場合は空の辞書を返す
+            後方互換性のため、古い形式（string）と新形式（list）の両方をサポート
         """
         if self.hash_index_file.exists():
             try:
@@ -408,8 +427,22 @@ class StorageManager:
 
         Note:
             保存に失敗した場合は警告ログを出力するが、処理は継続される
+            同じハッシュの複数ファイルをサポート（リスト形式で管理）
         """
-        self.hash_index[file_hash] = file_path
+        # 既存のエントリを確認
+        if file_hash in self.hash_index:
+            current = self.hash_index[file_hash]
+            # 文字列の場合はリストに変換（後方互換性）
+            if isinstance(current, str):
+                if current != file_path:
+                    self.hash_index[file_hash] = [current, file_path]
+            # リストの場合は追加
+            elif isinstance(current, list) and file_path not in current:
+                current.append(file_path)
+        else:
+            # 新規エントリは単一の文字列として保存（互換性とサイズ節約）
+            self.hash_index[file_hash] = file_path
+
         try:
             with self.hash_index_file.open("w") as f:
                 json.dump(self.hash_index, f, indent=2)

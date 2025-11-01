@@ -6,6 +6,7 @@
 import argparse
 import json
 import logging
+import random
 import sys
 import time
 from datetime import date, datetime
@@ -198,8 +199,10 @@ class DataCollector:
                 self.stats["errors"].append(str(result.error))
                 self.logger.error(f"データ取得失敗: {result.error}")
 
-            # レート制限
-            time.sleep(1)
+            # レート制限（ジッター付きでサーバー負荷を分散）
+            base_delay = 0.5
+            jitter = random.uniform(0, 0.3)
+            time.sleep(base_delay + jitter)
 
     def _get_fetch_method(self, data_type: str):
         """データタイプに対応するフェッチメソッドを取得"""

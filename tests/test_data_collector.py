@@ -171,6 +171,8 @@ class TestDataCollectorOptions(unittest.TestCase):
             patch("sys.exit") as mock_exit,
             patch("scripts.fetch_data.setup_logging") as mock_logging,
         ):
+            # sys.exitが実際の挙動と同じくSystemExitを発生させる
+            mock_exit.side_effect = SystemExit(1)
             mock_logger = Mock()
             mock_logging.return_value = mock_logger
 
