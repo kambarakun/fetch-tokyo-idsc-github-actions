@@ -172,10 +172,10 @@ jobs:
             echo "Changes detected"
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
 
-            # 変更ファイル数の取得
-            CHANGED_FILES=$(git diff --cached --name-only | wc -l)
-            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-            echo "Changed files: $CHANGED_FILES"
+            # CSVファイル数の取得
+            CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ')
+            echo "CSV_FILES=$CSV_FILES" >> $GITHUB_ENV
+            echo "CSV files changed: $CSV_FILES"
           fi
 
       - name: Create Pull Request
@@ -202,8 +202,8 @@ jobs:
             COMMIT_MSG="$COMMIT_MSG - $DATA_TYPES"
           fi
 
-          if [ "$CHANGED_FILES" -gt 0 ]; then
-            COMMIT_MSG="$COMMIT_MSG ($CHANGED_FILES files)"
+          if [ "$CSV_FILES" -gt 0 ]; then
+            COMMIT_MSG="$COMMIT_MSG ($CSV_FILES csv files)"
           fi
 
           # コミット実行
@@ -232,7 +232,7 @@ jobs:
             echo "- **実行日時**: $CURRENT_DATE"
             echo "- **対象期間**: $START_YEAR - $END_YEAR"
             echo "- **データタイプ**: ${DATA_TYPES:-ALL}"
-            echo "- **変更ファイル数**: $CHANGED_FILES"
+            echo "- **変更CSVファイル数**: $CSV_FILES"
             echo ""
             echo "### ✅ チェックリスト"
             echo "- [x] データ取得完了"
@@ -406,7 +406,7 @@ jobs:
 
           if [ "$HAS_CHANGES" = "true" ]; then
             echo "### ✅ 変更" >> $GITHUB_STEP_SUMMARY
-            echo "- **変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
+            echo "- **変更CSVファイル数**: $CSV_FILES" >> $GITHUB_STEP_SUMMARY
             if [ -n "$PR_URL" ]; then
               echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
             fi
