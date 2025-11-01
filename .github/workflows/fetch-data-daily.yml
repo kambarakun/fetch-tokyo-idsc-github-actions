@@ -97,6 +97,16 @@ jobs:
           echo "  Skip existing: $SKIP_EXISTING"
           echo "  Dry run: $DRY_RUN"
 
+      - name: Validate existing data before fetch
+        id: validate-before
+        run: |
+          echo "データ取得前の既存データ検証..."
+          if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
+            uv run python scripts/validate_data.py data/raw --pattern "*.csv" || true
+          else
+            echo "No existing data to validate"
+          fi
+
       - name: Fetch epidemic data (current year only)
         id: fetch
         env:
@@ -226,19 +236,8 @@ jobs:
           echo "✅ Successfully created PR: $PR_URL"
           echo "PR_URL=$PR_URL" >> $GITHUB_ENV
 
-          # 自動マージを有効化（schedule実行時のみ）
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "Enabling auto-merge for scheduled run..."
-            # PRの自動マージを有効化（Branch protectionルールに従う）
-            if gh pr merge "$PR_URL" --auto --squash; then
-              echo "✅ Auto-merge enabled successfully"
-            else
-              echo "⚠️ Warning: Failed to enable auto-merge, manual merge may be required"
-              # auto-mergeの失敗は致命的エラーではないため、続行
-            fi
-          else
-            echo "ℹ️ Auto-merge skipped (manual workflow dispatch)"
-          fi
+          # 自動マージは無効化（セキュリティリスク対策）
+          echo "ℹ️ 自動マージは無効化されています。データ検証後、手動でマージしてください。"
 
       - name: Upload logs
         if: always()
