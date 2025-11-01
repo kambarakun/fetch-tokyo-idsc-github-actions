@@ -1,7 +1,7 @@
 # 東京都感染症発生動向データ自動収集システム
 
 [![Fetch Tokyo Epidemic Data](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml)
-[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Non--Commercial-orange.svg)](LICENSE.md)
 
 東京都感染症発生動向情報システムから定期的にデータを自動取得・保存するGitHub Actionsベースのシステムです。
 
@@ -168,39 +168,20 @@ uv run pytest --cov=src --cov-report=html
 uv run pytest tests/test_enhanced_fetcher.py
 ```
 
-## 📝 ライセンス
+## 📝 ライセンスおよび利用規約
 
-### ソフトウェアライセンス
+⚠️ **重要**: このプロジェクトは **ソフトウェア** と **データ** で異なる利用条件が適用されます。
 
-このプロジェクトのソースコードは MIT ライセンスの下で公開されています。
+### ソフトウェア部分
 
-[MIT License](LICENSE)
+このプロジェクトの **ソースコードおよびスクリプト** については、作者（kambarakun）が著作権を保有し、非商用目的での利用を許可しています。
 
-```
-MIT License
+- 対象: `src/`, `scripts/`, `tests/`, `.github/`, 設定ファイル等
+- 詳細: [LICENSE.md](LICENSE.md)
+- **商用利用: 禁止**
+- 非商用利用: 自由に使用・改変・再配布可能（著作権表示を保持すること）
 
-Copyright (c) 2025 kambarakun
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### データの利用規約と著作権
+### データ部分（data/ディレクトリ）
 
 ⚠️ **重要**: 本システムで収集されるデータの著作権は **東京都** および **東京都健康安全研究センター** に帰属します。
 
