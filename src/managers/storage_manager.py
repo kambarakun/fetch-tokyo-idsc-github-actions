@@ -230,6 +230,7 @@ class StorageManager:
         period: int,
         is_monthly: bool = False,
         additional_metadata: dict[str, Any] | None = None,
+        force_overwrite: bool = False,
     ) -> SaveResult:
         """データファイルとメタデータを保存する。
 
@@ -240,13 +241,14 @@ class StorageManager:
             period: 期間（週番号または月番号）
             is_monthly: 月次データの場合True、週次データの場合False
             additional_metadata: 追加のメタデータ（オプション）
+            force_overwrite: 既存ファイルを強制的に上書きする場合True
 
         Returns:
             保存操作の結果を含むSaveResultオブジェクト
 
         Note:
             - SHA256ハッシュで重複チェックを行う
-            - 重複データは保存をスキップする
+            - 重複データは保存をスキップする（force_overwriteがFalseの場合）
             - メタデータは.metadataディレクトリに別途保存される
         """
         # data_typeのバリデーション（セキュリティ対策）
@@ -259,8 +261,8 @@ class StorageManager:
             # データハッシュ計算
             data_hash = hashlib.sha256(data).hexdigest()
 
-            # 重複チェック
-            if self.check_duplicates(data_hash):
+            # 重複チェック（force_overwriteがFalseの場合のみ）
+            if not force_overwrite and self.check_duplicates(data_hash):
                 logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
                 return SaveResult(success=True, is_duplicate=True)
 
@@ -271,6 +273,22 @@ class StorageManager:
             # データタイプ名に既にweekly/monthlyが含まれているため、period_typeは不要
             filename = f"{data_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
+
+            # 既存ファイルのチェック（force_overwriteの場合、古いハッシュを削除）
+            if file_path.exists() and force_overwrite:
+                # 既存ファイルのハッシュを計算して削除
+                old_data = file_path.read_bytes()
+                old_hash = hashlib.sha256(old_data).hexdigest()
+                # ハッシュインデックスから古いエントリを削除
+                if old_hash in self.hash_index:
+                    del self.hash_index[old_hash]
+                    # ハッシュインデックスファイルを更新
+                    try:
+                        with self.hash_index_file.open("w") as f:
+                            json.dump(self.hash_index, f, indent=2)
+                    except Exception as e:
+                        logger.warning(f"Failed to update hash index: {e}")
+                logger.info(f"Overwriting existing file: {file_path}")
 
             # CSVファイル保存(Shift_JISのまま)
             file_path.write_bytes(data)
@@ -288,6 +306,7 @@ class StorageManager:
                 "sha256_hash": data_hash,
                 "encoding": "shift_jis",
                 "file_path": str(file_path.relative_to(self.base_path)),
+                "force_overwrite": force_overwrite,
             }
 
             if additional_metadata:
