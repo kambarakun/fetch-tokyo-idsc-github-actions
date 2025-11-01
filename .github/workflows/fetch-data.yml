@@ -251,25 +251,51 @@ jobs:
             --head "$BRANCH_NAME"
           )
 
-          # ラベルが存在するか確認してから追加
-          if gh label list --json name | jq -r '.[].name' | grep -q "^data-update$"; then
-            PR_CREATE_ARGS+=(--label "data-update")
-          else
-            echo "Warning: Label 'data-update' not found, skipping"
-          fi
+          # ラベル管理（取得、作成、追加）
+          echo "Managing labels for PR..."
 
-          if gh label list --json name | jq -r '.[].name' | grep -q "^automated$"; then
-            PR_CREATE_ARGS+=(--label "automated")
+          # 必要なラベルを定義（名前、説明、色）
+          declare -A LABEL_DEFINITIONS=(
+            ["data-update"]="Automated data update PR|0E8A16"
+            ["automated"]="Automatically generated|ededed"
+          )
+
+          # ラベル一覧を一度だけ取得（パフォーマンス最適化）
+          if AVAILABLE_LABELS=$(gh label list --json name 2>/dev/null | jq -r '.[].name' 2>/dev/null); then
+            echo "Successfully fetched existing labels"
+
+            # 各ラベルを処理
+            for label in "${!LABEL_DEFINITIONS[@]}"; do
+              IFS='|' read -r description color <<< "${LABEL_DEFINITIONS[$label]}"
+
+              if echo "$AVAILABLE_LABELS" | grep -xq "$label"; then
+                echo "Label exists: $label"
+                PR_CREATE_ARGS+=(--label "$label")
+              else
+                echo "Label '$label' not found, attempting to create..."
+                # ラベルを作成（権限があれば成功、なければスキップ）
+                if gh label create "$label" --description "$description" --color "$color" 2>/dev/null; then
+                  echo "Successfully created label: $label"
+                  PR_CREATE_ARGS+=(--label "$label")
+                else
+                  echo "Warning: Could not create label '$label' (may lack permissions), skipping"
+                fi
+              fi
+            done
           else
-            echo "Warning: Label 'automated' not found, skipping"
+            echo "Warning: Failed to fetch labels from GitHub API"
+            echo "This may be due to network issues or API rate limiting"
+            echo "Proceeding without labels to ensure PR creation succeeds"
           fi
 
           # PRを作成
-          if PR_URL=$(gh pr create "${PR_CREATE_ARGS[@]}"); then
-            echo "Created PR: $PR_URL"
+          echo "Creating pull request..."
+          if PR_URL=$(gh pr create "${PR_CREATE_ARGS[@]}" 2>&1); then
+            echo "Successfully created PR: $PR_URL"
             echo "PR_URL=$PR_URL" >> $GITHUB_ENV
           else
             echo "Error: Failed to create pull request"
+            echo "Error details: $PR_URL"
             exit 1
           fi
 
