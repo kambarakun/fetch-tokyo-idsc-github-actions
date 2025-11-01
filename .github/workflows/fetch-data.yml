@@ -243,84 +243,55 @@ jobs:
             echo "*This PR was automatically created by the fetch-data workflow.*"
           } > "$PR_BODY_FILE"
 
-          # gh CLIを使用してPRを作成（ラベルがなくても失敗しないように）
-          PR_CREATE_ARGS=(
-            --title "$PR_TITLE"
-            --body-file "$PR_BODY_FILE"
-            --base main
-            --head "$BRANCH_NAME"
-          )
-
-          # ラベル管理（取得、作成、追加）
+          # ラベル管理（シンプルで確実なアプローチ）
           echo "Managing labels for PR..."
 
-          # 必要なラベルを定義（互換性の高い配列形式）
-          # フォーマット: "label_name|description|color"
-          LABEL_DEFINITIONS=(
-            "data-update|Automated data update PR|0E8A16"
-            "automated|Automatically generated|ededed"
-          )
+          # ラベルを作成する（すでに存在する場合は無視される）
+          echo "Ensuring required labels exist..."
 
-          # 追加するラベルを格納する配列
-          LABELS_TO_ADD=()
-
-          # ラベル一覧を一度だけ取得（パフォーマンス最適化）
-          echo "Fetching existing labels from repository..."
-          if AVAILABLE_LABELS=$(gh label list --json name 2>/dev/null | jq -r '.[].name' 2>/dev/null); then
-            echo "Successfully fetched $(echo "$AVAILABLE_LABELS" | wc -l) existing labels"
-
-            # 各ラベル定義を処理
-            for label_def in "${LABEL_DEFINITIONS[@]}"; do
-              # ラベル定義を分解
-              IFS='|' read -r label description color <<< "$label_def"
-
-              # ラベルの存在確認（固定文字列として完全一致）
-              if echo "$AVAILABLE_LABELS" | grep -Fxq "$label"; then
-                echo "✓ Label exists: '$label'"
-                LABELS_TO_ADD+=("$label")
-              else
-                echo "✗ Label '$label' not found, attempting to create..."
-                # ラベルを作成（権限があれば成功、なければスキップ）
-                if CREATE_OUTPUT=$(gh label create "$label" --description "$description" --color "$color" 2>&1); then
-                  echo "  ✓ Successfully created label: '$label'"
-                  LABELS_TO_ADD+=("$label")
-                else
-                  # エラーの詳細を確認
-                  if echo "$CREATE_OUTPUT" | grep -Fq "already exists"; then
-                    echo "  ✓ Label already exists (race condition), adding to PR"
-                    LABELS_TO_ADD+=("$label")
-                  else
-                    echo "  ⚠ Could not create label '$label': $CREATE_OUTPUT"
-                    echo "  ⚠ Proceeding without this label"
-                  fi
-                fi
-              fi
-            done
-
-            # 収集したラベルをPR引数に追加
-            for label in "${LABELS_TO_ADD[@]}"; do
-              PR_CREATE_ARGS+=(--label "$label")
-              echo "Added label to PR: '$label'"
-            done
+          # data-updateラベルの作成または確認
+          if gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>&1 | tee /tmp/label_output.txt; then
+            echo "  ✓ Created label: data-update"
+          elif grep -q "already exists" /tmp/label_output.txt 2>/dev/null; then
+            echo "  ℹ️ Label 'data-update' already exists"
           else
-            echo "⚠ Warning: Failed to fetch labels from GitHub API"
-            echo "  This may be due to:"
-            echo "  - Network connectivity issues"
-            echo "  - GitHub API rate limiting"
-            echo "  - Authentication problems"
-            echo "  Proceeding without labels to ensure PR creation succeeds"
+            echo "  ⚠️ Warning: Could not create label 'data-update'"
+            cat /tmp/label_output.txt 2>/dev/null || true
           fi
 
-          # PRを作成
+          # automatedラベルの作成または確認
+          if gh label create "automated" --description "Automatically generated" --color "ededed" 2>&1 | tee /tmp/label_output.txt; then
+            echo "  ✓ Created label: automated"
+          elif grep -q "already exists" /tmp/label_output.txt 2>/dev/null; then
+            echo "  ℹ️ Label 'automated' already exists"
+          else
+            echo "  ⚠️ Warning: Could not create label 'automated'"
+            cat /tmp/label_output.txt 2>/dev/null || true
+          fi
+
+          # PR作成前の権限確認（情報提供のみ）
           echo ""
-          echo "Creating pull request with the following parameters:"
+          echo "Verifying workflow configuration..."
+          echo "  Token permissions configured in workflow: pull-requests:write, contents:write"
+          echo "  Note: Repository settings must also allow GitHub Actions to create PRs"
+
+          # PR作成コマンドの構築
+          echo ""
+          echo "Creating pull request..."
           echo "  Title: $PR_TITLE"
           echo "  Base: main"
           echo "  Head: $BRANCH_NAME"
-          echo "  Labels: ${LABELS_TO_ADD[*]:-none}"
+          echo "  Labels: data-update, automated"
           echo ""
 
-          PR_CREATE_OUTPUT=$(gh pr create "${PR_CREATE_ARGS[@]}" 2>&1)
+          # gh pr create コマンドを実行（ラベルはオプション）
+          PR_CREATE_OUTPUT=$(gh pr create \
+            --title "$PR_TITLE" \
+            --body-file "$PR_BODY_FILE" \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --label "data-update" \
+            --label "automated" 2>&1)
           PR_CREATE_EXIT_CODE=$?
 
           if [ $PR_CREATE_EXIT_CODE -eq 0 ]; then
@@ -333,7 +304,19 @@ jobs:
             echo "$PR_CREATE_OUTPUT"
 
             # 特定のエラーをチェックして詳細な情報を提供
-            if echo "$PR_CREATE_OUTPUT" | grep -Fq "already exists"; then
+            if echo "$PR_CREATE_OUTPUT" | grep -Eq "GitHub Actions is not permitted|createPullRequest"; then
+              echo ""
+              echo "🔴 GitHub Actions does not have permission to create pull requests."
+              echo ""
+              echo "📝 To fix this issue, a repository administrator needs to:"
+              echo "  1. Go to: Settings → Actions → General → Workflow permissions"
+              echo "  2. Select: 'Read and write permissions'"
+              echo "  3. Check: '☑ Allow GitHub Actions to create and approve pull requests'"
+              echo "  4. Click: 'Save'"
+              echo ""
+              echo "This is a repository-level setting that overrides workflow permissions."
+              echo "After changing these settings, re-run this workflow."
+            elif echo "$PR_CREATE_OUTPUT" | grep -Fq "already exists"; then
               echo ""
               echo "ℹ️ A pull request already exists for this branch."
               echo "You may want to:"

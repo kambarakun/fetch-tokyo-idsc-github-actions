@@ -10,6 +10,19 @@
 - エラーハンドリングとリトライ機能
 - データ整合性検証（SHA256ハッシュ）
 
+## ⚙️ 必要な設定
+
+### GitHub Actions権限設定（重要）
+
+このシステムがPull Requestを自動作成するためには、リポジトリ管理者による以下の設定が**必須**です：
+
+1. **Settings → Actions → General → Workflow permissions** へ移動
+2. **「Read and write permissions」** を選択
+3. **「☑ Allow GitHub Actions to create and approve pull requests」** をチェック
+4. **「Save」** をクリック
+
+> ⚠️ この設定を行わないと、データ取得は成功してもPR作成でエラーになります
+
 ## 🚀 インストール
 
 ### uvを使用（完全推奨）
