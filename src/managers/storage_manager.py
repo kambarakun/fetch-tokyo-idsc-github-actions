@@ -269,7 +269,13 @@ class StorageManager:
 
             # ファイル名生成（タイムスタンプなし、ゼロパディングあり）
             period_type = "monthly" if is_monthly else "weekly"
-            filename = f"{data_type}_{period_type}_{year}_{period:02d}.csv"
+
+            # notifiable_weeklyの場合は特別処理（既にweeklyが含まれているため）
+            if data_type == "notifiable_weekly" and not is_monthly:
+                filename = f"{data_type}_weekly_{year}_{period:02d}.csv"
+            else:
+                filename = f"{data_type}_{period_type}_{year}_{period:02d}.csv"
+
             file_path = dir_path / filename
 
             # CSVファイル保存(Shift_JISのまま)
