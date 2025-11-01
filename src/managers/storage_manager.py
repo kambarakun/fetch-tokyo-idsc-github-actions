@@ -4,12 +4,12 @@
 
 import hashlib
 import json
-import subprocess
-from dataclasses import dataclass, asdict
-from datetime import datetime, date, timedelta
-from pathlib import Path
-from typing import Optional, List, Tuple, Dict, Any
 import logging
+import subprocess
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SaveResult:
     """保存結果"""
+
     success: bool
     file_path: Optional[Path] = None
     metadata_path: Optional[Path] = None
@@ -27,6 +28,7 @@ class SaveResult:
 @dataclass
 class CommitResult:
     """Git コミット結果"""
+
     success: bool
     commit_hash: Optional[str] = None
     message: Optional[str] = None
@@ -43,10 +45,7 @@ class GitHandler:
         """Gitリポジトリかどうかを確認"""
         try:
             result = subprocess.run(
-                ['git', 'rev-parse', '--is-inside-work-tree'],
-                capture_output=True,
-                text=True,
-                check=False
+                ["git", "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, check=False
             )
             return result.returncode == 0
         except Exception:
@@ -59,12 +58,7 @@ class GitHandler:
             if not file_paths:
                 return True
 
-            subprocess.run(
-                ['git', 'add'] + file_paths,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            subprocess.run(["git", "add"] + file_paths, capture_output=True, text=True, check=True)
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to add files to git: {e.stderr}")
@@ -74,59 +68,29 @@ class GitHandler:
         """変更をコミット"""
         try:
             # 変更があるか確認
-            result = subprocess.run(
-                ['git', 'diff', '--cached', '--quiet'],
-                capture_output=True,
-                check=False
-            )
+            result = subprocess.run(["git", "diff", "--cached", "--quiet"], capture_output=True, check=False)
 
             if result.returncode == 0:
                 # 変更なし
-                return CommitResult(
-                    success=True,
-                    message="No changes to commit"
-                )
+                return CommitResult(success=True, message="No changes to commit")
 
             # コミット実行
-            result = subprocess.run(
-                ['git', 'commit', '-m', message],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(["git", "commit", "-m", message], capture_output=True, text=True, check=True)
 
             # コミットハッシュ取得
-            hash_result = subprocess.run(
-                ['git', 'rev-parse', 'HEAD'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            hash_result = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
 
-            return CommitResult(
-                success=True,
-                commit_hash=hash_result.stdout.strip(),
-                message=message
-            )
+            return CommitResult(success=True, commit_hash=hash_result.stdout.strip(), message=message)
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to commit: {e.stderr}")
-            return CommitResult(
-                success=False,
-                error=e.stderr
-            )
+            return CommitResult(success=False, error=e.stderr)
 
     def configure_user(self):
         """GitHub Actions用のGitユーザー設定"""
         try:
-            subprocess.run(
-                ['git', 'config', 'user.name', 'github-actions[bot]'],
-                check=True
-            )
-            subprocess.run(
-                ['git', 'config', 'user.email', 'github-actions[bot]@users.noreply.github.com'],
-                check=True
-            )
+            subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+            subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to configure git user: {e}")
@@ -139,26 +103,20 @@ class StorageManager:
     def __init__(self, base_path: Path, config: Dict[str, Any]):
         self.base_path = Path(base_path)
         self.config = config
-        self.git_handler = GitHandler(config.get('auto_commit', True))
+        self.git_handler = GitHandler(config.get("auto_commit", True))
 
         # ディレクトリ作成
         self.base_path.mkdir(parents=True, exist_ok=True)
 
         # メタデータ保存用ディレクトリ
-        self.metadata_dir = self.base_path / '.metadata'
+        self.metadata_dir = self.base_path / ".metadata"
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
 
         # ハッシュインデックスファイル
-        self.hash_index_file = self.metadata_dir / 'hash_index.json'
+        self.hash_index_file = self.metadata_dir / "hash_index.json"
         self.hash_index = self._load_hash_index()
 
-    def organize_file_path(
-        self,
-        data_type: str,
-        year: int,
-        period: int,
-        is_monthly: bool = False
-    ) -> Path:
+    def organize_file_path(self, data_type: str, year: int, period: int, is_monthly: bool = False) -> Path:
         """階層ディレクトリ構造でのファイルパス生成"""
         if is_monthly:
             # 月次データの場合
@@ -178,7 +136,7 @@ class StorageManager:
         year: int,
         period: int,
         is_monthly: bool = False,
-        additional_metadata: Optional[Dict[str, Any]] = None
+        additional_metadata: Optional[Dict[str, Any]] = None,
     ) -> SaveResult:
         """メタデータ付きファイル保存"""
         try:
@@ -188,10 +146,7 @@ class StorageManager:
             # 重複チェック
             if self.check_duplicates(data_hash):
                 logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
-                return SaveResult(
-                    success=True,
-                    is_duplicate=True
-                )
+                return SaveResult(success=True, is_duplicate=True)
 
             # ファイルパス生成
             dir_path = self.organize_file_path(data_type, year, period, is_monthly)
@@ -207,16 +162,16 @@ class StorageManager:
 
             # メタデータ生成
             metadata = {
-                'filename': filename,
-                'data_type': data_type,
-                'year': year,
-                'period': period,
-                'period_type': period_type,
-                'timestamp': datetime.now().isoformat(),
-                'file_size': len(data),
-                'sha256_hash': data_hash,
-                'encoding': 'shift_jis',
-                'file_path': str(file_path.relative_to(self.base_path))
+                "filename": filename,
+                "data_type": data_type,
+                "year": year,
+                "period": period,
+                "period_type": period_type,
+                "timestamp": datetime.now().isoformat(),
+                "file_size": len(data),
+                "sha256_hash": data_hash,
+                "encoding": "shift_jis",
+                "file_path": str(file_path.relative_to(self.base_path)),
             }
 
             if additional_metadata:
@@ -226,7 +181,7 @@ class StorageManager:
             metadata_filename = f"{filename.replace('.csv', '')}_metadata.json"
             metadata_path = dir_path / metadata_filename
 
-            with open(metadata_path, 'w', encoding='utf-8') as f:
+            with open(metadata_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, ensure_ascii=False, indent=2)
 
             # ハッシュインデックス更新
@@ -234,24 +189,14 @@ class StorageManager:
 
             logger.info(f"Saved file: {file_path}")
 
-            return SaveResult(
-                success=True,
-                file_path=file_path,
-                metadata_path=metadata_path
-            )
+            return SaveResult(success=True, file_path=file_path, metadata_path=metadata_path)
 
         except Exception as e:
             logger.exception("Failed to save file")
-            return SaveResult(
-                success=False,
-                error=str(e)
-            )
+            return SaveResult(success=False, error=str(e))
 
     def commit_changes(
-        self,
-        message: Optional[str] = None,
-        data_type: Optional[str] = None,
-        date_range: Optional[str] = None
+        self, message: Optional[str] = None, data_type: Optional[str] = None, date_range: Optional[str] = None
     ) -> CommitResult:
         """Git自動コミット"""
         if not self.git_handler.auto_commit:
@@ -265,18 +210,14 @@ class StorageManager:
         # メッセージ生成
         if not message:
             if data_type and date_range:
-                message = self.config.get(
-                    'commit_message_template',
-                    'データ更新: {data_type} - {date_range}'
-                ).format(data_type=data_type, date_range=date_range)
+                message = self.config.get("commit_message_template", "データ更新: {data_type} - {date_range}").format(
+                    data_type=data_type, date_range=date_range
+                )
             else:
                 message = f"データ更新: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
         # ファイル追加
-        files_to_add = [
-            self.base_path,
-            self.metadata_dir
-        ]
+        files_to_add = [self.base_path, self.metadata_dir]
         self.git_handler.add_files(files_to_add)
 
         # コミット
@@ -290,7 +231,7 @@ class StorageManager:
         """ハッシュインデックスの読み込み"""
         if self.hash_index_file.exists():
             try:
-                with open(self.hash_index_file, 'r') as f:
+                with open(self.hash_index_file, "r") as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load hash index: {e}")
@@ -300,7 +241,7 @@ class StorageManager:
         """ハッシュインデックスの更新"""
         self.hash_index[file_hash] = file_path
         try:
-            with open(self.hash_index_file, 'w') as f:
+            with open(self.hash_index_file, "w") as f:
                 json.dump(self.hash_index, f, indent=2)
         except Exception as e:
             logger.warning(f"Failed to update hash index: {e}")
@@ -310,14 +251,10 @@ class StorageManager:
         # ISO週番号から日付を計算
         jan4 = date(year, 1, 4)
         week_start = jan4 - timedelta(days=jan4.weekday())
-        target_date = week_start + timedelta(weeks=week-1)
+        target_date = week_start + timedelta(weeks=week - 1)
         return target_date.month
 
-    def get_existing_files(
-        self,
-        data_type: Optional[str] = None,
-        year: Optional[int] = None
-    ) -> List[Path]:
+    def get_existing_files(self, data_type: Optional[str] = None, year: Optional[int] = None) -> List[Path]:
         """既存ファイルの取得"""
         pattern = "*.csv"
 
@@ -339,7 +276,7 @@ class StorageManager:
 
         if metadata_path.exists():
             try:
-                with open(metadata_path, 'r') as f:
+                with open(metadata_path, "r") as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load metadata: {e}")
@@ -356,7 +293,7 @@ class StorageManager:
 
             if metadata:
                 try:
-                    file_date = datetime.fromisoformat(metadata['timestamp'])
+                    file_date = datetime.fromisoformat(metadata["timestamp"])
                     if file_date < cutoff_date:
                         file_path.unlink()
 
@@ -386,12 +323,12 @@ class StorageManager:
             total_size += file_size
 
             # ファイルタイプ別統計
-            for data_type in ['sentinel_weekly', 'sentinel_monthly', 'notifiable']:
+            for data_type in ["sentinel_weekly", "sentinel_monthly", "notifiable"]:
                 if data_type in file_path.name:
                     if data_type not in file_types:
-                        file_types[data_type] = {'count': 0, 'size': 0}
-                    file_types[data_type]['count'] += 1
-                    file_types[data_type]['size'] += file_size
+                        file_types[data_type] = {"count": 0, "size": 0}
+                    file_types[data_type]["count"] += 1
+                    file_types[data_type]["size"] += file_size
                     break
 
             # 年別統計
@@ -400,16 +337,16 @@ class StorageManager:
                 if part.isdigit() and len(part) == 4:
                     year = int(part)
                     if year not in year_stats:
-                        year_stats[year] = {'count': 0, 'size': 0}
-                    year_stats[year]['count'] += 1
-                    year_stats[year]['size'] += file_size
+                        year_stats[year] = {"count": 0, "size": 0}
+                    year_stats[year]["count"] += 1
+                    year_stats[year]["size"] += file_size
                     break
 
         return {
-            'total_files': total_files,
-            'total_size_bytes': total_size,
-            'total_size_mb': round(total_size / (1024 * 1024), 2),
-            'file_types': file_types,
-            'year_stats': year_stats,
-            'hash_index_size': len(self.hash_index)
+            "total_files": total_files,
+            "total_size_bytes": total_size,
+            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "file_types": file_types,
+            "year_stats": year_stats,
+            "hash_index_size": len(self.hash_index),
         }

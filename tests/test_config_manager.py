@@ -2,25 +2,26 @@
 設定管理のユニットテスト
 """
 
-import unittest
-from unittest.mock import Mock, patch, mock_open
-import tempfile
-import yaml
-from pathlib import Path
-
 import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, mock_open, patch
+
+import yaml
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.managers.config_manager import (
+    CollectionConfig,
     ConfigurationManager,
     DataCollectionConfig,
+    DataTypeConfig,
+    NotificationConfig,
+    QualityConfig,
     ScheduleConfig,
     StorageConfig,
-    QualityConfig,
-    NotificationConfig,
-    CollectionConfig,
-    DataTypeConfig,
-    ValidationResult
+    ValidationResult,
 )
 
 
@@ -99,7 +100,7 @@ class TestConfigurationManager(unittest.TestCase):
     def test_validate_config_invalid_file_size_limits(self):
         """無効なファイルサイズ制限の検証テスト"""
         config = self.config_manager._get_default_config()
-        config.quality.file_size_limits = {'csv': (1000, 100)}  # min > max
+        config.quality.file_size_limits = {"csv": (1000, 100)}  # min > max
 
         result = self.config_manager.validate_config(config)
 
@@ -120,66 +121,45 @@ class TestConfigurationManager(unittest.TestCase):
     def test_parse_config(self):
         """設定解析のテスト"""
         config_dict = {
-            'schedule': {
-                'cron': '0 0 * * *',
-                'timezone': 'UTC',
-                'manual_trigger_enabled': False
+            "schedule": {"cron": "0 0 * * *", "timezone": "UTC", "manual_trigger_enabled": False},
+            "collection": {
+                "incremental_mode": False,
+                "batch_size": 100,
+                "start_year": 2020,
+                "end_year": 2025,
+                "data_types": ["sentinel_weekly_gender"],
             },
-            'collection': {
-                'incremental_mode': False,
-                'batch_size': 100,
-                'start_year': 2020,
-                'end_year': 2025,
-                'data_types': ['sentinel_weekly_gender']
-            },
-            'storage': {
-                'base_directory': '/tmp/data',
-                'auto_commit': False
-            },
-            'quality': {
-                'anomaly_detection_enabled': False
-            },
-            'notifications': {
-                'github_issues_enabled': False
-            },
-            'data_types': [
-                {
-                    'name': 'test_type',
-                    'enabled': True,
-                    'fetch_method': 'test_method',
-                    'epid_code': '501'
-                }
-            ]
+            "storage": {"base_directory": "/tmp/data", "auto_commit": False},
+            "quality": {"anomaly_detection_enabled": False},
+            "notifications": {"github_issues_enabled": False},
+            "data_types": [{"name": "test_type", "enabled": True, "fetch_method": "test_method", "epid_code": "501"}],
         }
 
         config = self.config_manager._parse_config(config_dict)
 
-        self.assertEqual(config.schedule.cron_expression, '0 0 * * *')
-        self.assertEqual(config.schedule.timezone, 'UTC')
+        self.assertEqual(config.schedule.cron_expression, "0 0 * * *")
+        self.assertEqual(config.schedule.timezone, "UTC")
         self.assertFalse(config.schedule.manual_trigger_enabled)
         self.assertEqual(config.collection.batch_size, 100)
-        self.assertEqual(config.storage.base_directory, '/tmp/data')
+        self.assertEqual(config.storage.base_directory, "/tmp/data")
         self.assertEqual(len(config.data_types), 1)
-        self.assertEqual(config.data_types[0].name, 'test_type')
-        self.assertEqual(config.data_types[0].epid_code, '501')
+        self.assertEqual(config.data_types[0].name, "test_type")
+        self.assertEqual(config.data_types[0].epid_code, "501")
 
-    @patch('builtins.open', mock_open(read_data=''))
-    @patch('yaml.safe_load')
-    @patch.object(Path, 'exists')
+    @patch("builtins.open", mock_open(read_data=""))
+    @patch("yaml.safe_load")
+    @patch.object(Path, "exists")
     def test_load_config_from_file(self, mock_exists, mock_yaml_load):
         """ファイルから設定読み込みのテスト"""
         mock_exists.return_value = True
-        mock_yaml_load.return_value = {
-            'schedule': {'cron': '0 0 * * *'},
-            'collection': {'batch_size': 50}
-        }
+        mock_yaml_load.return_value = {"schedule": {"cron": "0 0 * * *"}, "collection": {"batch_size": 50}}
 
         config = self.config_manager.load_config()
 
         self.assertIsInstance(config, DataCollectionConfig)
         mock_yaml_load.assert_called_once()
 
-    @patch.object(Path, 'exists')
+    @patch.object(Path, "exists")
     def test_load_config_file_not_found(self, mock_exists):
         """設定ファイルが存在しない場合のテスト"""
         mock_exists.return_value = False
@@ -195,29 +175,23 @@ class TestConfigurationManager(unittest.TestCase):
         config = self.config_manager._get_default_config()
         config_dict = self.config_manager._config_to_dict(config)
 
-        self.assertIn('schedule', config_dict)
-        self.assertIn('collection', config_dict)
-        self.assertIn('storage', config_dict)
-        self.assertIn('quality', config_dict)
-        self.assertIn('notifications', config_dict)
-        self.assertIn('data_types', config_dict)
+        self.assertIn("schedule", config_dict)
+        self.assertIn("collection", config_dict)
+        self.assertIn("storage", config_dict)
+        self.assertIn("quality", config_dict)
+        self.assertIn("notifications", config_dict)
+        self.assertIn("data_types", config_dict)
 
-        self.assertEqual(
-            config_dict['schedule']['cron'],
-            config.schedule.cron_expression
-        )
-        self.assertEqual(
-            config_dict['collection']['batch_size'],
-            config.collection.batch_size
-        )
+        self.assertEqual(config_dict["schedule"]["cron"], config.schedule.cron_expression)
+        self.assertEqual(config_dict["collection"]["batch_size"], config.collection.batch_size)
 
-    @patch('builtins.open', mock_open())
-    @patch('yaml.dump')
+    @patch("builtins.open", mock_open())
+    @patch("yaml.dump")
     def test_save_config(self, mock_yaml_dump):
         """設定保存のテスト"""
         config = self.config_manager._get_default_config()
 
-        with tempfile.NamedTemporaryFile(suffix='.yml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(suffix=".yml", delete=False) as f:
             config_path = Path(f.name)
 
         try:
@@ -248,11 +222,7 @@ class TestDataClasses(unittest.TestCase):
 
     def test_schedule_config(self):
         """ScheduleConfigのテスト"""
-        config = ScheduleConfig(
-            cron_expression="0 10 * * 1",
-            timezone="Asia/Tokyo",
-            manual_trigger_enabled=True
-        )
+        config = ScheduleConfig(cron_expression="0 10 * * 1", timezone="Asia/Tokyo", manual_trigger_enabled=True)
 
         self.assertEqual(config.cron_expression, "0 10 * * 1")
         self.assertEqual(config.timezone, "Asia/Tokyo")
@@ -260,11 +230,7 @@ class TestDataClasses(unittest.TestCase):
 
     def test_storage_config(self):
         """StorageConfigのテスト"""
-        config = StorageConfig(
-            base_directory="data/raw",
-            auto_commit=True,
-            keep_shift_jis=True
-        )
+        config = StorageConfig(base_directory="data/raw", auto_commit=True, keep_shift_jis=True)
 
         self.assertEqual(config.base_directory, "data/raw")
         self.assertTrue(config.auto_commit)
@@ -272,12 +238,7 @@ class TestDataClasses(unittest.TestCase):
 
     def test_collection_config(self):
         """CollectionConfigのテスト"""
-        config = CollectionConfig(
-            incremental_mode=True,
-            batch_size=100,
-            start_year=2020,
-            end_year=2025
-        )
+        config = CollectionConfig(incremental_mode=True, batch_size=100, start_year=2020, end_year=2025)
 
         self.assertTrue(config.incremental_mode)
         self.assertEqual(config.batch_size, 100)
@@ -290,7 +251,7 @@ class TestDataClasses(unittest.TestCase):
             name="sentinel_weekly_gender",
             enabled=True,
             fetch_method="fetch_csv_sentinel_weekly_gender",
-            epid_code="501"
+            epid_code="501",
         )
 
         self.assertEqual(config.name, "sentinel_weekly_gender")
@@ -299,5 +260,5 @@ class TestDataClasses(unittest.TestCase):
         self.assertEqual(config.epid_code, "501")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

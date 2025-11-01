@@ -16,12 +16,8 @@ def weeks_in_year(year: int) -> int:
 
 
 # ファイル名パターン
-PAT_WEEK = re.compile(
-    r"(?P<base>.+?_weekly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?:_|-)"
-)
-PAT_MONTH = re.compile(
-    r"(?P<base>.+?_monthly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?:_|-)"
-)
+PAT_WEEK = re.compile(r"(?P<base>.+?_weekly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?:_|-)")
+PAT_MONTH = re.compile(r"(?P<base>.+?_monthly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?:_|-)")
 
 
 def collect(data_dir: Path):

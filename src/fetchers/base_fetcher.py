@@ -4,7 +4,7 @@
 
 import hashlib
 import time
-from datetime import datetime, date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -68,22 +68,22 @@ class TokyoEpidemicSurveillanceFetcher:
         '1': 集計期間内の週毎内訳(epidCodeを指定しないと動作しない)
     """
 
-    BASE_URL = 'https://survey.tmiph.metro.tokyo.lg.jp/epidinfo'
+    BASE_URL = "https://survey.tmiph.metro.tokyo.lg.jp/epidinfo"
 
     # reportTypeとURLのマッピング
     ENDPOINT_MAP = {
         # 週報告分
-        '0':  'dlwage.do',     # 年齢階級別集計表
-        '1':  'dlwgender.do',  # 男女別集計表
-        '2':  'dlwhc.do',      # 保健所別集計表
-        '5':  'dlwzone.do',    # 医療圏別集計表
+        "0": "dlwage.do",  # 年齢階級別集計表
+        "1": "dlwgender.do",  # 男女別集計表
+        "2": "dlwhc.do",  # 保健所別集計表
+        "5": "dlwzone.do",  # 医療圏別集計表
         # 月報告分
-        '10': 'dlmage.do',     # 月次年齢階級別集計表
-        '15': 'dlmgender.do',  # 月次男女別集計表
-        '11': 'dlmhc.do',      # 月次保健所別集計表
-        '12': 'dlmzone.do',    # 月次医療圏別集計表
+        "10": "dlmage.do",  # 月次年齢階級別集計表
+        "15": "dlmgender.do",  # 月次男女別集計表
+        "11": "dlmhc.do",  # 月次保健所別集計表
+        "12": "dlmzone.do",  # 月次医療圏別集計表
         # 全数報告
-        '20': 'dlwzensu.do',   # 全数報告疾病
+        "20": "dlwzensu.do",  # 全数報告疾病
     }
 
     def __init__(self):
@@ -91,16 +91,16 @@ class TokyoEpidemicSurveillanceFetcher:
 
     def _post_request(
         self,
-        endpoint:         str,
-        report_type:      str,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '00',
-        total_mode:       str = '0'
+        endpoint: str,
+        report_type: str,
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "00",
+        total_mode: str = "0",
     ) -> bytes:
         """
         共通のPOSTリクエスト処理
@@ -123,15 +123,15 @@ class TokyoEpidemicSurveillanceFetcher:
         url = f"{self.BASE_URL}/{endpoint}"
 
         data = {
-            'val(reportType)': report_type,
-            'val(prefCode)': pref_code,
-            'val(hcCode)': hc_code,
-            'val(epidCode)': epid_code,
-            'val(startYear)': start_year,
-            'val(startSubPeriod)': start_sub_period,
-            'val(endYear)': end_year,
-            'val(endSubPeriod)': end_sub_period,
-            'val(totalMode)': total_mode
+            "val(reportType)": report_type,
+            "val(prefCode)": pref_code,
+            "val(hcCode)": hc_code,
+            "val(epidCode)": epid_code,
+            "val(startYear)": start_year,
+            "val(startSubPeriod)": start_sub_period,
+            "val(endYear)": end_year,
+            "val(endSubPeriod)": end_sub_period,
+            "val(totalMode)": total_mode,
         }
 
         response = self.session.post(url, data=data, timeout=30)
@@ -145,184 +145,247 @@ class TokyoEpidemicSurveillanceFetcher:
 
     def fetch_csv_sentinel_weekly_gender(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '00',
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "00",
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 週報告分 男女別集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['1'], '1',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["1"],
+            "1",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     def fetch_csv_sentinel_weekly_age(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '00',
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "00",
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 週報告分 年齢階級別集計表CSVを取得する(男女別を含む)
         """
         return self._post_request(
-            self.ENDPOINT_MAP['0'], '0',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["0"],
+            "0",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     def fetch_csv_sentinel_weekly_health_center(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '',  # 保健所別は通常空文字
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "",  # 保健所別は通常空文字
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 週報告分 保健所別集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['2'], '2',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["2"],
+            "2",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     def fetch_csv_sentinel_weekly_medical_district(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '',  # 医療圏別は通常空文字
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "",  # 医療圏別は通常空文字
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 週報告分 医療圏別集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['5'], '5',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["5"],
+            "5",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     # ========== 定点監視 月報告分データ取得メソッド ==========
 
     def fetch_csv_sentinel_monthly_gender(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',  # 月次は月を指定
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '00',
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",  # 月次は月を指定
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "00",
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 月報告分 男女別集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['15'], '15',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["15"],
+            "15",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     def fetch_csv_sentinel_monthly_age(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '00',
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "00",
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 月報告分 年齢階級別集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['10'], '10',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["10"],
+            "10",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     def fetch_csv_sentinel_monthly_health_center(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '',  # 月次保健所別は通常空文字
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "",  # 月次保健所別は通常空文字
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 月報告分 保健所別集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['11'], '11',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["11"],
+            "11",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     def fetch_csv_sentinel_monthly_medical_district(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '',  # 月次医療圏別は通常空文字
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "",  # 月次医療圏別は通常空文字
+        total_mode: str = "0",
     ) -> bytes:
         """
         定点監視 月報告分 医療圏別集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['12'], '12',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["12"],
+            "12",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
 
     # ========== 全数把握監視データ取得メソッド ==========
 
     def fetch_csv_notifiable_weekly(
         self,
-        start_year:       str = '2025',
-        start_sub_period: str = '1',  # 週を指定
-        end_year:         str = '2025',
-        end_sub_period:   str = '1',
-        pref_code:        str = '13',
-        hc_code:          str = '00',
-        epid_code:        str = '',  # 全数報告は通常空文字
-        total_mode:       str = '0'
+        start_year: str = "2025",
+        start_sub_period: str = "1",  # 週を指定
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "",  # 全数報告は通常空文字
+        total_mode: str = "0",
     ) -> bytes:
         """
         全数把握監視 週報告分 届出患者数集計表CSVを取得する
         """
         return self._post_request(
-            self.ENDPOINT_MAP['20'], '20',
-            start_year, start_sub_period, end_year, end_sub_period,
-            pref_code, hc_code, epid_code, total_mode
+            self.ENDPOINT_MAP["20"],
+            "20",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
         )
