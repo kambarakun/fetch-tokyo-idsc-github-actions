@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_monthly_medical_district_2015_10.csv",
+  "data_type": "sentinel_monthly_medical_district",
+  "year": 2015,
+  "period": 10,
+  "period_type": "monthly",
+  "timestamp": "2025-11-01T18:07:14.066187",
+  "file_size": 3431,
+  "sha256_hash": "41c91dc5b3aa48e739068a6486e4a8166087565e11e7e3a8de74c90a60eba35c",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_monthly_medical_district_2015_10.csv",
+  "fetch_time": 0.6316721439361572
+}

@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_medical_district_2023_39.csv",
+  "data_type": "sentinel_weekly_medical_district",
+  "year": 2023,
+  "period": 39,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T17:38:20.494911",
+  "file_size": 7536,
+  "sha256_hash": "dcb66e8c8821e46b520aead8f00406a41c15d213c8f3fdfd4822945e3591e55d",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_medical_district_2023_39.csv",
+  "fetch_time": 0.6354367733001709
+}

@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_age_2010_39.csv",
+  "data_type": "sentinel_weekly_age",
+  "year": 2010,
+  "period": 39,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T16:15:36.179305",
+  "file_size": 8043,
+  "sha256_hash": "cc874690f89553a47adde51cabdfff64af952c69ee3786033b59c948745e966c",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_age_2010_39.csv",
+  "fetch_time": 0.6437559127807617
+}

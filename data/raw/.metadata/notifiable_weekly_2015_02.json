@@ -1,0 +1,13 @@
+{
+  "filename": "notifiable_weekly_2015_02.csv",
+  "data_type": "notifiable_weekly",
+  "year": 2015,
+  "period": 2,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T18:29:40.547426",
+  "file_size": 2039,
+  "sha256_hash": "8c6502605353f2ef829ccabaae8d796016f8c4cb457bcda7bf8d59f925c993c6",
+  "encoding": "shift_jis",
+  "file_path": "notifiable_weekly_2015_02.csv",
+  "fetch_time": 0.34759950637817383
+}
