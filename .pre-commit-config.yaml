@@ -1,0 +1,100 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  # 基本的なファイルチェック
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: 末尾の空白を削除
+      - id: end-of-file-fixer
+        name: ファイル末尾に改行を追加
+      - id: check-yaml
+        name: YAMLファイルの構文チェック
+      - id: check-added-large-files
+        name: 大きなファイルの追加を防ぐ
+        args: ["--maxkb=1000"]
+      - id: check-merge-conflict
+        name: マージコンフリクトマーカーのチェック
+      - id: check-json
+        name: JSONファイルの構文チェック
+      - id: check-toml
+        name: TOMLファイルの構文チェック
+      - id: debug-statements
+        name: デバッグステートメントのチェック
+      - id: mixed-line-ending
+        name: 改行コードの統一
+        args: ["--fix=lf"]
+
+  # Pythonコードフォーマット (isort)
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: import文の整理
+        args: ["--profile", "black", "--line-length", "120"]
+
+  # Pythonコードフォーマット (black)
+  - repo: https://github.com/psf/black
+    rev: 24.3.0
+    hooks:
+      - id: black
+        name: Pythonコードのフォーマット
+        language_version: python3.11
+        args: ["--line-length", "120"]
+
+  # Pythonコード品質チェック (Ruff - 高速な統合リンター)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.0
+    hooks:
+      - id: ruff
+        name: Ruff リンター
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+        name: Ruff フォーマッター
+
+  # 型チェック (mypy)
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        name: Python型チェック
+        args: ["--ignore-missing-imports", "--no-strict-optional", "--python-version=3.11"]
+        additional_dependencies: [types-requests, types-PyYAML]
+
+  # Markdownファイルのフォーマット
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        name: Markdown/YAML/JSONのフォーマット
+        types_or: [markdown, yaml, json]
+        args: ["--print-width", "120", "--prose-wrap", "preserve"]
+
+# 設定
+default_language_version:
+  python: python3.11
+
+# コミット時に自動実行
+default_stages: [pre-commit]
+
+# ファイル除外設定
+exclude: |
+  (?x)(
+    ^tests/fixtures/|
+    ^data/|
+    \.csv$|
+    \.lock$|
+    ^\.venv/|
+    ^venv/|
+    ^__pycache__/
+  )
+
+# CI設定
+ci:
+  autofix_prs: true
+  autofix_commit_msg: "style: pre-commit自動修正を適用"
+  autoupdate_commit_msg: "chore: pre-commitフックを更新"
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false

@@ -15,6 +15,7 @@
 ## 🚀 プロジェクト構造クイックリファレンス
 
 ### 📁 コアファイルの場所
+
 ```bash
 # プロジェクト仕様
 .kiro/specs/tokyo-epidemic-data-automation/
@@ -52,6 +53,7 @@ tests/
 ```
 
 ### 📁 主要スクリプト
+
 ```bash
 # データ取得
 scripts/fetch_data.py       # データ取得メインスクリプト
@@ -60,7 +62,6 @@ scripts/check_missing.py    # 欠番チェックユーティリティ
 # パッケージ管理
 pyproject.toml              # プロジェクト設定とパッケージ定義
 uv.lock                     # 依存関係のロックファイル
-requirements.txt            # pip互換性のための依存関係リスト
 ```
 
 ==============================================================================
@@ -68,6 +69,7 @@ requirements.txt            # pip互換性のための依存関係リスト
 ## 🔧 ワークフロー別クイックコマンド
 
 ### 🔍 ファイル検索
+
 ```bash
 # プロジェクト仕様の確認（存在しない場合はスキップ）
 [ -f .kiro/specs/tokyo-epidemic-data-automation/requirements.md ] && \
@@ -82,6 +84,7 @@ ls -la .github/workflows/
 ```
 
 ### ✅ ローカルテスト
+
 ```bash
 # テストスイートの実行
 uv run pytest
@@ -97,6 +100,7 @@ uv run python scripts/check_missing.py data/raw
 ```
 
 ### 📦 デプロイとスケジューリング
+
 ```bash
 # GitHub Actionsワークフローの有効化（要: gh CLI インストール & gh auth login）
 gh workflow enable fetch-data.yml
@@ -112,6 +116,7 @@ gh workflow run fetch-data.yml
 ## 📊 プロジェクトの現在のステータス
 
 ### 進捗概要（2025-11-01時点）
+
 - **仕様定義**: 完了 ✅
 - **GitHub Actions設定**: 完了 ✅（データ取得とテストワークフロー）
 - **データ取得モジュール**: 完了 ✅（基本・拡張フェッチャー実装済み）
@@ -120,6 +125,7 @@ gh workflow run fetch-data.yml
 - **テストスイート**: 完了 ✅（50テスト、カバレッジ設定済み）
 
 ### システムステータス
+
 - **本番稼働準備完了**
 - 初回実行時は2000年からの全データ取得を推奨
 - 以降は週次の増分更新で運用
@@ -142,29 +148,32 @@ gh workflow run fetch-data.yml
 
 ### 1.2 技術スタック
 
-| コンポーネント     | 説明                                                    |
-| ----------------- | ------------------------------------------------------ |
-| 言語              | Python 3.11+                                           |
-| 自動化            | GitHub Actions                                         |
-| データ形式        | CSV（Shift_JIS エンコーディング）                        |
-| バージョン管理    | Git/GitHub                                             |
-| エラー通知        | GitHub Issues                                          |
-| データソース      | 東京都感染症発生動向情報システム                          |
+| コンポーネント | 説明                              |
+| -------------- | --------------------------------- |
+| 言語           | Python 3.11+                      |
+| 自動化         | GitHub Actions                    |
+| データ形式     | CSV（Shift_JIS エンコーディング） |
+| バージョン管理 | Git/GitHub                        |
+| エラー通知     | GitHub Issues                     |
+| データソース   | 東京都感染症発生動向情報システム  |
 
 ### 1.3 コア機能
 
 #### データ取得
+
 - TokyoEpidemicSurveillanceFetcherクラスを使用した自動データ取得
 - スケジュール実行（毎週）
 - エラー時の指数バックオフリトライ（最大3回）
 
 #### データ管理
+
 - 年/月/週の階層ディレクトリ構造
 - タイムスタンプ付きファイル命名
 - SHA256ハッシュによるデータ整合性検証
 - 重複データの検出とスキップ
 
 #### エラーハンドリング
+
 - 詳細なエラーログ
 - GitHub Issues による自動通知
 - レート制限の適切な処理
@@ -184,6 +193,7 @@ gh workflow run fetch-data.yml
 このプロジェクトでは、Pythonパッケージ管理に**uvを必ず使用**してください。pipやpoetryは使用しません。
 
 #### インストールと基本コマンド
+
 ```bash
 # uvのインストール（初回のみ）
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -210,10 +220,11 @@ source .venv/bin/activate
 ```
 
 #### 重要な原則
+
 - **絶対にpip installを直接使わない**
-- **requirements.txtはpip互換性のためのみに存在**（直接編集しない）
 - **pyproject.tomlがマスター定義**
 - **uv.lockファイルは必ずコミット**（再現性の保証）
+- **GitHub Actionsでもuvを使用**（高速化と再現性）
 
 ### 2.2 依存関係の管理
 
@@ -239,11 +250,14 @@ dev = [
 このプロジェクトでは、和田卓人（t-wada）氏が提唱するテスト駆動開発（TDD）の原則を採用します。
 
 #### 基本原則
+
 1. **テストファーストではなくテストと共に**
+
    - 実装とテストを交互に書く
    - Red → Green → Refactor のサイクル
 
 2. **AAA（Arrange-Act-Assert）パターン**
+
    ```python
    def test_fetch_with_retry_success(self):
        # Arrange: 準備
@@ -258,6 +272,7 @@ dev = [
    ```
 
 3. **テストの独立性**
+
    - 各テストは独立して実行可能
    - テスト間の依存関係を排除
    - setUp/tearDownで状態を管理
@@ -307,6 +322,7 @@ def test_timestamp(self, mock_time):
 ### 4.1 実装アプローチ
 
 #### フェーズ1: 基本実装
+
 ```python
 # TokyoEpidemicSurveillanceFetcherクラスの実装
 # データ取得の基本機能
@@ -314,6 +330,7 @@ def test_timestamp(self, mock_time):
 ```
 
 #### フェーズ2: エラーハンドリング
+
 ```python
 # リトライロジックの実装
 # エラーログの記録
@@ -321,6 +338,7 @@ def test_timestamp(self, mock_time):
 ```
 
 #### フェーズ3: 自動化
+
 ```yaml
 # GitHub Actionsワークフローの作成
 # スケジュール設定
@@ -328,6 +346,7 @@ def test_timestamp(self, mock_time):
 ```
 
 #### フェーズ4: 監視と改善
+
 ```python
 # データ品質チェック
 # パフォーマンス最適化
@@ -394,12 +413,12 @@ data/
 
 ### 6.1 一般的なエラー
 
-| エラー           | 原因                                    | 解決策                          |
-| --------------- | -------------------------------------- | ------------------------------ |
-| ConnectionError | ネットワーク接続の問題                    | リトライロジックの確認            |
-| EncodingError   | Shift_JISエンコーディングの問題          | エンコーディング指定の確認        |
-| RateLimitError  | APIレート制限                           | 遅延の追加                      |
-| DuplicateError  | 重複データ                              | ハッシュチェックの確認            |
+| エラー          | 原因                            | 解決策                     |
+| --------------- | ------------------------------- | -------------------------- |
+| ConnectionError | ネットワーク接続の問題          | リトライロジックの確認     |
+| EncodingError   | Shift_JISエンコーディングの問題 | エンコーディング指定の確認 |
+| RateLimitError  | APIレート制限                   | 遅延の追加                 |
+| DuplicateError  | 重複データ                      | ハッシュチェックの確認     |
 
 ### 6.2 検証スクリプト
 
@@ -422,8 +441,8 @@ tail -f data/logs/fetch_log_$(date +%Y%m%d).txt
 name: Fetch Tokyo Epidemic Data
 on:
   schedule:
-    - cron: '0 10 * * 1'  # 毎週月曜日 19:00 JST
-  workflow_dispatch:      # 手動実行も可能
+    - cron: "0 10 * * 1" # 毎週月曜日 19:00 JST
+  workflow_dispatch: # 手動実行も可能
 
 permissions:
   contents: write
@@ -438,11 +457,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
-      - run: pip install -r requirements.txt
-      - run: python scripts/fetch_data.py
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.11
+      - run: uv sync
+      - run: uv run python scripts/fetch_data.py
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
@@ -571,7 +592,8 @@ A: `curl -LsSf https://astral.sh/uv/install.sh | sh`でuvをインストール�
 ---
 
 # 重要な指示の再確認
+
 求められたことだけを実行し、それ以上もそれ以下もしない。
 目的達成に絶対に必要でない限り、ファイルを作成しない。
 既存ファイルの編集を新規作成より常に優先する。
-ユーザーから明示的に要求されない限り、ドキュメントファイル（*.md）やREADMEファイルを積極的に作成しない。
+ユーザーから明示的に要求されない限り、ドキュメントファイル（\*.md）やREADMEファイルを積極的に作成しない。

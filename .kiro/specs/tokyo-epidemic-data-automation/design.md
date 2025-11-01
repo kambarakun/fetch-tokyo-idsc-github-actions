@@ -5,6 +5,7 @@
 東京都感染症発生動向情報の自動データ収集システムは、既存のTokyoEpidemicSurveillanceFetcherクラスを中核として、GitHub Actionsによるスケジュール実行、エラーハンドリング、データ品質管理、自動Git管理を統合したシステムです。
 
 システムは以下の主要コンポーネントで構成されます：
+
 - **Data Fetcher**: 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得エンジン
 - **Scheduler**: GitHub Actionsベースのスケジューリングシステム
 - **Storage Manager**: ファイル管理とGit操作を担当
@@ -24,7 +25,7 @@
 
 ### System Architecture
 
-```mermaid
+````mermaid
 graph TB
     subgraph "GitHub Actions Environment"
         A[Scheduler] --> B[Configuration Manager]
@@ -33,22 +34,22 @@ graph TB
         D --> E[Storage Manager]
         E --> F[Notification System]
     end
-    
+
     subgraph "External Systems"
         G[Tokyo Metropolitan Government API]
         H[GitHub Repository]
         I[GitHub Issues API]
     end
-    
+
     C --> G
     E --> H
     F --> I
-    
+
     subgraph "Data Flow"
         J[CSV Files] --> K[Metadata Logs]
         K --> L[Git Commits]
     end
-    
+
     E --> J
     E --> K
     E --> L
@@ -77,8 +78,9 @@ jobs:
     steps:
       - name: Setup and Execute
         # 実行時間制限を考慮した分割実行戦略
-```
-```
+````
+
+````
 
 ### Component Interaction Flow
 
@@ -90,7 +92,7 @@ sequenceDiagram
     participant QC as Quality Controller
     participant SM as Storage Manager
     participant NS as Notification System
-    
+
     S->>CM: Load configuration
     CM->>DF: Initialize with parameters
     DF->>DF: Fetch epidemic data
@@ -103,7 +105,7 @@ sequenceDiagram
         QC->>NS: Send error notification
         NS->>NS: Create GitHub Issue
     end
-```
+````
 
 ## Components and Interfaces
 
@@ -117,22 +119,22 @@ class ExecutionManager:
         self.max_execution_time = max_execution_time
         self.start_time = datetime.now()
         self.checkpoint_manager = CheckpointManager()
-    
+
     def should_continue(self) -> bool:
         """実行継続可否の判定"""
         elapsed = datetime.now() - self.start_time
         return elapsed < self.max_execution_time
-    
+
     def create_checkpoint(self, state: ExecutionState) -> None:
         """実行状態のチェックポイント作成"""
-        
+
     def resume_from_checkpoint(self) -> Optional[ExecutionState]:
         """チェックポイントからの実行再開"""
 
 class CheckpointManager:
     def save_state(self, state: ExecutionState, checkpoint_file: Path) -> None:
         """実行状態の保存"""
-        
+
     def load_state(self, checkpoint_file: Path) -> Optional[ExecutionState]:
         """実行状態の復元"""
 ```
@@ -148,13 +150,13 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         self.config = config
         self.retry_handler = RetryHandler(max_retries=3)
         self.rate_limiter = RateLimiter(min_delay=1.0)
-    
+
     async def fetch_with_retry(self, fetch_method, **params) -> FetchResult:
         """リトライ機能付きデータ取得"""
-        
+
     def fetch_date_range(self, start_date: date, end_date: date) -> List[FetchResult]:
         """日付範囲での一括取得"""
-        
+
     def get_missing_data(self, existing_files: List[Path]) -> List[FetchParams]:
         """欠損データの特定"""
 ```
@@ -175,7 +177,7 @@ class DataCollectionConfig:
 class ConfigurationManager:
     def load_config(self, config_path: Path) -> DataCollectionConfig:
         """設定ファイルの読み込みと検証"""
-        
+
     def validate_config(self, config: DataCollectionConfig) -> ValidationResult:
         """設定の妥当性検証"""
 
@@ -193,7 +195,7 @@ data_collection:
     - start: "2024-01-01"
       end: "2024-12-31"
       priority: "high"
-    - start: "2000-01-01" 
+    - start: "2000-01-01"
       end: "2023-12-31"
       priority: "low"
 
@@ -212,7 +214,7 @@ storage:
   directory_structure: "{year}/{data_type}"
   auto_commit: true
   commit_message_template: "Add {data_type} data for {date_range}"
-  
+
 quality:
   file_size_limits:
     csv: [100, 10485760]  # 100B - 10MB
@@ -230,16 +232,16 @@ class StorageManager:
     def __init__(self, base_path: Path, git_config: GitConfig):
         self.base_path = base_path
         self.git_handler = GitHandler(git_config)
-        
+
     def organize_file_path(self, data_type: str, date: date) -> Path:
         """階層ディレクトリ構造でのファイルパス生成"""
-        
+
     def save_with_metadata(self, data: bytes, metadata: FileMetadata) -> SaveResult:
         """メタデータ付きファイル保存"""
-        
+
     def commit_changes(self, message: str) -> CommitResult:
         """Git自動コミット"""
-        
+
     def check_duplicates(self, file_hash: str) -> bool:
         """重複ファイルチェック"""
 ```
@@ -257,13 +259,13 @@ class QualityController:
             CSVStructureValidator(),
             DataAnomalyDetector()
         ]
-    
+
     def validate_file(self, file_path: Path, metadata: FileMetadata) -> ValidationResult:
         """ファイル品質検証"""
-        
+
     def detect_anomalies(self, current_data: DataFrame, historical_data: List[DataFrame]) -> AnomalyReport:
         """データ異常検出"""
-        
+
     def quarantine_file(self, file_path: Path, reason: str) -> None:
         """問題ファイルの隔離"""
 ```
@@ -272,18 +274,18 @@ class QualityController:
 
 GitHub Issues APIを使用した通知システム：
 
-```python
+````python
 class NotificationSystem:
     def __init__(self, github_token: str, repo_name: str):
         self.github = Github(github_token)
         self.repo = self.github.get_repo(repo_name)
-    
+
     def create_error_issue(self, error: Exception, context: Dict) -> Issue:
         """エラー用GitHub Issue作成"""
-        
+
     def create_anomaly_alert(self, anomaly_report: AnomalyReport) -> Issue:
         """データ異常アラート作成"""
-        
+
     def update_status_issue(self, status: SystemStatus) -> None:
         """システム状態更新"""
 
@@ -296,16 +298,16 @@ class MonitoringSystem:
     def __init__(self, metrics_file: Path):
         self.metrics_file = metrics_file
         self.metrics = SystemMetrics()
-    
+
     def record_execution_metrics(self, execution_result: ExecutionResult) -> None:
         """実行メトリクスの記録"""
-        
+
     def generate_health_report(self) -> HealthReport:
         """システム健全性レポート生成"""
-        
+
     def check_disk_usage(self) -> DiskUsageReport:
         """ディスク使用量チェック"""
-        
+
     def analyze_download_trends(self) -> TrendAnalysis:
         """ダウンロード傾向分析"""
 
@@ -318,8 +320,9 @@ class SystemMetrics:
     total_data_size: int = 0
     last_successful_run: Optional[datetime] = None
     error_counts: Dict[str, int] = field(default_factory=dict)
-```
-```
+````
+
+````
 
 ## Data Models
 
@@ -378,7 +381,7 @@ class ExecutionResult:
     execution_time: timedelta
     errors: List[Exception]
     checkpoint_created: bool
-```
+````
 
 ### Configuration Models
 
@@ -420,7 +423,7 @@ class RetryHandler:
     def __init__(self, max_retries: int = 3, base_delay: float = 1.0):
         self.max_retries = max_retries
         self.base_delay = base_delay
-    
+
     async def execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
         """指数バックオフによるリトライ実行"""
         for attempt in range(self.max_retries + 1):
@@ -453,7 +456,7 @@ class ErrorHandler:
     def handle_error(self, error: Exception, context: Dict) -> ErrorResponse:
         """エラータイプに応じた処理"""
         error_type = ErrorClassifier.classify_error(error)
-        
+
         if error_type == ErrorType.RATE_LIMIT:
             return ErrorResponse(action=Action.BACKOFF, delay=300)
         elif error_type == ErrorType.NETWORK_TIMEOUT:
@@ -472,20 +475,20 @@ class ErrorHandler:
 class TestDataFetcher:
     def test_fetch_with_retry_success(self):
         """正常なリトライ処理のテスト"""
-        
+
     def test_fetch_with_retry_max_exceeded(self):
         """最大リトライ回数超過のテスト"""
-        
+
     def test_rate_limiting(self):
         """レート制限処理のテスト"""
 
 class TestStorageManager:
     def test_file_organization(self):
         """ファイル整理機能のテスト"""
-        
+
     def test_duplicate_detection(self):
         """重複検出機能のテスト"""
-        
+
     def test_git_operations(self):
         """Git操作のテスト"""
 ```
@@ -496,10 +499,10 @@ class TestStorageManager:
 class TestEndToEndWorkflow:
     def test_complete_data_collection_workflow(self):
         """完全なデータ収集ワークフローのテスト"""
-        
+
     def test_error_recovery_workflow(self):
         """エラー回復ワークフローのテスト"""
-        
+
     def test_github_actions_integration(self):
         """GitHub Actions統合テスト"""
 ```
@@ -510,10 +513,10 @@ class TestEndToEndWorkflow:
 class TestPerformance:
     def test_large_date_range_processing(self):
         """大量データ処理のパフォーマンステスト"""
-        
+
     def test_memory_usage_monitoring(self):
         """メモリ使用量監視テスト"""
-        
+
     def test_concurrent_downloads(self):
         """並列ダウンロードのテスト"""
 ```
@@ -538,10 +541,10 @@ class TestPerformance:
 class SecurityValidator:
     def validate_environment(self) -> SecurityReport:
         """実行環境のセキュリティ検証"""
-        
+
     def check_dependencies(self) -> VulnerabilityReport:
         """依存関係の脆弱性チェック"""
-        
+
     def sanitize_logs(self, log_message: str) -> str:
         """ログメッセージの機密情報マスキング"""
 ```
@@ -555,7 +558,7 @@ class ParallelDataFetcher:
     def __init__(self, max_workers: int = 4):
         self.max_workers = max_workers
         self.semaphore = asyncio.Semaphore(max_workers)
-    
+
     async def fetch_multiple_dates(self, date_ranges: List[DateRange]) -> List[FetchResult]:
         """並列データ取得"""
         tasks = [self.fetch_date_range_with_semaphore(dr) for dr in date_ranges]
@@ -580,10 +583,10 @@ class DataCache:
     def __init__(self, cache_dir: Path, ttl_hours: int = 24):
         self.cache_dir = cache_dir
         self.ttl = timedelta(hours=ttl_hours)
-    
+
     def get_cached_data(self, cache_key: str) -> Optional[bytes]:
         """キャッシュデータの取得"""
-        
+
     def cache_data(self, cache_key: str, data: bytes) -> None:
         """データのキャッシュ保存"""
 
@@ -592,34 +595,36 @@ class DataCache:
 ### Repository Structure
 
 ```
+
 tokyo-epidemic-data-automation/
 ├── .github/
-│   └── workflows/
-│       ├── data-collection.yml      # メインデータ収集ワークフロー
-│       ├── data-validation.yml      # データ検証ワークフロー
-│       └── cleanup.yml              # 定期クリーンアップ
+│ └── workflows/
+│ ├── data-collection.yml # メインデータ収集ワークフロー
+│ ├── data-validation.yml # データ検証ワークフロー
+│ └── cleanup.yml # 定期クリーンアップ
 ├── src/
-│   ├── fetchers/
-│   │   ├── __init__.py
-│   │   ├── base_fetcher.py          # 既存のTokyoEpidemicSurveillanceFetcher
-│   │   └── enhanced_fetcher.py      # 拡張版フェッチャー
-│   ├── managers/
-│   │   ├── config_manager.py
-│   │   ├── storage_manager.py
-│   │   └── execution_manager.py
-│   ├── quality/
-│   │   ├── validators.py
-│   │   └── anomaly_detector.py
-│   └── notifications/
-│       └── github_notifier.py
+│ ├── fetchers/
+│ │ ├── **init**.py
+│ │ ├── base_fetcher.py # 既存のTokyoEpidemicSurveillanceFetcher
+│ │ └── enhanced_fetcher.py # 拡張版フェッチャー
+│ ├── managers/
+│ │ ├── config_manager.py
+│ │ ├── storage_manager.py
+│ │ └── execution_manager.py
+│ ├── quality/
+│ │ ├── validators.py
+│ │ └── anomaly_detector.py
+│ └── notifications/
+│ └── github_notifier.py
 ├── config/
-│   ├── config.yml                   # メイン設定ファイル
-│   └── data_types.yml              # データタイプ定義
-├── data/                           # データ保存ディレクトリ
+│ ├── config.yml # メイン設定ファイル
+│ └── data_types.yml # データタイプ定義
+├── data/ # データ保存ディレクトリ
 ├── tests/
 ├── requirements.txt
 └── README.md
-```
+
+````
 
 ### Environment Variables
 
@@ -632,7 +637,7 @@ NOTIFICATION_TOKEN     # Issue作成用（必要に応じて）
 DATA_COLLECTION_CONFIG # 設定ファイルパスのオーバーライド
 LOG_LEVEL             # ログレベル設定
 DRY_RUN               # テスト実行モード
-```
+````
 
 ### Continuous Integration
 
@@ -648,7 +653,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run tests
@@ -659,4 +664,7 @@ jobs:
           black --check src/
           mypy src/
 ```
+
+```
+
 ```

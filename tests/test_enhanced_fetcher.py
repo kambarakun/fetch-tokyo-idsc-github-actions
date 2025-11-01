@@ -2,24 +2,24 @@
 拡張フェッチャーのユニットテスト
 """
 
-import unittest
-from unittest.mock import Mock, patch, MagicMock
 import asyncio
-from datetime import datetime
 import hashlib
-
 import sys
+import unittest
+from datetime import datetime
 from pathlib import Path
+from unittest.mock import Mock, patch
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.fetchers.enhanced_fetcher import (
-    EnhancedEpidemicDataFetcher,
     DataFetcherConfig,
-    RetryHandler,
-    RateLimiter,
+    EnhancedEpidemicDataFetcher,
     FetchParams,
     FetchResult,
-    FileMetadata
+    FileMetadata,
+    RateLimiter,
+    RetryHandler,
 )
 
 
@@ -27,12 +27,7 @@ class TestRetryHandler(unittest.TestCase):
     """RetryHandlerのテスト"""
 
     def setUp(self):
-        self.config = DataFetcherConfig(
-            max_retries=3,
-            base_delay=1.0,
-            max_delay=10.0,
-            enable_jitter=False
-        )
+        self.config = DataFetcherConfig(max_retries=3, base_delay=1.0, max_delay=10.0, enable_jitter=False)
         self.handler = RetryHandler(self.config)
 
     def test_calculate_delay(self):
@@ -54,9 +49,10 @@ class TestRetryHandler(unittest.TestCase):
         self.assertGreaterEqual(delay, 2.0)
         self.assertLessEqual(delay, 2.5)
 
-    @patch('asyncio.sleep')
+    @patch("asyncio.sleep")
     async def test_execute_with_retry_success(self, mock_sleep):
         """成功時のリトライ処理テスト"""
+
         async def success_func():
             return "success"
 
@@ -64,7 +60,7 @@ class TestRetryHandler(unittest.TestCase):
         self.assertEqual(result, "success")
         mock_sleep.assert_not_called()
 
-    @patch('asyncio.sleep')
+    @patch("asyncio.sleep")
     async def test_execute_with_retry_eventual_success(self, mock_sleep):
         """最終的に成功するリトライ処理のテスト"""
         call_count = 0
@@ -80,9 +76,10 @@ class TestRetryHandler(unittest.TestCase):
         self.assertEqual(result, "success")
         self.assertEqual(mock_sleep.call_count, 2)
 
-    @patch('asyncio.sleep')
+    @patch("asyncio.sleep")
     async def test_execute_with_retry_max_exceeded(self, mock_sleep):
         """最大リトライ回数超過のテスト"""
+
         async def always_fail_func():
             raise ConnectionError("Always fails")
 
@@ -95,8 +92,8 @@ class TestRetryHandler(unittest.TestCase):
 class TestRateLimiter(unittest.TestCase):
     """RateLimiterのテスト"""
 
-    @patch('time.time')
-    @patch('asyncio.sleep')
+    @patch("time.time")
+    @patch("asyncio.sleep")
     async def test_rate_limiting(self, mock_sleep, mock_time):
         """レート制限のテスト"""
         # 時刻をモック
@@ -122,15 +119,10 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
     """EnhancedEpidemicDataFetcherのテスト"""
 
     def setUp(self):
-        self.config = DataFetcherConfig(
-            max_retries=2,
-            base_delay=0.1,
-            timeout=10,
-            rate_limit_delay=0.1
-        )
+        self.config = DataFetcherConfig(max_retries=2, base_delay=0.1, timeout=10, rate_limit_delay=0.1)
         self.fetcher = EnhancedEpidemicDataFetcher(self.config)
 
-    @patch('src.fetchers.enhanced_fetcher.requests.Session.post')
+    @patch("src.fetchers.base_fetcher.requests.Session.post")
     def test_fetch_with_retry_success(self, mock_post):
         """正常なデータ取得のテスト"""
         # モックレスポンス
@@ -142,10 +134,10 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         # データ取得（基本フェッチャーのパラメータのみを渡す）
         result = self.fetcher.fetch_with_retry(
             self.fetcher.fetch_csv_sentinel_weekly_gender,
-            start_year='2025',
-            start_sub_period='1',
-            end_year='2025',
-            end_sub_period='1'
+            start_year="2025",
+            start_sub_period="1",
+            end_year="2025",
+            end_sub_period="1",
         )
 
         self.assertTrue(result.success)
@@ -153,17 +145,17 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertIsNotNone(result.metadata)
         self.assertEqual(result.metadata.file_size, len(b"test,data\n1,2"))
 
-    @patch('src.fetchers.enhanced_fetcher.requests.Session.post')
+    @patch("src.fetchers.base_fetcher.requests.Session.post")
     def test_fetch_with_retry_failure(self, mock_post):
         """データ取得失敗のテスト"""
         mock_post.side_effect = ConnectionError("Network error")
 
         result = self.fetcher.fetch_with_retry(
             self.fetcher.fetch_csv_sentinel_weekly_gender,
-            start_year='2025',
-            start_sub_period='1',
-            end_year='2025',
-            end_sub_period='1'
+            start_year="2025",
+            start_sub_period="1",
+            end_year="2025",
+            end_sub_period="1",
         )
 
         self.assertFalse(result.success)
@@ -179,47 +171,41 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
 
     def test_get_report_type(self):
         """レポートタイプ取得のテスト"""
-        self.assertEqual(self.fetcher._get_report_type('sentinel_weekly_gender'), '1')
-        self.assertEqual(self.fetcher._get_report_type('sentinel_weekly_age'), '0')
-        self.assertEqual(self.fetcher._get_report_type('sentinel_monthly_gender'), '15')
-        self.assertEqual(self.fetcher._get_report_type('notifiable_weekly'), '20')
-        self.assertEqual(self.fetcher._get_report_type('unknown'), '0')
+        self.assertEqual(self.fetcher._get_report_type("sentinel_weekly_gender"), "1")
+        self.assertEqual(self.fetcher._get_report_type("sentinel_weekly_age"), "0")
+        self.assertEqual(self.fetcher._get_report_type("sentinel_monthly_gender"), "15")
+        self.assertEqual(self.fetcher._get_report_type("notifiable_weekly"), "20")
+        self.assertEqual(self.fetcher._get_report_type("unknown"), "0")
 
     def test_create_metadata(self):
         """メタデータ生成のテスト"""
         data = b"test data"
         params = {
-            'data_type': 'sentinel_weekly_gender',
-            'report_type': '1',
-            'start_year': '2025',
-            'start_sub_period': '1',
-            'end_year': '2025',
-            'end_sub_period': '1'
+            "data_type": "sentinel_weekly_gender",
+            "report_type": "1",
+            "start_year": "2025",
+            "start_sub_period": "1",
+            "end_year": "2025",
+            "end_sub_period": "1",
         }
 
         metadata = self.fetcher._create_metadata(data, params)
 
-        self.assertEqual(metadata.data_type, 'sentinel_weekly_gender')
+        self.assertEqual(metadata.data_type, "sentinel_weekly_gender")
         self.assertEqual(metadata.file_size, len(data))
-        self.assertEqual(
-            metadata.sha256_hash,
-            hashlib.sha256(data).hexdigest()
-        )
-        self.assertIn('2025', metadata.date_range)
+        self.assertEqual(metadata.sha256_hash, hashlib.sha256(data).hexdigest())
+        self.assertIn("2025", metadata.date_range)
 
     def test_get_missing_data(self):
         """欠損データ特定のテスト"""
         # 既存ファイルのモック
         existing_files = [
-            Path('sentinel_weekly_gender_2025_1_20250101_120000.csv'),
-            Path('sentinel_weekly_gender_2025_3_20250115_120000.csv')
+            Path("sentinel_weekly_gender_2025_1_20250101_120000.csv"),
+            Path("sentinel_weekly_gender_2025_3_20250115_120000.csv"),
         ]
 
         missing_params = self.fetcher.get_missing_data(
-            'sentinel_weekly_gender',
-            existing_files,
-            start_year=2025,
-            end_year=2025
+            "sentinel_weekly_gender", existing_files, start_year=2025, end_year=2025
         )
 
         # 2025年の週2が欠損として検出されるはず
@@ -228,21 +214,13 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertNotIn(1, missing_weeks)
         self.assertNotIn(3, missing_weeks)
 
-    @patch('time.sleep')
+    @patch("time.sleep")
     def test_fetch_date_range(self, mock_sleep):
         """日付範囲での一括取得のテスト"""
-        with patch.object(self.fetcher, 'fetch_with_retry') as mock_fetch:
-            mock_fetch.return_value = FetchResult(
-                success=True,
-                data=b"test",
-                metadata=None
-            )
+        with patch.object(self.fetcher, "fetch_with_retry") as mock_fetch:
+            mock_fetch.return_value = FetchResult(success=True, data=b"test", metadata=None)
 
-            results = self.fetcher.fetch_date_range(
-                'sentinel_weekly_gender',
-                start_date=(2025, 1),
-                end_date=(2025, 3)
-            )
+            results = self.fetcher.fetch_date_range("sentinel_weekly_gender", start_date=(2025, 1), end_date=(2025, 3))
 
             self.assertEqual(len(results), 3)
             self.assertEqual(mock_fetch.call_count, 3)
@@ -256,18 +234,18 @@ class TestFetchParams(unittest.TestCase):
     def test_fetch_params_creation(self):
         """FetchParams作成のテスト"""
         params = FetchParams(
-            start_year='2025',
-            start_sub_period='1',
-            end_year='2025',
-            end_sub_period='1',
-            data_type='sentinel_weekly_gender',
-            report_type='1'
+            start_year="2025",
+            start_sub_period="1",
+            end_year="2025",
+            end_sub_period="1",
+            data_type="sentinel_weekly_gender",
+            report_type="1",
         )
 
-        self.assertEqual(params.start_year, '2025')
-        self.assertEqual(params.start_sub_period, '1')
-        self.assertEqual(params.pref_code, '13')  # デフォルト値
-        self.assertEqual(params.hc_code, '00')    # デフォルト値
+        self.assertEqual(params.start_year, "2025")
+        self.assertEqual(params.start_sub_period, "1")
+        self.assertEqual(params.pref_code, "13")  # デフォルト値
+        self.assertEqual(params.hc_code, "00")  # デフォルト値
 
 
 class TestFileMetadata(unittest.TestCase):
@@ -277,20 +255,20 @@ class TestFileMetadata(unittest.TestCase):
         """FileMetadata作成のテスト"""
         now = datetime.now()
         metadata = FileMetadata(
-            filename='test.csv',
-            data_type='sentinel_weekly_gender',
-            date_range='2025_1',
+            filename="test.csv",
+            data_type="sentinel_weekly_gender",
+            date_range="2025_1",
             timestamp=now,
             file_size=1024,
-            sha256_hash='abc123'
+            sha256_hash="abc123",
         )
 
-        self.assertEqual(metadata.filename, 'test.csv')
-        self.assertEqual(metadata.encoding, 'shift_jis')  # デフォルト値
+        self.assertEqual(metadata.filename, "test.csv")
+        self.assertEqual(metadata.encoding, "shift_jis")  # デフォルト値
         self.assertEqual(metadata.file_size, 1024)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # 非同期テストのサポート
     def async_test(coro):
         def wrapper(*args, **kwargs):
@@ -299,17 +277,18 @@ if __name__ == '__main__':
                 return loop.run_until_complete(coro(*args, **kwargs))
             finally:
                 loop.close()
+
         return wrapper
 
     # 非同期テストメソッドをラップ
     for attr_name in dir(TestRetryHandler):
         attr = getattr(TestRetryHandler, attr_name)
-        if callable(attr) and attr_name.startswith('test_') and asyncio.iscoroutinefunction(attr):
+        if callable(attr) and attr_name.startswith("test_") and asyncio.iscoroutinefunction(attr):
             setattr(TestRetryHandler, attr_name, async_test(attr))
 
     for attr_name in dir(TestRateLimiter):
         attr = getattr(TestRateLimiter, attr_name)
-        if callable(attr) and attr_name.startswith('test_') and asyncio.iscoroutinefunction(attr):
+        if callable(attr) and attr_name.startswith("test_") and asyncio.iscoroutinefunction(attr):
             setattr(TestRateLimiter, attr_name, async_test(attr))
 
     unittest.main()

@@ -2,16 +2,16 @@
 
 # スケジュール設定
 schedule:
-  cron: "0 10 * * 1"  # 毎週月曜日 19:00 JST (10:00 UTC)
+  cron: "0 10 * * 1" # 毎週月曜日 19:00 JST (10:00 UTC)
   timezone: "Asia/Tokyo"
   manual_trigger_enabled: true
 
 # データ収集設定
 collection:
-  incremental_mode: true  # 増分収集モード（既存データをスキップ）
-  batch_size: 50  # 一度に処理するファイル数
-  start_year: 2024  # デフォルトの開始年（初回は2000年から実行推奨）
-  end_year: null  # null の場合は現在年
+  incremental_mode: true # 増分収集モード（既存データをスキップ）
+  batch_size: 50 # 一度に処理するファイル数
+  start_year: 2024 # デフォルトの開始年（初回は2000年から実行推奨）
+  end_year: null # null の場合は現在年
   data_types:
     - sentinel_weekly_gender
     - sentinel_weekly_age
@@ -23,22 +23,22 @@ collection:
     - sentinel_monthly_medical_district
     - notifiable_weekly
   retry_failed: true
-  max_execution_time_hours: 5.5  # GitHub Actions の6時間制限対策
+  max_execution_time_hours: 5.5 # GitHub Actions の6時間制限対策
 
 # ストレージ設定
 storage:
   base_directory: "data/raw"
   processed_directory: "data/processed"
   log_directory: "data/logs"
-  directory_structure: "{year}/{month}/week_{week}"  # ディレクトリ構造
+  directory_structure: "{year}/{month}/week_{week}" # ディレクトリ構造
   auto_commit: true
   commit_message_template: "データ更新: {data_type} - {date_range}"
-  keep_shift_jis: true  # Shift_JIS エンコーディングを維持
+  keep_shift_jis: true # Shift_JIS エンコーディングを維持
 
 # 品質管理設定
 quality:
   file_size_limits:
-    csv: [100, 10485760]  # 100B - 10MB
+    csv: [100, 10485760] # 100B - 10MB
   anomaly_detection_enabled: true
   anomaly_threshold: 0.3
   quarantine_enabled: true
@@ -48,7 +48,7 @@ quality:
 notifications:
   github_issues_enabled: true
   create_issue_on_error: true
-  create_issue_on_anomaly: false  # 異常検出時のIssue作成（初期は無効）
+  create_issue_on_anomaly: false # 異常検出時のIssue作成（初期は無効）
   issue_labels:
     - data-collection
     - automated
