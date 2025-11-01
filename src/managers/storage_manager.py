@@ -6,10 +6,10 @@ import hashlib
 import json
 import logging
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +19,9 @@ class SaveResult:
     """保存結果"""
 
     success: bool
-    file_path: Optional[Path] = None
-    metadata_path: Optional[Path] = None
-    error: Optional[str] = None
+    file_path: Path | None = None
+    metadata_path: Path | None = None
+    error: str | None = None
     is_duplicate: bool = False
 
 
@@ -30,9 +30,9 @@ class CommitResult:
     """Git コミット結果"""
 
     success: bool
-    commit_hash: Optional[str] = None
-    message: Optional[str] = None
-    error: Optional[str] = None
+    commit_hash: str | None = None
+    message: str | None = None
+    error: str | None = None
 
 
 class GitHandler:
@@ -51,7 +51,7 @@ class GitHandler:
         except Exception:
             return False
 
-    def add_files(self, files: List[Path]) -> bool:
+    def add_files(self, files: list[Path]) -> bool:
         """ファイルをGitに追加"""
         try:
             file_paths = [str(f) for f in files if f.exists()]
@@ -100,7 +100,7 @@ class GitHandler:
 class StorageManager:
     """ストレージ管理クラス"""
 
-    def __init__(self, base_path: Path, config: Dict[str, Any]):
+    def __init__(self, base_path: Path, config: dict[str, Any]):
         self.base_path = Path(base_path)
         self.config = config
         self.git_handler = GitHandler(config.get("auto_commit", True))
@@ -136,7 +136,7 @@ class StorageManager:
         year: int,
         period: int,
         is_monthly: bool = False,
-        additional_metadata: Optional[Dict[str, Any]] = None,
+        additional_metadata: dict[str, Any] | None = None,
     ) -> SaveResult:
         """メタデータ付きファイル保存"""
         try:
@@ -196,7 +196,7 @@ class StorageManager:
             return SaveResult(success=False, error=str(e))
 
     def commit_changes(
-        self, message: Optional[str] = None, data_type: Optional[str] = None, date_range: Optional[str] = None
+        self, message: str | None = None, data_type: str | None = None, date_range: str | None = None
     ) -> CommitResult:
         """Git自動コミット"""
         if not self.git_handler.auto_commit:
@@ -227,11 +227,11 @@ class StorageManager:
         """重複ファイルチェック"""
         return file_hash in self.hash_index
 
-    def _load_hash_index(self) -> Dict[str, str]:
+    def _load_hash_index(self) -> dict[str, str]:
         """ハッシュインデックスの読み込み"""
         if self.hash_index_file.exists():
             try:
-                with open(self.hash_index_file, "r") as f:
+                with open(self.hash_index_file) as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load hash index: {e}")
@@ -254,7 +254,7 @@ class StorageManager:
         target_date = week_start + timedelta(weeks=week - 1)
         return target_date.month
 
-    def get_existing_files(self, data_type: Optional[str] = None, year: Optional[int] = None) -> List[Path]:
+    def get_existing_files(self, data_type: str | None = None, year: int | None = None) -> list[Path]:
         """既存ファイルの取得"""
         pattern = "*.csv"
 
@@ -270,13 +270,13 @@ class StorageManager:
 
         return sorted(files)
 
-    def get_metadata(self, file_path: Path) -> Optional[Dict[str, Any]]:
+    def get_metadata(self, file_path: Path) -> dict[str, Any] | None:
         """ファイルのメタデータ取得"""
         metadata_path = file_path.parent / f"{file_path.stem}_metadata.json"
 
         if metadata_path.exists():
             try:
-                with open(metadata_path, "r") as f:
+                with open(metadata_path) as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load metadata: {e}")
@@ -310,7 +310,7 @@ class StorageManager:
         logger.info(f"Cleanup completed. Deleted {deleted_count} files.")
         return deleted_count
 
-    def get_storage_stats(self) -> Dict[str, Any]:
+    def get_storage_stats(self) -> dict[str, Any]:
         """ストレージ統計情報の取得"""
         total_files = 0
         total_size = 0

@@ -4,25 +4,24 @@
 """
 
 import argparse
-import asyncio
 import json
 import logging
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # プロジェクトのルートディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchParams, FetchResult
+from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchParams
 from src.managers.config_manager import ConfigurationManager, DataCollectionConfig
 from src.managers.storage_manager import StorageManager
 
 
 # ロギング設定
-def setup_logging(log_file: Optional[str] = None, log_level: str = "INFO"):
+def setup_logging(log_file: str | None = None, log_level: str = "INFO"):
     """ロギングのセットアップ"""
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
@@ -70,8 +69,8 @@ class DataCollector:
         }
 
     def collect_data(
-        self, data_types: Optional[List[str]] = None, start_year: Optional[int] = None, end_year: Optional[int] = None
-    ) -> Dict[str, Any]:
+        self, data_types: list[str] | None = None, start_year: int | None = None, end_year: int | None = None
+    ) -> dict[str, Any]:
         """データ収集のメイン処理"""
         self.stats["start_time"] = datetime.now()
         self.logger.info(f"データ収集開始: {self.stats['start_time']}")
@@ -124,7 +123,7 @@ class DataCollector:
                 self.logger.warning("実行時間制限に近づいています。処理を中断します。")
                 break
 
-    def _process_batch(self, params_batch: List[FetchParams], data_type: str, is_monthly: bool):
+    def _process_batch(self, params_batch: list[FetchParams], data_type: str, is_monthly: bool):
         """バッチ処理"""
         for params in params_batch:
             self.stats["total_files"] += 1
@@ -196,7 +195,7 @@ class DataCollector:
 
     def _generate_all_params(
         self, data_type: str, start_year: int, end_year: int, is_monthly: bool
-    ) -> List[FetchParams]:
+    ) -> list[FetchParams]:
         """全期間のパラメータを生成"""
         params_list = []
         current_date = datetime.now()
@@ -270,7 +269,7 @@ class DataCollector:
                 self.logger.info(f"変更をコミットしました: {commit_result.message}")
             else:
                 self.logger.warning(f"コミット失敗: {commit_result.error}")
-        except Exception as e:
+        except Exception:
             self.logger.exception("コミット中にエラー")
 
     def _print_statistics(self):

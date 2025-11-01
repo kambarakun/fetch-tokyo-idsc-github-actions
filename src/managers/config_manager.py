@@ -3,11 +3,10 @@
 """
 
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -21,7 +20,7 @@ class DataTypeConfig:
     name: str
     enabled: bool = True
     fetch_method: str = ""
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
     epid_code: str = "00"  # 感染症コード
 
 
@@ -51,7 +50,7 @@ class StorageConfig:
 class QualityConfig:
     """品質管理設定"""
 
-    file_size_limits: Dict[str, tuple] = field(default_factory=lambda: {"csv": (100, 10485760)})  # 100B - 10MB
+    file_size_limits: dict[str, tuple] = field(default_factory=lambda: {"csv": (100, 10485760)})  # 100B - 10MB
     anomaly_detection_enabled: bool = True
     anomaly_threshold: float = 0.3
     quarantine_enabled: bool = True
@@ -65,7 +64,7 @@ class NotificationConfig:
     github_issues_enabled: bool = True
     create_issue_on_error: bool = True
     create_issue_on_anomaly: bool = True
-    issue_labels: List[str] = field(default_factory=lambda: ["data-collection", "automated"])
+    issue_labels: list[str] = field(default_factory=lambda: ["data-collection", "automated"])
     max_issues_per_day: int = 10
 
 
@@ -76,8 +75,8 @@ class CollectionConfig:
     incremental_mode: bool = True  # 増分収集モード
     batch_size: int = 50  # 一度に処理するファイル数
     start_year: int = 2000
-    end_year: Optional[int] = None  # Noneの場合は現在年
-    data_types_to_collect: List[str] = field(
+    end_year: int | None = None  # Noneの場合は現在年
+    data_types_to_collect: list[str] = field(
         default_factory=lambda: [
             "sentinel_weekly_gender",
             "sentinel_weekly_age",
@@ -103,7 +102,7 @@ class DataCollectionConfig:
     storage: StorageConfig = field(default_factory=StorageConfig)
     quality: QualityConfig = field(default_factory=QualityConfig)
     notifications: NotificationConfig = field(default_factory=NotificationConfig)
-    data_types: List[DataTypeConfig] = field(default_factory=list)
+    data_types: list[DataTypeConfig] = field(default_factory=list)
 
 
 class ValidationResult:
@@ -127,11 +126,11 @@ class ConfigurationManager:
 
     DEFAULT_CONFIG_PATH = Path("config/config.yml")
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         self.config_path = config_path or self.DEFAULT_CONFIG_PATH
-        self.config: Optional[DataCollectionConfig] = None
+        self.config: DataCollectionConfig | None = None
 
-    def load_config(self, config_path: Optional[Path] = None) -> DataCollectionConfig:
+    def load_config(self, config_path: Path | None = None) -> DataCollectionConfig:
         """設定ファイルの読み込みと検証"""
         config_path = config_path or self.config_path
 
@@ -141,7 +140,7 @@ class ConfigurationManager:
             return self.config
 
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config_dict = yaml.safe_load(f) or {}
 
             self.config = self._parse_config(config_dict)
@@ -201,7 +200,7 @@ class ConfigurationManager:
 
         return result
 
-    def _parse_config(self, config_dict: Dict[str, Any]) -> DataCollectionConfig:
+    def _parse_config(self, config_dict: dict[str, Any]) -> DataCollectionConfig:
         """辞書から設定オブジェクトへの変換"""
         config = DataCollectionConfig()
 
@@ -327,7 +326,7 @@ class ConfigurationManager:
 
         return config
 
-    def save_config(self, config: DataCollectionConfig, path: Optional[Path] = None):
+    def save_config(self, config: DataCollectionConfig, path: Path | None = None):
         """設定をファイルに保存"""
         path = path or self.config_path
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -339,7 +338,7 @@ class ConfigurationManager:
 
         logger.info(f"Configuration saved to {path}")
 
-    def _config_to_dict(self, config: DataCollectionConfig) -> Dict[str, Any]:
+    def _config_to_dict(self, config: DataCollectionConfig) -> dict[str, Any]:
         """設定オブジェクトを辞書に変換"""
         return {
             "schedule": {
@@ -391,7 +390,7 @@ class ConfigurationManager:
             ],
         }
 
-    def get_enabled_data_types(self) -> List[DataTypeConfig]:
+    def get_enabled_data_types(self) -> list[DataTypeConfig]:
         """有効なデータタイプのみを取得"""
         if not self.config:
             self.load_config()

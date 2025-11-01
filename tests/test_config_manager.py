@@ -6,9 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, mock_open, patch
-
-import yaml
+from unittest.mock import mock_open, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -17,8 +15,6 @@ from src.managers.config_manager import (
     ConfigurationManager,
     DataCollectionConfig,
     DataTypeConfig,
-    NotificationConfig,
-    QualityConfig,
     ScheduleConfig,
     StorageConfig,
     ValidationResult,

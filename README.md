@@ -12,7 +12,7 @@
 
 ## 🚀 インストール
 
-### uvを使用（推奨）
+### uvを使用（完全推奨）
 
 ```bash
 # プロジェクトのクローン
@@ -24,13 +24,38 @@ uv sync
 
 # 開発用依存関係も含める場合
 uv sync --all-extras
+
+# pre-commitフックのインストール（開発者向け）
+uv run pre-commit install
 ```
 
-### pipを使用
+### pre-commitによるコード品質管理
+
+開発時はpre-commitを使用してコード品質を維持します：
 
 ```bash
-pip install -r requirements.txt
+# 初回設定（必須）
+uv run pre-commit install
+
+# すべてのファイルに対して手動実行
+uv run pre-commit run --all-files
+
+# 特定のフックのみ実行
+uv run pre-commit run black --all-files
+uv run pre-commit run isort --all-files
+
+# フックの自動更新
+uv run pre-commit autoupdate
 ```
+
+pre-commitによる自動チェック項目：
+
+- ✅ Pythonコードフォーマット（black, isort）
+- ✅ コード品質チェック（flake8, mypy）
+- ✅ ファイル末尾改行・空白削除
+- ✅ YAML/JSON構文チェック
+- ✅ シークレット検出
+- ✅ 大きなファイルの追加防止
 
 ## 📊 使用方法
 
@@ -53,9 +78,11 @@ uv run python scripts/check_missing.py data/raw
 ### GitHub Actions
 
 自動実行：
+
 - 毎週月曜日 19:00 JST に自動実行
 
 手動実行：
+
 1. GitHub リポジトリの Actions タブを開く
 2. "Fetch Tokyo Epidemic Data" ワークフローを選択
 3. "Run workflow" をクリック

@@ -8,13 +8,12 @@ import shutil
 import sys
 import tempfile
 import unittest
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, mock_open, patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.managers.storage_manager import CommitResult, GitHandler, SaveResult, StorageManager
+from src.managers.storage_manager import CommitResult, GitHandler, StorageManager
 
 
 class TestGitHandler(unittest.TestCase):

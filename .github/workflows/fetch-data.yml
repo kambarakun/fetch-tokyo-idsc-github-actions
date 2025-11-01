@@ -3,23 +3,23 @@ name: Fetch Tokyo Epidemic Data
 on:
   schedule:
     # 毎週月曜日 19:00 JST (10:00 UTC)
-    - cron: '0 10 * * 1'
+    - cron: "0 10 * * 1"
   workflow_dispatch:
     inputs:
       data_types:
-        description: 'データタイプ（カンマ区切り、空の場合は全て）'
+        description: "データタイプ（カンマ区切り、空の場合は全て）"
         required: false
-        default: ''
+        default: ""
       start_year:
-        description: '開始年（デフォルト: 現在年）'
+        description: "開始年（デフォルト: 現在年）"
         required: false
-        default: ''
+        default: ""
       end_year:
-        description: '終了年（デフォルト: 現在年）'
+        description: "終了年（デフォルト: 現在年）"
         required: false
-        default: ''
+        default: ""
       dry_run:
-        description: 'テスト実行（データ取得のみでコミットしない）'
+        description: "テスト実行（データ取得のみでコミットしない）"
         required: false
         type: boolean
         default: false
@@ -36,7 +36,7 @@ concurrency:
 jobs:
   fetch-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6時間制限
+    timeout-minutes: 360 # 6時間制限
 
     steps:
       - name: Checkout repository

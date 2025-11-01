@@ -15,11 +15,12 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "flake8>=6.0.0",
+    "ruff>=0.6.0",
     "mypy>=1.5.0",
     "isort>=5.12.0",
     "types-requests>=2.31.0",
     "types-PyYAML>=6.0.1",
+    "pre-commit>=3.5.0",
 ]
 
 [project.scripts]
@@ -45,6 +46,8 @@ line_length = 120
 python_version = "3.11"
 ignore_missing_imports = true
 no_strict_optional = true
+explicit_package_bases = true
+namespace_packages = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -69,3 +72,46 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    "RET",  # flake8-return
+    "PTH",  # flake8-use-pathlib
+    "PL",   # pylint
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "PLR0913", # Too many arguments to function call
+    "PLR2004", # Magic value used in comparison
+]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "*.egg-info",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "scripts", "tests"]

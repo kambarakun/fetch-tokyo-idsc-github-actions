@@ -7,13 +7,13 @@ import hashlib
 import logging
 import random
 import time
-from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
-import requests
-from requests.exceptions import HTTPError, RequestException, Timeout
+from requests.exceptions import HTTPError, Timeout
 
 from .base_fetcher import TokyoEpidemicSurveillanceFetcher
 
@@ -48,7 +48,7 @@ class FileMetadata:
     file_size: int
     sha256_hash: str
     encoding: str = "shift_jis"
-    fetch_params: Optional[FetchParams] = None
+    fetch_params: FetchParams | None = None
 
 
 @dataclass
@@ -56,11 +56,11 @@ class FetchResult:
     """データ取得結果"""
 
     success: bool
-    data: Optional[bytes] = None
-    metadata: Optional[FileMetadata] = None
-    error: Optional[Exception] = None
+    data: bytes | None = None
+    metadata: FileMetadata | None = None
+    error: Exception | None = None
     retry_count: int = 0
-    fetch_time: Optional[float] = None
+    fetch_time: float | None = None
 
 
 @dataclass
@@ -143,7 +143,7 @@ class RateLimiter:
 class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
     """拡張版感染症データフェッチャー"""
 
-    def __init__(self, config: Optional[DataFetcherConfig] = None):
+    def __init__(self, config: DataFetcherConfig | None = None):
         super().__init__()
         self.config = config or DataFetcherConfig()
         self.retry_handler = RetryHandler(self.config)
@@ -210,8 +210,12 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             loop.close()
 
     def fetch_date_range(
-        self, data_type: str, start_date: tuple[int, int], end_date: tuple[int, int], **kwargs  # (year, week/month)
-    ) -> List[FetchResult]:
+        self,
+        data_type: str,
+        start_date: tuple[int, int],
+        end_date: tuple[int, int],
+        **kwargs,  # (year, week/month)
+    ) -> list[FetchResult]:
         """日付範囲での一括取得"""
         results = []
         fetch_method = self.fetch_methods.get(data_type)
@@ -256,8 +260,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         return results
 
     def get_missing_data(
-        self, data_type: str, existing_files: List[Path], start_year: int = 2000, end_year: Optional[int] = None
-    ) -> List[FetchParams]:
+        self, data_type: str, existing_files: list[Path], start_year: int = 2000, end_year: int | None = None
+    ) -> list[FetchParams]:
         """欠損データの特定"""
         if end_year is None:
             end_year = datetime.now().year
@@ -298,7 +302,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return missing_params
 
-    def _create_metadata(self, data: bytes, params: Dict[str, Any]) -> FileMetadata:
+    def _create_metadata(self, data: bytes, params: dict[str, Any]) -> FileMetadata:
         """メタデータの生成"""
         timestamp = datetime.now()
         data_hash = hashlib.sha256(data).hexdigest()
@@ -348,7 +352,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         }
         return report_type_map.get(data_type, "0")
 
-    def _parse_existing_files(self, files: List[Path], data_type: str) -> List[FetchParams]:
+    def _parse_existing_files(self, files: list[Path], data_type: str) -> list[FetchParams]:
         """既存ファイルからパラメータを解析"""
         params_list = []
 
@@ -375,7 +379,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return params_list
 
-    def _is_params_in_existing(self, params: FetchParams, existing_params: List[FetchParams]) -> bool:
+    def _is_params_in_existing(self, params: FetchParams, existing_params: list[FetchParams]) -> bool:
         """パラメータが既存リストに含まれるか確認"""
         for existing in existing_params:
             if (

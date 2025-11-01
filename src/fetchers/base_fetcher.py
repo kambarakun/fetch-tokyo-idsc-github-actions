@@ -2,12 +2,6 @@
 東京都感染症発生動向情報システムからデータを取得する基底クラス
 """
 
-import hashlib
-import time
-from datetime import date, datetime
-from pathlib import Path
-from typing import Literal
-
 import requests
 
 
@@ -138,8 +132,7 @@ class TokyoEpidemicSurveillanceFetcher:
 
         if response.status_code == 200:
             return response.content
-        else:
-            raise Exception(f"Request failed with status code: {response.status_code}")
+        raise Exception(f"Request failed with status code: {response.status_code}")
 
     # ========== 定点監視 週報告分データ取得メソッド ==========
 
