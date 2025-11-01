@@ -197,11 +197,11 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertIn("2025", metadata.date_range)
 
     def test_get_missing_data(self):
-        """欠損データ特定のテスト"""
-        # 既存ファイルのモック
+        """欠損データ特定のテスト（新形式）"""
+        # 新形式の既存ファイルのモック
         existing_files = [
-            Path("sentinel_weekly_gender_2025_1_20250101_120000.csv"),
-            Path("sentinel_weekly_gender_2025_3_20250115_120000.csv"),
+            Path("sentinel_weekly_gender_2025_01.csv"),
+            Path("sentinel_weekly_gender_2025_03.csv"),
         ]
 
         missing_params = self.fetcher.get_missing_data(
@@ -213,6 +213,25 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertIn(2, missing_weeks)
         self.assertNotIn(1, missing_weeks)
         self.assertNotIn(3, missing_weeks)
+
+    def test_parse_both_filename_formats(self):
+        """新旧ファイル名形式の解析テスト"""
+        # 新旧両方の形式を含むファイルリスト
+        existing_files = [
+            Path("sentinel_weekly_gender_2025_01.csv"),  # 新形式
+            Path("sentinel_weekly_gender_2025_2_20250108_120000.csv"),  # 旧形式
+            Path("sentinel_weekly_gender_2025_03.csv"),  # 新形式
+        ]
+
+        # private methodの直接テスト
+        params = self.fetcher._parse_existing_files(existing_files, "sentinel_weekly_gender")
+
+        # 3つのファイルすべてが正しく解析される
+        self.assertEqual(len(params), 3)
+
+        # 各ファイルの週番号が正しく抽出される
+        periods = sorted([int(p.start_sub_period) for p in params])
+        self.assertEqual(periods, [1, 2, 3])
 
     @patch("time.sleep")
     def test_fetch_date_range(self, mock_sleep):
