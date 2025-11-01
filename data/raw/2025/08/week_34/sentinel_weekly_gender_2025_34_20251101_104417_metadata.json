@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_gender_2025_34_20251101_104417.csv",
+  "data_type": "sentinel_weekly_gender",
+  "year": 2025,
+  "period": 34,
+  "period_type": "week",
+  "timestamp": "2025-11-01T10:44:17.925390",
+  "file_size": 1119,
+  "sha256_hash": "47c36e14ccd3fb3fc471a8377ca7b57e1943c4bccb4e5d57c323058a553b1fa8",
+  "encoding": "shift_jis",
+  "file_path": "2025/08/week_34/sentinel_weekly_gender_2025_34_20251101_104417.csv",
+  "fetch_time": 0.37997937202453613
+}

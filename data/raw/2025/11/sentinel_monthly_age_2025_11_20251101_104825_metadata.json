@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_monthly_age_2025_11_20251101_104825.csv",
+  "data_type": "sentinel_monthly_age",
+  "year": 2025,
+  "period": 11,
+  "period_type": "month",
+  "timestamp": "2025-11-01T10:48:25.453527",
+  "file_size": 3485,
+  "sha256_hash": "ee1c8d88efb6b8e3ce15f39f8d25d85a49f5813f152e5437b0ba7889c0313ef7",
+  "encoding": "shift_jis",
+  "file_path": "2025/11/sentinel_monthly_age_2025_11_20251101_104825.csv",
+  "fetch_time": 0.49588918685913086
+}

@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_health_center_2025_14_20251101_104600.csv",
+  "data_type": "sentinel_weekly_health_center",
+  "year": 2025,
+  "period": 14,
+  "period_type": "week",
+  "timestamp": "2025-11-01T10:46:00.265067",
+  "file_size": 13981,
+  "sha256_hash": "744a4d3d14d7cfe03e28d506849e4904e19a0ee8913d3a5b3b597aa1dad486e0",
+  "encoding": "shift_jis",
+  "file_path": "2025/03/week_14/sentinel_weekly_health_center_2025_14_20251101_104600.csv",
+  "fetch_time": 0.495861291885376
+}
