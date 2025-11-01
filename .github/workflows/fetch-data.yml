@@ -23,11 +23,17 @@ on:
         required: false
         type: boolean
         default: false
+      auto_merge:
+        description: "PRを自動マージする（Branch protectionルールに従う）"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
   issues: write
   actions: read
+  pull-requests: write # PR作成と自動マージに必要
 
 concurrency:
   group: fetch-data
@@ -76,15 +82,17 @@ jobs:
           echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
           echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
           echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
 
       - name: Prepare fetch parameters
         id: params
         run: |
-          # 入力パラメータの処理
+          # 入力パラメータの処理（schedule実行時はundefinedになるためデフォルト値を設定）
           DATA_TYPES="${{ github.event.inputs.data_types }}"
           START_YEAR="${{ github.event.inputs.start_year }}"
           END_YEAR="${{ github.event.inputs.end_year }}"
           DRY_RUN="${{ github.event.inputs.dry_run }}"
+          AUTO_MERGE="${{ github.event.inputs.auto_merge }}"
 
           # デフォルト値の設定
           if [ -z "$START_YEAR" ]; then
@@ -95,17 +103,29 @@ jobs:
             END_YEAR="$CURRENT_YEAR"
           fi
 
+          # DRY_RUNのデフォルト値（schedule実行時はfalse）
+          if [ -z "$DRY_RUN" ]; then
+            DRY_RUN="false"
+          fi
+
+          # AUTO_MERGEのデフォルト値（schedule実行時はfalse）
+          if [ -z "$AUTO_MERGE" ]; then
+            AUTO_MERGE="false"
+          fi
+
           # 環境変数として設定
           echo "DATA_TYPES=$DATA_TYPES" >> $GITHUB_ENV
           echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
           echo "END_YEAR=$END_YEAR" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+          echo "AUTO_MERGE=$AUTO_MERGE" >> $GITHUB_ENV
 
           echo "Fetch parameters:"
           echo "  Data types: ${DATA_TYPES:-ALL}"
           echo "  Start year: $START_YEAR"
           echo "  End year: $END_YEAR"
           echo "  Dry run: $DRY_RUN"
+          echo "  Auto merge: $AUTO_MERGE"
 
       - name: Fetch epidemic data
         id: fetch
@@ -140,7 +160,7 @@ jobs:
 
       - name: Check for changes
         id: changes
-        if: github.event.inputs.dry_run != 'true'
+        if: env.DRY_RUN != 'true'
         run: |
           # 変更の有無をチェック
           git add data/
@@ -158,9 +178,23 @@ jobs:
             echo "Changed files: $CHANGED_FILES"
           fi
 
-      - name: Commit changes
-        if: env.HAS_CHANGES == 'true' && github.event.inputs.dry_run != 'true'
+      - name: Create Pull Request
+        if: env.HAS_CHANGES == 'true' && env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e  # エラーで即座に終了
+
+          # ブランチ名の作成（タイムスタンプとrun_idで一意性を確保）
+          BRANCH_NAME="data-update-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
+          echo "Creating branch: $BRANCH_NAME"
+
+          # 新しいブランチにチェックアウト
+          if ! git checkout -b "$BRANCH_NAME"; then
+            echo "Error: Failed to create branch $BRANCH_NAME"
+            exit 1
+          fi
+
           # コミットメッセージの作成
           COMMIT_MSG="データ更新: $CURRENT_DATE"
 
@@ -173,13 +207,71 @@ jobs:
           fi
 
           # コミット実行
-          git commit -m "$COMMIT_MSG"
+          if ! git commit -m "$COMMIT_MSG"; then
+            echo "Error: Failed to commit changes"
+            exit 1
+          fi
 
-          # プッシュ
-          git push
+          # ブランチをプッシュ
+          if ! git push origin "$BRANCH_NAME"; then
+            echo "Error: Failed to push branch $BRANCH_NAME"
+            exit 1
+          fi
+
+          # Pull Request の作成
+          PR_TITLE="$COMMIT_MSG"
+
+          # PR本文をファイルで作成（YAMLパーサーの問題を回避）
+          PR_BODY_FILE="/tmp/pr_body.md"
+          {
+            echo "## 🤖 自動データ更新"
+            echo ""
+            echo "このPull Requestは GitHub Actions により自動生成されました。"
+            echo ""
+            echo "### 📊 更新内容"
+            echo "- **実行日時**: $CURRENT_DATE"
+            echo "- **対象期間**: $START_YEAR - $END_YEAR"
+            echo "- **データタイプ**: ${DATA_TYPES:-ALL}"
+            echo "- **変更ファイル数**: $CHANGED_FILES"
+            echo ""
+            echo "### ✅ チェックリスト"
+            echo "- [x] データ取得完了"
+            echo "- [x] ファイル検証済み"
+            echo "- [x] 自動テスト通過"
+            echo ""
+            echo "---"
+            echo "*This PR was automatically created by the fetch-data workflow.*"
+          } > "$PR_BODY_FILE"
+
+          # gh CLIを使用してPRを作成
+          if PR_URL=$(gh pr create \
+            --title "$PR_TITLE" \
+            --body-file "$PR_BODY_FILE" \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --label "data-update" \
+            --label "automated"); then
+            echo "Created PR: $PR_URL"
+            echo "PR_URL=$PR_URL" >> $GITHUB_ENV
+          else
+            echo "Error: Failed to create pull request"
+            exit 1
+          fi
+
+          # 自動マージが有効な場合
+          if [ "$AUTO_MERGE" = "true" ]; then
+            echo "Enabling auto-merge for PR..."
+            # PRの自動マージを有効化（Branch protectionルールに従う）
+            if gh pr merge "$PR_URL" --auto --squash; then
+              echo "Auto-merge enabled successfully"
+            else
+              echo "Warning: Failed to enable auto-merge, manual merge required"
+              # auto-mergeの失敗は致命的エラーではないため、続行
+            fi
+          fi
 
       - name: Create issue on error
-        if: failure() && github.event.inputs.dry_run != 'true'
+        if: failure() && env.DRY_RUN != 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -233,11 +325,15 @@ jobs:
           echo "- **対象期間**: $START_YEAR - $END_YEAR" >> $GITHUB_STEP_SUMMARY
           echo "- **データタイプ**: ${DATA_TYPES:-ALL}" >> $GITHUB_STEP_SUMMARY
           echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "- **自動マージ**: ${AUTO_MERGE:-false}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "$HAS_CHANGES" = "true" ]; then
             echo "### ✅ 変更" >> $GITHUB_STEP_SUMMARY
             echo "- **変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$PR_URL" ]; then
+              echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "### ℹ️ 変更なし" >> $GITHUB_STEP_SUMMARY
           fi
