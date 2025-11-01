@@ -274,8 +274,8 @@ jobs:
               # ラベル定義を分解
               IFS='|' read -r label description color <<< "$label_def"
 
-              # ラベルの存在確認（完全一致）
-              if echo "$AVAILABLE_LABELS" | grep -xq "^${label}$"; then
+              # ラベルの存在確認（固定文字列として完全一致）
+              if echo "$AVAILABLE_LABELS" | grep -Fxq "$label"; then
                 echo "✓ Label exists: '$label'"
                 LABELS_TO_ADD+=("$label")
               else
@@ -286,7 +286,7 @@ jobs:
                   LABELS_TO_ADD+=("$label")
                 else
                   # エラーの詳細を確認
-                  if echo "$CREATE_OUTPUT" | grep -q "already exists"; then
+                  if echo "$CREATE_OUTPUT" | grep -Fq "already exists"; then
                     echo "  ✓ Label already exists (race condition), adding to PR"
                     LABELS_TO_ADD+=("$label")
                   else
@@ -333,18 +333,27 @@ jobs:
             echo "$PR_CREATE_OUTPUT"
 
             # 特定のエラーをチェックして詳細な情報を提供
-            if echo "$PR_CREATE_OUTPUT" | grep -q "already exists"; then
+            if echo "$PR_CREATE_OUTPUT" | grep -Fq "already exists"; then
               echo ""
               echo "ℹ️ A pull request already exists for this branch."
               echo "You may want to:"
               echo "  1. Close the existing PR and retry"
               echo "  2. Update the existing PR instead"
-            elif echo "$PR_CREATE_OUTPUT" | grep -q "authentication"; then
+              echo "  3. Use 'gh pr view $BRANCH_NAME' to check the existing PR"
+            elif echo "$PR_CREATE_OUTPUT" | grep -Fiq "authentication"; then
               echo ""
               echo "ℹ️ Authentication issue detected."
               echo "Please check:"
               echo "  1. GITHUB_TOKEN is properly set"
-              echo "  2. Token has necessary permissions"
+              echo "  2. Token has necessary permissions (contents: write, pull-requests: write)"
+              echo "  3. Token is not expired"
+            elif echo "$PR_CREATE_OUTPUT" | grep -Fiq "rate limit"; then
+              echo ""
+              echo "ℹ️ GitHub API rate limit exceeded."
+              echo "Please:"
+              echo "  1. Wait for rate limit to reset"
+              echo "  2. Check rate limit status: 'gh api rate_limit'"
+              echo "  3. Consider using a different token with higher limits"
             fi
 
             exit 1
