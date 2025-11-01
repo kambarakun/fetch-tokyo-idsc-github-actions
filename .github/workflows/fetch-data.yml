@@ -114,14 +114,26 @@ jobs:
         run: |
           echo "Starting data fetch at $FETCH_TIMESTAMP"
 
-          # メインスクリプトの実行
-          uv run python scripts/fetch_data.py \
-            --start-year "$START_YEAR" \
-            --end-year "$END_YEAR" \
-            ${DATA_TYPES:+--data-types "$DATA_TYPES"} \
-            ${DRY_RUN:+--dry-run} \
-            --log-file "data/logs/fetch_${FETCH_TIMESTAMP}.log" \
-            2>&1 | tee data/logs/console_${FETCH_TIMESTAMP}.log
+          # コマンドの構築（配列ベースで安全な実装）
+          FETCH_CMD=(uv run python scripts/fetch_data.py)
+          FETCH_CMD+=(--start-year "$START_YEAR")
+          FETCH_CMD+=(--end-year "$END_YEAR")
+
+          if [ -n "$DATA_TYPES" ]; then
+            FETCH_CMD+=(--data-types "$DATA_TYPES")
+          fi
+
+          # DRY_RUNがtrueの場合のみ--dry-runフラグを追加
+          if [ "$DRY_RUN" = "true" ]; then
+            FETCH_CMD+=(--dry-run)
+          fi
+
+          FETCH_CMD+=(--log-file "data/logs/fetch_${FETCH_TIMESTAMP}.log")
+
+          echo "Executing: ${FETCH_CMD[@]}"
+
+          # メインスクリプトの実行（配列展開による安全な実行）
+          "${FETCH_CMD[@]}" 2>&1 | tee data/logs/console_${FETCH_TIMESTAMP}.log
 
           # 実行結果の保存
           echo "FETCH_RESULT=$?" >> $GITHUB_ENV
