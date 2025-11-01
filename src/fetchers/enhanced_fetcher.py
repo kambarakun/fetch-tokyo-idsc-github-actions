@@ -13,7 +13,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from requests.exceptions import HTTPError, Timeout
+from requests.exceptions import ConnectionError, HTTPError, Timeout
 
 from .base_fetcher import TokyoEpidemicSurveillanceFetcher
 
@@ -98,8 +98,7 @@ class RetryHandler:
 
         for attempt in range(self.config.max_retries + 1):
             try:
-                result = await func(*args, **kwargs)
-                return result
+                return await func(*args, **kwargs)
 
             except (Timeout, ConnectionError, HTTPError) as e:
                 last_error = e
@@ -117,12 +116,13 @@ class RetryHandler:
                     logger.error(f"Max retries exceeded. Last error: {e}")
                     raise
 
-            except Exception as e:
-                logger.error(f"Unexpected error: {e}")
+            except (ValueError, OSError):
+                logger.exception("Unexpected error during retry")
                 raise
 
         if last_error:
             raise last_error
+        return None
 
 
 class RateLimiter:
@@ -197,8 +197,12 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                 success=True, data=data, metadata=metadata, retry_count=retry_count, fetch_time=time.time() - start_time
             )
 
+        except (HTTPError, Timeout, ConnectionError, ValueError, OSError) as e:
+            logger.exception("Failed to fetch data")
+            return FetchResult(success=False, error=e, retry_count=retry_count, fetch_time=time.time() - start_time)
         except Exception as e:
-            logger.error(f"Failed to fetch data: {e}")
+            # その他の予期しない例外もキャッチして処理
+            logger.exception("Unexpected error during fetch")
             return FetchResult(success=False, error=e, retry_count=retry_count, fetch_time=time.time() - start_time)
 
     def fetch_with_retry(self, fetch_method: Callable, **params) -> FetchResult:

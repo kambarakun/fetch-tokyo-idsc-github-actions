@@ -2,6 +2,8 @@
 東京都感染症発生動向情報システムからデータを取得する基底クラス
 """
 
+from typing import ClassVar
+
 import requests
 
 
@@ -65,7 +67,7 @@ class TokyoEpidemicSurveillanceFetcher:
     BASE_URL = "https://survey.tmiph.metro.tokyo.lg.jp/epidinfo"
 
     # reportTypeとURLのマッピング
-    ENDPOINT_MAP = {
+    ENDPOINT_MAP: ClassVar[dict[str, str]] = {
         # 週報告分
         "0": "dlwage.do",  # 年齢階級別集計表
         "1": "dlwgender.do",  # 男女別集計表
