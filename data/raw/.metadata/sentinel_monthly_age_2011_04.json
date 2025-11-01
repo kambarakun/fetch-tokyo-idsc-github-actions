@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_monthly_age_2011_04.csv",
+  "data_type": "sentinel_monthly_age",
+  "year": 2011,
+  "period": 4,
+  "period_type": "monthly",
+  "timestamp": "2025-11-01T17:50:52.486992",
+  "file_size": 3861,
+  "sha256_hash": "b57d8f8a380e594f9074947f175b531d2735b4fadb2653e2b683a125aab972a9",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_monthly_age_2011_04.csv",
+  "fetch_time": 0.49814939498901367
+}

@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_monthly_health_center_2013_08.csv",
+  "data_type": "sentinel_monthly_health_center",
+  "year": 2013,
+  "period": 8,
+  "period_type": "monthly",
+  "timestamp": "2025-11-01T17:59:04.783681",
+  "file_size": 6646,
+  "sha256_hash": "135217892202b531002cee58a3101ed11eefcc6379a13bed38c5b9155815901b",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_monthly_health_center_2013_08.csv",
+  "fetch_time": 0.6265945434570312
+}

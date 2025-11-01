@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_gender_2006_38.csv",
+  "data_type": "sentinel_weekly_gender",
+  "year": 2006,
+  "period": 38,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T15:37:38.308545",
+  "file_size": 992,
+  "sha256_hash": "f1d651d2168324b2afdc7b30bd33e87e875ffa8bfc59c69b51bb7ffaaf0c3cf7",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_gender_2006_38.csv",
+  "fetch_time": 0.4897334575653076
+}

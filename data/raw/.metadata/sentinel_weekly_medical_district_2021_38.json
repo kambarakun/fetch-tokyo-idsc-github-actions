@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_medical_district_2021_38.csv",
+  "data_type": "sentinel_weekly_medical_district",
+  "year": 2021,
+  "period": 38,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T17:35:42.889429",
+  "file_size": 6751,
+  "sha256_hash": "b456d158889054abe9ece379c72eabecd80689e0339ecf178dd73d63c46eb9a0",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_medical_district_2021_38.csv",
+  "fetch_time": 0.6461880207061768
+}

@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_age_2021_30.csv",
+  "data_type": "sentinel_weekly_age",
+  "year": 2021,
+  "period": 30,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T16:29:44.194345",
+  "file_size": 11009,
+  "sha256_hash": "8a3b56ed673b7c9003c83e0f30ae0fbe6392cbc02c56acc9b1b8c7091d94dba3",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_age_2021_30.csv",
+  "fetch_time": 0.6447427272796631
+}

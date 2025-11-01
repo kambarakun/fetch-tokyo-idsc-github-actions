@@ -1,0 +1,13 @@
+{
+  "filename": "notifiable_weekly_2023_11.csv",
+  "data_type": "notifiable_weekly",
+  "year": 2023,
+  "period": 11,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T18:40:23.109230",
+  "file_size": 2128,
+  "sha256_hash": "581f12b985d60a7fef882b5ebaec289af42a7e04de6fe7e0e561a0666d408f25",
+  "encoding": "shift_jis",
+  "file_path": "notifiable_weekly_2023_11.csv",
+  "fetch_time": 0.35598158836364746
+}

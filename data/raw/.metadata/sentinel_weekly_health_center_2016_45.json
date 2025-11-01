@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_health_center_2016_45.csv",
+  "data_type": "sentinel_weekly_health_center",
+  "year": 2016,
+  "period": 45,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T16:56:15.465876",
+  "file_size": 13450,
+  "sha256_hash": "2825e7f255dfaf5f877ed4cf876bfb080e250656b13ac0bfba0b40f14c3b2640",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_health_center_2016_45.csv",
+  "fetch_time": 0.6457130908966064
+}

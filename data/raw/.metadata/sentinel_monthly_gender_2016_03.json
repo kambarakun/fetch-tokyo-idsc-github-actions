@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_monthly_gender_2016_03.csv",
+  "data_type": "sentinel_monthly_gender",
+  "year": 2016,
+  "period": 3,
+  "period_type": "monthly",
+  "timestamp": "2025-11-01T17:44:50.743271",
+  "file_size": 543,
+  "sha256_hash": "4c6dbb0ef6cf68f6762de8d6b962c6b3b3457bcb751c6adff7d511dbc74cad82",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_monthly_gender_2016_03.csv",
+  "fetch_time": 0.6406793594360352
+}

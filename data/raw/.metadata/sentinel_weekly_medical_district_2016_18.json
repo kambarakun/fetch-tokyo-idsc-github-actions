@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_medical_district_2016_18.csv",
+  "data_type": "sentinel_weekly_medical_district",
+  "year": 2016,
+  "period": 18,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T17:28:41.168065",
+  "file_size": 7033,
+  "sha256_hash": "1064f9eb2b4517ad71b3e9120ebbe37e3235652ddc731cc224b76acd53068629",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_medical_district_2016_18.csv",
+  "fetch_time": 0.6719436645507812
+}

@@ -1,0 +1,13 @@
+{
+  "filename": "sentinel_weekly_medical_district_2009_19.csv",
+  "data_type": "sentinel_weekly_medical_district",
+  "year": 2009,
+  "period": 19,
+  "period_type": "weekly",
+  "timestamp": "2025-11-01T17:19:29.744250",
+  "file_size": 6483,
+  "sha256_hash": "e1c6d58f0ebdd3a9e7c092f6735da2966f68b4b6156a91205464e9238270f2ee",
+  "encoding": "shift_jis",
+  "file_path": "sentinel_weekly_medical_district_2009_19.csv",
+  "fetch_time": 0.6419475078582764
+}
