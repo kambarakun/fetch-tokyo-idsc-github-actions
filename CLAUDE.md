@@ -29,9 +29,13 @@
 ├── claude-code-review.yml  # コードレビュー自動化
 └── fetch-data.yml          # データ取得自動化（作成予定）
 
-# データ保存ディレクトリ（作成予定）
+# データ保存ディレクトリ
 data/
-├── raw/                    # 生データ（Shift_JIS）
+├── raw/                    # 生データ（Shift_JIS、フラット構造）
+│   ├── .metadata/          # メタデータファイル保存用
+│   │   ├── hash_index.json # ファイルハッシュインデックス
+│   │   └── *.json          # 各データファイルのメタデータ
+│   └── *.csv               # データファイル（フラット配置）
 ├── processed/              # 処理済みデータ
 └── logs/                   # ログファイル
 
@@ -385,11 +389,17 @@ def test_timestamp(self, mock_time):
 ### 5.2 ファイル命名規則
 
 ```python
-# データファイル
-f"tokyo_epidemic_{data_type}_{start_date}_{end_date}_{timestamp}.csv"
+# データファイル（新形式：タイムスタンプなし、ゼロパディングあり）
+# 週次データ
+f"{data_type}_weekly_{year}_{week:02d}.csv"
+# 例: sentinel_weekly_gender_2025_01.csv, notifiable_weekly_2025_01.csv
 
-# メタデータ
-f"metadata_{timestamp}.json"
+# 月次データ
+f"{data_type}_monthly_{year}_{month:02d}.csv"
+# 例: sentinel_monthly_age_2025_01.csv
+
+# メタデータ（.metadataディレクトリに保存）
+f"{data_type}_{period_type}_{year}_{period:02d}.json"
 
 # ログファイル
 f"fetch_log_{date}.txt"
@@ -398,13 +408,17 @@ f"fetch_log_{date}.txt"
 ### 5.3 ディレクトリ構造
 
 ```bash
+# フラット構造（新形式）
 data/
 ├── raw/
-│   └── 2025/
-│       └── 01/
-│           └── week_01/
-│               ├── tokyo_epidemic_weekly_20250101_20250107_20250108120000.csv
-│               └── metadata_20250108120000.json
+│   ├── .metadata/                          # メタデータ専用ディレクトリ
+│   │   ├── hash_index.json                 # 重複チェック用ハッシュインデックス
+│   │   ├── sentinel_weekly_age_2025_01.json
+│   │   └── notifiable_weekly_2025_52.json
+│   ├── sentinel_weekly_gender_2025_01.csv  # 第1週のセンチネル性別データ
+│   ├── sentinel_weekly_age_2025_01.csv
+│   ├── notifiable_weekly_2025_01.csv       # 第1週の届出疾患データ
+│   └── sentinel_monthly_age_2025_12.csv    # 12月の月次データ
 ├── processed/
 └── logs/
 ```

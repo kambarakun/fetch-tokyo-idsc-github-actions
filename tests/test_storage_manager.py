@@ -180,10 +180,9 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(len(files), 1)
         self.assertIn("test_type", files[0].name)
 
-        # 年でフィルタ（フラット構造では年ディレクトリがないため、ファイル名から推測する必要がある）
-        # このテストケースは現在の実装では動作しないためコメントアウト
-        # files = self.storage.get_existing_files(year=2025)
-        # self.assertEqual(len(files), 2)
+        # 年でフィルタ（フラット構造ではファイル名から年を抽出）
+        files = self.storage.get_existing_files(year=2025)
+        self.assertEqual(len(files), 2)
 
     def test_get_metadata(self):
         """メタデータ取得のテスト"""
