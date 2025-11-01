@@ -60,7 +60,6 @@ scripts/check_missing.py    # 欠番チェックユーティリティ
 # パッケージ管理
 pyproject.toml              # プロジェクト設定とパッケージ定義
 uv.lock                     # 依存関係のロックファイル
-requirements.txt            # pip互換性のための依存関係リスト
 ```
 
 ==============================================================================
@@ -211,9 +210,9 @@ source .venv/bin/activate
 
 #### 重要な原則
 - **絶対にpip installを直接使わない**
-- **requirements.txtはpip互換性のためのみに存在**（直接編集しない）
 - **pyproject.tomlがマスター定義**
 - **uv.lockファイルは必ずコミット**（再現性の保証）
+- **GitHub Actionsでもuvを使用**（高速化と再現性）
 
 ### 2.2 依存関係の管理
 
@@ -438,11 +437,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
-      - run: pip install -r requirements.txt
-      - run: python scripts/fetch_data.py
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.11
+      - run: uv sync
+      - run: uv run python scripts/fetch_data.py
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"

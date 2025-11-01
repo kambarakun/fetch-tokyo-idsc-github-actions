@@ -44,16 +44,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Python
+        run: uv python install 3.11
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: uv sync
 
       - name: Configure git
         run: |
@@ -111,7 +112,7 @@ jobs:
           echo "Starting data fetch at $FETCH_TIMESTAMP"
 
           # メインスクリプトの実行
-          python scripts/fetch_data.py \
+          uv run python scripts/fetch_data.py \
             --start-year "$START_YEAR" \
             --end-year "$END_YEAR" \
             ${DATA_TYPES:+--data-types "$DATA_TYPES"} \

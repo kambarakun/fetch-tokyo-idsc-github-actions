@@ -3,7 +3,7 @@ name = "tokyo-epidemic-data-fetcher"
 version = "1.0.0"
 description = "東京都感染症発生動向データ自動収集システム"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.12"
 dependencies = [
     "requests>=2.31.0",
     "PyYAML>=6.0.1",
