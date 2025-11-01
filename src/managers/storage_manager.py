@@ -249,6 +249,12 @@ class StorageManager:
             - 重複データは保存をスキップする
             - メタデータは.metadataディレクトリに別途保存される
         """
+        # data_typeのバリデーション（セキュリティ対策）
+        if not self._validate_data_type(data_type):
+            error_msg = f"Invalid data_type: {data_type}. Contains invalid characters."
+            logger.error(error_msg)
+            return SaveResult(success=False, error=error_msg)
+
         try:
             # データハッシュ計算
             data_hash = hashlib.sha256(data).hexdigest()
@@ -390,6 +396,25 @@ class StorageManager:
         except Exception as e:
             logger.warning(f"Failed to update hash index: {e}")
 
+    def _validate_data_type(self, data_type: str) -> bool:
+        """data_typeパラメータの妥当性を検証する。
+
+        Args:
+            data_type: 検証するデータタイプ文字列
+
+        Returns:
+            安全な文字列の場合True、危険な文字を含む場合False
+
+        Note:
+            パストラバーサル攻撃や不正な文字を防ぐため、
+            英数字とアンダースコアのみを許可する。
+        """
+        import re
+
+        # 英数字とアンダースコアのみを許可
+        pattern = re.compile(r"^[a-zA-Z0-9_]+$")
+        return bool(pattern.match(data_type))
+
     def _get_month_from_week(self, year: int, week: int) -> int:
         """ISO週番号から対応する月を計算する。
 
@@ -482,7 +507,7 @@ class StorageManager:
         cutoff_date = datetime.now() - timedelta(days=days_to_keep)
         deleted_count = 0
 
-        for file_path in self.base_path.rglob("*.csv"):
+        for file_path in self.base_path.glob("*.csv"):
             metadata = self.get_metadata(file_path)
 
             if metadata:
@@ -525,7 +550,7 @@ class StorageManager:
         file_types = {}
         year_stats = {}
 
-        for file_path in self.base_path.rglob("*.csv"):
+        for file_path in self.base_path.glob("*.csv"):
             total_files += 1
             file_size = file_path.stat().st_size
             total_size += file_size

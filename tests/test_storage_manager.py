@@ -149,6 +149,27 @@ class TestStorageManager(unittest.TestCase):
         self.assertTrue(result.is_duplicate)
         self.assertIsNone(result.file_path)
 
+    def test_save_with_invalid_data_type(self):
+        """不正なdata_type（パストラバーサル攻撃）のテスト"""
+        data = b"test,data"
+
+        # パストラバーサル攻撃を試みる
+        invalid_data_types = [
+            "../evil",
+            "../../etc/passwd",
+            "test/../../evil",
+            "test;rm -rf /",
+            "test$(whoami)",
+            "test`ls`",
+        ]
+
+        for invalid_type in invalid_data_types:
+            result = self.storage.save_with_metadata(data=data, data_type=invalid_type, year=2025, period=1)
+
+            self.assertFalse(result.success, f"Should reject invalid data_type: {invalid_type}")
+            self.assertIsNotNone(result.error)
+            self.assertIn("Invalid data_type", result.error)
+
     def test_check_duplicates(self):
         """重複チェックのテスト"""
         hash_value = "abc123"
