@@ -250,23 +250,23 @@ jobs:
           echo "Ensuring required labels exist..."
 
           # data-updateラベルの作成または確認
-          LABEL_OUTPUT=$(gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>&1 || true)
-          if echo "$LABEL_OUTPUT" | grep -q "already exists"; then
-            echo "  ℹ️ Label 'data-update' already exists"
-          elif [ -z "$LABEL_OUTPUT" ] || echo "$LABEL_OUTPUT" | grep -q "data-update"; then
+          if gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>&1 | tee /tmp/label_output.txt; then
             echo "  ✓ Created label: data-update"
+          elif grep -q "already exists" /tmp/label_output.txt 2>/dev/null; then
+            echo "  ℹ️ Label 'data-update' already exists"
           else
-            echo "  ⚠️ Warning: Could not create label 'data-update': $LABEL_OUTPUT"
+            echo "  ⚠️ Warning: Could not create label 'data-update'"
+            cat /tmp/label_output.txt 2>/dev/null || true
           fi
 
           # automatedラベルの作成または確認
-          LABEL_OUTPUT=$(gh label create "automated" --description "Automatically generated" --color "ededed" 2>&1 || true)
-          if echo "$LABEL_OUTPUT" | grep -q "already exists"; then
-            echo "  ℹ️ Label 'automated' already exists"
-          elif [ -z "$LABEL_OUTPUT" ] || echo "$LABEL_OUTPUT" | grep -q "automated"; then
+          if gh label create "automated" --description "Automatically generated" --color "ededed" 2>&1 | tee /tmp/label_output.txt; then
             echo "  ✓ Created label: automated"
+          elif grep -q "already exists" /tmp/label_output.txt 2>/dev/null; then
+            echo "  ℹ️ Label 'automated' already exists"
           else
-            echo "  ⚠️ Warning: Could not create label 'automated': $LABEL_OUTPUT"
+            echo "  ⚠️ Warning: Could not create label 'automated'"
+            cat /tmp/label_output.txt 2>/dev/null || true
           fi
 
           # PR作成前の権限確認（情報提供のみ）
