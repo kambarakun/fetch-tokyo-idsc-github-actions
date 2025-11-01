@@ -277,6 +277,177 @@ class TestStorageManager(unittest.TestCase):
         month = self.storage._get_month_from_week(2025, 52)
         self.assertEqual(month, 12)
 
+    def test_save_with_force_overwrite(self):
+        """force_overwriteパラメータのテスト"""
+        # 初回保存
+        test_data = b"initial data"
+        result = self.storage.save_with_metadata(
+            test_data,
+            "test_type",
+            2025,
+            1,
+            is_monthly=False,
+            additional_metadata={"test": "metadata"},
+            force_overwrite=False,
+        )
+        self.assertTrue(result.success)
+        self.assertFalse(result.is_duplicate)
+
+        # 同じデータを再保存（通常は重複として扱われる）
+        result = self.storage.save_with_metadata(
+            test_data,
+            "test_type",
+            2025,
+            1,
+            is_monthly=False,
+            additional_metadata={"test": "metadata"},
+            force_overwrite=False,
+        )
+        self.assertTrue(result.success)
+        self.assertTrue(result.is_duplicate)
+
+        # force_overwrite=Trueで異なるデータを上書き
+        new_data = b"updated data"
+        result = self.storage.save_with_metadata(
+            new_data,
+            "test_type",
+            2025,
+            1,
+            is_monthly=False,
+            additional_metadata={"test": "updated"},
+            force_overwrite=True,
+        )
+        self.assertTrue(result.success)
+        self.assertFalse(result.is_duplicate)
+
+        # ファイルが更新されたことを確認
+        saved_file = self.base_path / "test_type_2025_01.csv"
+        self.assertTrue(saved_file.exists())
+        self.assertEqual(saved_file.read_bytes(), new_data)
+
+        # メタデータが更新されたことを確認
+        metadata_file = self.storage.metadata_dir / "test_type_2025_01.json"
+        self.assertTrue(metadata_file.exists())
+        metadata = json.loads(metadata_file.read_text())
+        self.assertEqual(metadata["force_overwrite"], True)
+        self.assertEqual(metadata["test"], "updated")
+
+    def test_force_overwrite_updates_hash_index(self):
+        """force_overwriteでハッシュインデックスが更新されることのテスト"""
+        # 初回保存
+        initial_data = b"initial content"
+        initial_hash = hashlib.sha256(initial_data).hexdigest()
+
+        result = self.storage.save_with_metadata(
+            initial_data, "test_type", 2025, 2, is_monthly=False, force_overwrite=False
+        )
+        self.assertTrue(result.success)
+
+        # ハッシュインデックスに登録されていることを確認
+        self.assertIn(initial_hash, self.storage.hash_index)
+
+        # force_overwrite=Trueで異なるデータで上書き
+        updated_data = b"updated content"
+        updated_hash = hashlib.sha256(updated_data).hexdigest()
+
+        result = self.storage.save_with_metadata(
+            updated_data, "test_type", 2025, 2, is_monthly=False, force_overwrite=True
+        )
+        self.assertTrue(result.success)
+
+        # 古いハッシュが削除され、新しいハッシュが登録されていることを確認
+        self.assertNotIn(initial_hash, self.storage.hash_index)
+        self.assertIn(updated_hash, self.storage.hash_index)
+
+    def test_force_overwrite_with_same_data(self):
+        """同じデータでforce_overwriteした場合のテスト"""
+        # 同じデータで2回保存
+        test_data = b"same data"
+        data_hash = hashlib.sha256(test_data).hexdigest()
+
+        # 初回保存
+        result1 = self.storage.save_with_metadata(test_data, "test_type", 2025, 3, is_monthly=False)
+        self.assertTrue(result1.success)
+        self.assertFalse(result1.is_duplicate)
+
+        # force_overwrite=Trueで同じデータを保存
+        result2 = self.storage.save_with_metadata(
+            test_data, "test_type", 2025, 3, is_monthly=False, force_overwrite=True
+        )
+        self.assertTrue(result2.success)
+        self.assertFalse(result2.is_duplicate)  # force_overwriteなのでduplicateフラグは立たない
+
+        # ハッシュインデックスは同じハッシュのまま
+        self.assertIn(data_hash, self.storage.hash_index)
+
+    def test_multiple_files_same_hash(self):
+        """同じ内容の複数ファイルを正しく管理できることのテスト"""
+        # 同じ内容のデータ
+        test_data = b"duplicate content"
+        data_hash = hashlib.sha256(test_data).hexdigest()
+
+        # 異なる期間に同じデータを保存
+        result1 = self.storage.save_with_metadata(test_data, "test_type", 2025, 1, is_monthly=False)
+        self.assertTrue(result1.success)
+        self.assertFalse(result1.is_duplicate)
+
+        # 2つ目のファイル（同じ内容、異なる期間）
+        result2 = self.storage.save_with_metadata(test_data, "test_type", 2025, 2, is_monthly=False)
+        self.assertTrue(result2.success)
+        self.assertTrue(result2.is_duplicate)  # 同じハッシュなので重複として扱われる
+
+        # ハッシュインデックスを確認（単一エントリまたはリスト形式）
+        self.assertIn(data_hash, self.storage.hash_index)
+
+        # 片方を異なるデータで上書き（force_overwrite）
+        new_data = b"updated content"
+        new_hash = hashlib.sha256(new_data).hexdigest()
+
+        result3 = self.storage.save_with_metadata(
+            new_data, "test_type", 2025, 1, is_monthly=False, force_overwrite=True
+        )
+        self.assertTrue(result3.success)
+
+        # 新しいハッシュが登録され、古いハッシュも残っている（別ファイルが参照）
+        self.assertIn(new_hash, self.storage.hash_index)
+        # もし1つのファイルだけが古いハッシュを参照していれば、まだインデックスに残る
+        # （実装により異なるが、check_duplicatesが正しく動作することが重要）
+
+    def test_hash_index_cleanup_on_overwrite(self):
+        """force_overwrite時のハッシュインデックスクリーンアップテスト"""
+        # データを保存
+        data1 = b"first data"
+        hash1 = hashlib.sha256(data1).hexdigest()
+
+        result1 = self.storage.save_with_metadata(data1, "cleanup_test", 2025, 1, is_monthly=False)
+        self.assertTrue(result1.success)
+        self.assertIn(hash1, self.storage.hash_index)
+
+        # 同じファイルを異なるデータで上書き
+        data2 = b"second data"
+        hash2 = hashlib.sha256(data2).hexdigest()
+
+        result2 = self.storage.save_with_metadata(
+            data2, "cleanup_test", 2025, 1, is_monthly=False, force_overwrite=True
+        )
+        self.assertTrue(result2.success)
+
+        # 新しいハッシュが登録され、古いハッシュは削除される
+        self.assertIn(hash2, self.storage.hash_index)
+
+        # 古いハッシュが削除されていることを確認
+        # (他のファイルが同じハッシュを使っていない場合)
+        index_entry = self.storage.hash_index.get(hash1)
+        if index_entry:
+            # リスト形式の場合、このファイルパスが含まれていないことを確認
+            if isinstance(index_entry, list):
+                file_path = str(self.base_path / "cleanup_test_2025_01.csv")
+                self.assertNotIn(file_path, index_entry)
+            else:
+                # 単一エントリの場合、このファイルパスでないことを確認
+                file_path = str(self.base_path / "cleanup_test_2025_01.csv")
+                self.assertNotEqual(index_entry, file_path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -342,17 +342,9 @@ jobs:
             exit 1
           fi
 
-          # 自動マージが有効な場合
-          if [ "$AUTO_MERGE" = "true" ]; then
-            echo "Enabling auto-merge for PR..."
-            # PRの自動マージを有効化（Branch protectionルールに従う）
-            if gh pr merge "$PR_URL" --auto --squash; then
-              echo "Auto-merge enabled successfully"
-            else
-              echo "Warning: Failed to enable auto-merge, manual merge required"
-              # auto-mergeの失敗は致命的エラーではないため、続行
-            fi
-          fi
+          # 自動マージは無効化（セキュリティリスク対策）
+          echo "ℹ️ 自動マージは無効化されています。データ検証後、手動でマージしてください。"
+          echo "PRのURL: $PR_URL"
 
       - name: Create issue on error
         if: failure() && env.DRY_RUN != 'true'

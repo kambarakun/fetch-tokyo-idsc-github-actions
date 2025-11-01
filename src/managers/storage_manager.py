@@ -7,8 +7,10 @@
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -230,6 +232,7 @@ class StorageManager:
         period: int,
         is_monthly: bool = False,
         additional_metadata: dict[str, Any] | None = None,
+        force_overwrite: bool = False,
     ) -> SaveResult:
         """データファイルとメタデータを保存する。
 
@@ -240,13 +243,14 @@ class StorageManager:
             period: 期間（週番号または月番号）
             is_monthly: 月次データの場合True、週次データの場合False
             additional_metadata: 追加のメタデータ（オプション）
+            force_overwrite: 既存ファイルを強制的に上書きする場合True
 
         Returns:
             保存操作の結果を含むSaveResultオブジェクト
 
         Note:
             - SHA256ハッシュで重複チェックを行う
-            - 重複データは保存をスキップする
+            - 重複データは保存をスキップする（force_overwriteがFalseの場合）
             - メタデータは.metadataディレクトリに別途保存される
         """
         # data_typeのバリデーション（セキュリティ対策）
@@ -259,8 +263,8 @@ class StorageManager:
             # データハッシュ計算
             data_hash = hashlib.sha256(data).hexdigest()
 
-            # 重複チェック
-            if self.check_duplicates(data_hash):
+            # 重複チェック（force_overwriteがFalseの場合のみ）
+            if not force_overwrite and self.check_duplicates(data_hash):
                 logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
                 return SaveResult(success=True, is_duplicate=True)
 
@@ -272,8 +276,34 @@ class StorageManager:
             filename = f"{data_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
 
-            # CSVファイル保存(Shift_JISのまま)
-            file_path.write_bytes(data)
+            # 既存ファイルのチェック（force_overwriteの場合、古いハッシュを削除）
+            if file_path.exists() and force_overwrite:
+                # 既存ファイルのハッシュを計算
+                old_data = file_path.read_bytes()
+                old_hash = hashlib.sha256(old_data).hexdigest()
+
+                # ヘルパーメソッドを使用してハッシュインデックスから削除
+                file_path_str = str(file_path)
+                self._remove_from_hash_index(old_hash, file_path_str)
+
+                logger.info(f"Overwriting existing file: {file_path}")
+
+            # CSVファイル保存(Shift_JISのまま) - 原子的書き込みで安全性を確保
+            # 一時ファイルを作成して書き込み
+            temp_fd, temp_path = tempfile.mkstemp(dir=file_path.parent, prefix=f".{file_path.stem}_", suffix=".tmp")
+            try:
+                os.write(temp_fd, data)
+                os.close(temp_fd)
+
+                # 原子的にファイルを置き換え（POSIX準拠）
+                # これにより、書き込み中のエラーでもデータロスを防げる
+                Path(temp_path).replace(file_path)
+            except Exception:
+                # エラー時は一時ファイルをクリーンアップ
+                temp_file = Path(temp_path)
+                if temp_file.exists():
+                    temp_file.unlink()
+                raise
 
             # メタデータ生成
             period_type = "monthly" if is_monthly else "weekly"
@@ -288,6 +318,7 @@ class StorageManager:
                 "sha256_hash": data_hash,
                 "encoding": "shift_jis",
                 "file_path": str(file_path.relative_to(self.base_path)),
+                "force_overwrite": force_overwrite,
             }
 
             if additional_metadata:
@@ -363,14 +394,15 @@ class StorageManager:
         """
         return file_hash in self.hash_index
 
-    def _load_hash_index(self) -> dict[str, str]:
+    def _load_hash_index(self) -> dict[str, str | list[str]]:
         """ハッシュインデックスをファイルから読み込む。
 
         Returns:
-            ファイルハッシュとファイルパスのマッピング辞書
+            ファイルハッシュとファイルパス（単一または複数）のマッピング辞書
 
         Note:
             ファイルが存在しない場合や読み込みエラーの場合は空の辞書を返す
+            後方互換性のため、古い形式（string）と新形式（list）の両方をサポート
         """
         if self.hash_index_file.exists():
             try:
@@ -379,6 +411,41 @@ class StorageManager:
             except Exception as e:
                 logger.warning(f"Failed to load hash index: {e}")
         return {}
+
+    def _remove_from_hash_index(self, file_hash: str, file_path: str) -> None:
+        """ハッシュインデックスから特定のファイルパスを削除する（ヘルパーメソッド）
+
+        Args:
+            file_hash: 削除対象のファイルハッシュ
+            file_path: 削除対象のファイルパス
+        """
+        if file_hash not in self.hash_index:
+            return
+
+        current_entry = self.hash_index[file_hash]
+
+        if isinstance(current_entry, str):
+            # 単一ファイルの場合、パスが一致すれば削除
+            if current_entry == file_path:
+                del self.hash_index[file_hash]
+        elif isinstance(current_entry, list) and file_path in current_entry:
+            # 複数ファイルの場合、該当パスのみ削除
+            current_entry.remove(file_path)
+            # リストが空になったら、エントリ自体を削除
+            if not current_entry:
+                del self.hash_index[file_hash]
+            # 1つだけ残ったら文字列に戻す（サイズ節約）
+            elif len(current_entry) == 1:
+                self.hash_index[file_hash] = current_entry[0]
+
+        # ハッシュインデックスファイルを更新
+        try:
+            with self.hash_index_file.open("w") as f:
+                json.dump(self.hash_index, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to update hash index after removal: {e}")
+            # ハッシュインデックス更新失敗は重要なエラーとして扱う
+            raise
 
     def _update_hash_index(self, file_hash: str, file_path: str) -> None:
         """ハッシュインデックスを更新してファイルに保存する。
@@ -389,8 +456,22 @@ class StorageManager:
 
         Note:
             保存に失敗した場合は警告ログを出力するが、処理は継続される
+            同じハッシュの複数ファイルをサポート（リスト形式で管理）
         """
-        self.hash_index[file_hash] = file_path
+        # 既存のエントリを確認
+        if file_hash in self.hash_index:
+            current = self.hash_index[file_hash]
+            # 文字列の場合はリストに変換（後方互換性）
+            if isinstance(current, str):
+                if current != file_path:
+                    self.hash_index[file_hash] = [current, file_path]
+            # リストの場合は追加
+            elif isinstance(current, list) and file_path not in current:
+                current.append(file_path)
+        else:
+            # 新規エントリは単一の文字列として保存（互換性とサイズ節約）
+            self.hash_index[file_hash] = file_path
+
         try:
             with self.hash_index_file.open("w") as f:
                 json.dump(self.hash_index, f, indent=2)

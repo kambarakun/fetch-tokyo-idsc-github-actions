@@ -1,0 +1,416 @@
+name: Weekly Epidemic Data Full Check
+
+on:
+  schedule:
+    # 毎週木曜日 17:30 JST (08:30 UTC) に実行
+    # 木曜夕方の更新を確実にキャッチし、既存ファイルの更新もチェック
+    - cron: "30 8 * * 4"
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: "既存ファイルも強制的に再取得（デフォルト: true）"
+        required: false
+        type: boolean
+        default: true
+      check_previous_year:
+        description: "前年のデータもチェック（1月のみ推奨）"
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "テスト実行（データ取得のみでコミットしない）"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  actions: read
+  pull-requests: write
+
+concurrency:
+  # 日次と週次で同じグループを共有し、データ競合を防ぐ
+  group: fetch-data
+  # 既存の実行をキャンセルしない（データ欠落を防ぐ）
+  cancel-in-progress: false
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180 # 週次チェックなので長めに設定
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create directories
+        run: |
+          mkdir -p data/raw/.metadata data/processed data/logs
+          mkdir -p config
+
+      - name: Set environment variables
+        run: |
+          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
+          echo "PREVIOUS_YEAR=$(date -d 'last year' +'%Y')" >> $GITHUB_ENV
+          echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
+          echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+
+      - name: Prepare fetch parameters
+        id: params
+        run: |
+          # 入力パラメータの処理
+          FORCE_UPDATE="${{ github.event.inputs.force_update }}"
+          CHECK_PREVIOUS_YEAR="${{ github.event.inputs.check_previous_year }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+
+          # デフォルト値の設定（schedule実行時）
+          if [ -z "$FORCE_UPDATE" ]; then
+            FORCE_UPDATE="true"  # 週次実行では既存ファイルも再チェック
+          fi
+
+          if [ -z "$CHECK_PREVIOUS_YEAR" ]; then
+            # 1月の場合は自動的に前年もチェック
+            if [ "$CURRENT_MONTH" = "01" ]; then
+              CHECK_PREVIOUS_YEAR="true"
+              echo "ℹ️ January detected: Automatically enabling previous year check"
+            else
+              CHECK_PREVIOUS_YEAR="false"
+            fi
+          fi
+
+          if [ -z "$DRY_RUN" ]; then
+            DRY_RUN="false"
+          fi
+
+          # 開始年の決定
+          if [ "$CHECK_PREVIOUS_YEAR" = "true" ]; then
+            START_YEAR="$PREVIOUS_YEAR"
+            echo "📅 Including previous year data: $PREVIOUS_YEAR"
+          else
+            START_YEAR="$CURRENT_YEAR"
+          fi
+
+          # 環境変数として設定
+          echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
+          echo "END_YEAR=$CURRENT_YEAR" >> $GITHUB_ENV
+          echo "FORCE_UPDATE=$FORCE_UPDATE" >> $GITHUB_ENV
+          echo "CHECK_PREVIOUS_YEAR=$CHECK_PREVIOUS_YEAR" >> $GITHUB_ENV
+          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+
+          echo "Weekly check parameters:"
+          echo "  Start year: $START_YEAR"
+          echo "  End year: $CURRENT_YEAR"
+          echo "  Current week: $CURRENT_WEEK"
+          echo "  Force update: $FORCE_UPDATE"
+          echo "  Check previous year: $CHECK_PREVIOUS_YEAR"
+          echo "  Dry run: $DRY_RUN"
+
+      - name: Validate existing data before fetch
+        id: validate-before
+        run: |
+          echo "データ取得前の既存データ検証..."
+          if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
+            uv run python scripts/validate_data.py data/raw --pattern "*.csv" || true
+          else
+            echo "No existing data to validate"
+          fi
+
+      - name: Fetch epidemic data with full check
+        id: fetch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Starting weekly full data check at $FETCH_TIMESTAMP"
+
+          # コマンドの構築
+          FETCH_CMD=(uv run python scripts/fetch_data.py)
+          FETCH_CMD+=(--start-year "$START_YEAR")
+          FETCH_CMD+=(--end-year "$END_YEAR")
+
+          # 強制更新モード（既存ファイルも再取得）
+          if [ "$FORCE_UPDATE" = "true" ]; then
+            FETCH_CMD+=(--force-update)
+          fi
+
+          # DRY_RUNがtrueの場合
+          if [ "$DRY_RUN" = "true" ]; then
+            FETCH_CMD+=(--dry-run)
+          fi
+
+          FETCH_CMD+=(--log-file "data/logs/weekly_${FETCH_TIMESTAMP}.log")
+
+          echo "Executing: ${FETCH_CMD[@]}"
+
+          # メインスクリプトの実行
+          "${FETCH_CMD[@]}" 2>&1 | tee data/logs/console_weekly_${FETCH_TIMESTAMP}.log
+
+          # 実行結果の保存
+          echo "FETCH_RESULT=$?" >> $GITHUB_ENV
+
+      - name: Validate fetched data
+        id: validate-after
+        if: env.DRY_RUN != 'true'
+        run: |
+          echo "取得したデータの検証..."
+          VALIDATION_REPORT="data/logs/validation_${FETCH_TIMESTAMP}.json"
+
+          if uv run python scripts/validate_data.py data/raw --pattern "*.csv" --output "$VALIDATION_REPORT"; then
+            echo "✅ データ検証成功"
+            echo "VALIDATION_SUCCESS=true" >> $GITHUB_ENV
+          else
+            echo "❌ データ検証失敗"
+            echo "VALIDATION_SUCCESS=false" >> $GITHUB_ENV
+
+            # 検証レポートの内容を表示
+            if [ -f "$VALIDATION_REPORT" ]; then
+              echo "検証レポート:"
+              cat "$VALIDATION_REPORT" | jq .summary
+            fi
+
+            # 検証失敗でもPR作成は続行（レビューで確認）
+          fi
+
+      - name: Check for changes
+        id: changes
+        if: env.DRY_RUN != 'true'
+        run: |
+          # 変更の有無をチェック
+          git add data/
+
+          if git diff --cached --quiet; then
+            echo "No changes detected in weekly check"
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+          else
+            echo "Changes detected in weekly check!"
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+
+            # 変更ファイル数の取得
+            CHANGED_FILES=$(git diff --cached --name-only | wc -l)
+            NEW_FILES=$(git diff --cached --name-only --diff-filter=A | wc -l)
+            MODIFIED_FILES=$(git diff --cached --name-only --diff-filter=M | wc -l)
+
+            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+            echo "NEW_FILES=$NEW_FILES" >> $GITHUB_ENV
+            echo "MODIFIED_FILES=$MODIFIED_FILES" >> $GITHUB_ENV
+
+            echo "Summary:"
+            echo "  Total changed: $CHANGED_FILES"
+            echo "  New files: $NEW_FILES"
+            echo "  Modified files: $MODIFIED_FILES"
+          fi
+
+      - name: Create Pull Request
+        if: env.HAS_CHANGES == 'true' && env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          # ブランチ名の作成
+          BRANCH_NAME="data-update-weekly-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
+          echo "Creating branch: $BRANCH_NAME"
+
+          # 新しいブランチにチェックアウト
+          git checkout -b "$BRANCH_NAME"
+
+          # コミットメッセージの作成
+          COMMIT_MSG="週次データ更新: $CURRENT_DATE (第${CURRENT_WEEK}週)"
+
+          if [ "$CHANGED_FILES" -gt 0 ]; then
+            COMMIT_MSG="$COMMIT_MSG - 変更${CHANGED_FILES}件"
+            if [ "$NEW_FILES" -gt 0 ] && [ "$MODIFIED_FILES" -gt 0 ]; then
+              COMMIT_MSG="$COMMIT_MSG (新規${NEW_FILES}件/更新${MODIFIED_FILES}件)"
+            elif [ "$NEW_FILES" -gt 0 ]; then
+              COMMIT_MSG="$COMMIT_MSG (新規${NEW_FILES}件)"
+            elif [ "$MODIFIED_FILES" -gt 0 ]; then
+              COMMIT_MSG="$COMMIT_MSG (更新${MODIFIED_FILES}件)"
+            fi
+          fi
+
+          # コミット実行
+          git commit -m "$COMMIT_MSG"
+
+          # ブランチをプッシュ
+          git push origin "$BRANCH_NAME"
+
+          # Pull Request の作成
+          PR_TITLE="$COMMIT_MSG"
+
+          # PR本文をファイルで作成
+          PR_BODY_FILE="/tmp/pr_body.md"
+          {
+            echo "## 🤖 自動データ更新 (週次徹底チェック)"
+            echo ""
+            echo "このPull Requestは週次の徹底チェックにより生成されました。"
+            echo ""
+            echo "### 📊 更新内容"
+            echo "- **実行日時**: $CURRENT_DATE (木曜日)"
+            echo "- **チェックタイプ**: 週次徹底チェック"
+            echo "- **対象期間**: $START_YEAR - $END_YEAR"
+            echo "- **現在の週**: 第${CURRENT_WEEK}週"
+            echo "- **変更ファイル数**: $CHANGED_FILES"
+            if [ "$NEW_FILES" -gt 0 ]; then
+              echo "  - 新規ファイル: $NEW_FILES"
+            fi
+            if [ "$MODIFIED_FILES" -gt 0 ]; then
+              echo "  - 更新ファイル: $MODIFIED_FILES"
+            fi
+            echo ""
+
+            if [ "$CHECK_PREVIOUS_YEAR" = "true" ]; then
+              echo "### 📅 前年データチェック"
+              echo "前年（${PREVIOUS_YEAR}年）のデータも確認しました。"
+              echo ""
+            fi
+
+            echo "### ✅ チェック内容"
+            echo "- [x] 既存ファイルの更新確認"
+            echo "- [x] 新規ファイルの取得"
+            if [ "$VALIDATION_SUCCESS" = "true" ]; then
+              echo "- [x] データ整合性の検証 ✅"
+            else
+              echo "- [ ] データ整合性の検証 ❌ **要確認**"
+            fi
+            if [ "$CHECK_PREVIOUS_YEAR" = "true" ]; then
+              echo "- [x] 前年データの確認"
+            fi
+            echo ""
+
+            if [ "$VALIDATION_SUCCESS" = "false" ]; then
+              echo "### ⚠️ 警告"
+              echo "データ検証でエラーが検出されました。マージ前に検証レポートを確認してください。"
+              echo ""
+            fi
+
+            echo "### ℹ️ 備考"
+            echo "週次チェックでは既存ファイルも含めて最新状態を確認しています。"
+            echo "東京都のデータは通常、木曜日16時以降に更新されます。"
+            echo ""
+            echo "---"
+            echo "*This PR was automatically created by the weekly full check workflow.*"
+          } > "$PR_BODY_FILE"
+
+          # ラベル管理
+          echo "Managing labels for PR..."
+
+          # ラベルを作成（既存の場合は無視）
+          gh label create "weekly-update" --description "Weekly full data check" --color "5319E7" 2>/dev/null || true
+          gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>/dev/null || true
+          gh label create "automated" --description "Automatically generated" --color "ededed" 2>/dev/null || true
+
+          # PR作成
+          PR_URL=$(gh pr create \
+            --title "$PR_TITLE" \
+            --body-file "$PR_BODY_FILE" \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --label "weekly-update" \
+            --label "data-update" \
+            --label "automated")
+
+          echo "✅ Successfully created PR: $PR_URL"
+          echo "PR_URL=$PR_URL" >> $GITHUB_ENV
+
+          # 自動マージは無効化（セキュリティリスク対策）
+          echo "ℹ️ 自動マージは無効化されています。データ検証後、手動でマージしてください。"
+
+      - name: Create issue on error
+        if: failure() && env.DRY_RUN != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const issueBody = `## 週次データチェックエラー
+
+            週次の徹底チェック処理でエラーが発生しました。
+
+            ### エラー情報
+            - **日時**: ${date} (木曜日)
+            - **ワークフロー実行**: ${runUrl}
+            - **開始年**: ${process.env.START_YEAR || 'N/A'}
+            - **終了年**: ${process.env.END_YEAR || 'N/A'}
+            - **前年チェック**: ${process.env.CHECK_PREVIOUS_YEAR || 'false'}
+
+            ### 対応方法
+            1. 上記のワークフロー実行リンクからログを確認
+            2. エラー内容を特定
+            3. 必要に応じて手動で再実行
+
+            ### 自動ラベル
+            - weekly-check
+            - data-collection
+            - error
+            - automated`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[週次チェック] データ取得エラー - ${date}`,
+              body: issueBody,
+              labels: ['weekly-check', 'data-collection', 'error', 'automated']
+            });
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-check-logs-${{ env.FETCH_TIMESTAMP }}
+          path: data/logs/
+          retention-days: 30
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 📊 週次データチェックサマリー" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **曜日**: 木曜日" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象期間**: $START_YEAR - $END_YEAR" >> $GITHUB_STEP_SUMMARY
+          echo "- **現在の週**: 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
+          echo "- **強制更新**: ${FORCE_UPDATE:-true}" >> $GITHUB_STEP_SUMMARY
+          echo "- **前年チェック**: ${CHECK_PREVIOUS_YEAR:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$HAS_CHANGES" = "true" ]; then
+            echo "### ✅ 変更検出" >> $GITHUB_STEP_SUMMARY
+            echo "- **総変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$NEW_FILES" ] && [ "$NEW_FILES" -gt 0 ]; then
+              echo "- **新規ファイル**: $NEW_FILES" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$MODIFIED_FILES" ] && [ "$MODIFIED_FILES" -gt 0 ]; then
+              echo "- **更新ファイル**: $MODIFIED_FILES" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$PR_URL" ]; then
+              echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ℹ️ 変更なし" >> $GITHUB_STEP_SUMMARY
+            echo "週次チェックで変更は検出されませんでした。" >> $GITHUB_STEP_SUMMARY
+          fi

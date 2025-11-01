@@ -1,0 +1,274 @@
+name: Daily Epidemic Data Check
+
+on:
+  schedule:
+    # 毎日 17:00 JST (08:00 UTC) に実行
+    # 木曜夕方の更新を確実にキャッチ
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_existing:
+        description: "既存ファイルをスキップ（デフォルト: true）"
+        required: false
+        type: boolean
+        default: true
+      dry_run:
+        description: "テスト実行（データ取得のみでコミットしない）"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  actions: read
+  pull-requests: write
+
+concurrency:
+  # 日次と週次で同じグループを共有し、データ競合を防ぐ
+  group: fetch-data
+  # 既存の実行をキャンセルしない（データ欠落を防ぐ）
+  cancel-in-progress: false
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # 毎日実行なので短めに設定
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create directories
+        run: |
+          mkdir -p data/raw/.metadata data/processed data/logs
+          mkdir -p config
+
+      - name: Set environment variables
+        run: |
+          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
+          echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
+          echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
+          echo "CURRENT_DAY=$(date +'%u')" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+
+      - name: Prepare fetch parameters
+        id: params
+        run: |
+          # 入力パラメータの処理
+          SKIP_EXISTING="${{ github.event.inputs.skip_existing }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+
+          # デフォルト値の設定（schedule実行時）
+          if [ -z "$SKIP_EXISTING" ]; then
+            SKIP_EXISTING="true"  # 毎日実行なので既存ファイルはスキップ
+          fi
+
+          if [ -z "$DRY_RUN" ]; then
+            DRY_RUN="false"
+          fi
+
+          # 環境変数として設定
+          echo "SKIP_EXISTING=$SKIP_EXISTING" >> $GITHUB_ENV
+          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+
+          echo "Daily check parameters:"
+          echo "  Current year: $CURRENT_YEAR"
+          echo "  Current week: $CURRENT_WEEK"
+          echo "  Skip existing: $SKIP_EXISTING"
+          echo "  Dry run: $DRY_RUN"
+
+      - name: Validate existing data before fetch
+        id: validate-before
+        run: |
+          echo "データ取得前の既存データ検証..."
+          if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
+            uv run python scripts/validate_data.py data/raw --pattern "*.csv" || true
+          else
+            echo "No existing data to validate"
+          fi
+
+      - name: Fetch epidemic data (current year only)
+        id: fetch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Starting daily data check at $FETCH_TIMESTAMP"
+
+          # コマンドの構築
+          FETCH_CMD=(uv run python scripts/fetch_data.py)
+          FETCH_CMD+=(--start-year "$CURRENT_YEAR")
+          FETCH_CMD+=(--end-year "$CURRENT_YEAR")
+
+          # 既存ファイルをスキップする場合
+          if [ "$SKIP_EXISTING" = "true" ]; then
+            FETCH_CMD+=(--skip-existing)
+          fi
+
+          # DRY_RUNがtrueの場合
+          if [ "$DRY_RUN" = "true" ]; then
+            FETCH_CMD+=(--dry-run)
+          fi
+
+          FETCH_CMD+=(--log-file "data/logs/daily_${FETCH_TIMESTAMP}.log")
+
+          echo "Executing: ${FETCH_CMD[@]}"
+
+          # メインスクリプトの実行
+          "${FETCH_CMD[@]}" 2>&1 | tee data/logs/console_daily_${FETCH_TIMESTAMP}.log
+
+          # 実行結果の保存
+          echo "FETCH_RESULT=$?" >> $GITHUB_ENV
+
+      - name: Check for changes
+        id: changes
+        if: env.DRY_RUN != 'true'
+        run: |
+          # 変更の有無をチェック
+          git add data/
+
+          if git diff --cached --quiet; then
+            echo "No new data found today"
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+          else
+            echo "New data found!"
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+
+            # 変更ファイル数の取得
+            CHANGED_FILES=$(git diff --cached --name-only | wc -l)
+            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+            echo "Changed files: $CHANGED_FILES"
+
+            # 新規ファイルリストを作成
+            echo "New files detected:"
+            git diff --cached --name-only --diff-filter=A
+          fi
+
+      - name: Create Pull Request
+        if: env.HAS_CHANGES == 'true' && env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          # ブランチ名の作成
+          BRANCH_NAME="data-update-daily-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
+          echo "Creating branch: $BRANCH_NAME"
+
+          # 新しいブランチにチェックアウト
+          git checkout -b "$BRANCH_NAME"
+
+          # コミットメッセージの作成
+          COMMIT_MSG="データ更新: $CURRENT_DATE"
+
+          if [ "$CHANGED_FILES" -gt 0 ]; then
+            COMMIT_MSG="$COMMIT_MSG ($CHANGED_FILES files)"
+          fi
+
+          # コミット実行
+          git commit -m "$COMMIT_MSG"
+
+          # ブランチをプッシュ
+          git push origin "$BRANCH_NAME"
+
+          # Pull Request の作成
+          PR_TITLE="$COMMIT_MSG"
+
+          # PR本文をファイルで作成
+          PR_BODY_FILE="/tmp/pr_body.md"
+          {
+            echo "## 🤖 自動データ更新 (毎日チェック)"
+            echo ""
+            echo "このPull Requestは毎日の自動チェックにより生成されました。"
+            echo ""
+            echo "### 📊 更新内容"
+            echo "- **実行日時**: $CURRENT_DATE"
+            echo "- **チェックタイプ**: 毎日チェック（新規ファイルのみ）"
+            echo "- **対象年**: $CURRENT_YEAR"
+            echo "- **現在の週**: 第${CURRENT_WEEK}週"
+            echo "- **変更ファイル数**: $CHANGED_FILES"
+            echo ""
+            echo "### ℹ️ 備考"
+            echo "毎日実行では新規ファイルのみチェックしています。"
+            echo "既存ファイルの更新は週次チェック（木曜日）で確認されます。"
+            echo ""
+            echo "---"
+            echo "*This PR was automatically created by the daily check workflow.*"
+          } > "$PR_BODY_FILE"
+
+          # ラベル管理
+          echo "Managing labels for PR..."
+
+          # ラベルを作成（既存の場合は無視）
+          gh label create "daily-update" --description "Daily automated data check" --color "0075CA" 2>/dev/null || true
+          gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>/dev/null || true
+          gh label create "automated" --description "Automatically generated" --color "ededed" 2>/dev/null || true
+
+          # PR作成
+          PR_URL=$(gh pr create \
+            --title "$PR_TITLE" \
+            --body-file "$PR_BODY_FILE" \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --label "daily-update" \
+            --label "data-update" \
+            --label "automated")
+
+          echo "✅ Successfully created PR: $PR_URL"
+          echo "PR_URL=$PR_URL" >> $GITHUB_ENV
+
+          # 自動マージは無効化（セキュリティリスク対策）
+          echo "ℹ️ 自動マージは無効化されています。データ検証後、手動でマージしてください。"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-check-logs-${{ env.FETCH_TIMESTAMP }}
+          path: data/logs/
+          retention-days: 7 # 毎日実行なので短めに
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 📊 毎日データチェックサマリー" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **曜日**: $(date +'%A')" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象年**: $CURRENT_YEAR" >> $GITHUB_STEP_SUMMARY
+          echo "- **現在の週**: 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
+          echo "- **既存ファイルスキップ**: ${SKIP_EXISTING:-true}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$HAS_CHANGES" = "true" ]; then
+            echo "### ✅ 新規データ検出" >> $GITHUB_STEP_SUMMARY
+            echo "- **変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$PR_URL" ]; then
+              echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ℹ️ 新規データなし" >> $GITHUB_STEP_SUMMARY
+            echo "本日は新規データは検出されませんでした。" >> $GITHUB_STEP_SUMMARY
+          fi

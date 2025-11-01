@@ -6,6 +6,7 @@
 import argparse
 import json
 import logging
+import random
 import sys
 import time
 from datetime import date, datetime
@@ -25,7 +26,7 @@ def setup_logging(log_file: str | None = None, log_level: str = "INFO"):
     """ロギングのセットアップ"""
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-    handlers = [logging.StreamHandler()]
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
 
     if log_file:
         log_path = Path(log_file)
@@ -40,9 +41,17 @@ def setup_logging(log_file: str | None = None, log_level: str = "INFO"):
 class DataCollector:
     """データ収集メインクラス"""
 
-    def __init__(self, config: DataCollectionConfig, dry_run: bool = False):
+    def __init__(
+        self,
+        config: DataCollectionConfig,
+        dry_run: bool = False,
+        skip_existing: bool = False,
+        force_update: bool = False,
+    ):
         self.config = config
         self.dry_run = dry_run
+        self.skip_existing = skip_existing
+        self.force_update = force_update
         self.logger = logging.getLogger(__name__)
 
         # フェッチャー初期化
@@ -58,7 +67,7 @@ class DataCollector:
         self.storage = StorageManager(Path(config.storage.base_directory), storage_config)
 
         # 統計情報
-        self.stats = {
+        self.stats: dict[str, Any] = {
             "total_files": 0,
             "successful": 0,
             "failed": 0,
@@ -103,11 +112,20 @@ class DataCollector:
         """特定のデータタイプを収集"""
         is_monthly = "monthly" in data_type
 
-        # 既存ファイルの確認(増分収集モードの場合)
-        if self.config.collection.incremental_mode:
+        # 強制更新モードの場合、すべてのデータを再取得
+        if self.force_update:
+            self.logger.info(f"強制更新モード: {data_type}の全データを再取得")
+            missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
+        # スキップモードの場合、既存ファイルをチェックして欠損のみ取得
+        elif self.skip_existing:
             existing_files = self.storage.get_existing_files(data_type=data_type)
             missing_params = self.fetcher.get_missing_data(data_type, existing_files, start_year, end_year)
-            self.logger.info(f"欠損データ: {len(missing_params)}件")
+            self.logger.info(f"スキップモード: 欠損データ {len(missing_params)}件のみ取得")
+        # 通常モード（設定ファイルに従う）
+        elif self.config.collection.incremental_mode:
+            existing_files = self.storage.get_existing_files(data_type=data_type)
+            missing_params = self.fetcher.get_missing_data(data_type, existing_files, start_year, end_year)
+            self.logger.info(f"増分収集モード: 欠損データ {len(missing_params)}件")
         else:
             # 全期間のパラメータ生成
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
@@ -153,6 +171,7 @@ class DataCollector:
             if result.success:
                 # データ保存
                 if not self.dry_run:
+                    # 強制更新モードの場合、既存ファイルも上書き
                     save_result = self.storage.save_with_metadata(
                         result.data,
                         data_type,
@@ -160,9 +179,10 @@ class DataCollector:
                         int(params.start_sub_period),
                         is_monthly,
                         {"fetch_time": result.fetch_time},
+                        force_overwrite=self.force_update,  # 強制更新フラグを渡す
                     )
 
-                    if save_result.is_duplicate:
+                    if save_result.is_duplicate and not self.force_update:
                         self.stats["duplicates"] += 1
                     elif save_result.success:
                         self.stats["successful"] += 1
@@ -179,8 +199,10 @@ class DataCollector:
                 self.stats["errors"].append(str(result.error))
                 self.logger.error(f"データ取得失敗: {result.error}")
 
-            # レート制限
-            time.sleep(1)
+            # レート制限（ジッター付きでサーバー負荷を分散）
+            base_delay = 0.5
+            jitter = random.uniform(0, 0.3)
+            time.sleep(base_delay + jitter)
 
     def _get_fetch_method(self, data_type: str):
         """データタイプに対応するフェッチメソッドを取得"""
@@ -306,6 +328,10 @@ def main():
 
     parser.add_argument("--dry-run", action="store_true", help="テスト実行(データ保存・コミットをスキップ)")
 
+    parser.add_argument("--skip-existing", action="store_true", help="既存ファイルをスキップし、新規ファイルのみ取得")
+
+    parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得（更新チェック）")
+
     parser.add_argument("--log-file", type=str, help="ログファイルのパス")
 
     parser.add_argument(
@@ -327,8 +353,13 @@ def main():
         if args.data_types:
             data_types = [dt.strip() for dt in args.data_types.split(",")]
 
+        # オプションの互換性チェック
+        if args.skip_existing and args.force_update:
+            logger.error("--skip-existing と --force-update は同時に指定できません")
+            sys.exit(1)
+
         # データ収集実行
-        collector = DataCollector(config, args.dry_run)
+        collector = DataCollector(config, args.dry_run, args.skip_existing, args.force_update)
         stats = collector.collect_data(data_types=data_types, start_year=args.start_year, end_year=args.end_year)
 
         # 結果をJSONファイルに保存
@@ -339,7 +370,7 @@ def main():
             # datetimeオブジェクトを文字列に変換
             stats_json = {k: v.isoformat() if isinstance(v, datetime) else v for k, v in stats.items()}
 
-            with open(stats_file, "w") as f:
+            with stats_file.open("w") as f:
                 json.dump(stats_json, f, indent=2, ensure_ascii=False)
 
         # 終了コード
