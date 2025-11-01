@@ -233,6 +233,55 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         periods = sorted([int(p.start_sub_period) for p in params])
         self.assertEqual(periods, [1, 2, 3])
 
+    def test_parse_invalid_filename_formats(self):
+        """無効なファイル名形式のテスト（エッジケース）"""
+        existing_files = [
+            Path("invalid_format.csv"),  # 無効な形式
+            Path("sentinel_weekly.csv"),  # 不完全な形式
+            Path("sentinel_weekly_gender.csv"),  # 年と期間なし
+            Path("sentinel_weekly_gender_2025.csv"),  # 期間なし
+            Path("sentinel_weekly_gender_invalid_01.csv"),  # 年が数値でない
+            Path("other_sentinel_weekly_gender_2025_01.csv"),  # 先頭不一致（部分マッチ防止）
+        ]
+
+        # 無効なファイルは解析されない
+        params = self.fetcher._parse_existing_files(existing_files, "sentinel_weekly_gender")
+        self.assertEqual(len(params), 0)
+
+    def test_parse_similar_data_type_names(self):
+        """類似したデータタイプ名での誤マッチを防ぐテスト"""
+        existing_files = [
+            Path("sentinel_weekly_gender_2025_01.csv"),
+            Path("sentinel_weekly_gender_extended_2025_01.csv"),  # 似た名前だが別のデータタイプ
+            Path("pre_sentinel_weekly_gender_2025_01.csv"),  # プレフィックス付き
+        ]
+
+        # sentinel_weekly_genderのみマッチ
+        params = self.fetcher._parse_existing_files(existing_files, "sentinel_weekly_gender")
+        self.assertEqual(len(params), 1)
+        self.assertEqual(params[0].start_year, "2025")
+        self.assertEqual(params[0].start_sub_period, "1")
+
+    def test_parse_boundary_period_values(self):
+        """境界値の期間のテスト"""
+        existing_files = [
+            Path("sentinel_weekly_gender_2025_00.csv"),  # 期間0
+            Path("sentinel_weekly_gender_2025_52.csv"),  # 最大週
+            Path("sentinel_monthly_age_2025_00.csv"),  # 月次の0
+            Path("sentinel_monthly_age_2025_12.csv"),  # 最大月
+        ]
+
+        # 週次データの解析
+        weekly_params = self.fetcher._parse_existing_files(existing_files, "sentinel_weekly_gender")
+        self.assertEqual(len(weekly_params), 2)
+        periods = [p.start_sub_period for p in weekly_params]
+        self.assertIn("0", periods)  # ゼロパディング除去後
+        self.assertIn("52", periods)
+
+        # 月次データの解析
+        monthly_params = self.fetcher._parse_existing_files(existing_files, "sentinel_monthly_age")
+        self.assertEqual(len(monthly_params), 2)
+
     @patch("time.sleep")
     def test_fetch_date_range(self, mock_sleep):
         """日付範囲での一括取得のテスト"""

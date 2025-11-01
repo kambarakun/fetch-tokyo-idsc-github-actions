@@ -366,7 +366,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         params_list = []
 
         for file in files:
-            if data_type in file.name:
+            # より厳密なマッチング: データタイプで始まり、アンダースコアが続くことを確認
+            if file.name.startswith(f"{data_type}_"):
                 parts = file.stem.split("_")
 
                 try:
@@ -382,6 +383,15 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         year = parts[-4]
                         period = parts[-3]
                     else:
+                        continue
+
+                    # 年と期間の妥当性チェック
+                    if not year.isdigit() or not period.isdigit():
+                        continue
+
+                    # 年の範囲チェック（1900-2100年）
+                    year_int = int(year)
+                    if year_int < 1900 or year_int > 2100:
                         continue
 
                     params = FetchParams(
