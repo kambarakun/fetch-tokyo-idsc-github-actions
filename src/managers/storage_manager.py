@@ -268,14 +268,15 @@ class StorageManager:
             dir_path = self.organize_file_path(data_type, year, period, is_monthly)
 
             # ファイル名生成（タイムスタンプなし、ゼロパディングあり）
-            period_type = "monthly" if is_monthly else "weekly"
-            filename = f"{data_type}_{period_type}_{year}_{period:02d}.csv"
+            # データタイプ名に既にweekly/monthlyが含まれているため、period_typeは不要
+            filename = f"{data_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
 
             # CSVファイル保存(Shift_JISのまま)
             file_path.write_bytes(data)
 
             # メタデータ生成
+            period_type = "monthly" if is_monthly else "weekly"
             metadata = {
                 "filename": filename,
                 "data_type": data_type,

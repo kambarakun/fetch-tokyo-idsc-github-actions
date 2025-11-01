@@ -357,29 +357,54 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         return report_type_map.get(data_type, "0")
 
     def _parse_existing_files(self, files: list[Path], data_type: str) -> list[FetchParams]:
-        """既存ファイルからパラメータを解析"""
+        """既存ファイルからパラメータを解析
+
+        新旧両方のファイル名形式に対応:
+        - 新形式: sentinel_weekly_gender_2025_01.csv
+        - 旧形式: sentinel_weekly_gender_2025_1_20250101_120000.csv
+        """
         params_list = []
 
         for file in files:
-            if data_type in file.name:
-                # ファイル名からパラメータを抽出
-                # 例: sentinel_weekly_gender_2025_1_20250101_120000.csv
+            # より厳密なマッチング: データタイプで始まり、アンダースコアが続くことを確認
+            if file.name.startswith(f"{data_type}_"):
                 parts = file.stem.split("_")
-                if len(parts) >= 5:
-                    try:
+
+                try:
+                    # データタイプの要素数を計算（例: sentinel_weekly_gender → 3要素）
+                    data_type_parts = len(data_type.split("_"))
+
+                    # 新形式の場合（data_type + year + period）
+                    if len(parts) == data_type_parts + 2:
+                        year = parts[-2]
+                        period = parts[-1].lstrip("0") or "0"  # ゼロパディング除去
+                    # 旧形式の場合（data_type + year + period + timestamp）
+                    elif len(parts) >= 5:
                         year = parts[-4]
                         period = parts[-3]
-                        params = FetchParams(
-                            start_year=year,
-                            start_sub_period=period,
-                            end_year=year,
-                            end_sub_period=period,
-                            data_type=data_type,
-                            report_type=self._get_report_type(data_type),
-                        )
-                        params_list.append(params)
-                    except (IndexError, ValueError):
+                    else:
                         continue
+
+                    # 年と期間の妥当性チェック
+                    if not year.isdigit() or not period.isdigit():
+                        continue
+
+                    # 年の範囲チェック（1900-2100年）
+                    year_int = int(year)
+                    if year_int < 1900 or year_int > 2100:
+                        continue
+
+                    params = FetchParams(
+                        start_year=year,
+                        start_sub_period=period,
+                        end_year=year,
+                        end_sub_period=period,
+                        data_type=data_type,
+                        report_type=self._get_report_type(data_type),
+                    )
+                    params_list.append(params)
+                except (IndexError, ValueError):
+                    continue
 
         return params_list
 
