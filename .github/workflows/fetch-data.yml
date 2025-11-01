@@ -172,10 +172,17 @@ jobs:
             echo "Changes detected"
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
 
-            # 変更ファイル数の取得
-            CHANGED_FILES=$(git diff --cached --name-only | wc -l)
-            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-            echo "Changed files: $CHANGED_FILES"
+            # CSVファイル数の取得（エラーハンドリング付き）
+            # grepが失敗しても（CSVファイルが0件でも）パイプラインが失敗しないように
+            CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 空文字列や非数値の場合のフォールバック
+            if ! [[ "$CSV_FILES" =~ ^[0-9]+$ ]]; then
+              CSV_FILES="0"
+            fi
+
+            echo "CSV_FILES=$CSV_FILES" >> $GITHUB_ENV
+            echo "CSV files changed: $CSV_FILES"
           fi
 
       - name: Create Pull Request
@@ -202,8 +209,16 @@ jobs:
             COMMIT_MSG="$COMMIT_MSG - $DATA_TYPES"
           fi
 
-          if [ "$CHANGED_FILES" -gt 0 ]; then
-            COMMIT_MSG="$COMMIT_MSG ($CHANGED_FILES files)"
+          # CSV_FILESのデフォルト値を設定（空の場合に備えて）
+          CSV_FILES="${CSV_FILES:-0}"
+
+          if [ "$CSV_FILES" -gt 0 ]; then
+            # 単数形/複数形の処理
+            if [ "$CSV_FILES" -eq 1 ]; then
+              COMMIT_MSG="$COMMIT_MSG (1 CSV file)"
+            else
+              COMMIT_MSG="$COMMIT_MSG ($CSV_FILES CSV files)"
+            fi
           fi
 
           # コミット実行
@@ -232,7 +247,7 @@ jobs:
             echo "- **実行日時**: $CURRENT_DATE"
             echo "- **対象期間**: $START_YEAR - $END_YEAR"
             echo "- **データタイプ**: ${DATA_TYPES:-ALL}"
-            echo "- **変更ファイル数**: $CHANGED_FILES"
+            echo "- **変更CSVファイル数**: $CSV_FILES"
             echo ""
             echo "### ✅ チェックリスト"
             echo "- [x] データ取得完了"
@@ -406,7 +421,7 @@ jobs:
 
           if [ "$HAS_CHANGES" = "true" ]; then
             echo "### ✅ 変更" >> $GITHUB_STEP_SUMMARY
-            echo "- **変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
+            echo "- **変更CSVファイル数**: $CSV_FILES" >> $GITHUB_STEP_SUMMARY
             if [ -n "$PR_URL" ]; then
               echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
             fi
