@@ -122,7 +122,7 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.config = DataFetcherConfig(max_retries=2, base_delay=0.1, timeout=10, rate_limit_delay=0.1)
         self.fetcher = EnhancedEpidemicDataFetcher(self.config)
 
-    @patch("src.fetchers.enhanced_fetcher.requests.Session.post")
+    @patch("src.fetchers.base_fetcher.requests.Session.post")
     def test_fetch_with_retry_success(self, mock_post):
         """正常なデータ取得のテスト"""
         # モックレスポンス
@@ -145,7 +145,7 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertIsNotNone(result.metadata)
         self.assertEqual(result.metadata.file_size, len(b"test,data\n1,2"))
 
-    @patch("src.fetchers.enhanced_fetcher.requests.Session.post")
+    @patch("src.fetchers.base_fetcher.requests.Session.post")
     def test_fetch_with_retry_failure(self, mock_post):
         """データ取得失敗のテスト"""
         mock_post.side_effect = ConnectionError("Network error")
