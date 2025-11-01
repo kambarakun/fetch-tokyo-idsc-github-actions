@@ -243,14 +243,29 @@ jobs:
             echo "*This PR was automatically created by the fetch-data workflow.*"
           } > "$PR_BODY_FILE"
 
-          # gh CLIを使用してPRを作成
-          if PR_URL=$(gh pr create \
-            --title "$PR_TITLE" \
-            --body-file "$PR_BODY_FILE" \
-            --base main \
-            --head "$BRANCH_NAME" \
-            --label "data-update" \
-            --label "automated"); then
+          # gh CLIを使用してPRを作成（ラベルがなくても失敗しないように）
+          PR_CREATE_ARGS=(
+            --title "$PR_TITLE"
+            --body-file "$PR_BODY_FILE"
+            --base main
+            --head "$BRANCH_NAME"
+          )
+
+          # ラベルが存在するか確認してから追加
+          if gh label list --json name | jq -r '.[].name' | grep -q "^data-update$"; then
+            PR_CREATE_ARGS+=(--label "data-update")
+          else
+            echo "Warning: Label 'data-update' not found, skipping"
+          fi
+
+          if gh label list --json name | jq -r '.[].name' | grep -q "^automated$"; then
+            PR_CREATE_ARGS+=(--label "automated")
+          else
+            echo "Warning: Label 'automated' not found, skipping"
+          fi
+
+          # PRを作成
+          if PR_URL=$(gh pr create "${PR_CREATE_ARGS[@]}"); then
             echo "Created PR: $PR_URL"
             echo "PR_URL=$PR_URL" >> $GITHUB_ENV
           else
