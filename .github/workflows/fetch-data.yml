@@ -243,18 +243,119 @@ jobs:
             echo "*This PR was automatically created by the fetch-data workflow.*"
           } > "$PR_BODY_FILE"
 
-          # gh CLIを使用してPRを作成
-          if PR_URL=$(gh pr create \
-            --title "$PR_TITLE" \
-            --body-file "$PR_BODY_FILE" \
-            --base main \
-            --head "$BRANCH_NAME" \
-            --label "data-update" \
-            --label "automated"); then
-            echo "Created PR: $PR_URL"
+          # gh CLIを使用してPRを作成（ラベルがなくても失敗しないように）
+          PR_CREATE_ARGS=(
+            --title "$PR_TITLE"
+            --body-file "$PR_BODY_FILE"
+            --base main
+            --head "$BRANCH_NAME"
+          )
+
+          # ラベル管理（取得、作成、追加）
+          echo "Managing labels for PR..."
+
+          # 必要なラベルを定義（互換性の高い配列形式）
+          # フォーマット: "label_name|description|color"
+          LABEL_DEFINITIONS=(
+            "data-update|Automated data update PR|0E8A16"
+            "automated|Automatically generated|ededed"
+          )
+
+          # 追加するラベルを格納する配列
+          LABELS_TO_ADD=()
+
+          # ラベル一覧を一度だけ取得（パフォーマンス最適化）
+          echo "Fetching existing labels from repository..."
+          if AVAILABLE_LABELS=$(gh label list --json name 2>/dev/null | jq -r '.[].name' 2>/dev/null); then
+            echo "Successfully fetched $(echo "$AVAILABLE_LABELS" | wc -l) existing labels"
+
+            # 各ラベル定義を処理
+            for label_def in "${LABEL_DEFINITIONS[@]}"; do
+              # ラベル定義を分解
+              IFS='|' read -r label description color <<< "$label_def"
+
+              # ラベルの存在確認（固定文字列として完全一致）
+              if echo "$AVAILABLE_LABELS" | grep -Fxq "$label"; then
+                echo "✓ Label exists: '$label'"
+                LABELS_TO_ADD+=("$label")
+              else
+                echo "✗ Label '$label' not found, attempting to create..."
+                # ラベルを作成（権限があれば成功、なければスキップ）
+                if CREATE_OUTPUT=$(gh label create "$label" --description "$description" --color "$color" 2>&1); then
+                  echo "  ✓ Successfully created label: '$label'"
+                  LABELS_TO_ADD+=("$label")
+                else
+                  # エラーの詳細を確認
+                  if echo "$CREATE_OUTPUT" | grep -Fq "already exists"; then
+                    echo "  ✓ Label already exists (race condition), adding to PR"
+                    LABELS_TO_ADD+=("$label")
+                  else
+                    echo "  ⚠ Could not create label '$label': $CREATE_OUTPUT"
+                    echo "  ⚠ Proceeding without this label"
+                  fi
+                fi
+              fi
+            done
+
+            # 収集したラベルをPR引数に追加
+            for label in "${LABELS_TO_ADD[@]}"; do
+              PR_CREATE_ARGS+=(--label "$label")
+              echo "Added label to PR: '$label'"
+            done
+          else
+            echo "⚠ Warning: Failed to fetch labels from GitHub API"
+            echo "  This may be due to:"
+            echo "  - Network connectivity issues"
+            echo "  - GitHub API rate limiting"
+            echo "  - Authentication problems"
+            echo "  Proceeding without labels to ensure PR creation succeeds"
+          fi
+
+          # PRを作成
+          echo ""
+          echo "Creating pull request with the following parameters:"
+          echo "  Title: $PR_TITLE"
+          echo "  Base: main"
+          echo "  Head: $BRANCH_NAME"
+          echo "  Labels: ${LABELS_TO_ADD[*]:-none}"
+          echo ""
+
+          PR_CREATE_OUTPUT=$(gh pr create "${PR_CREATE_ARGS[@]}" 2>&1)
+          PR_CREATE_EXIT_CODE=$?
+
+          if [ $PR_CREATE_EXIT_CODE -eq 0 ]; then
+            PR_URL="$PR_CREATE_OUTPUT"
+            echo "✅ Successfully created PR: $PR_URL"
             echo "PR_URL=$PR_URL" >> $GITHUB_ENV
           else
-            echo "Error: Failed to create pull request"
+            echo "❌ Error: Failed to create pull request (exit code: $PR_CREATE_EXIT_CODE)"
+            echo "Error details:"
+            echo "$PR_CREATE_OUTPUT"
+
+            # 特定のエラーをチェックして詳細な情報を提供
+            if echo "$PR_CREATE_OUTPUT" | grep -Fq "already exists"; then
+              echo ""
+              echo "ℹ️ A pull request already exists for this branch."
+              echo "You may want to:"
+              echo "  1. Close the existing PR and retry"
+              echo "  2. Update the existing PR instead"
+              echo "  3. Use 'gh pr view $BRANCH_NAME' to check the existing PR"
+            elif echo "$PR_CREATE_OUTPUT" | grep -Fiq "authentication"; then
+              echo ""
+              echo "ℹ️ Authentication issue detected."
+              echo "Please check:"
+              echo "  1. GITHUB_TOKEN is properly set"
+              echo "  2. Token has necessary permissions (contents: write, pull-requests: write)"
+              echo "  3. Token is not expired"
+            elif echo "$PR_CREATE_OUTPUT" | grep -Fiq "rate limit"; then
+              echo ""
+              echo "ℹ️ GitHub API rate limit exceeded."
+              echo "Please:"
+              echo "  1. Wait for rate limit to reset"
+              echo "  2. Check rate limit status: 'gh api rate_limit'"
+              echo "  3. Consider using a different token with higher limits"
+            fi
+
             exit 1
           fi
 
