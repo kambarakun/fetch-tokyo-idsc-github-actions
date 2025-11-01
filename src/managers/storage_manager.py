@@ -68,7 +68,7 @@ class GitHandler:
         """変更をコミット"""
         try:
             # 変更があるか確認
-            result = subprocess.run(["git", "diff", "--cached", "--quiet"], capture_output=True, check=False)
+            result = subprocess.run(["git", "diff", "--cached", "--quiet"], capture_output=True, text=True, check=False)
 
             if result.returncode == 0:
                 # 変更なし
@@ -117,15 +117,9 @@ class StorageManager:
         self.hash_index = self._load_hash_index()
 
     def organize_file_path(self, data_type: str, year: int, period: int, is_monthly: bool = False) -> Path:
-        """階層ディレクトリ構造でのファイルパス生成"""
-        if is_monthly:
-            # 月次データの場合
-            dir_path = self.base_path / str(year) / f"{period:02d}"
-        else:
-            # 週次データの場合
-            month = self._get_month_from_week(year, period)
-            dir_path = self.base_path / str(year) / f"{month:02d}" / f"week_{period:02d}"
-
+        """フラットなディレクトリ構造でのファイルパス生成"""
+        # すべてのファイルをrawディレクトリ直下に配置
+        dir_path = self.base_path
         dir_path.mkdir(parents=True, exist_ok=True)
         return dir_path
 
@@ -150,11 +144,10 @@ class StorageManager:
 
             # ファイルパス生成
             dir_path = self.organize_file_path(data_type, year, period, is_monthly)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # ファイル名生成
-            period_type = "month" if is_monthly else "week"
-            filename = f"{data_type}_{year}_{period}_{timestamp}.csv"
+            # ファイル名生成（タイムスタンプなし、ゼロパディングあり）
+            period_type = "monthly" if is_monthly else "weekly"
+            filename = f"{data_type}_{period_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
 
             # CSVファイル保存(Shift_JISのまま)
@@ -177,11 +170,11 @@ class StorageManager:
             if additional_metadata:
                 metadata.update(additional_metadata)
 
-            # メタデータファイル保存
-            metadata_filename = f"{filename.replace('.csv', '')}_metadata.json"
-            metadata_path = dir_path / metadata_filename
+            # メタデータは別ディレクトリに保存（.metadataディレクトリ）
+            metadata_filename = f"{filename.replace('.csv', '.json')}"
+            metadata_path = self.metadata_dir / metadata_filename
 
-            with open(metadata_path, "w", encoding="utf-8") as f:
+            with metadata_path.open("w", encoding="utf-8") as f:
                 json.dump(metadata, f, ensure_ascii=False, indent=2)
 
             # ハッシュインデックス更新
@@ -231,7 +224,7 @@ class StorageManager:
         """ハッシュインデックスの読み込み"""
         if self.hash_index_file.exists():
             try:
-                with open(self.hash_index_file) as f:
+                with self.hash_index_file.open() as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load hash index: {e}")
@@ -241,7 +234,7 @@ class StorageManager:
         """ハッシュインデックスの更新"""
         self.hash_index[file_hash] = file_path
         try:
-            with open(self.hash_index_file, "w") as f:
+            with self.hash_index_file.open("w") as f:
                 json.dump(self.hash_index, f, indent=2)
         except Exception as e:
             logger.warning(f"Failed to update hash index: {e}")
@@ -255,28 +248,31 @@ class StorageManager:
         return target_date.month
 
     def get_existing_files(self, data_type: str | None = None, year: int | None = None) -> list[Path]:
-        """既存ファイルの取得"""
+        """既存ファイルの取得（フラット構造対応）"""
         pattern = "*.csv"
 
-        if year:
-            search_path = self.base_path / str(year)
-        else:
-            search_path = self.base_path
-
-        files = list(search_path.rglob(pattern))
+        # フラット構造なので常にベースパスから検索
+        search_path = self.base_path
+        files = list(search_path.glob(pattern))  # rglobではなくglobを使用
 
         if data_type:
             files = [f for f in files if data_type in f.name]
+
+        if year:
+            # ファイル名から年をフィルタリング（例: sentinel_weekly_2025_01.csv）
+            files = [f for f in files if f"_{year}_" in f.name]
 
         return sorted(files)
 
     def get_metadata(self, file_path: Path) -> dict[str, Any] | None:
         """ファイルのメタデータ取得"""
-        metadata_path = file_path.parent / f"{file_path.stem}_metadata.json"
+        # メタデータは.metadataディレクトリから取得
+        metadata_filename = f"{file_path.stem}.json"
+        metadata_path = self.metadata_dir / metadata_filename
 
         if metadata_path.exists():
             try:
-                with open(metadata_path) as f:
+                with metadata_path.open() as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load metadata: {e}")
@@ -298,7 +294,8 @@ class StorageManager:
                         file_path.unlink()
 
                         # メタデータファイルも削除
-                        metadata_path = file_path.parent / f"{file_path.stem}_metadata.json"
+                        metadata_filename = f"{file_path.stem}.json"
+                        metadata_path = self.metadata_dir / metadata_filename
                         if metadata_path.exists():
                             metadata_path.unlink()
 
