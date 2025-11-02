@@ -7,16 +7,30 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 
-from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher, FetchParams, RateLimiter, RetryHandler
+from src.fetchers.enhanced_fetcher import (
+    DataFetcherConfig,
+    EnhancedEpidemicDataFetcher,
+    FetchParams,
+    RateLimiter,
+    RetryHandler,
+)
 
 
 class TestAsyncErrorHandling(unittest.TestCase):
     """非同期処理とエラーハンドリングの詳細テスト"""
 
     def setUp(self):
+        self.config = DataFetcherConfig(
+            max_retries=3,
+            base_delay=0.1,
+            max_delay=1.0,
+            timeout=5,
+            rate_limit_delay=0.1,
+            enable_jitter=False,
+        )
         self.fetcher = EnhancedEpidemicDataFetcher()
-        self.retry_handler = RetryHandler()
-        self.rate_limiter = RateLimiter()
+        self.retry_handler = RetryHandler(config=self.config)
+        self.rate_limiter = RateLimiter(requests_per_second=10)
 
     def test_retry_handler_with_http_errors(self):
         """HTTPエラーコードごとのリトライ処理"""
@@ -64,7 +78,14 @@ class TestAsyncErrorHandling(unittest.TestCase):
 
                 # バッチ処理を実行
                 params_list = [
-                    FetchParams(data_type="test", period_type="week", year=2024, period=i) for i in range(1, 11)
+                    FetchParams(
+            start_year="2024",
+            start_sub_period="1",
+            end_year="2024",
+            end_sub_period="1",
+            data_type="test",
+            report_type="1"
+        ) for i in range(1, 11)
                 ]
 
                 # 並行度を変えてテスト
@@ -155,7 +176,14 @@ class TestAsyncErrorHandling(unittest.TestCase):
             errors = []
 
             for i, error in enumerate(error_types):
-                params = FetchParams(data_type="test", period_type="week", year=2024, period=i + 1)
+                params = FetchParams(
+            start_year="2024",
+            start_sub_period="1",
+            end_year="2024",
+            end_sub_period="1",
+            data_type="test",
+            report_type="1"
+        )
 
                 try:
                     result = await fetch_with_errors(params, error)
@@ -289,7 +317,14 @@ class TestAsyncErrorHandling(unittest.TestCase):
             # 負荷をかけてデグラデーションを確認
             results = []
             for i in range(150):
-                params = FetchParams(data_type="test", period_type="week", year=2024, period=1)
+                params = FetchParams(
+            start_year="2024",
+            start_sub_period="1",
+            end_year="2024",
+            end_sub_period="1",
+            data_type="test",
+            report_type="1"
+        )
                 result = await service.fetch_data(params)
                 results.append(result)
 
