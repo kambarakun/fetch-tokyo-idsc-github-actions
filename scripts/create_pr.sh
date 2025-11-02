@@ -4,16 +4,53 @@ set -e
 # ============================================================
 # PR作成用の共通スクリプト
 #
+# 説明:
+#   GitHub Actionsワークフローから呼び出されるPR作成の共通処理。
+#   ブランチ作成、コミット、プッシュ、PR作成、自動マージ設定を実行。
+#
 # 使用方法:
 #   scripts/create_pr.sh <workflow_name> <workflow_display_name>
 #
-# 必要な環境変数:
-#   - GITHUB_TOKEN
-#   - CURRENT_DATE
-#   - CHANGED_FILES
-#   - FETCH_TIMESTAMP
-#   - GITHUB_RUN_ID
-#   - その他ワークフロー固有の変数
+# 引数:
+#   $1 workflow_name         - ワークフロー識別子 (fetch-data-daily|fetch-data-weekly|fetch-data)
+#   $2 workflow_display_name - PR本文に表示するワークフロー名
+#
+# 必須環境変数:
+#   - GITHUB_TOKEN      : GitHub APIアクセス用トークン
+#   - CURRENT_DATE      : 実行日 (YYYY-MM-DD形式)
+#   - FETCH_TIMESTAMP   : 実行タイムスタンプ (英数字とハイフンのみ)
+#   - GITHUB_RUN_ID     : GitHub ActionsのRun ID (数値)
+#
+# オプション環境変数（ワークフロー別）:
+#   fetch-data-daily:
+#     - CURRENT_YEAR, CURRENT_WEEK, CURRENT_MONTH
+#     - PREVIOUS_WEEK, PREVIOUS_MONTH
+#   fetch-data-weekly:
+#     - START_YEAR, END_YEAR, CURRENT_WEEK
+#     - CHECK_PREVIOUS_YEAR, PREVIOUS_YEAR
+#     - VALIDATION_SUCCESS (true|false)
+#   fetch-data:
+#     - START_YEAR, END_YEAR
+#     - DATA_TYPES, SKIP_EXISTING
+#     - VERIFY_CONTINUITY, CONTINUITY_VALID
+#     - NEW_FILES, MODIFIED_FILES, CHANGED_FILES (CSVカウント用)
+#
+# GitHub環境変数（デフォルト値あり）:
+#   - GITHUB_SERVER_URL : GitHubサーバーURL (デフォルト: https://github.com)
+#   - GITHUB_REPOSITORY : リポジトリ名 (owner/repo形式)
+#
+# 出力:
+#   - PR_URL    : 作成されたPRのURL (GITHUB_ENVに設定)
+#   - PR_NUMBER : PR番号 (GITHUB_ENVに設定、自動マージに使用)
+#
+# 終了コード:
+#   0 : 成功
+#   1 : エラー（引数不足、環境変数未設定、git操作失敗等）
+#
+# セキュリティ:
+#   - 全ての必須環境変数の形式を検証
+#   - シェルインジェクション対策済み
+#   - エラー出力は標準エラーへ
 # ============================================================
 
 # 引数の検証
@@ -35,6 +72,25 @@ for var in $REQUIRED_VARS; do
     exit 1
   fi
 done
+
+# 入力のサニタイズ（シェルインジェクション対策）
+# CURRENT_DATEの形式検証（YYYY-MM-DD形式のみ許可）
+if ! echo "$CURRENT_DATE" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+  echo "Error: CURRENT_DATE must be in YYYY-MM-DD format, got: $CURRENT_DATE" >&2
+  exit 1
+fi
+
+# GITHUB_RUN_IDの数値検証
+if ! echo "$GITHUB_RUN_ID" | grep -qE '^[0-9]+$'; then
+  echo "Error: GITHUB_RUN_ID must be numeric, got: $GITHUB_RUN_ID" >&2
+  exit 1
+fi
+
+# FETCH_TIMESTAMPの形式検証（英数字とハイフンのみ許可）
+if ! echo "$FETCH_TIMESTAMP" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+  echo "Error: FETCH_TIMESTAMP contains invalid characters: $FETCH_TIMESTAMP" >&2
+  exit 1
+fi
 
 # GitHub関連の環境変数（デフォルト値あり）
 GITHUB_SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
@@ -66,12 +122,16 @@ fi
 
 # 変更内訳の取得
 # 環境変数が設定されている場合はそれを使用（fetch-data.ymlのCSVカウント等）
-# 設定されていない場合はgitから計算
-if [ -z "$NEW_FILES" ]; then
-  NEW_FILES=$(git diff --cached --name-status | grep "^A" 2>/dev/null | wc -l | xargs)
-fi
-if [ -z "$MODIFIED_FILES" ]; then
-  MODIFIED_FILES=$(git diff --cached --name-status | grep "^M" 2>/dev/null | wc -l | xargs)
+# 設定されていない場合はgitから計算（最適化: 1回のgit diffで全情報取得）
+if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
+  # 一度のgit diffで全ての変更情報を取得（パフォーマンス最適化）
+  GIT_STATUS=$(git diff --cached --name-status)
+  if [ -z "$NEW_FILES" ]; then
+    NEW_FILES=$(echo "$GIT_STATUS" | grep "^A" 2>/dev/null | wc -l | xargs)
+  fi
+  if [ -z "$MODIFIED_FILES" ]; then
+    MODIFIED_FILES=$(echo "$GIT_STATUS" | grep "^M" 2>/dev/null | wc -l | xargs)
+  fi
 fi
 # CHANGED_FILESのデフォルト値設定
 if [ -z "$CHANGED_FILES" ]; then
@@ -123,10 +183,10 @@ PR_BODY_FILE="/tmp/pr_body.md"
   # ワークフロー固有の情報を追加
   case "$WORKFLOW_NAME" in
     fetch-data-daily)
-      echo "- **現在の週**: 第${CURRENT_WEEK}週"
+      [ -n "${CURRENT_WEEK:-}" ] && echo "- **現在の週**: 第${CURRENT_WEEK}週"
       ;;
     fetch-data-weekly)
-      echo "- **現在の週**: 第${CURRENT_WEEK}週"
+      [ -n "${CURRENT_WEEK:-}" ] && echo "- **現在の週**: 第${CURRENT_WEEK}週"
       ;;
   esac
 
@@ -136,20 +196,28 @@ PR_BODY_FILE="/tmp/pr_body.md"
   # ワークフロー固有のチェック範囲
   case "$WORKFLOW_NAME" in
     fetch-data-daily)
-      echo "- **対象年**: ${CURRENT_YEAR}年"
-      echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週"
-      echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月"
+      [ -n "${CURRENT_YEAR:-}" ] && echo "- **対象年**: ${CURRENT_YEAR}年"
+      if [ -n "${PREVIOUS_WEEK:-}" ] && [ -n "${CURRENT_WEEK:-}" ]; then
+        echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週"
+      fi
+      if [ -n "${PREVIOUS_MONTH:-}" ] && [ -n "${CURRENT_MONTH:-}" ]; then
+        echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月"
+      fi
       echo "- **チェック方式**: 最新週＋前週の週次データ、当月＋前月の月次データ"
       ;;
     fetch-data-weekly)
-      echo "- **対象期間**: ${START_YEAR}年 - ${END_YEAR}年"
+      if [ -n "${START_YEAR:-}" ] && [ -n "${END_YEAR:-}" ]; then
+        echo "- **対象期間**: ${START_YEAR}年 - ${END_YEAR}年"
+      fi
       echo "- **チェック方式**: 全ファイルの最新状態確認（既存ファイル更新チェック含む）"
-      if [ "$CHECK_PREVIOUS_YEAR" = "true" ]; then
+      if [ "${CHECK_PREVIOUS_YEAR:-false}" = "true" ] && [ -n "${PREVIOUS_YEAR:-}" ]; then
         echo "- **前年データ**: ${PREVIOUS_YEAR}年のデータも確認済み"
       fi
       ;;
     fetch-data)
-      echo "- **対象期間**: ${START_YEAR}年 - ${END_YEAR}年"
+      if [ -n "${START_YEAR:-}" ] && [ -n "${END_YEAR:-}" ]; then
+        echo "- **対象期間**: ${START_YEAR}年 - ${END_YEAR}年"
+      fi
       echo "- **データタイプ**: ${DATA_TYPES:-ALL}"
       echo "- **チェック方式**: ${SKIP_EXISTING:+既存ファイルスキップ}${SKIP_EXISTING:-全ファイル取得}"
       ;;
