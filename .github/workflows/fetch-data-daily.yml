@@ -188,85 +188,12 @@ jobs:
         if: env.HAS_CHANGES == 'true' && env.DRY_RUN != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 共通スクリプトで使用する環境変数
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          set -e
-
-          # ブランチ名の作成
-          BRANCH_NAME="data-update-daily-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
-          echo "Creating branch: $BRANCH_NAME"
-
-          # 新しいブランチにチェックアウト
-          git checkout -b "$BRANCH_NAME"
-
-          # コミットメッセージの作成
-          COMMIT_MSG="データ更新: $CURRENT_DATE"
-
-          if [ "$CHANGED_FILES" -gt 0 ]; then
-            COMMIT_MSG="$COMMIT_MSG ($CHANGED_FILES files)"
-          fi
-
-          # コミット実行
-          git commit -m "$COMMIT_MSG"
-
-          # ブランチをプッシュ
-          git push origin "$BRANCH_NAME"
-
-          # Pull Request の作成
-          PR_TITLE="$COMMIT_MSG"
-
-          # PR本文をファイルで作成
-          PR_BODY_FILE="/tmp/pr_body.md"
-          {
-            echo "## 🤖 自動データ更新 (毎日簡易チェック)"
-            echo ""
-            echo "このPull Requestは毎日の簡易チェックにより生成されました。"
-            echo ""
-            echo "### 📊 更新内容"
-            echo "- **実行日時**: $CURRENT_DATE"
-            echo "- **チェックタイプ**: 毎日簡易チェック（最新週＋前週、当月＋前月）"
-            echo "- **対象年**: $CURRENT_YEAR"
-            echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週"
-            echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月"
-            echo "- **変更ファイル数**: $CHANGED_FILES"
-            echo ""
-            echo "### ℹ️ 備考"
-            echo "毎日実行では最新週＋前週の週次データと、当月＋前月の月次データをチェックしています。"
-            echo "全データの包括的チェックは毎週木曜日に実行されます。"
-            echo ""
-            echo "---"
-            echo "*This PR was automatically created by the daily check workflow.*"
-          } > "$PR_BODY_FILE"
-
-          # ラベル管理
-          echo "Managing labels for PR..."
-
-          # ラベルを作成（既存の場合は無視）
-          gh label create "daily-update" --description "Daily automated data check" --color "0075CA" 2>/dev/null || true
-          gh label create "data-update" --description "Automated data update PR" --color "0E8A16" 2>/dev/null || true
-          gh label create "automated" --description "Automatically generated" --color "ededed" 2>/dev/null || true
-
-          # PR作成
-          PR_URL=$(gh pr create \
-            --title "$PR_TITLE" \
-            --body-file "$PR_BODY_FILE" \
-            --base main \
-            --head "$BRANCH_NAME" \
-            --label "daily-update" \
-            --label "data-update" \
-            --label "automated")
-
-          echo "✅ Successfully created PR: $PR_URL"
-          echo "PR_URL=$PR_URL" >> $GITHUB_ENV
-
-          # PR番号を取得
-          PR_NUMBER=$(echo "$PR_URL" | sed 's/.*\/pull\///')
-          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
-
-          # 自動マージを有効化（squashマージを使用）
-          echo "🔄 自動マージを設定中..."
-          gh pr merge "$PR_NUMBER" --auto --squash || {
-            echo "⚠️ 自動マージの設定に失敗しました。手動でマージしてください。"
-          }
+          # 共通スクリプトを呼び出し
+          bash scripts/create_pr.sh "fetch-data-daily" "毎日簡易チェック"
 
       - name: Upload logs
         if: always()
