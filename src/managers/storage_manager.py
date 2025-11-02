@@ -29,6 +29,7 @@ class SaveResult:
         metadata_path: 保存されたメタデータファイルのパス（成功時のみ）
         error: エラーメッセージ（失敗時のみ）
         is_duplicate: 重複ファイルとして検出されたかどうか
+        is_new: 新規ファイルとして保存されたかどうか
     """
 
     success: bool
@@ -36,6 +37,7 @@ class SaveResult:
     metadata_path: Path | None = None
     error: str | None = None
     is_duplicate: bool = False
+    is_new: bool = False
 
 
 @dataclass
@@ -276,6 +278,9 @@ class StorageManager:
             filename = f"{data_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
 
+            # 新規ファイルかどうかを判定
+            is_new_file = not file_path.exists()
+
             # 既存ファイルのチェック（force_overwriteの場合、古いハッシュを削除）
             if file_path.exists() and force_overwrite:
                 # 既存ファイルのハッシュを計算
@@ -334,9 +339,9 @@ class StorageManager:
             # ハッシュインデックス更新
             self._update_hash_index(data_hash, str(file_path))
 
-            logger.info(f"Saved file: {file_path}")
+            logger.info(f"Saved file: {file_path} (new={is_new_file})")
 
-            return SaveResult(success=True, file_path=file_path, metadata_path=metadata_path)
+            return SaveResult(success=True, file_path=file_path, metadata_path=metadata_path, is_new=is_new_file)
 
         except Exception as e:
             logger.exception("Failed to save file")
@@ -447,6 +452,60 @@ class StorageManager:
             # ハッシュインデックス更新失敗は重要なエラーとして扱う
             raise
 
+    def _add_to_hash_index(self, file_hash: str, file_path: str) -> None:
+        """ハッシュインデックスに新しいファイルを追加する。
+
+        Args:
+            file_hash: ファイルのSHA256ハッシュ
+            file_path: ファイルのパス（文字列）
+
+        Note:
+            同じハッシュの複数ファイルをサポート（リスト形式で管理）
+        """
+        if file_hash not in self.hash_index:
+            # 新規エントリは単一の文字列として保存（互換性とサイズ節約）
+            self.hash_index[file_hash] = file_path
+            return
+
+        current = self.hash_index[file_hash]
+        # 文字列の場合はリストに変換（後方互換性）
+        if isinstance(current, str):
+            if current != file_path:
+                self.hash_index[file_hash] = [current, file_path]
+        # リストの場合は追加
+        elif isinstance(current, list) and file_path not in current:
+            current.append(file_path)
+
+    def _sort_hash_index_by_filename(self) -> dict[str, str | list[str]]:
+        """ハッシュインデックスをファイル名順にソートする。
+
+        Returns:
+            ファイル名順にソートされたハッシュインデックス辞書
+        """
+        # ファイル名でソートするため、(ハッシュ, ファイルパス)のリストを作成
+        items_to_sort = []
+        for hash_key, file_paths in self.hash_index.items():
+            paths_list = file_paths if isinstance(file_paths, list) else [file_paths]
+            for path in paths_list:
+                items_to_sort.append((hash_key, path))
+
+        # ファイルパス（値）でソート
+        items_to_sort.sort(key=lambda x: x[1])
+
+        # ソート済みの順序で辞書を再構築
+        sorted_index: dict[str, str | list[str]] = {}
+        for hash_key, path in items_to_sort:
+            if hash_key not in sorted_index:
+                sorted_index[hash_key] = path
+            else:
+                current = sorted_index[hash_key]
+                if isinstance(current, str):
+                    sorted_index[hash_key] = [current, path]
+                elif isinstance(current, list) and path not in current:
+                    current.append(path)
+
+        return sorted_index
+
     def _update_hash_index(self, file_hash: str, file_path: str) -> None:
         """ハッシュインデックスを更新してファイルに保存する。
 
@@ -458,23 +517,19 @@ class StorageManager:
             保存に失敗した場合は警告ログを出力するが、処理は継続される
             同じハッシュの複数ファイルをサポート（リスト形式で管理）
         """
-        # 既存のエントリを確認
-        if file_hash in self.hash_index:
-            current = self.hash_index[file_hash]
-            # 文字列の場合はリストに変換（後方互換性）
-            if isinstance(current, str):
-                if current != file_path:
-                    self.hash_index[file_hash] = [current, file_path]
-            # リストの場合は追加
-            elif isinstance(current, list) and file_path not in current:
-                current.append(file_path)
-        else:
-            # 新規エントリは単一の文字列として保存（互換性とサイズ節約）
-            self.hash_index[file_hash] = file_path
+        # インデックスに追加
+        self._add_to_hash_index(file_hash, file_path)
 
         try:
+            # ファイル名順にソート
+            sorted_index = self._sort_hash_index_by_filename()
+
             with self.hash_index_file.open("w") as f:
-                json.dump(self.hash_index, f, indent=2)
+                # sort_keys=Falseにして、挿入順序を保持（Python 3.7+では辞書は挿入順序を保持）
+                json.dump(sorted_index, f, indent=2, ensure_ascii=False, sort_keys=False)
+
+            # メモリ上のインデックスも更新（ソート済みのものに置き換え）
+            self.hash_index = sorted_index
         except Exception as e:
             logger.warning(f"Failed to update hash index: {e}")
 
