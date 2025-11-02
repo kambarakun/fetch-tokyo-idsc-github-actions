@@ -281,7 +281,7 @@ class StorageManager:
             # 新規ファイルかどうかを判定
             is_new_file = not file_path.exists()
 
-            # 既存ファイルのチェック(force_overwriteの場合、古いハッシュを削除)
+            # 既存ファイルのチェック (force_overwriteの場合、古いハッシュを削除)
             if file_path.exists() and force_overwrite:
                 # 既存ファイルのハッシュを計算
                 old_data = file_path.read_bytes()
@@ -528,7 +528,7 @@ class StorageManager:
                 # sort_keys=Falseにして、挿入順序を保持(Python 3.7+では辞書は挿入順序を保持)
                 json.dump(sorted_index, f, indent=2, ensure_ascii=False, sort_keys=False)
 
-            # メモリ上のインデックスも更新(ソート済みのものに置き換え)
+            # メモリ上のインデックスも更新 (ソート済みのものに置き換え)
             # これにより、同一セッション内での重複チェックなどが正しく動作する
             self.hash_index = sorted_index
         except Exception as e:
