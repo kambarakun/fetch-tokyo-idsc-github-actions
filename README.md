@@ -53,7 +53,7 @@ data/
 
 - 🔄 **自動収集**: GitHub Actionsによる2種類の自動実行
   - **毎日実行**: 毎日17:00 JST - 最新週データの確認・取得
-  - **週次実行**: 毎週木曜17:30 JST - 過去3週間分の包括的チェック
+  - **週次実行**: 毎週木曜17:30 JST - 現在年の全データを包括的チェック
 - 🔍 **重複検出**: SHA256ハッシュによるデータ整合性検証
 - 🔁 **リトライ機能**: エラー時の自動リトライ（最大3回）
 - 📝 **メタデータ管理**: 各データファイルの収集情報を記録
@@ -110,7 +110,7 @@ uv sync --all-extras
 
 - **週次実行（Weekly Epidemic Data Full Check）**
   - 毎週木曜日 17:30 JST に実行
-  - 過去3週間分のデータを包括的にチェック
+  - 現在年の全データを包括的にチェック（1月は前年分も含む）
   - 欠落データの補完と整合性確認
 
 手動実行：
@@ -119,7 +119,7 @@ uv sync --all-extras
 2. 実行したいワークフローを選択：
    - "Fetch Tokyo Epidemic Data" - 汎用データ取得
    - "Daily Epidemic Data Check" - 最新週のみ
-   - "Weekly Epidemic Data Full Check" - 過去3週間分
+   - "Weekly Epidemic Data Full Check" - 現在年の全データ
 3. "Run workflow" をクリック
 4. 必要に応じてパラメータを設定して実行
 
