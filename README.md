@@ -1,6 +1,9 @@
 # 東京都感染症発生動向データ自動収集システム
 
-[![Fetch Tokyo Epidemic Data](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml)
+[![📊 東京都感染症データ取得（手動実行）](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml)
+[![📅 毎日データチェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml)
+[![📆 週次データ徹底チェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml)
+[![🧪 テストスイート実行](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/test.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/License-Non--Commercial-orange.svg)](LICENSE.md)
 
 東京都感染症発生動向情報システムから定期的にデータを自動取得・保存するGitHub Actionsベースのシステムです。
@@ -52,14 +55,15 @@ data/
 ## 📋 主な機能
 
 - 🔄 **自動収集**: GitHub Actionsによる2種類の自動実行
-  - **毎日実行**: 毎日17:00 JST - 最新週データの確認・取得
-  - **週次実行**: 毎週木曜17:30 JST - 現在年の全データを包括的チェック
+  - **📅 毎日データチェック**: 毎日17:00 JST - 最新週データの確認・取得
+  - **📆 週次データ徹底チェック**: 毎週木曜17:30 JST - 現在年の全データを包括的チェック
 - 🔍 **重複検出**: SHA256ハッシュによるデータ整合性検証
 - 🔁 **リトライ機能**: エラー時の自動リトライ（最大3回）
 - 📝 **メタデータ管理**: 各データファイルの収集情報を記録
 - 🚨 **エラー通知**: GitHub Issuesによる自動通知
 - 📊 **増分更新**: 既存データをスキップして新規データのみ取得
 - 🔀 **自動PR作成**: データ更新時に自動でPull Request作成
+- ✨ **自動マージ**: データ検証成功時にPRを自動的にマージ
 
 ## ⚙️ 必要な設定
 
@@ -100,27 +104,27 @@ uv sync --all-extras
 
 ### GitHub Actions（推奨）
 
-自動実行（2種類のワークフロー）：
+#### 🤖 自動実行ワークフロー
 
-- **毎日実行（Daily Epidemic Data Check）**
+本システムは2種類の自動実行ワークフローを備えています：
 
-  - 毎日 17:00 JST に実行
-  - 最新週（現在週）のデータのみチェック・取得
-  - 週報データの定期更新を迅速に検出
+| ワークフロー                  | 実行タイミング       | 内容                                                                                        | 自動マージ        |
+| ----------------------------- | -------------------- | ------------------------------------------------------------------------------------------- | ----------------- |
+| **📅 毎日データチェック**     | 毎日 17:00 JST       | 最新週（現在週）のデータのみチェック・取得<br>週報データの定期更新を迅速に検出              | ✅ 有効           |
+| **📆 週次データ徹底チェック** | 毎週木曜日 17:30 JST | 現在年の全データを包括的にチェック<br>（1月は前年分も含む）<br>欠落データの補完と整合性確認 | ✅ 検証成功時のみ |
 
-- **週次実行（Weekly Epidemic Data Full Check）**
-  - 毎週木曜日 17:30 JST に実行
-  - 現在年の全データを包括的にチェック（1月は前年分も含む）
-  - 欠落データの補完と整合性確認
+> 💡 **自動マージ機能**: データ更新PRは自動的にマージされます（週次はデータ検証成功時のみ）
 
-手動実行：
+#### 📊 手動実行
 
-1. GitHub リポジトリの Actions タブを開く
+必要に応じて手動でもワークフローを実行できます：
+
+1. GitHub リポジトリの **Actions** タブを開く
 2. 実行したいワークフローを選択：
-   - "Fetch Tokyo Epidemic Data" - 汎用データ取得
-   - "Daily Epidemic Data Check" - 最新週のみ
-   - "Weekly Epidemic Data Full Check" - 現在年の全データ
-3. "Run workflow" をクリック
+   - **📊 東京都感染症データ取得（手動実行）** - 汎用データ取得
+   - **📅 毎日データチェック** - 最新週のみ
+   - **📆 週次データ徹底チェック** - 現在年の全データ
+3. **"Run workflow"** をクリック
 4. 必要に応じてパラメータを設定して実行
 
 ## 🖥️ ローカル実行（オプション）
@@ -227,6 +231,26 @@ uv run pytest --cov=src --cov-report=html
 # 特定のテストのみ
 uv run pytest tests/test_enhanced_fetcher.py
 ```
+
+## 🔄 GitHub Actionsワークフロー一覧
+
+本システムで使用されているGitHub Actionsワークフローの一覧です：
+
+### データ収集ワークフロー
+
+| ワークフロー名                            | ファイル                | 用途                             | トリガー                    |
+| ----------------------------------------- | ----------------------- | -------------------------------- | --------------------------- |
+| **📊 東京都感染症データ取得（手動実行）** | `fetch-data.yml`        | 汎用的なデータ取得（全期間対応） | 手動実行、週次スケジュール  |
+| **📅 毎日データチェック**                 | `fetch-data-daily.yml`  | 最新週データの日次確認           | 毎日17:00 JST、手動実行     |
+| **📆 週次データ徹底チェック**             | `fetch-data-weekly.yml` | 全データの包括的チェック         | 毎週木曜17:30 JST、手動実行 |
+
+### 開発・CI/CDワークフロー
+
+| ワークフロー名               | ファイル                 | 用途                   | トリガー               |
+| ---------------------------- | ------------------------ | ---------------------- | ---------------------- |
+| **🧪 テストスイート実行**    | `test.yml`               | 自動テスト実行         | プッシュ、PR、手動実行 |
+| **🔍 Claude コードレビュー** | `claude-code-review.yml` | AIによるコードレビュー | PR作成・更新時         |
+| **🤖 Claude Code 統合**      | `claude.yml`             | Claude AIとの統合      | Issue/PRコメント       |
 
 ## 📝 ライセンスおよび利用規約
 
