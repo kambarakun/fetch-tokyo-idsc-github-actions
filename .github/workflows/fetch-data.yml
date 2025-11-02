@@ -1,9 +1,6 @@
 name: 📊 東京都感染症データ取得（手動実行）
 
 on:
-  schedule:
-    # 毎週月曜日 19:00 JST (10:00 UTC)
-    - cron: "0 10 * * 1"
   workflow_dispatch:
     inputs:
       data_types:
