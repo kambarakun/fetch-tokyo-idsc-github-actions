@@ -51,12 +51,15 @@ data/
 
 ## 📋 主な機能
 
-- 🔄 **自動収集**: GitHub Actionsによる週次自動実行（毎週月曜19:00 JST）
+- 🔄 **自動収集**: GitHub Actionsによる2種類の自動実行
+  - **毎日実行**: 毎日17:00 JST - 最新週データの確認・取得
+  - **週次実行**: 毎週木曜17:30 JST - 現在年の全データを包括的チェック
 - 🔍 **重複検出**: SHA256ハッシュによるデータ整合性検証
 - 🔁 **リトライ機能**: エラー時の自動リトライ（最大3回）
 - 📝 **メタデータ管理**: 各データファイルの収集情報を記録
 - 🚨 **エラー通知**: GitHub Issuesによる自動通知
 - 📊 **増分更新**: 既存データをスキップして新規データのみ取得
+- 🔀 **自動PR作成**: データ更新時に自動でPull Request作成
 
 ## ⚙️ 必要な設定
 
@@ -97,14 +100,26 @@ uv sync --all-extras
 
 ### GitHub Actions（推奨）
 
-自動実行：
+自動実行（2種類のワークフロー）：
 
-- 毎週月曜日 19:00 JST に自動実行されます
+- **毎日実行（Daily Epidemic Data Check）**
+
+  - 毎日 17:00 JST に実行
+  - 最新週（現在週）のデータのみチェック・取得
+  - 週報データの定期更新を迅速に検出
+
+- **週次実行（Weekly Epidemic Data Full Check）**
+  - 毎週木曜日 17:30 JST に実行
+  - 現在年の全データを包括的にチェック（1月は前年分も含む）
+  - 欠落データの補完と整合性確認
 
 手動実行：
 
 1. GitHub リポジトリの Actions タブを開く
-2. "Fetch Tokyo Epidemic Data" ワークフローを選択
+2. 実行したいワークフローを選択：
+   - "Fetch Tokyo Epidemic Data" - 汎用データ取得
+   - "Daily Epidemic Data Check" - 最新週のみ
+   - "Weekly Epidemic Data Full Check" - 現在年の全データ
 3. "Run workflow" をクリック
 4. 必要に応じてパラメータを設定して実行
 
@@ -146,12 +161,59 @@ uv run pytest --cov=src --cov-report=html
 
 ## 🛠️ 設定
 
-`config/config.yml` で詳細な設定が可能です：
+### 設定ファイル
 
-- **収集設定**: 対象データタイプ、期間、バッチサイズ
-- **ストレージ設定**: 保存先ディレクトリ、エンコーディング
-- **品質管理**: ファイルサイズ制限、異常検出
-- **通知設定**: GitHub Issues、エラー通知
+`config/config.yml` で以下の詳細設定が可能です：
+
+#### 収集設定
+
+- **batch_size**: 一度に処理するファイル数（デフォルト: 50）
+- **start_year/end_year**: データ収集期間
+- **data_types**: 収集対象のデータタイプリスト
+- **incremental_mode**: 増分収集モード（既存データをスキップ）
+
+#### ストレージ設定
+
+- **base_directory**: 生データ保存先（デフォルト: `data/raw`）
+- **keep_shift_jis**: Shift_JISエンコーディングの維持（デフォルト: true）
+- **commit_message_template**: コミットメッセージのテンプレート
+
+#### 品質管理
+
+- **file_size_limits**: CSVファイルのサイズ制限（100B - 10MB）
+- **anomaly_detection_enabled**: 異常検出の有効化
+- **quarantine_directory**: 隔離ディレクトリ
+
+#### 通知設定
+
+- **github_issues_enabled**: エラー時のIssue自動作成
+- **issue_labels**: 自動作成されるIssueのラベル
+- **max_issues_per_day**: 1日あたりの最大Issue作成数
+
+### Pull Request設定
+
+自動PR作成は `.github/workflows/fetch-data.yml` で制御されます。config.ymlでの直接設定はサポートしていませんが、ワークフロー内で以下の形式が使用されます：
+
+```yaml
+# PRタイトル形式（ワークフロー内で自動生成）
+PR_TITLE: "データ更新: YYYY-MM-DD (N CSV files)"
+
+# PR本文テンプレート（ワークフロー内で定義）
+PR_BODY: |
+  ## 🤖 自動データ更新
+  ### 📊 更新内容
+  - 実行日時: YYYY-MM-DD
+  - 対象期間: START_YEAR - END_YEAR
+  - データタイプ: [対象データ種別]
+  - 変更CSVファイル数: N
+
+# 自動付与されるラベル
+PR_LABELS:
+  - data-update # データ更新PR用
+  - automated # 自動生成PR用
+```
+
+カスタマイズが必要な場合は、`.github/workflows/fetch-data.yml` の該当箇所を直接編集してください。
 
 ## 🧪 テスト
 
