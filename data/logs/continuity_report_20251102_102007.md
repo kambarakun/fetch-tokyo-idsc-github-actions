@@ -1,0 +1,17 @@
+# データ連続性検証レポート
+
+実行日時: 2025-11-02 19:20:11
+
+## サマリー
+
+| データタイプ | 期間 | 期待数 | 実際 | 欠損 | 状態 |
+|------------|------|--------|------|------|------|
+| sentinel_weekly_gender | 2000-2025 | 1348 | 1348 | 0 | ✅ |
+| sentinel_weekly_age | 2000-2025 | 1348 | 1348 | 0 | ✅ |
+| sentinel_weekly_health_center | 2000-2025 | 1348 | 1348 | 0 | ✅ |
+| sentinel_weekly_medical_district | 2000-2025 | 1348 | 1348 | 0 | ✅ |
+| notifiable_weekly | 2000-2025 | 1348 | 1348 | 0 | ✅ |
+| sentinel_monthly_gender | 2000-2025 | 311 | 311 | 0 | ✅ |
+| sentinel_monthly_age | 2000-2025 | 311 | 311 | 0 | ✅ |
+| sentinel_monthly_health_center | 2000-2025 | 311 | 311 | 0 | ✅ |
+| sentinel_monthly_medical_district | 2000-2025 | 311 | 311 | 0 | ✅ |
