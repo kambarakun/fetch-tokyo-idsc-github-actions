@@ -7980,5 +7980,7 @@
   "594fb94367767a4a6bb9236708b3ad9c5644587f2c40e8482504a7816a50ea5b": "data/raw/notifiable_weekly_2025_41.csv",
   "2d9d46fda0fbc7ab8f6fadd7fd88db8d8848bd750b6cd6bd849622ea9ce64d62": "data/raw/notifiable_weekly_2025_42.csv",
   "5ba5ebad25b44b1de035a00772cb078502fce57af69b26ce497404d7a9cda227": "data/raw/notifiable_weekly_2025_43.csv",
-  "d72a340b92593ff60a43c6ddf3b7675414159772eafbf826db511c4185eff7fb": "data/raw/notifiable_weekly_2025_44.csv"
+  "d72a340b92593ff60a43c6ddf3b7675414159772eafbf826db511c4185eff7fb": "data/raw/notifiable_weekly_2025_44.csv",
+  "228d46ac86ef97b3fdd77a6ca167823620dae5269307a6caa21ed91bd97d35fc": "data/raw/sentinel_weekly_health_center_2022_01.csv",
+  "b00a0388af5e963158a0356b7f27bbce3b08ce24380d1862807f3245c95071e1": "data/raw/sentinel_weekly_medical_district_2004_36.csv"
 }
