@@ -1,4 +1,4 @@
-name: 📅 毎日データチェック
+name: 📅 毎日データ簡易チェック
 
 on:
   schedule:
@@ -70,6 +70,8 @@ jobs:
           echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
           echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
           echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
+          echo "PREVIOUS_WEEK=$(date -d 'last week' +'%V')" >> $GITHUB_ENV
+          echo "PREVIOUS_MONTH=$(date -d 'last month' +'%m')" >> $GITHUB_ENV
           echo "CURRENT_DAY=$(date +'%u')" >> $GITHUB_ENV
           echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
 
@@ -93,9 +95,10 @@ jobs:
           echo "SKIP_EXISTING=$SKIP_EXISTING" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
 
-          echo "Daily check parameters:"
+          echo "Daily simple check parameters:"
           echo "  Current year: $CURRENT_YEAR"
-          echo "  Current week: $CURRENT_WEEK"
+          echo "  Current week: $CURRENT_WEEK / Previous week: $PREVIOUS_WEEK"
+          echo "  Current month: $CURRENT_MONTH / Previous month: $PREVIOUS_MONTH"
           echo "  Skip existing: $SKIP_EXISTING"
           echo "  Dry run: $DRY_RUN"
 
@@ -109,17 +112,23 @@ jobs:
             echo "No existing data to validate"
           fi
 
-      - name: Fetch epidemic data (current year only)
+      - name: Fetch epidemic data (recent weeks and months only)
         id: fetch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Starting daily data check at $FETCH_TIMESTAMP"
+          echo "Starting daily simple data check at $FETCH_TIMESTAMP"
 
-          # コマンドの構築
+          # コマンドの構築（週次データと月次データを対象週・月を絞って取得）
           FETCH_CMD=(uv run python scripts/fetch_data.py)
           FETCH_CMD+=(--start-year "$CURRENT_YEAR")
           FETCH_CMD+=(--end-year "$CURRENT_YEAR")
+
+          # 対象週を最新週と前週に限定
+          FETCH_CMD+=(--target-weeks "$PREVIOUS_WEEK,$CURRENT_WEEK")
+
+          # 対象月を当月と前月に限定
+          FETCH_CMD+=(--target-months "$PREVIOUS_MONTH,$CURRENT_MONTH")
 
           # 既存ファイルをスキップする場合
           if [ "$SKIP_EXISTING" = "true" ]; then
@@ -134,6 +143,8 @@ jobs:
           FETCH_CMD+=(--log-file "data/logs/daily_${FETCH_TIMESTAMP}.log")
 
           echo "Executing: ${FETCH_CMD[@]}"
+          echo "Checking weeks: $PREVIOUS_WEEK, $CURRENT_WEEK"
+          echo "Checking months: $PREVIOUS_MONTH, $CURRENT_MONTH"
 
           # メインスクリプトの実行
           "${FETCH_CMD[@]}" 2>&1 | tee data/logs/console_daily_${FETCH_TIMESTAMP}.log
@@ -198,20 +209,21 @@ jobs:
           # PR本文をファイルで作成
           PR_BODY_FILE="/tmp/pr_body.md"
           {
-            echo "## 🤖 自動データ更新 (毎日チェック)"
+            echo "## 🤖 自動データ更新 (毎日簡易チェック)"
             echo ""
-            echo "このPull Requestは毎日の自動チェックにより生成されました。"
+            echo "このPull Requestは毎日の簡易チェックにより生成されました。"
             echo ""
             echo "### 📊 更新内容"
             echo "- **実行日時**: $CURRENT_DATE"
-            echo "- **チェックタイプ**: 毎日チェック（新規ファイルのみ）"
+            echo "- **チェックタイプ**: 毎日簡易チェック（最新週＋前週、当月＋前月）"
             echo "- **対象年**: $CURRENT_YEAR"
-            echo "- **現在の週**: 第${CURRENT_WEEK}週"
+            echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週"
+            echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月"
             echo "- **変更ファイル数**: $CHANGED_FILES"
             echo ""
             echo "### ℹ️ 備考"
-            echo "毎日実行では新規ファイルのみチェックしています。"
-            echo "既存ファイルの更新は週次チェック（木曜日）で確認されます。"
+            echo "毎日実行では最新週＋前週の週次データと、当月＋前月の月次データをチェックしています。"
+            echo "全データの包括的チェックは毎週木曜日に実行されます。"
             echo ""
             echo "---"
             echo "*This PR was automatically created by the daily check workflow.*"
@@ -259,12 +271,13 @@ jobs:
       - name: Generate summary
         if: always()
         run: |
-          echo "## 📊 毎日データチェックサマリー" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 毎日データ簡易チェックサマリー" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
           echo "- **曜日**: $(date +'%A')" >> $GITHUB_STEP_SUMMARY
           echo "- **対象年**: $CURRENT_YEAR" >> $GITHUB_STEP_SUMMARY
-          echo "- **現在の週**: 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月" >> $GITHUB_STEP_SUMMARY
           echo "- **既存ファイルスキップ**: ${SKIP_EXISTING:-true}" >> $GITHUB_STEP_SUMMARY
           echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

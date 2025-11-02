@@ -1,8 +1,8 @@
 # 東京都感染症発生動向データ自動収集システム
 
 [![📊 東京都感染症データ取得（手動実行）](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data.yml)
-[![📅 毎日データチェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml)
-[![📆 週次データ徹底チェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml)
+[![📅 毎日データ簡易チェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml)
+[![📆 毎週データ徹底チェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml)
 [![🧪 テストスイート実行](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/test.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/License-Non--Commercial-orange.svg)](LICENSE.md)
 
@@ -11,8 +11,8 @@
 ## 📋 主な機能
 
 - 🔄 **自動収集**: GitHub Actionsによる2種類の自動実行
-  - **📅 毎日データチェック**: 毎日17:00 JST - 最新週データの確認・取得
-  - **📆 週次データ徹底チェック**: 毎週木曜17:30 JST - 現在年の全データを包括的チェック
+  - **📅 毎日データ簡易チェック**: 毎日17:00 JST - 最新週＋前週の週次データ、当月＋前月の月次データを確認・取得
+  - **📆 毎週データ徹底チェック**: 毎週木曜17:30 JST - 現在年の全データ（週次・月次）を包括的チェック（1月は前年分も含む）
 - 🔍 **重複検出**: SHA256ハッシュによるデータ整合性検証
 - 🔁 **リトライ機能**: エラー時の自動リトライ（最大3回）
 - 📝 **メタデータ管理**: 各データファイルの収集情報を記録
@@ -68,10 +68,10 @@ data/
 
 本システムは2種類の自動実行ワークフローを備えています：
 
-| ワークフロー                  | 実行タイミング       | 内容                                                                                        | 自動マージ        |
-| ----------------------------- | -------------------- | ------------------------------------------------------------------------------------------- | ----------------- |
-| **📅 毎日データチェック**     | 毎日 17:00 JST       | 最新週（現在週）のデータのみチェック・取得<br>週報データの定期更新を迅速に検出              | ✅ 有効           |
-| **📆 週次データ徹底チェック** | 毎週木曜日 17:30 JST | 現在年の全データを包括的にチェック<br>（1月は前年分も含む）<br>欠落データの補完と整合性確認 | ✅ 検証成功時のみ |
+| ワークフロー                  | 実行タイミング       | 内容                                                                                                      | 自動マージ        |
+| ----------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------- | ----------------- |
+| **📅 毎日データ簡易チェック** | 毎日 17:00 JST       | 最新週＋前週の週次データ、当月＋前月の月次データをチェック・取得<br>データの定期更新を迅速に検出          | ✅ 有効           |
+| **📆 毎週データ徹底チェック** | 毎週木曜日 17:30 JST | 現在年の全データ（週次・月次）を包括的にチェック<br>（1月は前年分も含む）<br>欠落データの補完と整合性確認 | ✅ 検証成功時のみ |
 
 > 💡 **自動マージ機能**: データ更新PRは自動的にマージされます（週次はデータ検証成功時のみ）
 
@@ -82,8 +82,8 @@ data/
 1. GitHub リポジトリの **Actions** タブを開く
 2. 実行したいワークフローを選択：
    - **📊 東京都感染症データ取得（手動実行）** - 汎用データ取得
-   - **📅 毎日データチェック** - 最新週のみ
-   - **📆 週次データ徹底チェック** - 現在年の全データ
+   - **📅 毎日データ簡易チェック** - 最新週＋前週、当月＋前月
+   - **📆 毎週データ徹底チェック** - 現在年の全データ（週次・月次、1月は前年分も含む）
 3. **"Run workflow"** をクリック
 4. 必要に応じてパラメータを設定して実行
 
@@ -91,11 +91,11 @@ data/
 
 #### データ収集ワークフロー
 
-| ワークフロー名                            | ファイル                | 用途                             | トリガー                          |
-| ----------------------------------------- | ----------------------- | -------------------------------- | --------------------------------- |
-| **📊 東京都感染症データ取得（手動実行）** | `fetch-data.yml`        | 汎用的なデータ取得（全期間対応） | 手動実行のみ                      |
-| **📅 毎日データチェック**                 | `fetch-data-daily.yml`  | 最新週データの日次確認           | 毎日17:00 JST または 手動実行     |
-| **📆 週次データ徹底チェック**             | `fetch-data-weekly.yml` | 全データの包括的チェック         | 毎週木曜17:30 JST または 手動実行 |
+| ワークフロー名                            | ファイル                | 用途                                     | トリガー                          |
+| ----------------------------------------- | ----------------------- | ---------------------------------------- | --------------------------------- |
+| **📊 東京都感染症データ取得（手動実行）** | `fetch-data.yml`        | 汎用的なデータ取得（全期間対応）         | 手動実行のみ                      |
+| **📅 毎日データ簡易チェック**             | `fetch-data-daily.yml`  | 最新2週間・2ヶ月分の更新確認（毎日実行） | 毎日17:00 JST または 手動実行     |
+| **📆 毎週データ徹底チェック**             | `fetch-data-weekly.yml` | 全データ（週次・月次）の包括的チェック   | 毎週木曜17:30 JST または 手動実行 |
 
 #### 開発・CI/CDワークフロー
 

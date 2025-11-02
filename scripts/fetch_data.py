@@ -47,11 +47,15 @@ class DataCollector:
         dry_run: bool = False,
         skip_existing: bool = False,
         force_update: bool = False,
+        target_weeks: list[int] | None = None,
+        target_months: list[int] | None = None,
     ):
         self.config = config
         self.dry_run = dry_run
         self.skip_existing = skip_existing
         self.force_update = force_update
+        self.target_weeks = target_weeks
+        self.target_months = target_months
         self.logger = logging.getLogger(__name__)
 
         # フェッチャー初期化
@@ -115,20 +119,30 @@ class DataCollector:
         # 強制更新モードの場合、すべてのデータを再取得
         if self.force_update:
             self.logger.info(f"強制更新モード: {data_type}の全データを再取得")
+            # 全パラメータを生成（target_weeks/monthsも考慮）
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-        # スキップモードの場合、既存ファイルをチェックして欠損のみ取得
-        elif self.skip_existing:
-            existing_files = self.storage.get_existing_files(data_type=data_type)
-            missing_params = self.fetcher.get_missing_data(data_type, existing_files, start_year, end_year)
-            self.logger.info(f"スキップモード: 欠損データ {len(missing_params)}件のみ取得")
-        # 通常モード（設定ファイルに従う）
-        elif self.config.collection.incremental_mode:
-            existing_files = self.storage.get_existing_files(data_type=data_type)
-            missing_params = self.fetcher.get_missing_data(data_type, existing_files, start_year, end_year)
-            self.logger.info(f"増分収集モード: 欠損データ {len(missing_params)}件")
+        # スキップモードまたは増分モードの場合
         else:
-            # 全期間のパラメータ生成
-            missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
+            existing_files = self.storage.get_existing_files(data_type=data_type)
+
+            # 増分モードまたはskip_existingの場合は、get_missing_dataを使用
+            if self.skip_existing or self.config.collection.incremental_mode:
+                missing_params = self.fetcher.get_missing_data(
+                    data_type,
+                    existing_files,
+                    start_year,
+                    end_year,
+                    self.target_weeks,
+                    self.target_months,
+                )
+
+                if self.skip_existing:
+                    self.logger.info(f"スキップモード: 欠損データ {len(missing_params)}件のみ取得")
+                else:
+                    self.logger.info(f"増分収集モード: 欠損データ {len(missing_params)}件")
+            else:
+                # 全期間のパラメータ生成
+                missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
 
         # バッチ処理
         batch_size = self.config.collection.batch_size
@@ -226,6 +240,9 @@ class DataCollector:
             if is_monthly:
                 max_period = 12 if year < current_date.year else current_date.month
                 for month in range(1, max_period + 1):
+                    # 対象月が指定されている場合はフィルタリング
+                    if self.target_months and month not in self.target_months:
+                        continue
                     params = FetchParams(
                         start_year=str(year),
                         start_sub_period=str(month),
@@ -241,6 +258,9 @@ class DataCollector:
                     max_week = min(max_week, current_date.isocalendar()[1])
 
                 for week in range(1, max_week + 1):
+                    # 対象週が指定されている場合はフィルタリング
+                    if self.target_weeks and week not in self.target_weeks:
+                        continue
                     params = FetchParams(
                         start_year=str(year),
                         start_sub_period=str(week),
@@ -326,6 +346,10 @@ def main():
 
     parser.add_argument("--end-year", type=int, help="終了年")
 
+    parser.add_argument("--target-weeks", type=str, help="対象週を指定(カンマ区切り、例: 1,2,52)")
+
+    parser.add_argument("--target-months", type=str, help="対象月を指定(カンマ区切り、例: 1,2,12)")
+
     parser.add_argument("--dry-run", action="store_true", help="テスト実行(データ保存・コミットをスキップ)")
 
     parser.add_argument("--skip-existing", action="store_true", help="既存ファイルをスキップし、新規ファイルのみ取得")
@@ -353,13 +377,27 @@ def main():
         if args.data_types:
             data_types = [dt.strip() for dt in args.data_types.split(",")]
 
+        # 対象週の処理
+        target_weeks = None
+        if args.target_weeks:
+            target_weeks = [int(w.strip()) for w in args.target_weeks.split(",")]
+            logger.info(f"対象週を指定: {target_weeks}")
+
+        # 対象月の処理
+        target_months = None
+        if args.target_months:
+            target_months = [int(m.strip()) for m in args.target_months.split(",")]
+            logger.info(f"対象月を指定: {target_months}")
+
         # オプションの互換性チェック
         if args.skip_existing and args.force_update:
             logger.error("--skip-existing と --force-update は同時に指定できません")
             sys.exit(1)
 
         # データ収集実行
-        collector = DataCollector(config, args.dry_run, args.skip_existing, args.force_update)
+        collector = DataCollector(
+            config, args.dry_run, args.skip_existing, args.force_update, target_weeks, target_months
+        )
         stats = collector.collect_data(data_types=data_types, start_year=args.start_year, end_year=args.end_year)
 
         # 結果をJSONファイルに保存

@@ -20,6 +20,16 @@ on:
         required: false
         type: boolean
         default: false
+      skip_existing:
+        description: "既存ファイルをスキップ（新規データのみ取得）"
+        required: false
+        type: boolean
+        default: true
+      verify_continuity:
+        description: "データの連続性を検証（欠損チェック）"
+        required: false
+        type: boolean
+        default: false
       auto_merge:
         description: "PRを自動マージする（Branch protectionルールに従う）"
         required: false
@@ -89,6 +99,8 @@ jobs:
           START_YEAR="${{ github.event.inputs.start_year }}"
           END_YEAR="${{ github.event.inputs.end_year }}"
           DRY_RUN="${{ github.event.inputs.dry_run }}"
+          SKIP_EXISTING="${{ github.event.inputs.skip_existing }}"
+          VERIFY_CONTINUITY="${{ github.event.inputs.verify_continuity }}"
           AUTO_MERGE="${{ github.event.inputs.auto_merge }}"
 
           # デフォルト値の設定
@@ -105,6 +117,16 @@ jobs:
             DRY_RUN="false"
           fi
 
+          # SKIP_EXISTINGのデフォルト値（手動実行時はtrue）
+          if [ -z "$SKIP_EXISTING" ]; then
+            SKIP_EXISTING="true"
+          fi
+
+          # VERIFY_CONTINUITYのデフォルト値
+          if [ -z "$VERIFY_CONTINUITY" ]; then
+            VERIFY_CONTINUITY="false"
+          fi
+
           # AUTO_MERGEのデフォルト値（schedule実行時はfalse）
           if [ -z "$AUTO_MERGE" ]; then
             AUTO_MERGE="false"
@@ -115,6 +137,8 @@ jobs:
           echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
           echo "END_YEAR=$END_YEAR" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+          echo "SKIP_EXISTING=$SKIP_EXISTING" >> $GITHUB_ENV
+          echo "VERIFY_CONTINUITY=$VERIFY_CONTINUITY" >> $GITHUB_ENV
           echo "AUTO_MERGE=$AUTO_MERGE" >> $GITHUB_ENV
 
           echo "Fetch parameters:"
@@ -122,6 +146,8 @@ jobs:
           echo "  Start year: $START_YEAR"
           echo "  End year: $END_YEAR"
           echo "  Dry run: $DRY_RUN"
+          echo "  Skip existing: $SKIP_EXISTING"
+          echo "  Verify continuity: $VERIFY_CONTINUITY"
           echo "  Auto merge: $AUTO_MERGE"
 
       - name: Fetch epidemic data
@@ -145,6 +171,11 @@ jobs:
             FETCH_CMD+=(--dry-run)
           fi
 
+          # SKIP_EXISTINGがtrueの場合のみ--skip-existingフラグを追加
+          if [ "$SKIP_EXISTING" = "true" ]; then
+            FETCH_CMD+=(--skip-existing)
+          fi
+
           FETCH_CMD+=(--log-file "data/logs/fetch_${FETCH_TIMESTAMP}.log")
 
           echo "Executing: ${FETCH_CMD[@]}"
@@ -154,6 +185,40 @@ jobs:
 
           # 実行結果の保存
           echo "FETCH_RESULT=$?" >> $GITHUB_ENV
+
+      - name: Verify data continuity
+        id: verify
+        if: env.VERIFY_CONTINUITY == 'true'
+        run: |
+          echo "データの連続性を検証しています..."
+
+          # 検証スクリプトの実行
+          if uv run python scripts/validate_continuity.py data/raw \
+              --start-year "$START_YEAR" \
+              --end-year "$END_YEAR" \
+              --format markdown \
+              --output "data/logs/continuity_report_${FETCH_TIMESTAMP}.md"; then
+
+            echo "✅ データ連続性検証: 成功"
+            echo "CONTINUITY_VALID=true" >> $GITHUB_ENV
+
+            # レポートを表示
+            echo "## 連続性検証レポート" >> $GITHUB_STEP_SUMMARY
+            cat "data/logs/continuity_report_${FETCH_TIMESTAMP}.md" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ データ連続性検証: 欠損を検出"
+            echo "CONTINUITY_VALID=false" >> $GITHUB_ENV
+
+            # レポートを表示
+            echo "## ⚠️ 連続性検証レポート - 欠損検出" >> $GITHUB_STEP_SUMMARY
+            cat "data/logs/continuity_report_${FETCH_TIMESTAMP}.md" >> $GITHUB_STEP_SUMMARY
+
+            # テキスト形式のレポートも生成
+            uv run python scripts/validate_continuity.py data/raw \
+              --start-year "$START_YEAR" \
+              --end-year "$END_YEAR" \
+              --format text || true
+          fi
 
       - name: Check for changes
         id: changes
@@ -249,6 +314,16 @@ jobs:
             echo "### ✅ チェックリスト"
             echo "- [x] データ取得完了"
             echo "- [x] ファイル検証済み"
+            if [ "$SKIP_EXISTING" = "true" ]; then
+              echo "- [x] 既存ファイルをスキップ"
+            fi
+            if [ "$VERIFY_CONTINUITY" = "true" ]; then
+              if [ "$CONTINUITY_VALID" = "true" ]; then
+                echo "- [x] データ連続性検証: ✅ 正常"
+              else
+                echo "- [ ] データ連続性検証: ⚠️ 欠損あり（詳細はログを確認）"
+              fi
+            fi
             echo "- [x] 自動テスト通過"
             echo ""
             echo "---"
