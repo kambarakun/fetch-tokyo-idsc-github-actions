@@ -246,6 +246,50 @@ class TestTargetFiltering(unittest.TestCase):
         # target_weeksによるフィルタリングが正しく動作することを確認
         self.assertEqual(len(params), 2)  # 52週と53週のみ
 
+    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("scripts.fetch_data.StorageManager")
+    def test_invalid_target_weeks(self, mock_storage_class, mock_fetcher_class):
+        """無効な週番号のバリデーションテスト"""
+        # モックフェッチャーの設定
+        mock_fetcher = Mock()
+        mock_fetcher_class.return_value = mock_fetcher
+        mock_storage = Mock()
+        mock_storage_class.return_value = mock_storage
+
+        # 無効な週番号を含むtarget_weeks
+        from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher
+
+        fetcher = EnhancedEpidemicDataFetcher(Mock())
+
+        # 無効な週番号（0と54）でValueErrorが発生することを確認
+        with self.assertRaises(ValueError) as cm:
+            fetcher.get_missing_data("sentinel_weekly_gender", [], 2025, 2025, [0, 54], None)
+
+        self.assertIn("無効な週番号", str(cm.exception))
+        self.assertIn("[0, 54]", str(cm.exception))
+
+    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("scripts.fetch_data.StorageManager")
+    def test_invalid_target_months(self, mock_storage_class, mock_fetcher_class):
+        """無効な月番号のバリデーションテスト"""
+        # モックフェッチャーの設定
+        mock_fetcher = Mock()
+        mock_fetcher_class.return_value = mock_fetcher
+        mock_storage = Mock()
+        mock_storage_class.return_value = mock_storage
+
+        # 無効な月番号を含むtarget_months
+        from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher
+
+        fetcher = EnhancedEpidemicDataFetcher(Mock())
+
+        # 無効な月番号（0と13）でValueErrorが発生することを確認
+        with self.assertRaises(ValueError) as cm:
+            fetcher.get_missing_data("sentinel_monthly_age", [], 2025, 2025, None, [0, 13])
+
+        self.assertIn("無効な月番号", str(cm.exception))
+        self.assertIn("[0, 13]", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

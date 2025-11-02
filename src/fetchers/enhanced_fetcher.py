@@ -263,7 +263,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return results
 
-    def get_missing_data(
+    def get_missing_data(  # noqa: PLR0912
         self,
         data_type: str,
         existing_files: list[Path],
@@ -284,7 +284,25 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         Returns:
             欠損しているデータのFetchParamsリスト
+
+        Raises:
+            ValueError: 無効な週番号または月番号が指定された場合
         """
+        # 入力値検証
+        if target_weeks is not None:
+            invalid_weeks = [w for w in target_weeks if not (1 <= w <= 53)]
+            if invalid_weeks:
+                raise ValueError(
+                    f"無効な週番号が指定されました: {invalid_weeks}。週番号は1-53の範囲である必要があります。"
+                )
+
+        if target_months is not None:
+            invalid_months = [m for m in target_months if not (1 <= m <= 12)]
+            if invalid_months:
+                raise ValueError(
+                    f"無効な月番号が指定されました: {invalid_months}。月番号は1-12の範囲である必要があります。"
+                )
+
         if end_year is None:
             end_year = datetime.now().year
 

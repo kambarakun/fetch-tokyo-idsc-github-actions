@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 
 @dataclass
@@ -33,9 +34,14 @@ class ContinuityReport:
 class ContinuityValidator:
     """データ連続性検証クラス"""
 
+    # ファイル名パースの定数
+    MIN_FILENAME_PARTS = 5  # 最小限必要なファイル名の部品数
+
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
         self.logger = logging.getLogger(__name__)
+        # 日本時間を使用
+        self.jst = ZoneInfo("Asia/Tokyo")
 
     def validate_all(self, start_year: int | None = None, end_year: int | None = None) -> dict[str, ContinuityReport]:
         """全データタイプの連続性を検証
@@ -83,8 +89,12 @@ class ContinuityValidator:
         Returns:
             検証レポート
         """
-        # ファイルのリストを取得
-        files = list(self.data_dir.glob(f"{data_type}_*.csv"))
+        # ファイルのリストを取得（大文字小文字を区別しない）
+        # 注：glob自体は大文字小文字を区別するため、後続処理で対応
+        files = []
+        for file_path in self.data_dir.glob("*.csv"):
+            if file_path.name.lower().startswith(f"{data_type.lower()}_"):
+                files.append(file_path)
 
         if not files:
             return ContinuityReport(
@@ -105,7 +115,7 @@ class ContinuityValidator:
         years = set()
         for file_path in files:
             parts = file_path.stem.split("_")
-            if len(parts) >= 5:
+            if len(parts) >= self.MIN_FILENAME_PARTS:
                 try:
                     year = int(parts[-2])
                     period = int(parts[-1])
@@ -118,7 +128,7 @@ class ContinuityValidator:
         if start_year is None:
             start_year = min(years) if years else 2000
         if end_year is None:
-            end_year = max(years) if years else datetime.now().year
+            end_year = max(years) if years else datetime.now(self.jst).year
 
         # 期待される期間を生成
         expected_periods = self._generate_expected_periods(data_type, start_year, end_year, is_monthly)
@@ -167,7 +177,7 @@ class ContinuityValidator:
             (年, 期間)のタプルのセット
         """
         expected = set()
-        current_date = datetime.now()
+        current_date = datetime.now(self.jst)
 
         for year in range(start_year, end_year + 1):
             if is_monthly:
@@ -274,7 +284,7 @@ class ContinuityValidator:
         """Markdown形式のレポートを生成"""
         lines = ["# データ連続性検証レポート"]
         lines.append("")
-        lines.append(f"実行日時: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"実行日時: {datetime.now(self.jst).strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append("")
 
         # サマリーテーブル
