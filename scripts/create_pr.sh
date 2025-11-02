@@ -127,10 +127,12 @@ if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
   # 一度のgit diffで全ての変更情報を取得（パフォーマンス最適化）
   GIT_STATUS=$(git diff --cached --name-status)
   if [ -z "$NEW_FILES" ]; then
-    NEW_FILES=$(echo "$GIT_STATUS" | grep "^A" 2>/dev/null | wc -l | xargs)
+    # data/raw/配下のCSVファイルのみをカウント（メタデータは除外）
+    NEW_FILES=$(echo "$GIT_STATUS" | grep "^A" | grep -E '^A\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
   fi
   if [ -z "$MODIFIED_FILES" ]; then
-    MODIFIED_FILES=$(echo "$GIT_STATUS" | grep "^M" 2>/dev/null | wc -l | xargs)
+    # data/raw/配下のCSVファイルのみをカウント（修正時も同様）
+    MODIFIED_FILES=$(echo "$GIT_STATUS" | grep "^M" | grep -E '^M\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
   fi
 fi
 # CHANGED_FILESのデフォルト値設定
