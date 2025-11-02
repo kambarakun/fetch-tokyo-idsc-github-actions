@@ -1,4 +1,4 @@
-name: 📆 週次データ徹底チェック
+name: 📆 毎週データ徹底チェック
 
 on:
   schedule:
@@ -262,9 +262,9 @@ jobs:
           # PR本文をファイルで作成
           PR_BODY_FILE="/tmp/pr_body.md"
           {
-            echo "## 🤖 自動データ更新 (週次徹底チェック)"
+            echo "## 🤖 自動データ更新 (毎週徹底チェック)"
             echo ""
-            echo "このPull Requestは週次の徹底チェックにより生成されました。"
+            echo "このPull Requestは毎週の徹底チェックにより生成されました。"
             echo ""
             echo "### 📊 更新内容"
             echo "- **実行日時**: $CURRENT_DATE (木曜日)"

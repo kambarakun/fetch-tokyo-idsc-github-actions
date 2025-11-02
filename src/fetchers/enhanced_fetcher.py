@@ -263,10 +263,46 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return results
 
-    def get_missing_data(
-        self, data_type: str, existing_files: list[Path], start_year: int = 2000, end_year: int | None = None
+    def get_missing_data(  # noqa: PLR0912
+        self,
+        data_type: str,
+        existing_files: list[Path],
+        start_year: int = 2000,
+        end_year: int | None = None,
+        target_weeks: list[int] | None = None,
+        target_months: list[int] | None = None,
     ) -> list[FetchParams]:
-        """欠損データの特定"""
+        """欠損データの特定
+
+        Args:
+            data_type: データタイプ
+            existing_files: 既存ファイルのリスト
+            start_year: 開始年
+            end_year: 終了年（Noneの場合は現在年）
+            target_weeks: 対象週のリスト（Noneの場合は全週）
+            target_months: 対象月のリスト（Noneの場合は全月）
+
+        Returns:
+            欠損しているデータのFetchParamsリスト
+
+        Raises:
+            ValueError: 無効な週番号または月番号が指定された場合
+        """
+        # 入力値検証
+        if target_weeks is not None:
+            invalid_weeks = [w for w in target_weeks if not (1 <= w <= 53)]
+            if invalid_weeks:
+                raise ValueError(
+                    f"無効な週番号が指定されました: {invalid_weeks}。週番号は1-53の範囲である必要があります。"
+                )
+
+        if target_months is not None:
+            invalid_months = [m for m in target_months if not (1 <= m <= 12)]
+            if invalid_months:
+                raise ValueError(
+                    f"無効な月番号が指定されました: {invalid_months}。月番号は1-12の範囲である必要があります。"
+                )
+
         if end_year is None:
             end_year = datetime.now().year
 
@@ -277,6 +313,9 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             if "monthly" in data_type:
                 max_period = 12 if year < datetime.now().year else datetime.now().month
                 for month in range(1, max_period + 1):
+                    # 対象月が指定されている場合はフィルタリング
+                    if target_months is not None and month not in target_months:
+                        continue
                     params = FetchParams(
                         start_year=str(year),
                         start_sub_period=str(month),
@@ -293,6 +332,9 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                     max_period = min(max_period, datetime.now().isocalendar()[1])
 
                 for week in range(1, max_period + 1):
+                    # 対象週が指定されている場合はフィルタリング
+                    if target_weeks is not None and week not in target_weeks:
+                        continue
                     params = FetchParams(
                         start_year=str(year),
                         start_sub_period=str(week),
