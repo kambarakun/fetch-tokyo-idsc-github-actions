@@ -17,14 +17,28 @@ set -e
 # ============================================================
 
 # 引数の検証
-if [ $# -lt 2 ]; then
-  echo "Usage: $0 <workflow_name> <workflow_display_name>"
-  echo "Example: $0 fetch-data-daily '毎日簡易チェック'"
+if [ $# -lt 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
+  echo "Error: Both workflow_name and workflow_display_name must be non-empty" >&2
+  echo "Usage: $0 <workflow_name> <workflow_display_name>" >&2
+  echo "Example: $0 fetch-data-daily '毎日簡易チェック'" >&2
   exit 1
 fi
 
 WORKFLOW_NAME="$1"
 WORKFLOW_DISPLAY_NAME="$2"
+
+# 必須環境変数の検証
+REQUIRED_VARS="GITHUB_TOKEN CURRENT_DATE FETCH_TIMESTAMP GITHUB_RUN_ID"
+for var in $REQUIRED_VARS; do
+  if [ -z "${!var}" ]; then
+    echo "Error: Required environment variable '$var' is not set" >&2
+    exit 1
+  fi
+done
+
+# GitHub関連の環境変数（デフォルト値あり）
+GITHUB_SERVER_URL="${GITHUB_SERVER_URL:-https://github.com}"
+GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
 
 # ブランチ名の作成（ワークフローに応じて接尾辞を変更）
 case "$WORKFLOW_NAME" in
@@ -45,12 +59,24 @@ esac
 echo "Creating branch: $BRANCH_NAME"
 
 # 新しいブランチにチェックアウト
-git checkout -b "$BRANCH_NAME"
+if ! git checkout -b "$BRANCH_NAME"; then
+  echo "Error: Failed to create branch '$BRANCH_NAME'" >&2
+  exit 1
+fi
 
 # 変更内訳の取得
-NEW_FILES=$(git diff --cached --name-status | grep "^A" 2>/dev/null | wc -l | xargs)
-MODIFIED_FILES=$(git diff --cached --name-status | grep "^M" 2>/dev/null | wc -l | xargs)
-CHANGED_FILES="${CHANGED_FILES:-0}"
+# 環境変数が設定されている場合はそれを使用（fetch-data.ymlのCSVカウント等）
+# 設定されていない場合はgitから計算
+if [ -z "$NEW_FILES" ]; then
+  NEW_FILES=$(git diff --cached --name-status | grep "^A" 2>/dev/null | wc -l | xargs)
+fi
+if [ -z "$MODIFIED_FILES" ]; then
+  MODIFIED_FILES=$(git diff --cached --name-status | grep "^M" 2>/dev/null | wc -l | xargs)
+fi
+# CHANGED_FILESのデフォルト値設定
+if [ -z "$CHANGED_FILES" ]; then
+  CHANGED_FILES=$((NEW_FILES + MODIFIED_FILES))
+fi
 
 # コミットメッセージの作成（統一形式）
 if [ "$CHANGED_FILES" -gt 0 ]; then
@@ -68,10 +94,16 @@ else
 fi
 
 # コミット実行
-git commit -m "$COMMIT_MSG"
+if ! git commit -m "$COMMIT_MSG"; then
+  echo "Error: Failed to commit changes" >&2
+  exit 1
+fi
 
 # ブランチをプッシュ
-git push origin "$BRANCH_NAME"
+if ! git push origin "$BRANCH_NAME"; then
+  echo "Error: Failed to push branch '$BRANCH_NAME'" >&2
+  exit 1
+fi
 
 # Pull Request の作成（統一形式）
 PR_TITLE="$COMMIT_MSG"
@@ -247,11 +279,18 @@ echo "✅ Successfully created PR: $PR_URL"
 echo "PR_URL=$PR_URL" >> $GITHUB_ENV
 
 # PR番号を取得
-PR_NUMBER=$(echo "$PR_URL" | sed 's/.*\/pull\///')
-echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$' || true)
+if [ -z "$PR_NUMBER" ]; then
+  echo "⚠️ Warning: Failed to extract PR number from: $PR_URL" >&2
+else
+  echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
-# 自動マージを有効化（squashマージを使用）
-echo "🔄 自動マージを設定中..."
-gh pr merge "$PR_NUMBER" --auto --squash || {
-  echo "⚠️ 自動マージの設定に失敗しました。手動でマージしてください。"
-}
+  # 自動マージを有効化（squashマージを使用）
+  echo "🔄 自動マージを設定中..."
+  if gh pr merge "$PR_NUMBER" --auto --squash; then
+    echo "✅ Auto-merge configured successfully"
+  else
+    echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
+    echo "   Manual merge may be required." >&2
+  fi
+fi
