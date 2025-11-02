@@ -50,9 +50,9 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
+          files: ./coverage.xml
+          flags: pytest-unittests
+          name: Python 3.11 Unit Tests
           fail_ci_if_error: false
           verbose: true
 
