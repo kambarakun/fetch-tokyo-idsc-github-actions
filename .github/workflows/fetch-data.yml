@@ -234,17 +234,33 @@ jobs:
             echo "Changes detected"
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
 
-            # CSVファイル数の取得（エラーハンドリング付き）
-            # grepが失敗しても（CSVファイルが0件でも）パイプラインが失敗しないように
-            CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
+            # 新規ファイルと変更ファイルを分けて集計
+            # 新規CSVファイル数の取得
+            NEW_CSV_FILES=$(git diff --cached --name-status | grep '^A.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 変更されたCSVファイル数の取得
+            MODIFIED_CSV_FILES=$(git diff --cached --name-status | grep '^M.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 合計CSVファイル数
+            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 空文字列や非数値の場合のフォールバック
-            if ! [[ "$CSV_FILES" =~ ^[0-9]+$ ]]; then
-              CSV_FILES="0"
+            if ! [[ "$NEW_CSV_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_CSV_FILES="0"
+            fi
+            if ! [[ "$MODIFIED_CSV_FILES" =~ ^[0-9]+$ ]]; then
+              MODIFIED_CSV_FILES="0"
+            fi
+            if ! [[ "$TOTAL_CSV_FILES" =~ ^[0-9]+$ ]]; then
+              TOTAL_CSV_FILES="0"
             fi
 
-            echo "CSV_FILES=$CSV_FILES" >> $GITHUB_ENV
-            echo "CSV files changed: $CSV_FILES"
+            echo "NEW_CSV_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
+            echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
+            echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+            echo "New CSV files: $NEW_CSV_FILES"
+            echo "Modified CSV files: $MODIFIED_CSV_FILES"
+            echo "Total CSV files: $TOTAL_CSV_FILES"
           fi
 
       - name: Create Pull Request
@@ -271,15 +287,27 @@ jobs:
             COMMIT_MSG="$COMMIT_MSG - $DATA_TYPES"
           fi
 
-          # CSV_FILESのデフォルト値を設定（空の場合に備えて）
+          # CSVファイル数のデフォルト値を設定（空の場合に備えて）
+          NEW_CSV_FILES="${NEW_CSV_FILES:-0}"
+          MODIFIED_CSV_FILES="${MODIFIED_CSV_FILES:-0}"
           CSV_FILES="${CSV_FILES:-0}"
 
-          if [ "$CSV_FILES" -gt 0 ]; then
+          # ファイル数の詳細を追加
+          if [ "$NEW_CSV_FILES" -gt 0 ] && [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
+            COMMIT_MSG="$COMMIT_MSG (新規: $NEW_CSV_FILES, 変更: $MODIFIED_CSV_FILES)"
+          elif [ "$NEW_CSV_FILES" -gt 0 ]; then
             # 単数形/複数形の処理
-            if [ "$CSV_FILES" -eq 1 ]; then
-              COMMIT_MSG="$COMMIT_MSG (1 CSV file)"
+            if [ "$NEW_CSV_FILES" -eq 1 ]; then
+              COMMIT_MSG="$COMMIT_MSG (新規: 1ファイル)"
             else
-              COMMIT_MSG="$COMMIT_MSG ($CSV_FILES CSV files)"
+              COMMIT_MSG="$COMMIT_MSG (新規: ${NEW_CSV_FILES}ファイル)"
+            fi
+          elif [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
+            # 単数形/複数形の処理
+            if [ "$MODIFIED_CSV_FILES" -eq 1 ]; then
+              COMMIT_MSG="$COMMIT_MSG (変更: 1ファイル)"
+            else
+              COMMIT_MSG="$COMMIT_MSG (変更: ${MODIFIED_CSV_FILES}ファイル)"
             fi
           fi
 
@@ -309,7 +337,20 @@ jobs:
             echo "- **実行日時**: $CURRENT_DATE"
             echo "- **対象期間**: $START_YEAR - $END_YEAR"
             echo "- **データタイプ**: ${DATA_TYPES:-ALL}"
-            echo "- **変更CSVファイル数**: $CSV_FILES"
+
+            # ファイル数の表示（新規・変更を分けて表示）
+            if [ "$NEW_CSV_FILES" -gt 0 ] && [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
+              echo "- **新規CSVファイル数**: $NEW_CSV_FILES"
+              echo "- **変更CSVファイル数**: $MODIFIED_CSV_FILES"
+              echo "- **合計CSVファイル数**: $CSV_FILES"
+            elif [ "$NEW_CSV_FILES" -gt 0 ]; then
+              echo "- **新規CSVファイル数**: $NEW_CSV_FILES"
+            elif [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
+              echo "- **変更CSVファイル数**: $MODIFIED_CSV_FILES"
+            else
+              echo "- **CSVファイル変更**: なし"
+            fi
+
             echo ""
             echo "### ✅ チェックリスト"
             echo "- [x] データ取得完了"
@@ -493,7 +534,17 @@ jobs:
 
           if [ "$HAS_CHANGES" = "true" ]; then
             echo "### ✅ 変更" >> $GITHUB_STEP_SUMMARY
-            echo "- **変更CSVファイル数**: $CSV_FILES" >> $GITHUB_STEP_SUMMARY
+            if [ "$NEW_CSV_FILES" -gt 0 ] && [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
+              echo "- **新規CSVファイル数**: $NEW_CSV_FILES" >> $GITHUB_STEP_SUMMARY
+              echo "- **変更CSVファイル数**: $MODIFIED_CSV_FILES" >> $GITHUB_STEP_SUMMARY
+              echo "- **合計CSVファイル数**: $CSV_FILES" >> $GITHUB_STEP_SUMMARY
+            elif [ "$NEW_CSV_FILES" -gt 0 ]; then
+              echo "- **新規CSVファイル数**: $NEW_CSV_FILES" >> $GITHUB_STEP_SUMMARY
+            elif [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
+              echo "- **変更CSVファイル数**: $MODIFIED_CSV_FILES" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **CSVファイル変更**: なし" >> $GITHUB_STEP_SUMMARY
+            fi
             if [ -n "$PR_URL" ]; then
               echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
             fi

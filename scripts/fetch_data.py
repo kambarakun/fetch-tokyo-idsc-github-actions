@@ -76,6 +76,8 @@ class DataCollector:
             "successful": 0,
             "failed": 0,
             "duplicates": 0,
+            "new_files": 0,  # 新規追加ファイル数
+            "updated_files": 0,  # 更新されたファイル数
             "errors": [],
             "start_time": None,
             "end_time": None,
@@ -200,6 +202,10 @@ class DataCollector:
                         self.stats["duplicates"] += 1
                     elif save_result.success:
                         self.stats["successful"] += 1
+                        if save_result.is_new:
+                            self.stats["new_files"] += 1
+                        else:
+                            self.stats["updated_files"] += 1
                     else:
                         self.stats["failed"] += 1
                         self.stats["errors"].append(save_result.error)
@@ -323,6 +329,8 @@ class DataCollector:
         self.logger.info(f"  処理時間: {duration}")
         self.logger.info(f"  総ファイル数: {self.stats['total_files']}")
         self.logger.info(f"  成功: {self.stats['successful']}")
+        self.logger.info(f"    - 新規: {self.stats['new_files']}")
+        self.logger.info(f"    - 更新: {self.stats['updated_files']}")
         self.logger.info(f"  失敗: {self.stats['failed']}")
         self.logger.info(f"  重複: {self.stats['duplicates']}")
 

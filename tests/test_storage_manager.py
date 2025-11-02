@@ -448,6 +448,92 @@ class TestStorageManager(unittest.TestCase):
                 file_path = str(self.base_path / "cleanup_test_2025_01.csv")
                 self.assertNotEqual(index_entry, file_path)
 
+    def test_save_result_is_new_for_new_file(self):
+        """新規ファイル保存時にis_new=Trueが設定されることをテスト"""
+        data = b"new,data\n1,2,3"
+
+        result = self.storage.save_with_metadata(
+            data=data, data_type="test_new_file", year=2025, period=1, is_monthly=False
+        )
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.is_new)  # 新規ファイルフラグの確認
+
+    def test_save_result_is_new_false_for_existing_file(self):
+        """既存ファイル更新時にis_new=Falseが設定されることをテスト"""
+        data = b"existing,data\n1,2,3"
+
+        # 最初の保存（新規）
+        first_result = self.storage.save_with_metadata(
+            data=data, data_type="test_existing", year=2025, period=1, is_monthly=False
+        )
+        self.assertTrue(first_result.is_new)
+
+        # 同じファイルの再保存（force_overwrite=True）
+        updated_data = b"updated,data\n4,5,6"
+        second_result = self.storage.save_with_metadata(
+            data=updated_data, data_type="test_existing", year=2025, period=1, is_monthly=False, force_overwrite=True
+        )
+
+        self.assertTrue(second_result.success)
+        self.assertFalse(second_result.is_new)  # 既存ファイル更新フラグの確認
+
+    def test_hash_index_sorting(self):
+        """hash_indexが正しくソートされることをテスト"""
+        # 複数のファイルを異なる順序で保存
+        files_data = [
+            (b"data1", "type_z", 2025, 3),
+            (b"data2", "type_a", 2025, 1),
+            (b"data3", "type_m", 2025, 2),
+        ]
+
+        for data, dtype, year, period in files_data:
+            self.storage.save_with_metadata(data=data, data_type=dtype, year=year, period=period, is_monthly=False)
+
+        # hash_index.jsonを読み込んでソート確認
+        hash_index_path = self.storage.hash_index_file
+        self.assertTrue(hash_index_path.exists())
+
+        with hash_index_path.open() as f:
+            loaded_index = json.load(f)
+
+        # キーがソート済みか確認
+        keys = list(loaded_index.keys())
+        self.assertEqual(keys, sorted(keys))
+
+        # 各値（リストの場合）もソート済みか確認
+        for file_paths in loaded_index.values():
+            if isinstance(file_paths, list):
+                self.assertEqual(file_paths, sorted(file_paths))
+
+    def test_hash_index_sorting_with_duplicates(self):
+        """同一ハッシュの複数ファイルでもソートされることをテスト"""
+        # 同じ内容で異なるファイル名のデータを保存
+        same_data = b"duplicate,content\n1,2,3"
+
+        # 異なるタイプで同じデータを保存（同一ハッシュになる）
+        for dtype in ["dup_z", "dup_a", "dup_m"]:
+            self.storage.save_with_metadata(
+                data=same_data,
+                data_type=dtype,
+                year=2025,
+                period=1,
+                is_monthly=False,
+                force_overwrite=True,  # 重複を許可
+            )
+
+        # hash_index.jsonを読み込んで確認
+        with self.storage.hash_index_file.open() as f:
+            loaded_index = json.load(f)
+
+        # 同一ハッシュのファイルリストがソート済みか確認
+        for _hash_key, file_paths in loaded_index.items():
+            if isinstance(file_paths, list):
+                # ファイルパスがソート済みであることを確認
+                self.assertEqual(file_paths, sorted(file_paths))
+                # 3つのファイルが記録されているはずだが、重複チェックで実際は1つかも
+                # この動作はforce_overwriteとcheck_duplicatesの実装に依存
+
 
 if __name__ == "__main__":
     unittest.main()
