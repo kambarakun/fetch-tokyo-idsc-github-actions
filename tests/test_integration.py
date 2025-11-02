@@ -63,8 +63,8 @@ schedule:
 
         # 2. データを保存（モックデータ使用）
         test_data = "date,gender,count\n2024-01-01,M,100"
-        save_result = self.storage_manager.save_data(
-            data=test_data, data_type="sentinel_weekly_gender", period_type="week", year=2024, period=1
+        save_result = self.storage_manager.save_with_metadata(
+            data=test_data.encode("utf-8"), data_type="sentinel_weekly_gender", is_monthly=False, year=2024, period=1
         )
 
         # Assert
@@ -83,26 +83,31 @@ schedule:
 
         # Act
         # 1. 初回保存
-        result1 = self.storage_manager.save_data(
-            data=test_data, data_type="test", period_type="week", year=2024, period=1
+        result1 = self.storage_manager.save_with_metadata(
+            data=test_data.encode("utf-8"), data_type="test", is_monthly=False, year=2024, period=1
         )
 
         # 2. 同じデータで再度保存（重複）
-        result2 = self.storage_manager.save_data(
-            data=test_data, data_type="test", period_type="week", year=2024, period=1, skip_if_exists=True
+        result2 = self.storage_manager.save_with_metadata(
+            data=test_data.encode("utf-8"), data_type="test", is_monthly=False, year=2024, period=1
         )
 
         # 3. force_overwriteで上書き
-        result3 = self.storage_manager.save_data(
-            data=test_data, data_type="test", period_type="week", year=2024, period=1, force_overwrite=True
+        result3 = self.storage_manager.save_with_metadata(
+            data=test_data.encode("utf-8"),
+            data_type="test",
+            is_monthly=False,
+            year=2024,
+            period=1,
+            force_overwrite=True,
         )
 
         # Assert
         self.assertTrue(result1.success)
         self.assertTrue(result1.is_new)
 
-        self.assertFalse(result2.success)
-        self.assertIn("already exists", result2.message)
+        # result2 should be detected as duplicate
+        self.assertFalse(result2.is_new)
 
         self.assertTrue(result3.success)
         self.assertFalse(result3.is_new)
@@ -113,18 +118,17 @@ schedule:
         # ファイル保存時のエラーをシミュレート（権限エラーなど）
         invalid_path = "/root/test/file.csv"  # 書き込み権限がないパス
 
-        result = self.storage_manager.save_data(
-            data="test",
+        result = self.storage_manager.save_with_metadata(
+            data=b"test",
             data_type="test",
-            period_type="week",
+            is_monthly=False,
             year=2024,
             period=1,
-            force_path=invalid_path if hasattr(self.storage_manager, "force_path") else None,
         )
 
         # Assert - エラーが適切に処理される
         if not result.success:
-            self.assertIsNotNone(result.message)
+            self.assertIsNotNone(result.error)
 
     def test_configuration_validation_workflow(self):
         """設定検証ワークフローをテスト"""
@@ -146,8 +150,8 @@ schedule:
         # Act - バッチでデータを保存
         results = []
         for i in range(1, 11):
-            result = self.storage_manager.save_data(
-                data=f"week,{i}\ndata,{i}", data_type="test", period_type="week", year=2024, period=i
+            result = self.storage_manager.save_with_metadata(
+                data=f"week,{i}\ndata,{i}".encode(), data_type="test", is_monthly=False, year=2024, period=i
             )
             results.append(result)
 
@@ -167,8 +171,13 @@ schedule:
 
         # Act
         # 1. メタデータ付きで保存
-        save_result = self.storage_manager.save_data(
-            data=test_data, data_type="test", period_type="week", year=2024, period=1, metadata=metadata
+        save_result = self.storage_manager.save_with_metadata(
+            data=test_data.encode("utf-8"),
+            data_type="test",
+            is_monthly=False,
+            year=2024,
+            period=1,
+            additional_metadata=metadata,
         )
 
         # 2. メタデータを取得
@@ -194,7 +203,7 @@ schedule:
         )
         subprocess.run(["git", "config", "user.name", "Test User"], cwd=self.test_dir, capture_output=True, check=False)
 
-        git_handler = GitHandler(str(self.test_dir))
+        git_handler = GitHandler(auto_commit=False)
 
         # Act
         # 1. ファイルを作成
@@ -241,8 +250,8 @@ class TestPerformanceIntegration(unittest.TestCase):
 
         # Act
         start_time = datetime.now()
-        result = self.storage_manager.save_data(
-            data=large_data, data_type="test", period_type="week", year=2024, period=1
+        result = self.storage_manager.save_with_metadata(
+            data=large_data.encode("utf-8"), data_type="test", is_monthly=False, year=2024, period=1
         )
         end_time = datetime.now()
 
@@ -261,8 +270,12 @@ class TestPerformanceIntegration(unittest.TestCase):
 
         def save_data(week):
             try:
-                result = self.storage_manager.save_data(
-                    data=f"week,{week}\n{week},data", data_type="test", period_type="week", year=2024, period=week
+                result = self.storage_manager.save_with_metadata(
+                    data=f"week,{week}\n{week},data".encode(),
+                    data_type="test",
+                    is_monthly=False,
+                    year=2024,
+                    period=week,
                 )
                 results.append(result)
             except Exception as e:
