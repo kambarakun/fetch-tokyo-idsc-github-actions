@@ -528,12 +528,13 @@ class StorageManager:
                 # sort_keys=Falseにして、挿入順序を保持(Python 3.7+では辞書は挿入順序を保持)
                 json.dump(sorted_index, f, indent=2, ensure_ascii=False, sort_keys=False)
 
-            # メモリ上のインデックスは更新しない
-            # 理由: 同一セッション内で複数回の呼び出しがある場合、
-            # 新しいエントリが適切な位置に追加されず、ソート状態が崩れる可能性があるため
-            # ファイルに保存されたソート済みインデックスは次回読み込み時に使用される
+            # メモリ上のインデックスも更新(ソート済みのものに置き換え)
+            # これにより、同一セッション内での重複チェックなどが正しく動作する
+            self.hash_index = sorted_index
         except Exception as e:
-            logger.warning(f"Failed to update hash index: {e}")
+            logger.error(f"Failed to update hash index: {e}")
+            # ハッシュインデックスの更新失敗は重要なエラーとして扱う
+            raise
 
     def _validate_data_type(self, data_type: str) -> bool:
         """data_typeパラメータの妥当性を検証する。

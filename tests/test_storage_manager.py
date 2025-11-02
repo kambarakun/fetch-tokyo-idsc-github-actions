@@ -479,7 +479,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertFalse(second_result.is_new)  # 既存ファイル更新フラグの確認
 
     def test_hash_index_sorting(self):
-        """hash_indexが正しくソートされることをテスト"""
+        """hash_indexがファイル名順に正しくソートされることをテスト"""
         # 複数のファイルを異なる順序で保存
         files_data = [
             (b"data1", "type_z", 2025, 3),
@@ -497,11 +497,20 @@ class TestStorageManager(unittest.TestCase):
         with hash_index_path.open() as f:
             loaded_index = json.load(f)
 
-        # キーがソート済みか確認
-        keys = list(loaded_index.keys())
-        self.assertEqual(keys, sorted(keys))
+        # インデックスの順序を確認するため、値(ファイルパス)を順番にリスト化
+        all_paths = []
+        for file_paths in loaded_index.values():
+            if isinstance(file_paths, list):
+                all_paths.extend(file_paths)
+            else:
+                all_paths.append(file_paths)
 
-        # 各値（リストの場合）もソート済みか確認
+        # ファイルパスがソート済みであることを確認
+        # 期待される順序: type_a_2025_01.csv, type_m_2025_02.csv, type_z_2025_03.csv
+        expected_order = sorted(all_paths)
+        self.assertEqual(all_paths, expected_order)
+
+        # 各値(リストの場合)もソート済みか確認
         for file_paths in loaded_index.values():
             if isinstance(file_paths, list):
                 self.assertEqual(file_paths, sorted(file_paths))
