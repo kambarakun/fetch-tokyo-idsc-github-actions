@@ -38,10 +38,15 @@ class TestTargetFiltering(unittest.TestCase):
         self.mock_config.storage.commit_message_template = "test commit"
         self.mock_config.storage.keep_shift_jis = True
 
+    @patch("scripts.fetch_data.datetime")
     @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("scripts.fetch_data.StorageManager")
-    def test_target_weeks_filtering(self, mock_storage_class, mock_fetcher_class):
+    def test_target_weeks_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """対象週フィルタリングのテスト"""
+        # 2025年の第52週を現在週として設定（確実に52週が存在する状態にする）
+        mock_datetime.now.return_value.year = 2025
+        mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
+
         # 対象週を1週と52週のみに設定
         target_weeks = [1, 52]
 
@@ -60,17 +65,23 @@ class TestTargetFiltering(unittest.TestCase):
         # 生成されたパラメータの週番号を確認
         generated_weeks = {int(p.start_sub_period) for p in params}
 
-        # 1週と52週のみが含まれることを確認（現在週によっては52週が存在しない場合もある）
+        # 1週と52週のみが含まれることを確認
         self.assertIn(1, generated_weeks)
+        self.assertIn(52, generated_weeks)
         # 他の週（例：2週）が含まれないことを確認
         self.assertNotIn(2, generated_weeks)
         self.assertNotIn(10, generated_weeks)
         self.assertNotIn(30, generated_weeks)
 
+    @patch("scripts.fetch_data.datetime")
     @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("scripts.fetch_data.StorageManager")
-    def test_target_months_filtering(self, mock_storage_class, mock_fetcher_class):
+    def test_target_months_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """対象月フィルタリングのテスト"""
+        # 2025年12月を現在月として設定（確実に12月まで存在する状態にする）
+        mock_datetime.now.return_value.year = 2025
+        mock_datetime.now.return_value.month = 12
+
         # 対象月を1月と12月のみに設定
         target_months = [1, 12]
 
@@ -89,8 +100,9 @@ class TestTargetFiltering(unittest.TestCase):
         # 生成されたパラメータの月番号を確認
         generated_months = {int(p.start_sub_period) for p in params}
 
-        # 1月が含まれることを確認
+        # 1月と12月が含まれることを確認
         self.assertIn(1, generated_months)
+        self.assertIn(12, generated_months)
         # 他の月（例：2月、6月）が含まれないことを確認
         self.assertNotIn(2, generated_months)
         self.assertNotIn(6, generated_months)

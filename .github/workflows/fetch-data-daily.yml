@@ -70,8 +70,12 @@ jobs:
           echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
           echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
           echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
+          # ISO週番号とISO週年を取得（年境界での正確な処理のため）
           echo "PREVIOUS_WEEK=$(date -d 'last week' +'%V')" >> $GITHUB_ENV
+          echo "PREVIOUS_WEEK_YEAR=$(date -d 'last week' +'%G')" >> $GITHUB_ENV
+          # 前月とその年を取得
           echo "PREVIOUS_MONTH=$(date -d 'last month' +'%m')" >> $GITHUB_ENV
+          echo "PREVIOUS_MONTH_YEAR=$(date -d 'last month' +'%Y')" >> $GITHUB_ENV
           echo "CURRENT_DAY=$(date +'%u')" >> $GITHUB_ENV
           echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
 
@@ -97,8 +101,8 @@ jobs:
 
           echo "Daily simple check parameters:"
           echo "  Current year: $CURRENT_YEAR"
-          echo "  Current week: $CURRENT_WEEK / Previous week: $PREVIOUS_WEEK"
-          echo "  Current month: $CURRENT_MONTH / Previous month: $PREVIOUS_MONTH"
+          echo "  Current week: $CURRENT_WEEK / Previous week: $PREVIOUS_WEEK (year: $PREVIOUS_WEEK_YEAR)"
+          echo "  Current month: $CURRENT_MONTH / Previous month: $PREVIOUS_MONTH (year: $PREVIOUS_MONTH_YEAR)"
           echo "  Skip existing: $SKIP_EXISTING"
           echo "  Dry run: $DRY_RUN"
 
@@ -121,8 +125,12 @@ jobs:
 
           # コマンドの構築（週次データと月次データを対象週・月を絞って取得）
           FETCH_CMD=(uv run python scripts/fetch_data.py)
-          FETCH_CMD+=(--start-year "$CURRENT_YEAR")
-          FETCH_CMD+=(--end-year "$CURRENT_YEAR")
+
+          # 年の範囲を適切に設定（前週/前月の年と現在年をカバー）
+          START_YEAR=$(echo "$PREVIOUS_WEEK_YEAR $PREVIOUS_MONTH_YEAR $CURRENT_YEAR" | tr ' ' '\n' | sort -n | head -1)
+          END_YEAR="$CURRENT_YEAR"
+          FETCH_CMD+=(--start-year "$START_YEAR")
+          FETCH_CMD+=(--end-year "$END_YEAR")
 
           # 対象週を最新週と前週に限定
           FETCH_CMD+=(--target-weeks "$PREVIOUS_WEEK,$CURRENT_WEEK")

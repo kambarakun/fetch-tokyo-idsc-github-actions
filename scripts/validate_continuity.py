@@ -35,7 +35,7 @@ class ContinuityValidator:
     """データ連続性検証クラス"""
 
     # ファイル名パースの定数
-    MIN_FILENAME_PARTS = 5  # 最小限必要なファイル名の部品数
+    MIN_FILENAME_PARTS = 4  # 最小限必要なファイル名の部品数（notifiable_weekly_2025_01形式で4パーツ）
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
