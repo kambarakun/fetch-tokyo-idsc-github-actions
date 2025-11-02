@@ -222,7 +222,8 @@ class TestPerformanceIntegration(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp())
-        self.storage_manager = StorageManager(str(self.test_dir))
+        config = {"auto_commit": False}
+        self.storage_manager = StorageManager(self.test_dir, config)
         self.fetcher = EnhancedEpidemicDataFetcher()
 
     def tearDown(self):
