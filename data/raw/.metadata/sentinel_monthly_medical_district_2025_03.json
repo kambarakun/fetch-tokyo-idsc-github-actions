@@ -4,11 +4,11 @@
   "year": 2025,
   "period": 3,
   "period_type": "monthly",
-  "timestamp": "2025-11-02T00:56:54.928735",
+  "timestamp": "2025-11-02T12:08:33.706148",
   "file_size": 3382,
   "sha256_hash": "37852c5f7e9027e48bc6bae3d712335dff5cbe3e2176dedde3c6ecd46f5690f2",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_medical_district_2025_03.csv",
   "force_overwrite": true,
-  "fetch_time": 0.5908260345458984
+  "fetch_time": 0.8196678161621094
 }
