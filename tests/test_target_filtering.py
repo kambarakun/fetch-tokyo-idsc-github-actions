@@ -107,10 +107,16 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertNotIn(2, generated_months)
         self.assertNotIn(6, generated_months)
 
+    @patch("scripts.fetch_data.datetime")
     @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("scripts.fetch_data.StorageManager")
-    def test_combined_filtering(self, mock_storage_class, mock_fetcher_class):
+    def test_combined_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """週と月の両方のフィルタリングのテスト"""
+        # 2025年の第52週12月を現在として設定
+        mock_datetime.now.return_value.year = 2025
+        mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
+        mock_datetime.now.return_value.month = 12
+
         # 対象週を10, 11週、対象月を3, 4月に設定
         target_weeks = [10, 11]
         target_months = [3, 4]
@@ -129,6 +135,7 @@ class TestTargetFiltering(unittest.TestCase):
         generated_weeks = {int(p.start_sub_period) for p in weekly_params}
 
         # 10週と11週のみが含まれることを確認
+        self.assertEqual(len(generated_weeks), 2)
         self.assertIn(10, generated_weeks)
         self.assertIn(11, generated_weeks)
         self.assertNotIn(1, generated_weeks)
@@ -139,15 +146,22 @@ class TestTargetFiltering(unittest.TestCase):
         generated_months = {int(p.start_sub_period) for p in monthly_params}
 
         # 3月と4月のみが含まれることを確認
+        self.assertEqual(len(generated_months), 2)
         self.assertIn(3, generated_months)
         self.assertIn(4, generated_months)
         self.assertNotIn(1, generated_months)
         self.assertNotIn(12, generated_months)
 
+    @patch("scripts.fetch_data.datetime")
     @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("scripts.fetch_data.StorageManager")
-    def test_no_filtering(self, mock_storage_class, mock_fetcher_class):
+    def test_no_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """フィルタリングなしの場合のテスト"""
+        # 2025年の第52週を現在週として設定（確実な状態）
+        mock_datetime.now.return_value.year = 2025
+        mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
+        mock_datetime.now.return_value.month = 12
+
         collector = DataCollector(
             self.mock_config,
             dry_run=True,
@@ -161,15 +175,21 @@ class TestTargetFiltering(unittest.TestCase):
         weekly_params = collector._generate_all_params("sentinel_weekly_gender", 2025, 2025, is_monthly=False)
         generated_weeks = {int(p.start_sub_period) for p in weekly_params}
 
-        # 複数の週が含まれることを確認
-        self.assertGreater(len(generated_weeks), 10)  # 少なくとも10週以上
+        # 52週すべてが生成されることを確認
+        self.assertEqual(len(generated_weeks), 52)
+        # 1週から52週まですべて含まれることを確認
+        for week in range(1, 53):
+            self.assertIn(week, generated_weeks)
 
         # 月次データのパラメータ生成
         monthly_params = collector._generate_all_params("sentinel_monthly_age", 2025, 2025, is_monthly=True)
         generated_months = {int(p.start_sub_period) for p in monthly_params}
 
-        # 複数の月が含まれることを確認
-        self.assertGreater(len(generated_months), 1)  # 少なくとも1月以上
+        # 12ヶ月すべてが生成されることを確認
+        self.assertEqual(len(generated_months), 12)
+        # 1月から12月まですべて含まれることを確認
+        for month in range(1, 13):
+            self.assertIn(month, generated_months)
 
     @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("scripts.fetch_data.StorageManager")

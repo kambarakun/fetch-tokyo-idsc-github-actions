@@ -34,9 +34,6 @@ class ContinuityReport:
 class ContinuityValidator:
     """データ連続性検証クラス"""
 
-    # ファイル名パースの定数
-    MIN_FILENAME_PARTS = 4  # 最小限必要なファイル名の部品数（notifiable_weekly_2025_01形式で4パーツ）
-
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
         self.logger = logging.getLogger(__name__)
@@ -76,7 +73,7 @@ class ContinuityValidator:
 
         return reports
 
-    def validate_data_type(
+    def validate_data_type(  # noqa: PLR0912
         self, data_type: str, start_year: int | None = None, end_year: int | None = None
     ) -> ContinuityReport:
         """特定のデータタイプの連続性を検証
@@ -115,13 +112,31 @@ class ContinuityValidator:
         years = set()
         for file_path in files:
             parts = file_path.stem.split("_")
-            if len(parts) >= self.MIN_FILENAME_PARTS:
+            # ファイル名の形式を動的に判定
+            # 形式1: notifiable_weekly_2025_01 (4パーツ)
+            # 形式2: sentinel_weekly_gender_2025_01 (5パーツ)
+            # 形式3: sentinel_monthly_medical_district_2025_01 (6パーツ)
+            # 末尾の2つが年と期間番号の場合のみ処理
+            if len(parts) >= 3:  # 最低限: データタイプ_年_期間
                 try:
+                    # 末尾から2番目と最後を年と期間として解釈
                     year = int(parts[-2])
                     period = int(parts[-1])
-                    existing_periods.add((year, period))
-                    years.add(year)
-                except ValueError:
+
+                    # 年と期間の妥当性チェック
+                    # 年: 1900-2100の範囲
+                    # 週: 1-53の範囲、月: 1-12の範囲
+                    if 1900 <= year <= 2100:
+                        if is_monthly:
+                            if 1 <= period <= 12:
+                                existing_periods.add((year, period))
+                                years.add(year)
+                        elif 1 <= period <= 53:
+                            existing_periods.add((year, period))
+                            years.add(year)
+                except (ValueError, IndexError):
+                    # 数値変換に失敗した場合はスキップ
+                    self.logger.debug(f"ファイル名のパースをスキップ: {file_path.name}")
                     continue
 
         # 開始年と終了年を決定
