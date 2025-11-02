@@ -262,6 +262,19 @@ class StorageManager:
             return SaveResult(success=False, error=error_msg)
 
         try:
+            # CSVインジェクション対策のためのデータサニタイズ
+            if data_type.endswith(".csv") or "csv" in data_type.lower():
+                # デコードしてサニタイズ
+                try:
+                    decoded_data = data.decode("utf-8")
+                except UnicodeDecodeError:
+                    # Shift-JISの場合
+                    decoded_data = data.decode("shift_jis")
+
+                # 危険な文字で始まるセルをサニタイズ
+                sanitized_data = self._sanitize_csv_data(decoded_data)
+                data = sanitized_data.encode("utf-8")
+
             # データハッシュ計算
             data_hash = hashlib.sha256(data).hexdigest()
 
@@ -535,6 +548,37 @@ class StorageManager:
             logger.error(f"Failed to update hash index: {e}")
             # ハッシュインデックスの更新失敗は重要なエラーとして扱う
             raise
+
+    def _sanitize_csv_data(self, data: str) -> str:
+        """CSVデータからインジェクション攻撃を防ぐためのサニタイズ処理。
+
+        Args:
+            data: サニタイズするCSVデータ
+
+        Returns:
+            サニタイズ後のCSVデータ
+        """
+        # 危険な文字で始まるセルの先頭にシングルクォートを追加
+        dangerous_starts = ["=", "+", "-", "@", "\t", "\r"]
+        lines = data.split("\n")
+        sanitized_lines = []
+
+        for line in lines:
+            if not line.strip():  # 空行はスキップ
+                sanitized_lines.append(line)
+                continue
+
+            cells = line.split(",")
+            sanitized_cells = []
+            for cell in cells:
+                # セルが危険な文字で始まる場合、先頭にシングルクォートを追加
+                sanitized_cell = cell
+                if cell and any(cell.startswith(char) for char in dangerous_starts):
+                    sanitized_cell = "'" + cell
+                sanitized_cells.append(sanitized_cell)
+            sanitized_lines.append(",".join(sanitized_cells))
+
+        return "\n".join(sanitized_lines)
 
     def _validate_data_type(self, data_type: str) -> bool:
         """data_typeパラメータの妥当性を検証する。

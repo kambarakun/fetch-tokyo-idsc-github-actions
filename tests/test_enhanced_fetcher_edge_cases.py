@@ -26,20 +26,20 @@ class TestEnhancedFetcherEdgeCases(unittest.TestCase):
         )
         self.fetcher = EnhancedEpidemicDataFetcher()
         self.retry_handler = RetryHandler(config=self.config)
-        self.rate_limiter = RateLimiter(requests_per_second=10)
+        self.rate_limiter = RateLimiter(min_delay=0.1)  # 10 requests per second = 0.1s delay
 
     def test_batch_fetch_parallel_with_params(self):
         """バッチフェッチのパラメータ処理をテスト"""
         # Arrange
         params_list = [
             FetchParams(
-            start_year="2024",
-            start_sub_period="1",
-            end_year="2024",
-            end_sub_period="1",
-            data_type="sentinel_weekly_gender",
-            report_type="1"
-        )
+                start_year="2024",
+                start_sub_period="1",
+                end_year="2024",
+                end_sub_period="1",
+                data_type="sentinel_weekly_gender",
+                report_type="1",
+            )
             for week in range(1, 10)
         ]
 
@@ -79,9 +79,8 @@ class TestEnhancedFetcherEdgeCases(unittest.TestCase):
 
     def test_rate_limiter_creation(self):
         """レートリミッターの作成をテスト"""
-        limiter = RateLimiter(requests_per_second=100)
-        self.assertEqual(limiter.requests_per_second, 100)
-        self.assertEqual(limiter.interval, 0.01)  # 1/100
+        limiter = RateLimiter(min_delay=0.01)  # 100 requests per second
+        self.assertEqual(limiter.min_delay, 0.01)  # 1/100
 
     def test_create_metadata_with_empty_dataframe(self):
         """空のDataFrameでメタデータ作成をテスト"""
@@ -93,7 +92,7 @@ class TestEnhancedFetcherEdgeCases(unittest.TestCase):
             end_year="2024",
             end_sub_period="1",
             data_type="sentinel_weekly_gender",
-            report_type="1"
+            report_type="1",
         )
 
         # Act
@@ -123,7 +122,7 @@ class TestEnhancedFetcherEdgeCases(unittest.TestCase):
             end_year="2024",
             end_sub_period="1",
             data_type="test",
-            report_type="1"
+            report_type="1",
         )
 
         # Assert - パラメータが正しく設定されている

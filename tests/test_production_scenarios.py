@@ -183,7 +183,7 @@ class TestProductionScenarios(unittest.TestCase):
         # Arrange
         from src.fetchers.enhanced_fetcher import RateLimiter
 
-        rate_limiter = RateLimiter(requests_per_second=5)
+        rate_limiter = RateLimiter(min_delay=0.2)  # 5 requests per second
 
         # Act - 10個のリクエストを送信
         start_time = time.time()
