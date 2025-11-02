@@ -192,11 +192,28 @@ uv run pytest --cov=src --cov-report=html
 
 ### Pull Request設定
 
-自動PR作成は `.github/workflows/fetch-data.yml` で制御されます：
+自動PR作成は `.github/workflows/fetch-data.yml` で制御されます。config.ymlでの直接設定はサポートしていませんが、ワークフロー内で以下の形式が使用されます：
 
-- **タイトル**: コミットメッセージと同じ形式
-- **ラベル**: `data-update`, `automated` が自動付与
-- **本文**: 実行日時、対象期間、変更ファイル数を含む定型フォーマット
+```yaml
+# PRタイトル形式（ワークフロー内で自動生成）
+PR_TITLE: "データ更新: YYYY-MM-DD (N CSV files)"
+
+# PR本文テンプレート（ワークフロー内で定義）
+PR_BODY: |
+  ## 🤖 自動データ更新
+  ### 📊 更新内容
+  - 実行日時: YYYY-MM-DD
+  - 対象期間: START_YEAR - END_YEAR
+  - データタイプ: [対象データ種別]
+  - 変更CSVファイル数: N
+
+# 自動付与されるラベル
+PR_LABELS:
+  - data-update # データ更新PR用
+  - automated # 自動生成PR用
+```
+
+カスタマイズが必要な場合は、`.github/workflows/fetch-data.yml` の該当箇所を直接編集してください。
 
 ## 🧪 テスト
 
