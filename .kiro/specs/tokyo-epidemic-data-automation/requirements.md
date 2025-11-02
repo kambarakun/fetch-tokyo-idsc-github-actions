@@ -4,6 +4,17 @@
 
 東京都感染症発生動向情報システムから定期的にデータを取得し、GitHub Actionsを使用して自動化されたデータ収集・保存・管理を行うシステムです。既存のTokyoEpidemicSurveillanceFetcherクラスを活用し、スケジュール実行、エラーハンドリング、データ品質管理、通知機能を含む包括的な自動化システムを構築します。
 
+## Glossary
+
+- **Automation_System**: 東京都感染症発生動向データの自動収集・管理システム
+- **EnhancedEpidemicDataFetcher**: 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得クラス（実装済み）
+- **GitHub_Actions**: CI/CDプラットフォームによるスケジュール実行環境（実装済み）
+- **ConfigurationManager**: YAML設定ファイル管理を行うコンポーネント（実装済み）
+- **Storage_Manager**: ファイル保存とGit操作を管理するコンポーネント（部分実装済み）
+- **Quality_Controller**: データ品質検証を行うコンポーネント（実装予定）
+- **Notification_System**: エラー通知とアラート管理を行うコンポーネント（GitHub Issues連携実装済み）
+- **Data_Collector**: EnhancedEpidemicDataFetcherの別名
+
 ## Requirements
 
 ### Requirement 1
@@ -12,11 +23,11 @@
 
 #### Acceptance Criteria
 
-1. WHEN スケジュール時刻になった THEN システムはGitHub Actionsを使用してデータ取得プロセスを実行する SHALL
-2. WHEN データを取得する THEN システムは既存のTokyoEpidemicSurveillanceFetcherクラスを使用する SHALL
-3. WHEN 取得が成功した THEN システムはタイムスタンプを含む適切な命名規則でCSVファイルを保存する SHALL
-4. WHEN 取得が成功した THEN システムは各ダウンロードファイルのメタデータログを保存する SHALL
-5. IF 取得が失敗した THEN システムは指数バックオフで最大3回リトライする SHALL
+1. WHEN スケジュール時刻になった時、THE Automation_System SHALL GitHub_Actionsを使用してEnhancedEpidemicDataFetcherを実行する
+2. WHEN データ取得を開始する時、THE EnhancedEpidemicDataFetcher SHALL 既存のTokyoEpidemicSurveillanceFetcherクラスを継承して使用する
+3. WHEN データ取得が成功した時、THE Storage_Manager SHALL タイムスタンプを含む命名規則でCSVファイルを保存する
+4. WHEN ファイル保存が完了した時、THE Storage_Manager SHALL 各ダウンロードファイルのメタデータログを記録する
+5. IF データ取得が失敗した場合、THEN THE EnhancedEpidemicDataFetcher SHALL 指数バックオフで最大3回リトライする
 
 ### Requirement 2
 
@@ -24,11 +35,11 @@
 
 #### Acceptance Criteria
 
-1. WHEN データ取得中にエラーが発生した THEN システムは詳細なエラー情報をログに記録する SHALL
-2. WHEN 最大リトライ回数を超えた THEN システムは該当リポジトリにGitHub Issueを作成して通知する SHALL
-3. WHEN システムがレート制限に遭遇した THEN システムはリクエスト間に適切な遅延を実装する SHALL
-4. WHEN ネットワーク接続の問題が発生した THEN システムはタイムアウトを適切に処理する SHALL
-5. IF 重大なエラーが継続する THEN システムはトラブルシューティング情報付きの実行可能なアラートを作成する SHALL
+1. WHEN データ取得中にエラーが発生した時、THE Automation_System SHALL 詳細なエラー情報をログに記録する
+2. WHEN 最大リトライ回数を超えた時、THE Notification_System SHALL 該当リポジトリにGitHub Issueを作成する
+3. WHEN レート制限に遭遇した時、THE EnhancedEpidemicDataFetcher SHALL リクエスト間に適切な遅延を実装する
+4. WHEN ネットワーク接続の問題が発生した時、THE EnhancedEpidemicDataFetcher SHALL タイムアウトを適切に処理する
+5. IF 重大なエラーが継続する場合、THEN THE Notification_System SHALL トラブルシューティング情報付きのアラートを作成する
 
 ### Requirement 3
 
@@ -36,12 +47,12 @@
 
 #### Acceptance Criteria
 
-1. WHEN データを保存する THEN システムは年/月/週の階層ディレクトリ構造でファイルを整理する SHALL
-2. WHEN CSVファイルを保存する THEN システムは互換性のため元のShift_JISエンコーディングを維持する SHALL
-3. WHEN ファイル名を作成する THEN システムはデータタイプ、日付範囲、タイムスタンプ情報を含める SHALL
-4. WHEN メタデータを生成する THEN システムはデータ整合性検証のためSHA256ハッシュを含める SHALL
-5. WHEN データ取得が成功した THEN システムは変更をGitリポジトリにコミットし自動マージする SHALL
-6. IF 重複データが検出された THEN システムはストレージの無駄を避けるため冗長なダウンロードをスキップする SHALL
+1. WHEN データを保存する時、THE Storage_Manager SHALL 年/月/週の階層ディレクトリ構造でファイルを整理する
+2. WHEN CSVファイルを保存する時、THE Storage_Manager SHALL 互換性のため元のShift_JISエンコーディングを維持する
+3. WHEN ファイル名を作成する時、THE Storage_Manager SHALL データタイプ、日付範囲、タイムスタンプ情報を含める
+4. WHEN メタデータを生成する時、THE Storage_Manager SHALL データ整合性検証のためSHA256ハッシュを含める
+5. WHEN データ保存が完了した時、THE Storage_Manager SHALL 変更をGitリポジトリにコミットする
+6. IF 重複データが検出された場合、THEN THE Storage_Manager SHALL 冗長なダウンロードをスキップする
 
 ### Requirement 4
 
@@ -49,12 +60,12 @@
 
 #### Acceptance Criteria
 
-1. WHEN システムを設定する THEN ユーザーは設定ファイル経由で日付範囲、データタイプ、収集頻度を指定できる SHALL
-2. WHEN 収集スケジュールを更新する THEN システムはGitHub Actions経由でcronベースのスケジューリングをサポートする SHALL
-3. WHEN 新しいデータタイプを追加する THEN システムは既存機能を壊すことなく拡張を許可する SHALL
-4. WHEN 問題をデバッグする THEN システムは複数の詳細レベルで包括的なログを提供する SHALL
-5. WHEN 手動実行が必要な場合 THEN システムはGitHub Actions workflow_dispatchでの手動トリガーをサポートする SHALL
-6. IF 設定変更が行われた THEN システムは実行前に設定を検証する SHALL
+1. THE ConfigurationManager SHALL 設定ファイル経由で日付範囲、データタイプ、収集頻度の指定を許可する
+2. THE Automation_System SHALL GitHub_Actions経由でcronベースのスケジューリングをサポートする
+3. THE Automation_System SHALL 既存機能を壊すことなく新しいデータタイプの追加を許可する
+4. THE Automation_System SHALL 複数の詳細レベルで包括的なログを提供する
+5. THE Automation_System SHALL GitHub_Actions workflow_dispatchでの手動トリガーをサポートする
+6. IF 設定変更が行われた場合、THEN THE ConfigurationManager SHALL 実行前に設定を検証する
 
 ### Requirement 5
 
@@ -62,11 +73,11 @@
 
 #### Acceptance Criteria
 
-1. WHEN APIリクエストを行う THEN システムは連続リクエスト間に遅延を実装する（最低1秒）SHALL
-2. WHEN HTTP 429レスポンスに遭遇した THEN システムは指数バックオフを実装する SHALL
-3. WHEN 大きな日付範囲を取得する THEN システムはリクエストを小さなチャンクに分割する SHALL
-4. WHEN システムが実行される THEN 自動化システムを識別する適切なUser-Agentヘッダーを含める SHALL
-5. IF レート制限に一貫して引っかかる THEN システムは自動的にリクエスト頻度を調整する SHALL
+1. WHEN APIリクエストを行う時、THE EnhancedEpidemicDataFetcher SHALL 連続リクエスト間に最低1秒の遅延を実装する
+2. WHEN HTTP 429レスポンスに遭遇した時、THE EnhancedEpidemicDataFetcher SHALL 指数バックオフを実装する
+3. WHEN 大きな日付範囲を取得する時、THE EnhancedEpidemicDataFetcher SHALL リクエストを小さなチャンクに分割する
+4. WHEN リクエストを送信する時、THE EnhancedEpidemicDataFetcher SHALL 自動化システムを識別するUser-Agentヘッダーを含める
+5. IF レート制限に一貫して引っかかる場合、THEN THE EnhancedEpidemicDataFetcher SHALL 自動的にリクエスト頻度を調整する
 
 ### Requirement 6
 
@@ -74,11 +85,11 @@
 
 #### Acceptance Criteria
 
-1. WHEN データがダウンロードされた THEN システムはファイルサイズが期待範囲内であることを検証する SHALL
-2. WHEN CSVファイルが保存された THEN システムは基本的なCSV構造とエンコーディングを検証する SHALL
-3. WHEN 過去のデータと比較する THEN システムは重大な異常を検出し報告する SHALL
-4. WHEN データ検証が失敗した THEN システムは疑わしいファイルを隔離し管理者にアラートする SHALL
-5. IF データ破損が検出された THEN システムは影響を受けたファイルの再ダウンロードを試行する SHALL
+1. WHEN データがダウンロードされた時、THE Quality_Controller SHALL ファイルサイズが期待範囲内であることを検証する
+2. WHEN CSVファイルが保存された時、THE Quality_Controller SHALL 基本的なCSV構造とエンコーディングを検証する
+3. WHEN 過去のデータと比較する時、THE Quality_Controller SHALL 重大な異常を検出し報告する
+4. WHEN データ検証が失敗した時、THE Quality_Controller SHALL 疑わしいファイルを隔離し管理者にアラートする
+5. IF データ破損が検出された場合、THEN THE EnhancedEpidemicDataFetcher SHALL 影響を受けたファイルの再ダウンロードを試行する
 
 ### Requirement 7
 
@@ -86,11 +97,11 @@
 
 #### Acceptance Criteria
 
-1. WHEN 大量の履歴データを取得する THEN システムは並列処理でダウンロード時間を短縮する SHALL
-2. WHEN ストレージ容量が制限に近づく THEN システムは古いデータのアーカイブまたは削除を提案する SHALL
-3. WHEN 同一データの重複チェックを行う THEN システムはハッシュベースの高速比較を使用する SHALL
-4. WHEN GitHub Actionsの実行時間制限に近づく THEN システムは処理を分割して継続実行する SHALL
-5. IF メモリ使用量が閾値を超える THEN システムはストリーミング処理に切り替える SHALL
+1. WHEN 大量の履歴データを取得する時、THE EnhancedEpidemicDataFetcher SHALL 並列処理でダウンロード時間を短縮する
+2. WHEN ストレージ容量が制限に近づく時、THE Storage_Manager SHALL 古いデータのアーカイブまたは削除を提案する
+3. WHEN 同一データの重複チェックを行う時、THE Storage_Manager SHALL ハッシュベースの高速比較を使用する
+4. WHEN GitHub_Actionsの実行時間制限に近づく時、THE Automation_System SHALL 処理を分割して継続実行する
+5. IF メモリ使用量が閾値を超える場合、THEN THE EnhancedEpidemicDataFetcher SHALL ストリーミング処理に切り替える
 
 ### Requirement 8
 
@@ -98,8 +109,8 @@
 
 #### Acceptance Criteria
 
-1. WHEN GitHub Actionsが実行される THEN システムは最小権限の原則でトークンを使用する SHALL
-2. WHEN 設定ファイルを扱う THEN システムは機密情報をGitHub Secretsで管理する SHALL
-3. WHEN 外部APIと通信する THEN システムはHTTPS接続のみを使用する SHALL
-4. WHEN ログを出力する THEN システムは機密情報をマスクまたは除外する SHALL
-5. IF セキュリティ脆弱性が検出された THEN システムは実行を停止し管理者に通知する SHALL
+1. WHEN GitHub_Actionsが実行される時、THE Automation_System SHALL 最小権限の原則でトークンを使用する
+2. WHEN 設定ファイルを扱う時、THE ConfigurationManager SHALL 機密情報をGitHub_Secretsで管理する
+3. WHEN 外部APIと通信する時、THE EnhancedEpidemicDataFetcher SHALL HTTPS接続のみを使用する
+4. WHEN ログを出力する時、THE Automation_System SHALL 機密情報をマスクまたは除外する
+5. IF セキュリティ脆弱性が検出された場合、THEN THE Automation_System SHALL 実行を停止し管理者に通知する

@@ -4,22 +4,29 @@
 
 東京都感染症発生動向情報の自動データ収集システムは、既存のTokyoEpidemicSurveillanceFetcherクラスを中核として、GitHub Actionsによるスケジュール実行、エラーハンドリング、データ品質管理、自動Git管理を統合したシステムです。
 
+**現在の実装状況**: 基本的なフェッチャー機能とEnhancedEpidemicDataFetcherクラスが実装済み。設定ファイル（config.yml）とプロジェクト構造も整備済み。
+
 システムは以下の主要コンポーネントで構成されます：
 
-- **Data Fetcher**: 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得エンジン
-- **Scheduler**: GitHub Actionsベースのスケジューリングシステム
-- **Storage Manager**: ファイル管理とGit操作を担当
-- **Quality Controller**: データ検証と品質管理
-- **Notification System**: エラー通知とアラート管理
-- **Configuration Manager**: 設定ファイルとパラメータ管理
-- **Monitoring System**: システム監視とメトリクス収集
+- **Data Collector (Enhanced Fetcher)**: ✅ 実装済み - 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得エンジン
+- **Configuration Manager**: ✅ 部分実装済み - YAML設定ファイルによる設定管理
+- **Storage Manager**: 🔄 実装予定 - ファイル管理とGit操作を担当
+- **Quality Controller**: 🔄 実装予定 - データ検証と品質管理
+- **Notification System**: 🔄 実装予定 - エラー通知とアラート管理
+- **Execution Manager**: 🔄 実装予定 - 実行時間制限とチェックポイント管理
+- **Security Validator**: 🔄 実装予定 - セキュリティ検証と機密情報保護
+- **Automation System**: 🔄 実装予定 - GitHub Actionsベースのスケジューリングと実行制御システム
 
 ### Key Design Decisions
 
-1. **既存コードの活用**: TokyoEpidemicSurveillanceFetcherクラスを継承・拡張し、既存の実装を最大限活用
-2. **GitHub Actions中心設計**: CI/CDプラットフォームの制約（実行時間制限、リソース制限）を考慮した設計
-3. **ファイルベース状態管理**: データベース不要で、ファイルシステムとGitによる状態管理
-4. **段階的データ収集**: 大量の履歴データを効率的に処理するための分割実行戦略
+1. **既存コードの活用**: TokyoEpidemicSurveillanceFetcherクラスを継承・拡張し、既存の実装を最大限活用（Requirements 1.2）
+2. **GitHub Actions中心設計**: CI/CDプラットフォームの制約（実行時間制限、リソース制限）を考慮した設計（Requirements 1.1, 4.2, 4.5）
+3. **ファイルベース状態管理**: データベース不要で、ファイルシステムとGitによる状態管理（Requirements 3.5）
+4. **段階的データ収集**: 大量の履歴データを効率的に処理するための分割実行戦略（Requirements 7.1, 7.4）
+5. **包括的エラーハンドリング**: 指数バックオフリトライとGitHub Issues連携による通知システム（Requirements 1.5, 2.2）
+6. **データ品質重視**: ファイル検証、異常検出、隔離機能による信頼性確保（Requirements 6.1-6.5）
+7. **セキュリティファースト**: 最小権限、HTTPS通信、機密情報保護の徹底（Requirements 8.1-8.5）
+8. **設定駆動アーキテクチャ**: YAMLベース設定による柔軟性とメンテナンス性（Requirements 4.1, 4.6）
 
 ## Architecture
 
@@ -56,13 +63,15 @@ graph TB
 
 ### GitHub Actions Workflow Design
 
+要件に基づくワークフロー設計：
+
 ```yaml
 # .github/workflows/data-collection.yml の概要
 name: Tokyo Epidemic Data Collection
 on:
   schedule:
-    - cron: '0 2 * * 1'  # 毎週月曜日 2:00 AM JST
-  workflow_dispatch:     # 手動実行
+    - cron: '0 2 * * 1'  # cronベースのスケジューリング (Requirement 4.2)
+  workflow_dispatch:     # 手動トリガーサポート (Requirement 4.5)
     inputs:
       date_range:
         description: 'Date range (YYYY-MM-DD to YYYY-MM-DD)'
@@ -74,10 +83,16 @@ on:
 jobs:
   collect-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # 6時間制限
+    timeout-minutes: 360  # 6時間制限 (Requirement 7.4)
+    permissions:
+      contents: write      # 最小権限の原則 (Requirement 8.1)
+      issues: write        # Issue作成用
     steps:
       - name: Setup and Execute
-        # 実行時間制限を考慮した分割実行戦略
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub Secrets管理 (Requirement 8.2)
+        # 実行時間制限を考慮した分割実行戦略 (Requirement 7.4)
+        # HTTPS接続のみ使用 (Requirement 8.3)
 ````
 
 ````
@@ -139,93 +154,140 @@ class CheckpointManager:
         """実行状態の復元"""
 ```
 
-### 1. Enhanced Data Fetcher
+### 1. Data Collector (Enhanced Fetcher) - ✅ 実装済み
 
-既存のTokyoEpidemicSurveillanceFetcherクラスを拡張し、以下の機能を追加：
+既存のTokyoEpidemicSurveillanceFetcherクラスを拡張し、要件に基づく機能を実装済み：
+
+**実装済み機能**:
+
+- ✅ RetryHandler: 指数バックオフによるリトライ機能 (Requirements 1.5, 5.2)
+- ✅ RateLimiter: レート制限管理 (Requirement 5.1)
+- ✅ User-Agent設定: 自動化システム識別 (Requirement 5.4)
+- ✅ fetch_with_retry: 非同期・同期両対応のリトライ機能
+- ✅ fetch_date_range: 日付範囲での一括取得 (Requirement 5.3)
+- ✅ get_missing_data: 欠損データの特定と重複回避 (Requirement 3.6)
+- ✅ メタデータ生成: SHA256ハッシュ、タイムスタンプ付き (Requirements 3.3, 3.4)
+
+**現在の実装**:
 
 ```python
 class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
-    def __init__(self, config: DataFetcherConfig):
+    def __init__(self, config: DataFetcherConfig | None = None):
         super().__init__()
-        self.config = config
-        self.retry_handler = RetryHandler(max_retries=3)
-        self.rate_limiter = RateLimiter(min_delay=1.0)
+        self.config = config or DataFetcherConfig()
+        self.retry_handler = RetryHandler(self.config)
+        self.rate_limiter = RateLimiter(self.config.rate_limit_delay)
 
-    async def fetch_with_retry(self, fetch_method, **params) -> FetchResult:
-        """リトライ機能付きデータ取得"""
+        # User-Agent設定 (Requirement 5.4)
+        self.session.headers.update({"User-Agent": self.config.user_agent})
 
-    def fetch_date_range(self, start_date: date, end_date: date) -> List[FetchResult]:
-        """日付範囲での一括取得"""
+    async def fetch_with_retry_async(self, fetch_method, **params) -> FetchResult:
+        """指数バックオフによるリトライ機能付きデータ取得 (Requirements 1.5, 5.2)"""
 
-    def get_missing_data(self, existing_files: List[Path]) -> List[FetchParams]:
-        """欠損データの特定"""
+    def fetch_date_range(self, data_type: str, start_date: tuple, end_date: tuple) -> list[FetchResult]:
+        """日付範囲での一括取得、レート制限考慮 (Requirements 5.1, 5.3)"""
+
+    def get_missing_data(self, data_type: str, existing_files: list[Path]) -> list[FetchParams]:
+        """欠損データの特定と重複回避 (Requirement 3.6)"""
 ```
 
-### 2. Configuration Manager
+**追加実装予定**:
 
-YAML設定ファイルによる柔軟な設定管理：
+- 🔄 並列処理機能の強化 (Requirement 7.1)
+- 🔄 HTTPS接続の強制確認 (Requirement 8.3)
+- 🔄 動的レート制限調整 (Requirement 5.5)
 
-```python
-@dataclass
-class DataCollectionConfig:
-    schedule: ScheduleConfig
-    data_types: List[DataTypeConfig]
-    storage: StorageConfig
-    notifications: NotificationConfig
-    quality: QualityConfig
+````
 
-class ConfigurationManager:
-    def load_config(self, config_path: Path) -> DataCollectionConfig:
-        """設定ファイルの読み込みと検証"""
+### 2. Configuration Manager - ✅ 部分実装済み
 
-    def validate_config(self, config: DataCollectionConfig) -> ValidationResult:
-        """設定の妥当性検証"""
+YAML設定ファイルによる柔軟な設定管理、要件に基づく設定機能：
 
-# config.yml の例
-"""
+**実装済み機能**:
+- ✅ config.yml: 包括的な設定ファイル (Requirements 4.1, 4.2, 4.5)
+- ✅ スケジュール設定: cronベース、手動トリガー対応
+- ✅ データタイプ設定: 9種類のデータタイプ定義済み
+- ✅ ストレージ設定: ディレクトリ構造、自動コミット設定
+- ✅ 品質管理設定: ファイルサイズ制限、異常検出設定
+- ✅ 通知設定: GitHub Issues連携設定
+
+**現在の設定構造**:
+```yaml
 schedule:
-  cron: "0 2 * * 1"
-  timezone: "Asia/Tokyo"
-  manual_trigger_enabled: true
+  cron: "0 10 * * 1"  # 毎週月曜日実行 (Requirement 4.2)
+  manual_trigger_enabled: true  # 手動トリガー (Requirement 4.5)
 
-data_collection:
-  incremental_mode: true  # 増分収集モード
-  batch_size: 50         # 一度に処理するファイル数
-  date_ranges:
-    - start: "2024-01-01"
-      end: "2024-12-31"
-      priority: "high"
-    - start: "2000-01-01"
-      end: "2023-12-31"
-      priority: "low"
-
-data_types:
-  - name: "sentinel_weekly_gender"
-    enabled: true
-    fetch_method: "fetch_csv_sentinel_weekly_gender"
-    parameters:
-      epid_code: "00"
-  - name: "sentinel_weekly_age"
-    enabled: true
-    fetch_method: "fetch_csv_sentinel_weekly_age"
+collection:
+  incremental_mode: true  # 増分収集
+  start_year: 2024
+  data_types: [9種類のデータタイプ]  # (Requirement 4.1)
 
 storage:
-  base_directory: "data/epidemic_surveillance"
-  directory_structure: "{year}/{data_type}"
-  auto_commit: true
-  commit_message_template: "Add {data_type} data for {date_range}"
+  base_directory: "data/raw"
+  auto_commit: true  # Git自動コミット (Requirement 3.5)
+  keep_shift_jis: true  # エンコーディング維持 (Requirement 3.2)
 
 quality:
-  file_size_limits:
-    csv: [100, 10485760]  # 100B - 10MB
-  anomaly_detection_enabled: true
-  quarantine_enabled: true
+  file_size_limits: [100, 10485760]  # (Requirement 6.1)
+  anomaly_detection_enabled: true  # (Requirement 6.3)
+
+notifications:
+  github_issues_enabled: true  # (Requirement 2.2)
+````
+
+**追加実装予定**:
+
+- 🔄 ConfigurationManagerクラスの実装
+- 🔄 設定検証機能 (Requirement 4.6)
+- 🔄 セキュリティ設定セクション (Requirements 8.1, 8.2)
+- 🔄 ログ設定セクション (Requirement 4.4)
+
+# config.yml の例
+
 """
-```
+schedule:
+cron: "0 2 \* \* 1"
+timezone: "Asia/Tokyo"
+manual_trigger_enabled: true
+
+data_collection:
+incremental_mode: true # 増分収集モード
+batch_size: 50 # 一度に処理するファイル数
+date_ranges: - start: "2024-01-01"
+end: "2024-12-31"
+priority: "high" - start: "2000-01-01"
+end: "2023-12-31"
+priority: "low"
+
+data_types:
+
+- name: "sentinel_weekly_gender"
+  enabled: true
+  fetch_method: "fetch_csv_sentinel_weekly_gender"
+  parameters:
+  epid_code: "00"
+- name: "sentinel_weekly_age"
+  enabled: true
+  fetch_method: "fetch_csv_sentinel_weekly_age"
+
+storage:
+base_directory: "data/epidemic_surveillance"
+directory_structure: "{year}/{data_type}"
+auto_commit: true
+commit_message_template: "Add {data_type} data for {date_range}"
+
+quality:
+file_size_limits:
+csv: [100, 10485760] # 100B - 10MB
+anomaly_detection_enabled: true
+quarantine_enabled: true
+"""
+
+````
 
 ### 3. Storage Manager
 
-ファイル管理とGit操作の統合：
+ファイル管理とGit操作の統合、要件に基づく機能実装：
 
 ```python
 class StorageManager:
@@ -234,45 +296,69 @@ class StorageManager:
         self.git_handler = GitHandler(git_config)
 
     def organize_file_path(self, data_type: str, date: date) -> Path:
-        """階層ディレクトリ構造でのファイルパス生成"""
+        """年/月/週の階層ディレクトリ構造でのファイルパス生成 (Requirement 3.1)"""
+
+    def generate_filename(self, data_type: str, date_range: DateRange, timestamp: datetime) -> str:
+        """データタイプ、日付範囲、タイムスタンプを含むファイル名生成 (Requirement 3.3)"""
 
     def save_with_metadata(self, data: bytes, metadata: FileMetadata) -> SaveResult:
-        """メタデータ付きファイル保存"""
+        """Shift_JISエンコーディング維持とメタデータ付きファイル保存 (Requirements 3.2, 3.4)"""
 
     def commit_changes(self, message: str) -> CommitResult:
-        """Git自動コミット"""
+        """Git自動コミット (Requirement 3.5)"""
 
     def check_duplicates(self, file_hash: str) -> bool:
-        """重複ファイルチェック"""
-```
+        """SHA256ハッシュベースの重複ファイルチェック (Requirements 3.4, 3.6, 7.3)"""
+
+    def calculate_sha256(self, file_path: Path) -> str:
+        """データ整合性検証用SHA256ハッシュ計算 (Requirement 3.4)"""
+
+    def archive_old_data(self, retention_policy: RetentionPolicy) -> ArchiveResult:
+        """古いデータのアーカイブまたは削除提案 (Requirement 7.2)"""
+
+    def stream_large_files(self, file_path: Path) -> Iterator[bytes]:
+        """大容量ファイルのストリーミング処理 (Requirement 7.5)"""
+````
 
 ### 4. Quality Controller
 
-データ品質管理と検証：
+データ品質管理と検証、要件に基づく包括的な品質保証：
 
 ```python
 class QualityController:
     def __init__(self, quality_config: QualityConfig):
         self.validators = [
-            FileSizeValidator(),
-            EncodingValidator(),
-            CSVStructureValidator(),
-            DataAnomalyDetector()
+            FileSizeValidator(),      # Requirement 6.1
+            EncodingValidator(),      # Requirement 6.2
+            CSVStructureValidator(),  # Requirement 6.2
+            DataAnomalyDetector()     # Requirement 6.3
         ]
 
     def validate_file(self, file_path: Path, metadata: FileMetadata) -> ValidationResult:
-        """ファイル品質検証"""
+        """ファイルサイズと構造の品質検証 (Requirements 6.1, 6.2)"""
+
+    def validate_file_size(self, file_size: int, expected_range: Tuple[int, int]) -> bool:
+        """ファイルサイズが期待範囲内であることを検証 (Requirement 6.1)"""
+
+    def validate_csv_structure(self, file_path: Path) -> ValidationResult:
+        """基本的なCSV構造とエンコーディングを検証 (Requirement 6.2)"""
 
     def detect_anomalies(self, current_data: DataFrame, historical_data: List[DataFrame]) -> AnomalyReport:
-        """データ異常検出"""
+        """過去データとの比較による重大な異常検出 (Requirement 6.3)"""
 
     def quarantine_file(self, file_path: Path, reason: str) -> None:
-        """問題ファイルの隔離"""
+        """疑わしいファイルの隔離と管理者アラート (Requirement 6.4)"""
+
+    def trigger_redownload(self, corrupted_file: Path, fetch_params: FetchParams) -> bool:
+        """データ破損検出時の影響ファイル再ダウンロード (Requirement 6.5)"""
+
+    def generate_quality_report(self) -> QualityReport:
+        """データ品質レポートの生成"""
 ```
 
 ### 5. Notification System
 
-GitHub Issues APIを使用した通知システム：
+GitHub Issues APIを使用した通知システム、要件に基づく通知機能：
 
 ````python
 class NotificationSystem:
@@ -281,15 +367,54 @@ class NotificationSystem:
         self.repo = self.github.get_repo(repo_name)
 
     def create_error_issue(self, error: Exception, context: Dict) -> Issue:
-        """エラー用GitHub Issue作成"""
+        """最大リトライ回数超過時のGitHub Issue作成 (Requirement 2.2)"""
 
     def create_anomaly_alert(self, anomaly_report: AnomalyReport) -> Issue:
-        """データ異常アラート作成"""
+        """データ異常検出時のアラート作成 (Requirement 6.4)"""
+
+    def create_critical_error_alert(self, error: Exception, troubleshooting_info: Dict) -> Issue:
+        """重大エラー継続時のトラブルシューティング情報付きアラート (Requirement 2.5)"""
+
+    def create_security_alert(self, security_issue: SecurityIssue) -> Issue:
+        """セキュリティ脆弱性検出時の緊急アラート (Requirement 8.5)"""
 
     def update_status_issue(self, status: SystemStatus) -> None:
         """システム状態更新"""
 
-### 6. Monitoring System
+    def mask_sensitive_info(self, message: str) -> str:
+        """通知メッセージの機密情報マスキング (Requirement 8.4)"""
+
+### 6. Security Validator
+
+セキュリティ検証と機密情報保護、要件に基づくセキュリティ機能：
+
+```python
+class SecurityValidator:
+    def __init__(self, security_config: SecurityConfig):
+        self.security_config = security_config
+
+    def validate_environment(self) -> SecurityReport:
+        """実行環境のセキュリティ検証 (Requirement 8.5)"""
+
+    def validate_token_permissions(self, token: str) -> bool:
+        """最小権限の原則でトークン権限を検証 (Requirement 8.1)"""
+
+    def check_dependencies(self) -> VulnerabilityReport:
+        """依存関係の脆弱性チェック (Requirement 8.5)"""
+
+    def sanitize_logs(self, log_message: str) -> str:
+        """ログメッセージの機密情報マスキング (Requirement 8.4)"""
+
+    def validate_https_only(self, url: str) -> bool:
+        """HTTPS接続のみの使用を検証 (Requirement 8.3)"""
+
+    def manage_secrets(self, secret_key: str) -> str:
+        """GitHub Secretsでの機密情報管理 (Requirement 8.2)"""
+
+    def stop_on_vulnerability(self, vulnerability: SecurityVulnerability) -> None:
+        """脆弱性検出時の実行停止と管理者通知 (Requirement 8.5)"""
+
+### 7. Monitoring System
 
 システム監視とメトリクス収集：
 
@@ -306,10 +431,13 @@ class MonitoringSystem:
         """システム健全性レポート生成"""
 
     def check_disk_usage(self) -> DiskUsageReport:
-        """ディスク使用量チェック"""
+        """ストレージ容量制限監視とアーカイブ提案 (Requirement 7.2)"""
 
     def analyze_download_trends(self) -> TrendAnalysis:
         """ダウンロード傾向分析"""
+
+    def monitor_memory_usage(self) -> MemoryReport:
+        """メモリ使用量監視と閾値チェック (Requirement 7.5)"""
 
 @dataclass
 class SystemMetrics:
@@ -326,39 +454,65 @@ class SystemMetrics:
 
 ## Data Models
 
-### Core Data Structures
+### Core Data Structures - ✅ 実装済み
+
+**実装済みデータモデル**:
 
 ```python
 @dataclass
 class FetchParams:
+    """データ取得パラメータ - ✅ 実装済み"""
     start_year: str
     start_sub_period: str
     end_year: str
     end_sub_period: str
-    data_type: DataType
-    report_type: ReportType
+    data_type: str
+    report_type: str
+    pref_code: str = "13"
+    hc_code: str = "00"
+    epid_code: str = "00"
+    total_mode: str = "0"
 
 @dataclass
 class FileMetadata:
+    """ファイルメタデータ - ✅ 実装済み"""
     filename: str
     data_type: str
-    date_range: DateRange
+    date_range: str
     timestamp: datetime
     file_size: int
     sha256_hash: str
-    encoding: str
-    fetch_params: FetchParams
+    encoding: str = "shift_jis"  # (Requirement 3.2)
+    fetch_params: FetchParams | None = None
 
 @dataclass
 class FetchResult:
+    """データ取得結果 - ✅ 実装済み"""
     success: bool
-    data: Optional[bytes]
-    metadata: Optional[FileMetadata]
-    error: Optional[Exception]
-    retry_count: int
+    data: bytes | None = None
+    metadata: FileMetadata | None = None
+    error: Exception | None = None
+    retry_count: int = 0
+    fetch_time: float | None = None
 
 @dataclass
+class DataFetcherConfig:
+    """フェッチャー設定 - ✅ 実装済み"""
+    max_retries: int = 3  # (Requirement 1.5)
+    base_delay: float = 1.0
+    max_delay: float = 60.0
+    timeout: int = 30
+    rate_limit_delay: float = 1.0  # (Requirement 5.1)
+    enable_jitter: bool = True
+    user_agent: str = "TokyoEpidemicDataFetcher/1.0 (GitHub Actions Automation)"
+```
+
+**追加実装予定のデータモデル**:
+
+```python
+@dataclass
 class ValidationResult:
+    """データ検証結果 - 🔄 実装予定"""
     is_valid: bool
     warnings: List[str]
     errors: List[str]
@@ -366,6 +520,7 @@ class ValidationResult:
 
 @dataclass
 class ExecutionState:
+    """実行状態 - 🔄 実装予定"""
     current_year: int
     current_month: int
     current_week: int
@@ -375,12 +530,12 @@ class ExecutionState:
     total_progress: float  # 0.0 - 1.0
 
 @dataclass
-class ExecutionResult:
-    success: bool
-    files_processed: int
-    execution_time: timedelta
-    errors: List[Exception]
-    checkpoint_created: bool
+class SecurityReport:
+    """セキュリティレポート - 🔄 実装予定"""
+    is_secure: bool
+    vulnerabilities: List[str]
+    recommendations: List[str]
+```
 ````
 
 ### Configuration Models
@@ -418,22 +573,38 @@ class QualityConfig:
 
 ### Retry Strategy
 
+要件に基づく包括的なリトライ戦略：
+
 ```python
 class RetryHandler:
     def __init__(self, max_retries: int = 3, base_delay: float = 1.0):
-        self.max_retries = max_retries
+        self.max_retries = max_retries  # Requirement 1.5
         self.base_delay = base_delay
 
     async def execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
-        """指数バックオフによるリトライ実行"""
+        """指数バックオフによるリトライ実行 (Requirements 1.5, 5.2)"""
         for attempt in range(self.max_retries + 1):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
                 if attempt == self.max_retries:
-                    raise e
-                delay = self.base_delay * (2 ** attempt)
+                    # 最大リトライ回数超過時の通知 (Requirement 2.2)
+                    raise MaxRetriesExceededException(e, attempt)
+
+                # エラータイプに応じた遅延調整
+                delay = self.calculate_backoff_delay(e, attempt)
                 await asyncio.sleep(delay)
+
+    def calculate_backoff_delay(self, error: Exception, attempt: int) -> float:
+        """エラータイプに応じた指数バックオフ計算 (Requirements 5.2, 5.5)"""
+        base_delay = self.base_delay * (2 ** attempt)
+
+        if isinstance(error, RateLimitError):
+            return base_delay * 2  # レート制限時は長めの遅延
+        elif isinstance(error, NetworkTimeoutError):
+            return base_delay  # ネットワークタイムアウト時は標準遅延
+        else:
+            return base_delay
 ```
 
 ### Error Classification
@@ -454,15 +625,30 @@ class ErrorClassifier:
 
 class ErrorHandler:
     def handle_error(self, error: Exception, context: Dict) -> ErrorResponse:
-        """エラータイプに応じた処理"""
+        """エラータイプに応じた処理 (Requirements 2.1, 2.3, 2.4)"""
         error_type = ErrorClassifier.classify_error(error)
 
         if error_type == ErrorType.RATE_LIMIT:
+            # レート制限時の適切な遅延実装 (Requirement 2.3)
             return ErrorResponse(action=Action.BACKOFF, delay=300)
         elif error_type == ErrorType.NETWORK_TIMEOUT:
+            # ネットワーク接続問題の適切な処理 (Requirement 2.4)
             return ErrorResponse(action=Action.RETRY, delay=60)
+        elif error_type == ErrorType.CRITICAL_ERROR:
+            # 重大エラー継続時のトラブルシューティング情報付きアラート (Requirement 2.5)
+            return ErrorResponse(action=Action.NOTIFY, create_issue=True, include_troubleshooting=True)
         else:
             return ErrorResponse(action=Action.NOTIFY, create_issue=True)
+
+    def log_detailed_error(self, error: Exception, context: Dict) -> None:
+        """詳細なエラー情報のログ記録 (Requirement 2.1)"""
+        sanitized_context = self.sanitize_sensitive_data(context)
+        logger.error(f"Error occurred: {error}", extra=sanitized_context)
+
+    def sanitize_sensitive_data(self, data: Dict) -> Dict:
+        """機密情報のマスクまたは除外 (Requirement 8.4)"""
+        # 機密情報をマスクして返す
+        return {k: "***MASKED***" if self.is_sensitive(k) else v for k, v in data.items()}
 ```
 
 ## Testing Strategy
@@ -521,18 +707,56 @@ class TestPerformance:
         """並列ダウンロードのテスト"""
 ```
 
+## Logging System
+
+要件に基づく包括的なログシステム：
+
+### Multi-Level Logging
+
+```python
+class LoggingManager:
+    def __init__(self, log_config: LoggingConfig):
+        self.log_config = log_config
+        self.setup_loggers()
+
+    def setup_loggers(self) -> None:
+        """複数の詳細レベルでの包括的ログ設定 (Requirement 4.4)"""
+        # DEBUG, INFO, WARNING, ERROR, CRITICALレベルの設定
+
+    def log_detailed_error(self, error: Exception, context: Dict) -> None:
+        """詳細なエラー情報のログ記録 (Requirement 2.1)"""
+
+    def log_execution_progress(self, progress: ExecutionProgress) -> None:
+        """実行進捗の詳細ログ"""
+
+    def sanitize_log_message(self, message: str) -> str:
+        """機密情報のマスクまたは除外 (Requirement 8.4)"""
+
+    def rotate_logs(self) -> None:
+        """ログファイルのローテーション管理"""
+
+@dataclass
+class LoggingConfig:
+    level: str = "INFO"
+    format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    file_path: Optional[Path] = None
+    max_file_size: int = 10485760  # 10MB
+    backup_count: int = 5
+    sanitize_sensitive_data: bool = True
+```
+
 ## Security Considerations
 
 ### GitHub Actions Security
 
-- **最小権限の原則**: 必要最小限のGitHub token権限を使用
-- **Secret管理**: 機密情報はGitHub Secretsで管理
-- **依存関係管理**: 定期的な依存関係の脆弱性スキャン
+- **最小権限の原則**: 必要最小限のGitHub token権限を使用 (Requirement 8.1)
+- **Secret管理**: 機密情報はGitHub Secretsで管理 (Requirement 8.2)
+- **依存関係管理**: 定期的な依存関係の脆弱性スキャン (Requirement 8.5)
 
 ### Data Security
 
-- **HTTPS通信**: 全ての外部API通信でHTTPS使用
-- **ログマスキング**: 機密情報のログ出力防止
+- **HTTPS通信**: 全ての外部API通信でHTTPS使用 (Requirement 8.3)
+- **ログマスキング**: 機密情報のログ出力防止 (Requirement 8.4)
 - **アクセス制御**: リポジトリアクセス権限の適切な設定
 
 ### Runtime Security
@@ -540,13 +764,16 @@ class TestPerformance:
 ```python
 class SecurityValidator:
     def validate_environment(self) -> SecurityReport:
-        """実行環境のセキュリティ検証"""
+        """実行環境のセキュリティ検証 (Requirement 8.5)"""
 
     def check_dependencies(self) -> VulnerabilityReport:
-        """依存関係の脆弱性チェック"""
+        """依存関係の脆弱性チェック (Requirement 8.5)"""
 
     def sanitize_logs(self, log_message: str) -> str:
-        """ログメッセージの機密情報マスキング"""
+        """ログメッセージの機密情報マスキング (Requirement 8.4)"""
+
+    def stop_on_security_issue(self, vulnerability: SecurityVulnerability) -> None:
+        """脆弱性検出時の実行停止と管理者通知 (Requirement 8.5)"""
 ```
 
 ## Performance Optimization
@@ -592,39 +819,47 @@ class DataCache:
 
 ## Deployment Strategy
 
-### Repository Structure
+### Repository Structure - 現在の実装状況
 
+**実装済み構造**:
 ```
 
 tokyo-epidemic-data-automation/
-├── .github/
-│ └── workflows/
-│ ├── data-collection.yml # メインデータ収集ワークフロー
-│ ├── data-validation.yml # データ検証ワークフロー
-│ └── cleanup.yml # 定期クリーンアップ
+├── .github/ # 🔄 ワークフロー実装予定
 ├── src/
-│ ├── fetchers/
+│ ├── fetchers/ # ✅ 実装済み
 │ │ ├── **init**.py
-│ │ ├── base_fetcher.py # 既存のTokyoEpidemicSurveillanceFetcher
-│ │ └── enhanced_fetcher.py # 拡張版フェッチャー
-│ ├── managers/
-│ │ ├── config_manager.py
-│ │ ├── storage_manager.py
-│ │ └── execution_manager.py
-│ ├── quality/
-│ │ ├── validators.py
-│ │ └── anomaly_detector.py
-│ └── notifications/
-│ └── github_notifier.py
+│ │ ├── base*fetcher.py # ✅ TokyoEpidemicSurveillanceFetcher
+│ │ └── enhanced_fetcher.py # ✅ 拡張版フェッチャー
+│ ├── managers/ # ✅ 基本構造のみ
+│ │ ├── **init**.py
+│ │ ├── config_manager.py # 🔄 実装予定
+│ │ └── storage_manager.py # 🔄 実装予定
+│ └── utils/ # ✅ 空ディレクトリ
 ├── config/
-│ ├── config.yml # メイン設定ファイル
-│ └── data_types.yml # データタイプ定義
-├── data/ # データ保存ディレクトリ
-├── tests/
-├── requirements.txt
-└── README.md
+│ └── config.yml # ✅ 包括的設定ファイル
+├── scripts/ # ✅ 実装済み
+│ ├── fetch_data.py
+│ ├── validate_data.py
+│ └── check_missing.py
+├── tests/ # ✅ テスト構造
+│ ├── test*\*.py
+│ └── fixtures/
+├── pyproject.toml # ✅ プロジェクト設定
+├── .gitignore # ✅ 設定済み
+├── .pre-commit-config.yaml # ✅ 品質管理
+└── README.md # ✅ 基本ドキュメント
 
 ````
+
+**注意**: データディレクトリは一時的に削除済み（token制限対策）
+
+**追加実装予定**:
+- 🔄 .github/workflows/ - GitHub Actionsワークフロー
+- 🔄 src/quality/ - データ品質管理
+- 🔄 src/notifications/ - 通知システム
+- 🔄 src/security/ - セキュリティ機能
+- 🔄 data/ - データ保存ディレクトリ（実行時作成）
 
 ### Environment Variables
 
