@@ -43,7 +43,7 @@ class TestDataValidationSecurity(unittest.TestCase):
 
                 # 保存を試みる
                 result = self.storage.save_with_metadata(
-                    data=data, data_type="test_injection", period_type="week", year=2024, period=1
+                    data=data.encode("utf-8"), data_type="test_injection", is_monthly=False, year=2024, period=1
                 )
 
                 # ファイルが保存された場合、危険な文字がサニタイズされているか確認
@@ -71,7 +71,7 @@ class TestDataValidationSecurity(unittest.TestCase):
                 try:
                     # データタイプに危険なパスを含める
                     result = self.storage.save_with_metadata(
-                        data="test", data_type=dangerous_path, period_type="week", year=2024, period=1
+                        data=b"test", data_type=dangerous_path, is_monthly=False, year=2024, period=1
                     )
                     # 成功した場合、安全なパスに変換されているはず
                     if result.success and result.file_path:
@@ -93,7 +93,7 @@ class TestDataValidationSecurity(unittest.TestCase):
 
         # 保存時にハッシュを計算
         result = self.storage.save_with_metadata(
-            data=original_data, data_type="integrity_test", period_type="week", year=2024, period=1
+            data=original_data.encode("utf-8"), data_type="integrity_test", is_monthly=False, year=2024, period=1
         )
 
         if result.success and result.file_path:
@@ -123,7 +123,7 @@ class TestDataValidationSecurity(unittest.TestCase):
         for size, data in test_cases:
             with self.subTest(size=size):
                 result = self.storage.save_with_metadata(
-                    data=data, data_type=f"size_test_{size}", period_type="week", year=2024, period=1
+                    data=data.encode("utf-8"), data_type=f"size_test_{size}", is_monthly=False, year=2024, period=1
                 )
 
                 # 大きすぎるデータは拒否されるべき
@@ -148,9 +148,9 @@ class TestDataValidationSecurity(unittest.TestCase):
                 try:
                     # データを保存
                     result = self.storage.save_with_metadata(
-                        data=data,
+                        data=data.encode("utf-8"),
                         data_type=f'encoding_{encoding_name.replace("-", "_")}',
-                        period_type="week",
+                        is_monthly=False,
                         year=2024,
                         period=1,
                     )
@@ -177,7 +177,7 @@ class TestDataValidationSecurity(unittest.TestCase):
                 # Act & Assert
                 try:
                     result = self.storage.save_with_metadata(
-                        data="test", data_type=dangerous, period_type="week", year=2024, period=1
+                        data=b"test", data_type=dangerous, is_monthly=False, year=2024, period=1
                     )
                     # ヌルバイトが除去またはエスケープされているか確認
                     if result.success and result.file_path:
@@ -231,9 +231,9 @@ class TestDataValidationSecurity(unittest.TestCase):
         def concurrent_save(thread_id):
             try:
                 result = self.storage.save_with_metadata(
-                    data=f"thread_{thread_id}",
+                    data=f"thread_{thread_id}".encode(),
                     data_type="race_test",
-                    period_type="week",
+                    is_monthly=False,
                     year=2024,
                     period=1,  # 同じファイルに書き込み
                 )
@@ -265,7 +265,12 @@ class TestDataValidationSecurity(unittest.TestCase):
         metadata = {"checksum": "abc123", "timestamp": "2024-01-01T00:00:00", "version": 1}
 
         result = self.storage.save_with_metadata(
-            data="test data", data_type="metadata_test", period_type="week", year=2024, period=1, metadata=metadata
+            data=b"test data",
+            data_type="metadata_test",
+            is_monthly=False,
+            year=2024,
+            period=1,
+            additional_metadata=metadata,
         )
 
         if result.success:

@@ -18,33 +18,6 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
         self.config = {"auto_commit": False}
         self.storage = StorageManager(self.test_dir, self.config)
 
-        # save_with_metadataをラップして、期待されるパラメータを変換
-        original_save = self.storage.save_with_metadata
-
-        def wrapped_save(**kwargs):
-            data = kwargs.get("data", "")
-            if isinstance(data, str):
-                data = data.encode("utf-8")
-            data_type = kwargs.get("data_type", "test")
-            year = kwargs.get("year", 2024)
-            period = kwargs.get("period", 1)
-            period_type = kwargs.get("period_type", "week")
-            is_monthly = period_type == "month"
-            metadata = kwargs.get("metadata", kwargs.get("additional_metadata"))
-            force_overwrite = kwargs.get("force_overwrite", False)
-
-            return original_save(
-                data=data,
-                data_type=data_type,
-                year=year,
-                period=period,
-                is_monthly=is_monthly,
-                additional_metadata=metadata,
-                force_overwrite=force_overwrite,
-            )
-
-        self.storage.save_with_metadata = wrapped_save
-
     def tearDown(self):
         if self.test_dir.exists():
             shutil.rmtree(self.test_dir)
@@ -62,12 +35,12 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
         # Act & Assert
         # 破損したメタデータがあっても正常に保存できる
         result = self.storage.save_with_metadata(
-            data="test,data\n1,2",
+            data=b"test,data\n1,2",
             data_type="sentinel_weekly_gender",
-            period_type="week",
             year=2024,
             period=1,
-            metadata={"test": "metadata"},
+            is_monthly=False,
+            additional_metadata={"test": "metadata"},
         )
         self.assertTrue(result.success)
 
@@ -96,12 +69,16 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
 
             # Act
             result = self.storage.save_with_metadata(
-                data="test,data\n1,2", data_type="sentinel_weekly_gender", period_type="week", year=2024, period=1
+                data=b"test,data\n1,2",
+                data_type="sentinel_weekly_gender",
+                is_monthly=False,
+                year=2024,
+                period=1,
             )
 
             # Assert
             self.assertFalse(result.success)
-            self.assertIn("No space left", result.message)
+            self.assertIn("No space left", result.error)
 
     def test_concurrent_hash_index_updates(self):
         """並行ハッシュインデックス更新のテスト"""
@@ -112,7 +89,11 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
         for i in range(5):
             with patch.object(self.storage, "_calculate_hash", return_value=hash_value):
                 self.storage.save_with_metadata(
-                    data=f"test,data\n{i},{i}", data_type="test", period_type="week", year=2024, period=i + 1
+                    data=f"test,data\n{i},{i}".encode(),
+                    data_type="test",
+                    is_monthly=False,
+                    year=2024,
+                    period=i + 1,
                 )
 
         # Act
@@ -131,9 +112,7 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
             with self.subTest(char=char):
                 # Act & Assert
                 with self.assertRaises(ValueError):
-                    self.storage.organize_file_path(
-                        data_type=f"test{char}type", period_type="week", year=2024, period=1
-                    )
+                    self.storage.organize_file_path(data_type=f"test{char}type", is_monthly=False, year=2024, period=1)
 
     def test_year_boundary_cases(self):
         """年の境界値のテスト"""
@@ -143,7 +122,7 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
         for year in boundary_years:
             with self.subTest(year=year):
                 # Act
-                path = self.storage.organize_file_path(data_type="test", period_type="week", year=year, period=1)
+                path = self.storage.organize_file_path(data_type="test", is_monthly=False, year=year, period=1)
 
                 # Assert
                 self.assertIn(str(year), str(path))
@@ -151,7 +130,7 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
     @patch("subprocess.run")
     def test_git_operations_with_errors(self, mock_run):
         """Git操作のエラーハンドリングをテスト"""
-        git_handler = GitHandler(str(self.test_dir))
+        git_handler = GitHandler(auto_commit=False)
 
         # git add のエラー
         mock_run.return_value = Mock(returncode=1, stderr="fatal: not a git repository")
@@ -179,7 +158,9 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
         """大きなファイルでのストレージ統計をテスト"""
         # Arrange
         large_data = "x" * (10 * 1024 * 1024)  # 10MB
-        self.storage.save_with_metadata(data=large_data, data_type="test", period_type="week", year=2024, period=1)
+        self.storage.save_with_metadata(
+            data=large_data.encode("utf-8"), data_type="test", is_monthly=False, year=2024, period=1
+        )
 
         # Act
         stats = self.storage.get_storage_stats()
@@ -200,7 +181,12 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
 
         # Act
         result = self.storage.save_with_metadata(
-            data="test", data_type="test", period_type="week", year=2024, period=1, metadata=metadata
+            data=b"test",
+            data_type="test",
+            is_monthly=False,
+            year=2024,
+            period=1,
+            additional_metadata=metadata,
         )
 
         # Assert

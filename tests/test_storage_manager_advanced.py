@@ -116,7 +116,12 @@ class TestStorageManagerAdvanced(unittest.TestCase):
 
         # Act & Assert - 上書き試行
         result = self.storage.save_with_metadata(
-            data="new data", data_type="protected", period_type="week", year=2024, period=1, force_overwrite=True
+            data=b"new data",
+            data_type="protected",
+            is_monthly=False,
+            year=2024,
+            period=1,
+            force_overwrite=True,
         )
 
         # クリーンアップ（権限を戻す）
@@ -124,7 +129,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
 
         # 権限エラーが適切に処理される
         if not result.success:
-            self.assertIn("Permission", result.message)
+            self.assertIn("Permission", result.error)
 
     def test_storage_with_symlinks(self):
         """シンボリックリンクを含むストレージのテスト"""
@@ -158,12 +163,12 @@ class TestStorageManagerAdvanced(unittest.TestCase):
             mock_save.side_effect = Exception("Metadata save failed")
 
             result = self.storage.save_with_metadata(
-                data="new data",
+                data=b"new data",
                 data_type="transaction",
-                period_type="week",
+                is_monthly=False,
                 year=2024,
                 period=1,
-                metadata={"test": "metadata"},
+                additional_metadata={"test": "metadata"},
             )
 
         # Assert - ロールバック確認（元のデータが残っているか）
@@ -186,7 +191,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
             with self.subTest(case=case_name):
                 # Act
                 result = self.storage.save_with_metadata(
-                    data=data, data_type=f"test_{case_name}", period_type="week", year=2024, period=1
+                    data=data.encode("utf-8"), data_type=f"test_{case_name}", is_monthly=False, year=2024, period=1
                 )
 
                 # Assert
@@ -244,7 +249,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
                 # Act & Assert
                 with self.assertRaises((ValueError, OSError)):
                     # セキュリティチェックで拒否されるべき
-                    self.storage.organize_file_path(data_type=dangerous_name, period_type="week", year=2024, period=1)
+                    self.storage.organize_file_path(data_type=dangerous_name, is_monthly=False, year=2024, period=1)
 
     def test_atomic_file_operations(self):
         """アトミックファイル操作のテスト"""

@@ -33,13 +33,21 @@ class TestProductionScenarios(unittest.TestCase):
         # Arrange - 前週のデータが存在する状態
         previous_week_data = "week,count\n51,1000"
         self.storage.save_with_metadata(
-            data=previous_week_data, data_type="sentinel_weekly_gender", period_type="week", year=2024, period=51
+            data=previous_week_data.encode("utf-8"),
+            data_type="sentinel_weekly_gender",
+            is_monthly=False,
+            year=2024,
+            period=51,
         )
 
         # Act - 新しい週（52週）のデータを取得・保存
         new_week_data = "week,count\n52,1200"
         result = self.storage.save_with_metadata(
-            data=new_week_data, data_type="sentinel_weekly_gender", period_type="week", year=2024, period=52
+            data=new_week_data.encode("utf-8"),
+            data_type="sentinel_weekly_gender",
+            is_monthly=False,
+            year=2024,
+            period=52,
         )
 
         # Assert
@@ -57,16 +65,20 @@ class TestProductionScenarios(unittest.TestCase):
 
         # Arrange - 2024年最終週のデータ
         self.storage.save_with_metadata(
-            data="week,year,count\n52,2024,1500",
+            data=b"week,year,count\n52,2024,1500",
             data_type="notifiable_weekly",
-            period_type="week",
+            is_monthly=False,
             year=2024,
             period=52,
         )
 
         # Act - 2025年第1週のデータ
         result = self.storage.save_with_metadata(
-            data="week,year,count\n1,2025,100", data_type="notifiable_weekly", period_type="week", year=2025, period=1
+            data=b"week,year,count\n1,2025,100",
+            data_type="notifiable_weekly",
+            is_monthly=False,
+            year=2025,
+            period=1,
         )
 
         # Assert
@@ -81,10 +93,10 @@ class TestProductionScenarios(unittest.TestCase):
 
         # Arrange - 週1と週5のデータは存在
         self.storage.save_with_metadata(
-            data="week1", data_type="sentinel_weekly_age", period_type="week", year=2024, period=1
+            data=b"week1", data_type="sentinel_weekly_age", is_monthly=False, year=2024, period=1
         )
         self.storage.save_with_metadata(
-            data="week5", data_type="sentinel_weekly_age", period_type="week", year=2024, period=5
+            data=b"week5", data_type="sentinel_weekly_age", is_monthly=False, year=2024, period=5
         )
 
         # Act - 欠損データ（週2-4）を検出して補充
@@ -97,9 +109,9 @@ class TestProductionScenarios(unittest.TestCase):
         # 欠損データを補充
         for week in missing_weeks:
             result = self.storage.save_with_metadata(
-                data=f"recovered_week{week}",
+                data=f"recovered_week{week}".encode(),
                 data_type="sentinel_weekly_age",
-                period_type="week",
+                is_monthly=False,
                 year=2024,
                 period=week,
             )
@@ -118,7 +130,11 @@ class TestProductionScenarios(unittest.TestCase):
         results = []
         for i, data_type in enumerate(data_types):
             result = self.storage.save_with_metadata(
-                data=f"{data_type}_data_{i}", data_type=data_type, period_type="week", year=2024, period=10
+                data=f"{data_type}_data_{i}".encode(),
+                data_type=data_type,
+                is_monthly=False,
+                year=2024,
+                period=10,
             )
             results.append(result)
 
@@ -137,12 +153,12 @@ class TestProductionScenarios(unittest.TestCase):
         # Arrange - 正常なデータを保存
         original_data = "header1,header2\nvalue1,value2"
         save_result = self.storage.save_with_metadata(
-            data=original_data,
+            data=original_data.encode("utf-8"),
             data_type="test_corruption",
-            period_type="week",
+            is_monthly=False,
             year=2024,
             period=1,
-            metadata={"checksum": "abc123"},
+            additional_metadata={"checksum": "abc123"},
         )
 
         # Act - ファイルを直接変更して破損をシミュレート
@@ -153,7 +169,7 @@ class TestProductionScenarios(unittest.TestCase):
 
         # 再度同じデータで保存を試みる（重複チェック）
         result2 = self.storage.save_with_metadata(
-            data=original_data, data_type="test_corruption", period_type="week", year=2024, period=1
+            data=original_data.encode("utf-8"), data_type="test_corruption", is_monthly=False, year=2024, period=1
         )
 
         # Assert - システムが破損を検出できる
@@ -190,7 +206,7 @@ class TestProductionScenarios(unittest.TestCase):
         # Arrange - 月次データを保存
         monthly_data = "month,total\n1,5000"
         self.storage.save_with_metadata(
-            data=monthly_data, data_type="sentinel_monthly_age", period_type="month", year=2024, period=1
+            data=monthly_data.encode("utf-8"), data_type="sentinel_monthly_age", is_monthly=True, year=2024, period=1
         )
 
         # Act - 同じ期間の週次データを保存（第1-4週）
@@ -198,7 +214,11 @@ class TestProductionScenarios(unittest.TestCase):
         for week in range(1, 5):
             week_data = f"week,count\n{week},1250"
             result = self.storage.save_with_metadata(
-                data=week_data, data_type="sentinel_weekly_age", period_type="week", year=2024, period=week
+                data=week_data.encode("utf-8"),
+                data_type="sentinel_weekly_age",
+                is_monthly=False,
+                year=2024,
+                period=week,
             )
             weekly_total += 1250
 
@@ -212,19 +232,19 @@ class TestProductionScenarios(unittest.TestCase):
         # Arrange - 誤ったデータを保存
         wrong_data = "disease,count\nCOVID-19,99999"  # 異常に高い数値
         self.storage.save_with_metadata(
-            data=wrong_data, data_type="notifiable_weekly", period_type="week", year=2024, period=15
+            data=wrong_data.encode("utf-8"), data_type="notifiable_weekly", is_monthly=False, year=2024, period=15
         )
 
         # Act - 緊急修正（force_overwriteを使用）
         correct_data = "disease,count\nCOVID-19,100"  # 正しい数値
         result = self.storage.save_with_metadata(
-            data=correct_data,
+            data=correct_data.encode("utf-8"),
             data_type="notifiable_weekly",
-            period_type="week",
+            is_monthly=False,
             year=2024,
             period=15,
             force_overwrite=True,
-            metadata={"correction_reason": "Data entry error", "corrected_at": datetime.now().isoformat()},
+            additional_metadata={"correction_reason": "Data entry error", "corrected_at": datetime.now().isoformat()},
         )
 
         # Assert
@@ -239,7 +259,11 @@ class TestProductionScenarios(unittest.TestCase):
         original_files = []
         for week in range(1, 5):
             result = self.storage.save_with_metadata(
-                data=f"original_week_{week}", data_type="backup_test", period_type="week", year=2024, period=week
+                data=f"original_week_{week}".encode(),
+                data_type="backup_test",
+                is_monthly=False,
+                year=2024,
+                period=week,
             )
             original_files.append(result.file_path)
 
@@ -323,7 +347,11 @@ class TestDisasterRecoveryScenarios(unittest.TestCase):
         # Arrange - 10週分のデータを作成
         for week in range(1, 11):
             self.storage.save_with_metadata(
-                data=f"week_{week}_data", data_type="recovery_test", period_type="week", year=2024, period=week
+                data=f"week_{week}_data".encode(),
+                data_type="recovery_test",
+                is_monthly=False,
+                year=2024,
+                period=week,
             )
 
         # Act - 偶数週のファイルを破損させる
@@ -363,9 +391,9 @@ class TestDisasterRecoveryScenarios(unittest.TestCase):
         for week_range, phase in recovery_phases:
             for week in week_range:
                 result = self.storage.save_with_metadata(
-                    data=f"{phase}_week_{week}",
+                    data=f"{phase}_week_{week}".encode(),
                     data_type="incremental_recovery",
-                    period_type="week",
+                    is_monthly=False,
                     year=2024,
                     period=week,
                 )

@@ -57,7 +57,7 @@ class TestPerformanceLoad(unittest.TestCase):
                 # 保存
                 save_start = time.time()
                 result = self.storage.save_with_metadata(
-                    data=data, data_type=f"perf_test_{label}", period_type="week", year=2024, period=1
+                    data=data.encode("utf-8"), data_type=f"perf_test_{label}", is_monthly=False, year=2024, period=1
                 )
                 save_time = time.time() - save_start
 
@@ -78,7 +78,11 @@ class TestPerformanceLoad(unittest.TestCase):
             for i in range(operations_per_thread):
                 data = f"thread_{thread_id}_operation_{i}"
                 result = self.storage.save_with_metadata(
-                    data=data, data_type=f"concurrent_test_{thread_id}", period_type="week", year=2024, period=i + 1
+                    data=data.encode("utf-8"),
+                    data_type=f"concurrent_test_{thread_id}",
+                    is_monthly=False,
+                    year=2024,
+                    period=i + 1,
                 )
                 results.append(result.success)
             return results
@@ -113,7 +117,7 @@ class TestPerformanceLoad(unittest.TestCase):
         for i in range(num_files):
             data = f"file_{i}_content"
             self.storage.save_with_metadata(
-                data=data, data_type="memory_test", period_type="week", year=2024, period=(i % 52) + 1
+                data=data.encode("utf-8"), data_type="memory_test", is_monthly=False, year=2024, period=(i % 52) + 1
             )
 
             # 定期的にガベージコレクション
@@ -182,9 +186,9 @@ class TestPerformanceLoad(unittest.TestCase):
                 results = []
                 for item in batch_data:
                     result = self.storage.save_with_metadata(
-                        data=item["data"],
+                        data=item["data"].encode("utf-8"),
                         data_type=item["data_type"],
-                        period_type="week",
+                        is_monthly=False,
                         year=2024,
                         period=item["period"],
                     )
@@ -216,9 +220,9 @@ class TestPerformanceLoad(unittest.TestCase):
                     if operation_type == "save":
                         data = "".join(random.choices(string.ascii_letters, k=100))
                         result = self.storage.save_with_metadata(
-                            data=data,
+                            data=data.encode("utf-8"),
                             data_type="stress_test",
-                            period_type="week",
+                            is_monthly=False,
                             year=2024,
                             period=random.randint(1, 52),
                         )
@@ -266,7 +270,7 @@ class TestPerformanceLoad(unittest.TestCase):
         """キャッシュ効率のテスト"""
         # 同じデータを繰り返し読み込み
         test_data = "test,data\n" * 1000
-        self.storage.save_with_metadata(data=test_data, data_type="cache_test", period_type="week", year=2024, period=1)
+        self.storage.save_with_metadata(data=test_data, data_type="cache_test", is_monthly=False, year=2024, period=1)
 
         file_path = self.test_dir / "cache_test_weekly_2024_01.csv"
 
