@@ -1,4 +1,4 @@
-name: Weekly Epidemic Data Full Check
+name: 📆 週次データ徹底チェック
 
 on:
   schedule:
@@ -334,8 +334,19 @@ jobs:
           echo "✅ Successfully created PR: $PR_URL"
           echo "PR_URL=$PR_URL" >> $GITHUB_ENV
 
-          # 自動マージは無効化（セキュリティリスク対策）
-          echo "ℹ️ 自動マージは無効化されています。データ検証後、手動でマージしてください。"
+          # PR番号を取得
+          PR_NUMBER=$(echo "$PR_URL" | sed 's/.*\/pull\///')
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+
+          # 自動マージを有効化（検証成功時のみ、squashマージを使用）
+          if [ "$VALIDATION_SUCCESS" = "true" ]; then
+            echo "🔄 自動マージを設定中..."
+            gh pr merge "$PR_NUMBER" --auto --squash || {
+              echo "⚠️ 自動マージの設定に失敗しました。手動でマージしてください。"
+            }
+          else
+            echo "⚠️ データ検証に失敗したため、自動マージは設定されません。手動でレビューしてください。"
+          fi
 
       - name: Create issue on error
         if: failure() && env.DRY_RUN != 'true'

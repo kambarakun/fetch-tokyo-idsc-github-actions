@@ -1,4 +1,4 @@
-name: Fetch Tokyo Epidemic Data
+name: 📊 東京都感染症データ取得（手動実行）
 
 on:
   schedule:
