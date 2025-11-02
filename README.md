@@ -4,6 +4,7 @@
 [![📅 毎日データ簡易チェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-daily.yml)
 [![📆 毎週データ徹底チェック](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/fetch-data-weekly.yml)
 [![🧪 テストスイート実行](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/test.yml/badge.svg)](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/kambarakun/fetch-tokyo-idsc-github-actions/graph/badge.svg)](https://codecov.io/gh/kambarakun/fetch-tokyo-idsc-github-actions)
 [![License](https://img.shields.io/badge/License-Non--Commercial-orange.svg)](LICENSE.md)
 
 東京都感染症発生動向情報システムから定期的にデータを自動取得・保存するGitHub Actionsベースのシステムです。
