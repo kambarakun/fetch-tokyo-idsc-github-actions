@@ -1,4 +1,4 @@
-name: Daily Epidemic Data Check
+name: 📅 毎日データチェック
 
 on:
   schedule:

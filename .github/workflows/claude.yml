@@ -1,4 +1,4 @@
-name: Claude Code
+name: 🤖 Claude Code 統合
 
 on:
   issue_comment:

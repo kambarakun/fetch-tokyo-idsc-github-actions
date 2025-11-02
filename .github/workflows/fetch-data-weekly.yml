@@ -1,4 +1,4 @@
-name: Weekly Epidemic Data Full Check
+name: 📆 週次データ徹底チェック
 
 on:
   schedule:
