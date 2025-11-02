@@ -17,7 +17,8 @@ class TestStorageManagerAdvanced(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp())
-        self.storage = StorageManager(str(self.test_dir))
+        self.config = {"auto_commit": False}
+        self.storage = StorageManager(self.test_dir, self.config)
 
     def tearDown(self):
         if self.test_dir.exists():
@@ -64,7 +65,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         """並行メタデータアクセスのテスト"""
         # Arrange
         metadata_dir = self.test_dir / ".metadata"
-        metadata_dir.mkdir(parents=True)
+        metadata_dir.mkdir(parents=True, exist_ok=True)
 
         # 複数のメタデータを同時に作成
         metadata_files = []
@@ -89,7 +90,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         """ハッシュインデックスの復旧テスト"""
         # Arrange - 破損したハッシュインデックス
         metadata_dir = self.test_dir / ".metadata"
-        metadata_dir.mkdir(parents=True)
+        metadata_dir.mkdir(parents=True, exist_ok=True)
         hash_index_path = metadata_dir / "hash_index.json"
 
         # 破損したJSONを書き込み
@@ -114,7 +115,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         protected_file.chmod(0o444)
 
         # Act & Assert - 上書き試行
-        result = self.storage.save_data(
+        result = self.storage.save_with_metadata(
             data="new data", data_type="protected", period_type="week", year=2024, period=1, force_overwrite=True
         )
 
@@ -156,7 +157,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         with patch.object(self.storage, "_save_metadata") as mock_save:
             mock_save.side_effect = Exception("Metadata save failed")
 
-            result = self.storage.save_data(
+            result = self.storage.save_with_metadata(
                 data="new data",
                 data_type="transaction",
                 period_type="week",
@@ -184,7 +185,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         for data, case_name in edge_cases:
             with self.subTest(case=case_name):
                 # Act
-                result = self.storage.save_data(
+                result = self.storage.save_with_metadata(
                     data=data, data_type=f"test_{case_name}", period_type="week", year=2024, period=1
                 )
 
@@ -196,7 +197,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
     @patch("subprocess.run")
     def test_git_stash_operations(self, mock_run):
         """Git stash操作のテスト"""
-        git_handler = GitHandler(str(self.test_dir))
+        git_handler = GitHandler(auto_commit=False)
 
         # Arrange
         mock_run.return_value = Mock(returncode=0, stdout="Saved working directory")
@@ -213,7 +214,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         old_metadata = {"version": 1, "data": "old format"}
 
         metadata_dir = self.test_dir / ".metadata"
-        metadata_dir.mkdir(parents=True)
+        metadata_dir.mkdir(parents=True, exist_ok=True)
         old_meta_file = metadata_dir / "old.json"
         old_meta_file.write_text(json.dumps(old_metadata))
 
@@ -270,7 +271,7 @@ class TestGitHandlerAdvanced(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp())
-        self.git_handler = GitHandler(str(self.test_dir))
+        self.git_handler = GitHandler(auto_commit=False)
 
     def tearDown(self):
         if self.test_dir.exists():

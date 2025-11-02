@@ -16,7 +16,8 @@ class TestDataValidationSecurity(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp())
-        self.storage = StorageManager(str(self.test_dir))
+        self.config = {"auto_commit": False}
+        self.storage = StorageManager(self.test_dir, self.config)
 
     def tearDown(self):
         if self.test_dir.exists():
@@ -41,7 +42,7 @@ class TestDataValidationSecurity(unittest.TestCase):
                 data = f"header1,header2\n{pattern},value"
 
                 # 保存を試みる
-                result = self.storage.save_data(
+                result = self.storage.save_with_metadata(
                     data=data, data_type="test_injection", period_type="week", year=2024, period=1
                 )
 
@@ -69,7 +70,7 @@ class TestDataValidationSecurity(unittest.TestCase):
                 # 危険なパスでの保存を試みる
                 try:
                     # データタイプに危険なパスを含める
-                    result = self.storage.save_data(
+                    result = self.storage.save_with_metadata(
                         data="test", data_type=dangerous_path, period_type="week", year=2024, period=1
                     )
                     # 成功した場合、安全なパスに変換されているはず
@@ -91,7 +92,7 @@ class TestDataValidationSecurity(unittest.TestCase):
         original_data = "id,name,value\n1,test,100\n2,test2,200"
 
         # 保存時にハッシュを計算
-        result = self.storage.save_data(
+        result = self.storage.save_with_metadata(
             data=original_data, data_type="integrity_test", period_type="week", year=2024, period=1
         )
 
@@ -121,7 +122,7 @@ class TestDataValidationSecurity(unittest.TestCase):
 
         for size, data in test_cases:
             with self.subTest(size=size):
-                result = self.storage.save_data(
+                result = self.storage.save_with_metadata(
                     data=data, data_type=f"size_test_{size}", period_type="week", year=2024, period=1
                 )
 
@@ -146,7 +147,7 @@ class TestDataValidationSecurity(unittest.TestCase):
             with self.subTest(encoding=encoding_name):
                 try:
                     # データを保存
-                    result = self.storage.save_data(
+                    result = self.storage.save_with_metadata(
                         data=data,
                         data_type=f'encoding_{encoding_name.replace("-", "_")}',
                         period_type="week",
@@ -175,7 +176,7 @@ class TestDataValidationSecurity(unittest.TestCase):
             with self.subTest(string=dangerous):
                 # Act & Assert
                 try:
-                    result = self.storage.save_data(
+                    result = self.storage.save_with_metadata(
                         data="test", data_type=dangerous, period_type="week", year=2024, period=1
                     )
                     # ヌルバイトが除去またはエスケープされているか確認
@@ -229,7 +230,7 @@ class TestDataValidationSecurity(unittest.TestCase):
 
         def concurrent_save(thread_id):
             try:
-                result = self.storage.save_data(
+                result = self.storage.save_with_metadata(
                     data=f"thread_{thread_id}",
                     data_type="race_test",
                     period_type="week",
@@ -263,7 +264,7 @@ class TestDataValidationSecurity(unittest.TestCase):
         # 正常なメタデータを保存
         metadata = {"checksum": "abc123", "timestamp": "2024-01-01T00:00:00", "version": 1}
 
-        result = self.storage.save_data(
+        result = self.storage.save_with_metadata(
             data="test data", data_type="metadata_test", period_type="week", year=2024, period=1, metadata=metadata
         )
 

@@ -17,7 +17,8 @@ class TestProductionScenarios(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp())
-        self.storage = StorageManager(str(self.test_dir))
+        self.config = {"auto_commit": False}
+        self.storage = StorageManager(self.test_dir, self.config)
         self.fetcher = EnhancedEpidemicDataFetcher()
         self.config_manager = ConfigurationManager()
 
@@ -31,13 +32,13 @@ class TestProductionScenarios(unittest.TestCase):
 
         # Arrange - 前週のデータが存在する状態
         previous_week_data = "week,count\n51,1000"
-        self.storage.save_data(
+        self.storage.save_with_metadata(
             data=previous_week_data, data_type="sentinel_weekly_gender", period_type="week", year=2024, period=51
         )
 
         # Act - 新しい週（52週）のデータを取得・保存
         new_week_data = "week,count\n52,1200"
-        result = self.storage.save_data(
+        result = self.storage.save_with_metadata(
             data=new_week_data, data_type="sentinel_weekly_gender", period_type="week", year=2024, period=52
         )
 
@@ -55,7 +56,7 @@ class TestProductionScenarios(unittest.TestCase):
         # Scenario: 2024年第52週から2025年第1週への移行
 
         # Arrange - 2024年最終週のデータ
-        self.storage.save_data(
+        self.storage.save_with_metadata(
             data="week,year,count\n52,2024,1500",
             data_type="notifiable_weekly",
             period_type="week",
@@ -64,7 +65,7 @@ class TestProductionScenarios(unittest.TestCase):
         )
 
         # Act - 2025年第1週のデータ
-        result = self.storage.save_data(
+        result = self.storage.save_with_metadata(
             data="week,year,count\n1,2025,100", data_type="notifiable_weekly", period_type="week", year=2025, period=1
         )
 
@@ -79,8 +80,12 @@ class TestProductionScenarios(unittest.TestCase):
         # Scenario: システム障害で3週間分のデータが欠損、復旧を実行
 
         # Arrange - 週1と週5のデータは存在
-        self.storage.save_data(data="week1", data_type="sentinel_weekly_age", period_type="week", year=2024, period=1)
-        self.storage.save_data(data="week5", data_type="sentinel_weekly_age", period_type="week", year=2024, period=5)
+        self.storage.save_with_metadata(
+            data="week1", data_type="sentinel_weekly_age", period_type="week", year=2024, period=1
+        )
+        self.storage.save_with_metadata(
+            data="week5", data_type="sentinel_weekly_age", period_type="week", year=2024, period=5
+        )
 
         # Act - 欠損データ（週2-4）を検出して補充
         missing_weeks = []
@@ -91,7 +96,7 @@ class TestProductionScenarios(unittest.TestCase):
 
         # 欠損データを補充
         for week in missing_weeks:
-            result = self.storage.save_data(
+            result = self.storage.save_with_metadata(
                 data=f"recovered_week{week}",
                 data_type="sentinel_weekly_age",
                 period_type="week",
@@ -112,7 +117,7 @@ class TestProductionScenarios(unittest.TestCase):
 
         results = []
         for i, data_type in enumerate(data_types):
-            result = self.storage.save_data(
+            result = self.storage.save_with_metadata(
                 data=f"{data_type}_data_{i}", data_type=data_type, period_type="week", year=2024, period=10
             )
             results.append(result)
@@ -131,7 +136,7 @@ class TestProductionScenarios(unittest.TestCase):
 
         # Arrange - 正常なデータを保存
         original_data = "header1,header2\nvalue1,value2"
-        save_result = self.storage.save_data(
+        save_result = self.storage.save_with_metadata(
             data=original_data,
             data_type="test_corruption",
             period_type="week",
@@ -147,7 +152,7 @@ class TestProductionScenarios(unittest.TestCase):
                 file_path.write_text("corrupted data")
 
         # 再度同じデータで保存を試みる（重複チェック）
-        result2 = self.storage.save_data(
+        result2 = self.storage.save_with_metadata(
             data=original_data, data_type="test_corruption", period_type="week", year=2024, period=1
         )
 
@@ -184,7 +189,7 @@ class TestProductionScenarios(unittest.TestCase):
 
         # Arrange - 月次データを保存
         monthly_data = "month,total\n1,5000"
-        self.storage.save_data(
+        self.storage.save_with_metadata(
             data=monthly_data, data_type="sentinel_monthly_age", period_type="month", year=2024, period=1
         )
 
@@ -192,7 +197,7 @@ class TestProductionScenarios(unittest.TestCase):
         weekly_total = 0
         for week in range(1, 5):
             week_data = f"week,count\n{week},1250"
-            result = self.storage.save_data(
+            result = self.storage.save_with_metadata(
                 data=week_data, data_type="sentinel_weekly_age", period_type="week", year=2024, period=week
             )
             weekly_total += 1250
@@ -206,11 +211,13 @@ class TestProductionScenarios(unittest.TestCase):
 
         # Arrange - 誤ったデータを保存
         wrong_data = "disease,count\nCOVID-19,99999"  # 異常に高い数値
-        self.storage.save_data(data=wrong_data, data_type="notifiable_weekly", period_type="week", year=2024, period=15)
+        self.storage.save_with_metadata(
+            data=wrong_data, data_type="notifiable_weekly", period_type="week", year=2024, period=15
+        )
 
         # Act - 緊急修正（force_overwriteを使用）
         correct_data = "disease,count\nCOVID-19,100"  # 正しい数値
-        result = self.storage.save_data(
+        result = self.storage.save_with_metadata(
             data=correct_data,
             data_type="notifiable_weekly",
             period_type="week",
@@ -231,7 +238,7 @@ class TestProductionScenarios(unittest.TestCase):
         # Arrange - オリジナルデータを作成
         original_files = []
         for week in range(1, 5):
-            result = self.storage.save_data(
+            result = self.storage.save_with_metadata(
                 data=f"original_week_{week}", data_type="backup_test", period_type="week", year=2024, period=week
             )
             original_files.append(result.file_path)
@@ -302,7 +309,8 @@ class TestDisasterRecoveryScenarios(unittest.TestCase):
 
     def setUp(self):
         self.test_dir = Path(tempfile.mkdtemp())
-        self.storage = StorageManager(str(self.test_dir))
+        self.config = {"auto_commit": False}
+        self.storage = StorageManager(self.test_dir, self.config)
 
     def tearDown(self):
         if self.test_dir.exists():
@@ -314,7 +322,7 @@ class TestDisasterRecoveryScenarios(unittest.TestCase):
 
         # Arrange - 10週分のデータを作成
         for week in range(1, 11):
-            self.storage.save_data(
+            self.storage.save_with_metadata(
                 data=f"week_{week}_data", data_type="recovery_test", period_type="week", year=2024, period=week
             )
 
@@ -354,7 +362,7 @@ class TestDisasterRecoveryScenarios(unittest.TestCase):
         total_recovered = 0
         for week_range, phase in recovery_phases:
             for week in week_range:
-                result = self.storage.save_data(
+                result = self.storage.save_with_metadata(
                     data=f"{phase}_week_{week}",
                     data_type="incremental_recovery",
                     period_type="week",
