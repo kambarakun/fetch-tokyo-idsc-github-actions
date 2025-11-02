@@ -18,7 +18,7 @@ set -e
 # 必須環境変数:
 #   - GITHUB_TOKEN      : GitHub APIアクセス用トークン
 #   - CURRENT_DATE      : 実行日 (YYYY-MM-DD形式)
-#   - FETCH_TIMESTAMP   : 実行タイムスタンプ (英数字とハイフンのみ)
+#   - FETCH_TIMESTAMP   : 実行タイムスタンプ (英数字、アンダースコア、ハイフンのみ)
 #   - GITHUB_RUN_ID     : GitHub ActionsのRun ID (数値)
 #
 # オプション環境変数（ワークフロー別）:
@@ -86,7 +86,7 @@ if ! echo "$GITHUB_RUN_ID" | grep -qE '^[0-9]+$'; then
   exit 1
 fi
 
-# FETCH_TIMESTAMPの形式検証（英数字とハイフンのみ許可）
+# FETCH_TIMESTAMPの形式検証（英数字、アンダースコア、ハイフンのみ許可）
 if ! echo "$FETCH_TIMESTAMP" | grep -qE '^[a-zA-Z0-9_-]+$'; then
   echo "Error: FETCH_TIMESTAMP contains invalid characters: $FETCH_TIMESTAMP" >&2
   exit 1
@@ -219,7 +219,11 @@ PR_BODY_FILE="/tmp/pr_body.md"
         echo "- **対象期間**: ${START_YEAR}年 - ${END_YEAR}年"
       fi
       echo "- **データタイプ**: ${DATA_TYPES:-ALL}"
-      echo "- **チェック方式**: ${SKIP_EXISTING:+既存ファイルスキップ}${SKIP_EXISTING:-全ファイル取得}"
+      if [ "${SKIP_EXISTING:-false}" = "true" ]; then
+        echo "- **チェック方式**: 既存ファイルスキップ"
+      else
+        echo "- **チェック方式**: 全ファイル取得"
+      fi
       ;;
   esac
 
