@@ -4,10 +4,11 @@
   "year": 2025,
   "period": 9,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T15:02:38.747893",
+  "timestamp": "2025-11-02T00:56:14.540910",
   "file_size": 536,
   "sha256_hash": "48e9c1e8d7a5b1d176c2c70869a3aa77bec3ada6bc4964ca5df03105099f1ebd",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_gender_2025_09.csv",
-  "fetch_time": 0.3590846061706543
+  "force_overwrite": true,
+  "fetch_time": 0.8076775074005127
 }
