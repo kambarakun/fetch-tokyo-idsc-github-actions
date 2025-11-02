@@ -6,9 +6,12 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher
 from src.managers.config_manager import ConfigurationManager
 from src.managers.storage_manager import StorageManager
+from tests.test_helpers import create_test_csv_data
 
 
 class TestSystemIntegration(unittest.TestCase):
@@ -46,8 +49,10 @@ schedule:
         self.config_file.write_text(config_data)
 
         self.config_manager = ConfigurationManager()
-        self.config_manager.load_config(str(self.config_file))
-        self.storage_manager = StorageManager(str(self.data_dir))
+        if self.config_file.exists():
+            self.config_manager.load_config(self.config_file)
+        self.storage_config = {"auto_commit": False}
+        self.storage_manager = StorageManager(self.data_dir, self.storage_config)
         self.fetcher = EnhancedEpidemicDataFetcher()
 
     def tearDown(self):
@@ -239,14 +244,13 @@ class TestPerformanceIntegration(unittest.TestCase):
         if self.test_dir.exists():
             shutil.rmtree(self.test_dir)
 
+    @pytest.mark.slow
+    @pytest.mark.performance
     def test_large_dataset_handling(self):
         """大規模データセットの処理をテスト"""
         # Arrange
-        # 10万行のCSVデータを生成
-        rows = ["date,value"]
-        for i in range(100000):
-            rows.append(f"2024-01-01,{i}")
-        large_data = "\n".join(rows)
+        # 10万行のCSVデータを生成（ヘルパー関数を使用）
+        large_data = create_test_csv_data(rows=100000, columns=2)
 
         # Act
         start_time = datetime.now()

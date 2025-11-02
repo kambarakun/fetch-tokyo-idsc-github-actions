@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import psutil
+import pytest
 
 from src.fetchers.enhanced_fetcher import RateLimiter
 from src.managers.storage_manager import StorageManager
@@ -30,6 +31,8 @@ class TestPerformanceLoad(unittest.TestCase):
         if self.test_dir.exists():
             shutil.rmtree(self.test_dir)
 
+    @pytest.mark.slow
+    @pytest.mark.performance
     def test_large_file_processing(self):
         """大容量ファイル処理のパフォーマンステスト"""
         # 10MB, 50MB, 100MBのファイルをテスト
@@ -68,6 +71,7 @@ class TestPerformanceLoad(unittest.TestCase):
 
                 print(f"{label}: Generation={generation_time:.2f}s, Save={save_time:.2f}s")
 
+    @pytest.mark.performance
     def test_concurrent_operations(self):
         """並行操作のパフォーマンステスト"""
         num_threads = 10
@@ -104,6 +108,7 @@ class TestPerformanceLoad(unittest.TestCase):
         ops_per_second = total_operations / elapsed
         print(f"Concurrent throughput: {ops_per_second:.2f} ops/sec")
 
+    @pytest.mark.performance
     def test_memory_efficiency(self):
         """メモリ効率性のテスト"""
         process = psutil.Process(os.getpid())
@@ -136,6 +141,7 @@ class TestPerformanceLoad(unittest.TestCase):
             f"Final={final_memory:.2f}MB, Increase={memory_increase:.2f}MB"
         )
 
+    @pytest.mark.performance
     def test_rate_limiter_performance(self):
         """レートリミッターのパフォーマンステスト"""
         # 様々なレート設定でテスト
@@ -147,7 +153,7 @@ class TestPerformanceLoad(unittest.TestCase):
 
         for rate_limit, num_requests in test_cases:
             with self.subTest(rate=rate_limit):
-                limiter = RateLimiter(requests_per_second=rate_limit)
+                limiter = RateLimiter(min_delay=1.0 / rate_limit)
 
                 start_time = time.time()
                 for _ in range(num_requests):
@@ -155,8 +161,8 @@ class TestPerformanceLoad(unittest.TestCase):
                     current = time.time()
                     if hasattr(limiter, "last_request_time"):
                         elapsed = current - limiter.last_request_time
-                        if elapsed < limiter.interval:
-                            time.sleep(limiter.interval - elapsed)
+                        if elapsed < limiter.min_delay:
+                            time.sleep(limiter.min_delay - elapsed)
                     limiter.last_request_time = time.time()
 
                 elapsed = time.time() - start_time
@@ -170,6 +176,7 @@ class TestPerformanceLoad(unittest.TestCase):
                     f"Rate limiting inaccurate: expected ~{expected_time:.2f}s, got {elapsed:.2f}s",
                 )
 
+    @pytest.mark.performance
     def test_batch_processing_performance(self):
         """バッチ処理のパフォーマンステスト"""
         batch_sizes = [10, 50, 100, 200]
@@ -204,6 +211,8 @@ class TestPerformanceLoad(unittest.TestCase):
                 )
                 print(f"Batch size {batch_size}: {items_per_second:.2f} items/s")
 
+    @pytest.mark.slow
+    @pytest.mark.performance
     def test_stress_test_continuous_load(self):
         """継続的な負荷のストレステスト"""
         duration_seconds = 2  # テスト時間を短縮
