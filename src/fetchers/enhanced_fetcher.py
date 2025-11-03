@@ -288,7 +288,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                 "end_year": str(current_year),
                 "end_sub_period": str(current_period),
                 "data_type": data_type,
-                "report_type": self._get_report_type(data_type),
+                "report_type": self._get_report_type(data_type) or "0",
                 **kwargs,
             }
 
@@ -372,7 +372,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         end_year=str(year),
                         end_sub_period=str(month),
                         data_type=data_type,
-                        report_type=self._get_report_type(data_type),
+                        report_type=self._get_report_type(data_type) or "0",
                     )
                     if not self._is_params_in_existing(params, existing_params):
                         missing_params.append(params)
@@ -391,7 +391,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         end_year=str(year),
                         end_sub_period=str(week),
                         data_type=data_type,
-                        report_type=self._get_report_type(data_type),
+                        report_type=self._get_report_type(data_type) or "0",
                     )
                     if not self._is_params_in_existing(params, existing_params):
                         missing_params.append(params)
@@ -495,11 +495,11 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         """指定年の週数を取得"""
         return date(year, 12, 28).isocalendar()[1]
 
-    def get_report_type(self, data_type: str) -> str:
+    def get_report_type(self, data_type: str) -> str | None:
         """データタイプからレポートタイプを取得（公開メソッド）"""
         return self._get_report_type(data_type)
 
-    def _get_report_type(self, data_type: str) -> str:
+    def _get_report_type(self, data_type: str) -> str | None:
         """データタイプからレポートタイプを取得"""
         report_type_map = {
             "sentinel_weekly_gender": "1",
@@ -511,8 +511,13 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             "sentinel_monthly_health_center": "11",
             "sentinel_monthly_medical_district": "12",
             "notifiable_weekly": "20",
+            # 特殊タイプも追加
+            "sentinel_special_weekly_gender": "9",
         }
-        return report_type_map.get(data_type, "0")
+        # 無効なタイプの場合はNoneを返す
+        if data_type not in report_type_map:
+            return None
+        return report_type_map[data_type]
 
     def _parse_existing_files(self, files: list[Path], data_type: str) -> list[FetchParams]:
         """既存ファイルからパラメータを解析
@@ -558,7 +563,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         end_year=year,
                         end_sub_period=period,
                         data_type=data_type,
-                        report_type=self._get_report_type(data_type),
+                        report_type=self._get_report_type(data_type) or "0",
                     )
                     params_list.append(params)
                 except (IndexError, ValueError):

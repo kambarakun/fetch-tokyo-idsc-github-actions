@@ -64,7 +64,9 @@ schedule:
         # Act
         # 1. 設定から有効なデータタイプを取得
         enabled_types = self.config_manager.get_enabled_data_types()
-        self.assertEqual(len(enabled_types), 3)
+        # DataTypeConfigオブジェクトのリストが返される
+        enabled_type_names = [dt.name for dt in enabled_types]
+        self.assertEqual(len(enabled_type_names), 3)
 
         # 2. データを保存（モックデータ使用）
         test_data = "date,gender,count\n2024-01-01,M,100"
@@ -143,7 +145,9 @@ schedule:
         }
 
         # Act
-        validation_result = self.config_manager.validate_config(invalid_config)
+        # まずparseしてからvalidate
+        parsed_config = self.config_manager.parse_config(invalid_config)
+        validation_result = self.config_manager.validate_config(parsed_config)
 
         # Assert
         self.assertFalse(validation_result.is_valid)
@@ -216,7 +220,7 @@ schedule:
         test_file.write_text("test content")
 
         # 2. Gitに追加
-        success, message = git_handler.add_files([str(test_file)])
+        success, message = git_handler.add_files([test_file])
         self.assertTrue(success)
 
         # 3. コミット
