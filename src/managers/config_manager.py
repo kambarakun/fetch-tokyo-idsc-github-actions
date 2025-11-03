@@ -161,9 +161,13 @@ class ConfigurationManager:
             logger.error(f"Failed to load config: {e}")
             raise
 
-    def validate_config(self, config: DataCollectionConfig) -> ValidationResult:
+    def validate_config(self, config: DataCollectionConfig | dict) -> ValidationResult:
         """設定の妥当性検証"""
         result = ValidationResult()
+
+        # 辞書の場合はDataCollectionConfigに変換
+        if isinstance(config, dict):
+            config = self._parse_config(config)
 
         # スケジュール検証
         if not config.schedule.cron_expression:
@@ -253,23 +257,6 @@ class ConfigurationManager:
                 ),
                 keep_shift_jis=storage.get("keep_shift_jis", True),
             )
-
-        # フェッチャー設定
-        if "fetcher" in config_dict:
-            fetcher = config_dict["fetcher"]
-            # enabled_data_typesから DataTypeConfigを作成
-            if "enabled_data_types" in fetcher:
-                for dt_name in fetcher.get("enabled_data_types", []):
-                    # 既存のdata_typesリストに追加
-                    if not any(dt.name == dt_name for dt in config.data_types):
-                        data_type_config = DataTypeConfig(
-                            name=dt_name,
-                            enabled=True,
-                            fetch_method="",  # デフォルトメソッドは空
-                            parameters={},
-                            epid_code="00",
-                        )
-                        config.data_types.append(data_type_config)
 
         # 品質設定
         if "quality" in config_dict:

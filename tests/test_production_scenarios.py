@@ -1,6 +1,5 @@
 """本番環境を想定したシナリオテスト - 実際の運用で起こりうる状況をテスト"""
 
-import contextlib
 import shutil
 import tempfile
 import time
@@ -304,9 +303,11 @@ class TestProductionScenarios(unittest.TestCase):
         health_status = {"storage": False, "config": False, "fetcher": False}
 
         # ストレージチェック
-        with contextlib.suppress(Exception):
-            # ストレージディレクトリが存在することを確認
-            health_status["storage"] = self.storage.base_path.exists()
+        try:
+            self.storage._ensure_directories()
+            health_status["storage"] = True
+        except Exception:
+            pass
 
         # 設定チェック
         try:
@@ -357,15 +358,14 @@ class TestDisasterRecoveryScenarios(unittest.TestCase):
         corrupted = []
         recovered = []
         for week in range(2, 11, 2):
-            # ファイル名は2桁パディングなし
-            file_path = self.test_dir / f"recovery_test_weekly_2024_{week}.csv"
+            file_path = self.test_dir / f"recovery_test_weekly_2024_{week:02d}.csv"
             if file_path.exists():
                 file_path.write_text("CORRUPTED")
                 corrupted.append(week)
 
         # 破損を検出して再取得
         for week in range(1, 11):
-            file_path = self.test_dir / f"recovery_test_weekly_2024_{week}.csv"
+            file_path = self.test_dir / f"recovery_test_weekly_2024_{week:02d}.csv"
             if file_path.exists():
                 content = file_path.read_text()
                 if content == "CORRUPTED":

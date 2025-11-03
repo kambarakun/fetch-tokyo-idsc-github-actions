@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher
-from src.managers.config_manager import ConfigurationManager, ValidationResult
+from src.managers.config_manager import ConfigurationManager
 from src.managers.storage_manager import StorageManager
 from tests.test_helpers import create_test_csv_data
 
@@ -25,26 +25,26 @@ class TestSystemIntegration(unittest.TestCase):
 
         # 基本設定を作成
         config_data = """
-fetcher:
-  enabled_data_types:
+schedule:
+  cron_expression: "0 10 * * 1"
+  timezone: "Asia/Tokyo"
+
+storage:
+  base_directory: data/raw
+  directory_structure: "{year}/{month}/week_{week}"
+  auto_commit: false
+  keep_shift_jis: true
+
+collection:
+  data_types_to_collect:
     - sentinel_weekly_gender
     - sentinel_weekly_age
     - notifiable_weekly
   batch_size: 10
+  start_year: 2024
+  end_year: 2024
   max_concurrent: 3
   timeout: 30
-  rate_limit: 5
-
-storage:
-  base_path: data/raw
-  encoding: shift_jis
-  save_metadata: true
-  check_duplicates: true
-
-schedule:
-  enabled: true
-  cron: "0 10 * * 1"
-  timezone: "Asia/Tokyo"
 """
         self.config_file.write_text(config_data)
 
@@ -64,9 +64,7 @@ schedule:
         # Act
         # 1. 設定から有効なデータタイプを取得
         enabled_types = self.config_manager.get_enabled_data_types()
-        # DataTypeConfigオブジェクトのリストが返される
-        enabled_type_names = [dt.name for dt in enabled_types]
-        self.assertEqual(len(enabled_type_names), 3)
+        self.assertEqual(len(enabled_types), 3)
 
         # 2. データを保存（モックデータ使用）
         test_data = "date,gender,count\n2024-01-01,M,100"
@@ -139,35 +137,18 @@ schedule:
 
     def test_configuration_validation_workflow(self):
         """設定検証ワークフローをテスト"""
-        # Arrange - 無効な設定ファイルを作成
-        invalid_config = """
-fetcher:
-  enabled_data_types: []
-  batch_size: -1
-  timeout: 0
-schedule:
-  enabled: true
-  cron: "0 10 * * 1"
-  timezone: "Asia/Tokyo"
-"""
-        invalid_config_file = self.test_dir / "invalid_config.yml"
-        invalid_config_file.write_text(invalid_config)
+        # Arrange
+        invalid_config = {
+            "fetcher": {"enabled_data_types": [], "batch_size": -1, "timeout": 0}  # 空のリスト  # 負の値  # ゼロ
+        }
 
-        # Act - 設定をロードして検証（エラーが発生するはず）
-        config_manager = ConfigurationManager()
-        try:
-            config_manager.load_config(invalid_config_file)
-            # ロードが成功してしまった場合
-            validation_result = ValidationResult()
-            validation_result.add_error("batch_size must be positive")
-        except ValueError as e:
-            # 期待通りエラーが発生
-            validation_result = ValidationResult()
-            validation_result.add_error(str(e))
+        # Act
+        validation_result = self.config_manager.validate_config(invalid_config)
 
         # Assert
         self.assertFalse(validation_result.is_valid)
         self.assertGreater(len(validation_result.errors), 0)
+        self.assertIn("batch_size", str(validation_result.errors))
 
     def test_batch_processing_workflow(self):
         """バッチ処理ワークフローをテスト"""
@@ -234,20 +215,13 @@ schedule:
         test_file = self.test_dir / "test.txt"
         test_file.write_text("test content")
 
-        # 2. Gitに追加（相対パスで追加）
-        import os
-
-        cwd = Path.cwd()
-        os.chdir(self.test_dir)
-        try:
-            success, message = git_handler.add_files([Path("test.txt")])
-            self.assertTrue(success)
-        finally:
-            os.chdir(cwd)
+        # 2. Gitに追加
+        success, message = git_handler.add_files([str(test_file)])
+        self.assertTrue(success)
 
         # 3. コミット
-        result = git_handler.commit("Test commit")
-        self.assertTrue(result.success)
+        success, message = git_handler.commit("Test commit")
+        self.assertTrue(success)
 
         # Assert
         # コミット履歴を確認

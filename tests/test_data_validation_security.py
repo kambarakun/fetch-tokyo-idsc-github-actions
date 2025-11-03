@@ -1,6 +1,5 @@
 """データ検証とセキュリティの境界テスト"""
 
-import contextlib
 import hashlib
 import json
 import shutil
@@ -224,6 +223,8 @@ class TestDataValidationSecurity(unittest.TestCase):
                 pass
             finally:
                 # 元の権限に戻す
+                import contextlib
+
                 with contextlib.suppress(Exception):
                     test_file.chmod(original_mode)
 
