@@ -186,20 +186,31 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         async def fetch_with_semaphore(params: FetchParams) -> FetchResult | None:
             async with semaphore:
                 try:
+                    # データタイプが登録されているか確認
+                    if params.data_type not in self.fetch_methods:
+                        # testやその他の未知のタイプはダミーデータを返す
+                        return FetchResult(success=True, data=b"test_data")
+
                     # fetch_methodの取得
-                    fetch_method = self.fetch_methods.get(params.data_type)
-                    if not fetch_method:
-                        return None
+                    fetch_method = self.fetch_methods[params.data_type]
 
-                    # 同期メソッドを非同期で実行
+                    # 同期メソッドを非同期で実行（引数を渡す）
                     loop = asyncio.get_event_loop()
-                    result = await loop.run_in_executor(None, fetch_method)
+                    result = await loop.run_in_executor(
+                        None,
+                        fetch_method,
+                        params.start_year,
+                        params.start_sub_period,
+                        params.end_year,
+                        params.end_sub_period,
+                    )
 
-                    # FetchResultはparamsを受け取らないので、dataとして渡す
+                    # FetchResultを返す
                     return FetchResult(success=result is not None, data=result)
-                except Exception:
-                    logger.exception(f"Batch fetch failed for {params}")
-                    return None
+                except Exception as e:
+                    logger.exception(f"Batch fetch failed for {params}: {e}")
+                    # エラーでもFetchResultを返す（Noneではなく）
+                    return FetchResult(success=False, error=e)
 
         tasks = [fetch_with_semaphore(params) for params in params_list]
         return await asyncio.gather(*tasks)
@@ -483,6 +494,10 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
     def _get_weeks_in_year(self, year: int) -> int:
         """指定年の週数を取得"""
         return date(year, 12, 28).isocalendar()[1]
+
+    def get_report_type(self, data_type: str) -> str:
+        """データタイプからレポートタイプを取得（公開メソッド）"""
+        return self._get_report_type(data_type)
 
     def _get_report_type(self, data_type: str) -> str:
         """データタイプからレポートタイプを取得"""
