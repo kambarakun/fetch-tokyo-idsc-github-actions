@@ -175,7 +175,8 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertEqual(self.fetcher._get_report_type("sentinel_weekly_age"), "0")
         self.assertEqual(self.fetcher._get_report_type("sentinel_monthly_gender"), "15")
         self.assertEqual(self.fetcher._get_report_type("notifiable_weekly"), "20")
-        self.assertEqual(self.fetcher._get_report_type("unknown"), "0")
+        # 未知のデータタイプはNoneを返す
+        self.assertIsNone(self.fetcher._get_report_type("unknown"))
 
     def test_create_metadata(self):
         """メタデータ生成のテスト"""

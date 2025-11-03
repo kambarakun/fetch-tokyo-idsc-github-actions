@@ -92,28 +92,30 @@ class GitHandler:
         except Exception:
             return False
 
-    def add_files(self, files: list[Path]) -> tuple[bool, str]:
+    def add_files(self, files: list[Path] | list[str]) -> bool:
         """指定されたファイルをGitのステージングエリアに追加する。
 
         Args:
-            files: 追加するファイルのパスのリスト
+            files: 追加するファイルのパスのリスト（PathまたはStr）
 
         Returns:
-            タプル(成功フラグ, メッセージ)
+            全ファイルの追加に成功した場合True、失敗した場合False
 
         Note:
             存在しないファイルは自動的にスキップされる
         """
         try:
-            file_paths = [str(f) for f in files if f.exists()]
+            # 文字列の場合はPathに変換
+            path_files = [Path(f) if isinstance(f, str) else f for f in files]
+            file_paths = [str(f) for f in path_files if f.exists()]
             if not file_paths:
-                return True, "No files to add"
+                return True
 
             subprocess.run(["git", "add"] + file_paths, capture_output=True, text=True, check=True)
-            return True, f"Added {len(file_paths)} files"
+            return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to add files to git: {e.stderr}")
-            return False, f"Failed to add files: {e.stderr}"
+            return False
 
     def commit(self, message: str) -> CommitResult:
         """ステージングエリアの変更をコミットする。
@@ -221,6 +223,12 @@ class StorageManager:
             現在の実装ではフラット構造のため、すべてのファイルが
             base_path直下に配置される
         """
+        # ファイル名に無効な文字がないかチェック
+        invalid_chars = ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]
+        for char in invalid_chars:
+            if char in data_type:
+                raise ValueError(f"Invalid character '{char}' in data_type: {data_type}")
+
         # すべてのファイルをrawディレクトリ直下に配置
         dir_path = self.base_path
         dir_path.mkdir(parents=True, exist_ok=True)
@@ -650,7 +658,7 @@ class StorageManager:
 
         return sorted(files)
 
-    def get_metadata(self, file_path: Path | str) -> dict[str, Any] | None:
+    def get_metadata(self, file_path: Path) -> dict[str, Any] | None:
         """指定されたファイルのメタデータを取得する。
 
         Args:
@@ -662,10 +670,6 @@ class StorageManager:
         Note:
             メタデータファイルは.metadataディレクトリから読み込まれる
         """
-        # 文字列の場合はPathオブジェクトに変換
-        if isinstance(file_path, str):
-            file_path = Path(file_path)
-
         # メタデータは.metadataディレクトリから取得
         metadata_filename = f"{file_path.stem}.json"
         metadata_path = self.metadata_dir / metadata_filename
@@ -678,25 +682,6 @@ class StorageManager:
                 logger.warning(f"Failed to load metadata: {e}")
 
         return None
-
-    def ensure_directories(self) -> None:
-        """必要なディレクトリを作成する（公開API）"""
-        self.base_path.mkdir(parents=True, exist_ok=True)
-        self.metadata_dir.mkdir(parents=True, exist_ok=True)
-        if hasattr(self, "log_dir"):
-            self.log_dir.mkdir(parents=True, exist_ok=True)
-
-    def calculate_hash(self, data: bytes) -> str:
-        """データのSHA256ハッシュを計算する（公開API）"""
-        return hashlib.sha256(data).hexdigest()
-
-    def save_metadata(self, metadata: dict[str, Any], file_path: Path) -> None:
-        """メタデータを保存する（公開API）"""
-        metadata_filename = f"{file_path.stem}.json"
-        metadata_path = self.metadata_dir / metadata_filename
-
-        with metadata_path.open("w") as f:
-            json.dump(metadata, f, indent=2)
 
     def cleanup_old_files(self, days_to_keep: int = 365) -> int:
         """指定日数より古いファイルを削除する。
