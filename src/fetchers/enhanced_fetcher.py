@@ -139,6 +139,10 @@ class RateLimiter:
             await asyncio.sleep(self.min_delay - elapsed)
         self.last_request_time = time.time()
 
+    async def acquire(self):
+        """レート制限のために待機（wait_if_neededのエイリアス）"""
+        await self.wait_if_needed()
+
 
 class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
     """拡張版感染症データフェッチャー"""

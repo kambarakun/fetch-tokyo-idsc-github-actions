@@ -79,7 +79,7 @@ schedule:
         # 3. 統計情報を確認
         stats = self.storage_manager.get_storage_stats()
         self.assertEqual(stats["total_files"], 1)
-        self.assertIn("sentinel_weekly_gender", stats["by_data_type"])
+        self.assertIn("sentinel_weekly", stats["file_types"])
 
     def test_duplicate_detection_workflow(self):
         """重複検出ワークフローをテスト"""

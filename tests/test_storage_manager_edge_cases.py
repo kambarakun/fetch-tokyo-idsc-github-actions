@@ -150,9 +150,9 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
 
         # Assert
         self.assertEqual(stats["total_files"], 0)
-        self.assertEqual(stats["total_size"], 0)
-        self.assertEqual(len(stats["by_data_type"]), 0)
-        self.assertEqual(len(stats["by_year"]), 0)
+        self.assertEqual(stats["total_size_bytes"], 0)
+        self.assertEqual(len(stats["file_types"]), 0)
+        self.assertEqual(len(stats["year_stats"]), 0)
 
     def test_storage_stats_with_large_files(self):
         """大きなファイルでのストレージ統計をテスト"""

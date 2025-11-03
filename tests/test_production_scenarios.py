@@ -57,7 +57,7 @@ class TestProductionScenarios(unittest.TestCase):
         # 統計を確認
         stats = self.storage.get_storage_stats()
         self.assertEqual(stats["total_files"], 2)
-        self.assertIn("2024", stats["by_year"])
+        self.assertIn(2024, stats["year_stats"])
 
     def test_year_transition_scenario(self):
         """年をまたぐデータ収集のシナリオ"""
@@ -84,8 +84,8 @@ class TestProductionScenarios(unittest.TestCase):
         # Assert
         self.assertTrue(result.success)
         stats = self.storage.get_storage_stats()
-        self.assertIn("2024", stats["by_year"])
-        self.assertIn("2025", stats["by_year"])
+        self.assertIn(2024, stats["year_stats"])
+        self.assertIn(2025, stats["year_stats"])
 
     def test_missing_data_recovery_scenario(self):
         """欠損データ復旧のシナリオ"""

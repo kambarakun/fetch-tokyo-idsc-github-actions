@@ -37,18 +37,20 @@ class TestAsyncErrorHandling:
     async def test_retry_handler_with_http_errors(self):
         """HTTPエラーコードごとのリトライ処理"""
         # 429 (Rate Limit) - 長い待機時間
-        with patch("src.fetchers.enhanced_fetcher.HTTPError") as mock_error:
-            mock_error.return_value.response.status_code = 429
+        from requests.exceptions import HTTPError
 
-            async def rate_limited_func():
-                raise mock_error.return_value
+        async def rate_limited_func():
+            error = HTTPError("429 Too Many Requests")
+            error.response = MagicMock()
+            error.response.status_code = 429
+            raise error
 
-            # リトライ設定
-            config = DataFetcherConfig(max_retries=2, base_delay=0.1, max_delay=1.0)
-            handler = RetryHandler(config=config)
+        # リトライ設定
+        config = DataFetcherConfig(max_retries=2, base_delay=0.1, max_delay=1.0)
+        handler = RetryHandler(config=config)
 
-            with pytest.raises(Exception):
-                await handler.execute_with_retry(rate_limited_func)
+        with pytest.raises(HTTPError):
+            await handler.execute_with_retry(rate_limited_func)
 
     @pytest.mark.asyncio
     async def test_concurrent_batch_processing(self):
@@ -200,7 +202,7 @@ class TestAsyncErrorHandling:
                     if time.time() - self.last_failure_time > self.recovery_timeout:
                         self.state = "half-open"
                     else:
-                        raise Exception("Circuit breaker is open")
+                        raise RuntimeError("Circuit breaker is open")
 
                 try:
                     result = await func(*args, **kwargs)
@@ -225,18 +227,18 @@ class TestAsyncErrorHandling:
             nonlocal call_count
             call_count += 1
             if call_count <= 3:
-                raise Exception("Service error")
+                raise RuntimeError("Service error")
             return "success"
 
         # 3回失敗してサーキットがオープンになる
         for i in range(3):
-            with pytest.raises(Exception):
+            with pytest.raises(RuntimeError):  # 具体的な例外タイプに変更
                 await breaker.call(unreliable_service)
 
         assert breaker.state == "open"
 
         # サーキットがオープンの間は呼び出しがブロックされる
-        with pytest.raises(Exception, match="Circuit breaker is open"):
+        with pytest.raises(RuntimeError, match="Circuit breaker is open"):
             await breaker.call(unreliable_service)
 
         # 復旧タイムアウト後
