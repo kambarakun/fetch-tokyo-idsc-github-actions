@@ -169,6 +169,41 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             "notifiable_weekly": self.fetch_csv_notifiable_weekly,
         }
 
+    async def batch_fetch_parallel(
+        self, params_list: list[FetchParams], max_concurrent: int = 5
+    ) -> list[FetchResult | None]:
+        """並列バッチフェッチ処理
+
+        Args:
+            params_list: FetchParamsのリスト
+            max_concurrent: 最大同時実行数
+
+        Returns:
+            FetchResultまたはNoneのリスト
+        """
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def fetch_with_semaphore(params: FetchParams) -> FetchResult | None:
+            async with semaphore:
+                try:
+                    # fetch_methodの取得
+                    fetch_method = self.fetch_methods.get(params.data_type)
+                    if not fetch_method:
+                        return None
+
+                    # 同期メソッドを非同期で実行
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(None, fetch_method)
+
+                    # FetchResultはparamsを受け取らないので、dataとして渡す
+                    return FetchResult(success=result is not None, data=result)
+                except Exception:
+                    logger.exception(f"Batch fetch failed for {params}")
+                    return None
+
+        tasks = [fetch_with_semaphore(params) for params in params_list]
+        return await asyncio.gather(*tasks)
+
     async def fetch_with_retry_async(self, fetch_method: Callable, **params) -> FetchResult:
         """非同期リトライ機能付きデータ取得"""
         start_time = time.time()
@@ -352,8 +387,70 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return missing_params
 
+    def get_weeks_in_year(self, year: int) -> int:
+        """年の週数を取得"""
+        from datetime import date
+
+        # ISO 8601週番号システムを使用
+        # 年の最終日がどの週に属するかを確認
+        last_day = date(year, 12, 31)
+        return last_day.isocalendar()[1] if last_day.isocalendar()[0] == year else 52
+
+    def parse_filename(self, filename: str) -> dict[str, Any] | None:
+        """ファイル名から情報を解析"""
+        import re
+
+        # パターン1: data_type_year_period.csv
+        pattern1 = r"^([a-z_]+)_(\d{4})_(\d{1,2})\.csv$"
+        match1 = re.match(pattern1, filename)
+        if match1:
+            return {
+                "data_type": match1.group(1),
+                "year": int(match1.group(2)),
+                "period": int(match1.group(3)),
+                "is_monthly": "monthly" in match1.group(1),
+            }
+
+        # パターン2: data_type_weekly/monthly_year_period.csv
+        pattern2 = r"^([a-z_]+)_(weekly|monthly)_(\d{4})_(\d{1,2})\.csv$"
+        match2 = re.match(pattern2, filename)
+        if match2:
+            return {
+                "data_type": f"{match2.group(1)}_{match2.group(2)}",
+                "year": int(match2.group(3)),
+                "period": int(match2.group(4)),
+                "is_monthly": match2.group(2) == "monthly",
+            }
+
+        return None
+
+    def create_metadata(self, data, params: FetchParams | dict[str, Any]) -> FileMetadata:
+        """メタデータの生成（公開メソッド）"""
+        # pandasのDataFrameの場合はCSV文字列に変換
+        import pandas as pd
+
+        if isinstance(data, pd.DataFrame):
+            data = data.to_csv(index=False).encode("utf-8")
+        elif isinstance(data, str):
+            data = data.encode("utf-8")
+        elif not isinstance(data, bytes):
+            data = str(data).encode("utf-8")
+
+        # FetchParamsの場合は辞書に変換
+        if isinstance(params, FetchParams):
+            params = {
+                "data_type": params.data_type,
+                "report_type": params.report_type,
+                "start_year": params.start_year,
+                "start_sub_period": params.start_sub_period,
+                "end_year": params.end_year,
+                "end_sub_period": params.end_sub_period,
+            }
+
+        return self._create_metadata(data, params)
+
     def _create_metadata(self, data: bytes, params: dict[str, Any]) -> FileMetadata:
-        """メタデータの生成"""
+        """メタデータの生成（内部用）"""
         timestamp = datetime.now()
         data_hash = hashlib.sha256(data).hexdigest()
 
