@@ -650,7 +650,7 @@ class StorageManager:
 
         return sorted(files)
 
-    def get_metadata(self, file_path: Path) -> dict[str, Any] | None:
+    def get_metadata(self, file_path: Path | str) -> dict[str, Any] | None:
         """指定されたファイルのメタデータを取得する。
 
         Args:
@@ -662,6 +662,10 @@ class StorageManager:
         Note:
             メタデータファイルは.metadataディレクトリから読み込まれる
         """
+        # 文字列の場合はPathオブジェクトに変換
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+
         # メタデータは.metadataディレクトリから取得
         metadata_filename = f"{file_path.stem}.json"
         metadata_path = self.metadata_dir / metadata_filename

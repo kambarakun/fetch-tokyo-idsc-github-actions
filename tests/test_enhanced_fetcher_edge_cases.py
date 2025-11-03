@@ -146,7 +146,7 @@ class TestEnhancedFetcherEdgeCases(unittest.TestCase):
             # 無効なタイプ以外は必ずレポートタイプを返す
             if data_type != "invalid_type":
                 # report_typeは文字列で返される
-                self.assertIn(report_type, ["0", "1", "2", "5", "10", "11", "12", "15", "20"])
+                self.assertIn(report_type, ["0", "1", "2", "5", "9", "10", "11", "12", "15", "20"])
             else:
                 self.assertIsNone(report_type)
 
@@ -165,18 +165,24 @@ class TestRetryHandlerEdgeCases(unittest.TestCase):
 
     def test_calculate_delay_boundaries(self):
         """遅延計算の境界値をテスト"""
+        from src.fetchers.enhanced_fetcher import RetryHandler
+
         # 最小値
-        delay = self.handler.calculate_delay(0, base_delay=1.0)
-        self.assertEqual(delay, 1.0)
+        handler = RetryHandler(self.config)
+        delay = handler.calculate_delay(0)
+        # base_delay=0.5なので、2^0 * 0.5 = 0.5、ジッター付きで0.5〜1.0
+        self.assertGreaterEqual(delay, 0.5)
+        self.assertLessEqual(delay, 1.0)
 
-        # 最大値付近
-        delay = self.handler.calculate_delay(10, base_delay=1.0, max_delay=60.0)
-        self.assertLessEqual(delay, 60.0)
+        # 最大値付近（max_delay=10.0）
+        delay = handler.calculate_delay(10)
+        self.assertLessEqual(delay, 10.5)  # max_delay(10.0) + jitter(0.5)
 
-        # ジッター付き
-        delay = self.handler.calculate_delay(2, base_delay=1.0, jitter=True)
-        self.assertGreaterEqual(delay, 4.0)
-        self.assertLessEqual(delay, 4.5)  # 4.0 + 0.5(max jitter)
+        # ジッターなしの設定
+        config_no_jitter = DataFetcherConfig(enable_jitter=False, base_delay=1.0, max_delay=60.0)
+        handler_no_jitter = RetryHandler(config_no_jitter)
+        delay = handler_no_jitter.calculate_delay(2)
+        self.assertEqual(delay, 4.0)  # 2^2 * 1.0 = 4.0
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
 """データ検証とセキュリティの境界テスト"""
 
+import contextlib
 import hashlib
 import json
-import os
 import shutil
 import tempfile
 import unittest
@@ -205,7 +205,7 @@ class TestDataValidationSecurity(unittest.TestCase):
         for mode in dangerous_modes:
             try:
                 # 権限を変更しようとする
-                os.chmod(test_file, mode)
+                test_file.chmod(mode)
                 current_mode = test_file.stat().st_mode
 
                 # 危険な権限ビットのチェック
@@ -224,10 +224,8 @@ class TestDataValidationSecurity(unittest.TestCase):
                 pass
             finally:
                 # 元の権限に戻す
-                try:
-                    os.chmod(test_file, original_mode)
-                except Exception:
-                    pass
+                with contextlib.suppress(Exception):
+                    test_file.chmod(original_mode)
 
     def test_race_condition_prevention(self):
         """レースコンディションの防止テスト"""
@@ -321,17 +319,28 @@ class TestAdvancedValidation(unittest.TestCase):
 
         for data, expected_valid, description in test_cases:
             with self.subTest(description=description):
-                # CSVとして解析可能か確認
-                lines = data.strip().split("\n")
-                if lines and len(lines) > 0:
-                    # ヘッダーとデータ行の列数を確認
-                    if len(lines) >= 2:
-                        header_cols = len(lines[0].split(","))
-                        data_cols = len(lines[1].split(","))
-                        is_valid = header_cols == data_cols and header_cols > 0
+                # CSVとして解析可能か確認（csvモジュールを使用）
+                import csv
+                import io
+
+                try:
+                    if not data.strip():
+                        is_valid = False
                     else:
-                        is_valid = len(lines) == 1 and len(lines[0]) > 0
-                else:
+                        reader = csv.reader(io.StringIO(data))
+                        rows = list(reader)
+
+                        if len(rows) == 0:
+                            is_valid = False
+                        elif len(rows) == 1:
+                            # ヘッダーのみの場合もOK
+                            is_valid = len(rows[0]) > 0 and any(rows[0])
+                        else:
+                            # ヘッダーとデータ行の列数を確認
+                            header_cols = len(rows[0])
+                            all_same_cols = all(len(row) == header_cols for row in rows[1:])
+                            is_valid = header_cols > 0 and all_same_cols
+                except csv.Error:
                     is_valid = False
 
                 if expected_valid:
