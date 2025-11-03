@@ -31,7 +31,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         log_dir.mkdir(parents=True)
 
         # Act - ログディレクトリ作成
-        self.storage._ensure_directories()
+        self.storage.ensure_directories()
 
         # ログファイルを作成
         log_file = log_dir / "test.log"
@@ -78,7 +78,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         # Act - 全メタデータを読み込み
         loaded_metadata = []
         for meta_file in metadata_files:
-            with open(meta_file) as f:
+            with meta_file.open() as f:
                 loaded_metadata.append(json.load(f))
 
         # Assert
@@ -99,7 +99,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         # Act - ハッシュインデックスを読み込み（エラーハンドリング）
         try:
             hash_index = self.storage._load_hash_index()
-        except:
+        except Exception:
             hash_index = {}
 
         # Assert - 空の辞書が返される
@@ -159,10 +159,10 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         test_file.write_text(original_data)
 
         # Act - 保存中にエラーをシミュレート
-        with patch.object(self.storage, "_save_metadata") as mock_save:
+        with patch.object(self.storage, "save_metadata") as mock_save:
             mock_save.side_effect = Exception("Metadata save failed")
 
-            result = self.storage.save_with_metadata(
+            _ = self.storage.save_with_metadata(
                 data=b"new data",
                 data_type="transaction",
                 is_monthly=False,
@@ -173,7 +173,7 @@ class TestStorageManagerAdvanced(unittest.TestCase):
 
         # Assert - ロールバック確認（元のデータが残っているか）
         if test_file.exists():
-            content = test_file.read_text()
+            _ = test_file.read_text()
             # エラー時の動作はシステムの設計次第
 
     def test_data_validation_edge_cases(self):
@@ -207,8 +207,8 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         # Arrange
         mock_run.return_value = Mock(returncode=0, stdout="Saved working directory")
 
-        # Act - stash操作をシミュレート
-        success, _ = git_handler.add_files(["*.csv"])
+        # Act - stash操作をシミュレート（add_filesはタプルを返す）
+        success, _ = git_handler.add_files([Path("*.csv")])
 
         # Assert
         mock_run.assert_called()
@@ -245,11 +245,9 @@ class TestStorageManagerAdvanced(unittest.TestCase):
         ]
 
         for dangerous_name in dangerous_names:
-            with self.subTest(name=dangerous_name):
-                # Act & Assert
-                with self.assertRaises((ValueError, OSError)):
-                    # セキュリティチェックで拒否されるべき
-                    self.storage.organize_file_path(data_type=dangerous_name, is_monthly=False, year=2024, period=1)
+            with self.subTest(name=dangerous_name), self.assertRaises((ValueError, OSError)):
+                # セキュリティチェックで拒否されるべき
+                self.storage.organize_file_path(data_type=dangerous_name, is_monthly=False, year=2024, period=1)
 
     def test_atomic_file_operations(self):
         """アトミックファイル操作のテスト"""

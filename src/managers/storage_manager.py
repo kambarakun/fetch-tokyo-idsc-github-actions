@@ -92,14 +92,14 @@ class GitHandler:
         except Exception:
             return False
 
-    def add_files(self, files: list[Path]) -> bool:
+    def add_files(self, files: list[Path]) -> tuple[bool, str]:
         """指定されたファイルをGitのステージングエリアに追加する。
 
         Args:
             files: 追加するファイルのパスのリスト
 
         Returns:
-            全ファイルの追加に成功した場合True、失敗した場合False
+            タプル(成功フラグ, メッセージ)
 
         Note:
             存在しないファイルは自動的にスキップされる
@@ -107,13 +107,13 @@ class GitHandler:
         try:
             file_paths = [str(f) for f in files if f.exists()]
             if not file_paths:
-                return True
+                return True, "No files to add"
 
             subprocess.run(["git", "add"] + file_paths, capture_output=True, text=True, check=True)
-            return True
+            return True, f"Added {len(file_paths)} files"
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to add files to git: {e.stderr}")
-            return False
+            return False, f"Failed to add files: {e.stderr}"
 
     def commit(self, message: str) -> CommitResult:
         """ステージングエリアの変更をコミットする。
@@ -678,6 +678,25 @@ class StorageManager:
                 logger.warning(f"Failed to load metadata: {e}")
 
         return None
+
+    def ensure_directories(self) -> None:
+        """必要なディレクトリを作成する（公開API）"""
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        self.metadata_dir.mkdir(parents=True, exist_ok=True)
+        if hasattr(self, "log_dir"):
+            self.log_dir.mkdir(parents=True, exist_ok=True)
+
+    def calculate_hash(self, data: bytes) -> str:
+        """データのSHA256ハッシュを計算する（公開API）"""
+        return hashlib.sha256(data).hexdigest()
+
+    def save_metadata(self, metadata: dict[str, Any], file_path: Path) -> None:
+        """メタデータを保存する（公開API）"""
+        metadata_filename = f"{file_path.stem}.json"
+        metadata_path = self.metadata_dir / metadata_filename
+
+        with metadata_path.open("w") as f:
+            json.dump(metadata, f, indent=2)
 
     def cleanup_old_files(self, days_to_keep: int = 365) -> int:
         """指定日数より古いファイルを削除する。

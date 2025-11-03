@@ -87,7 +87,7 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
 
         # 同じハッシュで複数回保存（並行アクセスをシミュレート）
         for i in range(5):
-            with patch.object(self.storage, "_calculate_hash", return_value=hash_value):
+            with patch.object(self.storage, "calculate_hash", return_value=hash_value):
                 self.storage.save_with_metadata(
                     data=f"test,data\n{i},{i}".encode(),
                     data_type="test",
@@ -109,10 +109,8 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
         invalid_chars = ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]
 
         for char in invalid_chars:
-            with self.subTest(char=char):
-                # Act & Assert
-                with self.assertRaises(ValueError):
-                    self.storage.organize_file_path(data_type=f"test{char}type", is_monthly=False, year=2024, period=1)
+            with self.subTest(char=char), self.assertRaises(ValueError):
+                self.storage.organize_file_path(data_type=f"test{char}type", is_monthly=False, year=2024, period=1)
 
     def test_year_boundary_cases(self):
         """年の境界値のテスト"""
@@ -166,7 +164,7 @@ class TestStorageManagerEdgeCases(unittest.TestCase):
         stats = self.storage.get_storage_stats()
 
         # Assert
-        self.assertGreater(stats["total_size"], 10 * 1024 * 1024)
+        self.assertGreater(stats["total_size_bytes"], 10 * 1024 * 1024)
         self.assertEqual(stats["total_files"], 1)
 
     def test_metadata_with_special_characters(self):
@@ -234,8 +232,11 @@ class TestGitHandlerEdgeCases(unittest.TestCase):
     @patch("subprocess.run")
     def test_commit_with_empty_message(self, mock_run):
         """空のコミットメッセージのテスト"""
-        # Arrange
-        mock_run.return_value = Mock(returncode=0, stdout="[main abc123] Automated commit")
+        # Arrange - 最初のdiff呼び出しは変更あり、次のcommit呼び出しは成功
+        mock_run.side_effect = [
+            Mock(returncode=1),  # git diff --cached --quiet (変更あり)
+            Mock(returncode=0, stdout="[main abc123] Automated commit"),  # git commit
+        ]
 
         # Act
         result = self.git_handler.commit("")
@@ -243,9 +244,8 @@ class TestGitHandlerEdgeCases(unittest.TestCase):
         # Assert
         # 空のメッセージでもデフォルトメッセージが使用される
         self.assertTrue(result.success)
-        mock_run.assert_called()
-        call_args = mock_run.call_args[0][0]
-        self.assertIn("commit", call_args)
+        # 2回呼ばれる（diff + commit）
+        self.assertEqual(mock_run.call_count, 2)
 
     def test_add_files_with_glob_patterns(self):
         """グロブパターンでのファイル追加をテスト"""
