@@ -192,6 +192,34 @@ class TokyoEpidemicSurveillanceFetcher:
             total_mode,
         )
 
+    def fetch_csv_sentinel_special_weekly_gender(
+        self,
+        start_year: str = "2025",
+        start_sub_period: str = "1",
+        end_year: str = "2025",
+        end_sub_period: str = "1",
+        pref_code: str = "13",
+        hc_code: str = "00",
+        epid_code: str = "0000",
+        total_mode: str = "0",
+    ) -> bytes:
+        """
+        定点監視 週報告分 特殊報告 性別集計表CSVを取得する
+        """
+        # 特殊報告用のエンドポイントIDを使用（仮に "9" とする）
+        return self._post_request(
+            self.ENDPOINT_MAP.get("9", self.ENDPOINT_MAP["1"]),  # フォールバック
+            "9",
+            start_year,
+            start_sub_period,
+            end_year,
+            end_sub_period,
+            pref_code,
+            hc_code,
+            epid_code,
+            total_mode,
+        )
+
     def fetch_csv_sentinel_weekly_health_center(
         self,
         start_year: str = "2025",
