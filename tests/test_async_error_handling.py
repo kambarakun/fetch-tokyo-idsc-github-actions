@@ -156,7 +156,7 @@ class TestAsyncErrorHandling:
         results = []
         errors = []
 
-        for i, error in enumerate(error_types):
+        for _, error in enumerate(error_types):
             params = FetchParams(
                 start_year="2024",
                 start_sub_period="1",
@@ -231,7 +231,7 @@ class TestAsyncErrorHandling:
             return "success"
 
         # 3回失敗してサーキットがオープンになる
-        for i in range(3):
+        for _ in range(3):
             with pytest.raises(RuntimeError):  # 具体的な例外タイプに変更
                 await breaker.call(unreliable_service)
 
@@ -288,7 +288,7 @@ class TestAsyncErrorHandling:
 
         # 負荷をかけてデグラデーションを確認
         results = []
-        for i in range(150):
+        for _ in range(150):
             params = FetchParams(
                 start_year="2024",
                 start_sub_period="1",
