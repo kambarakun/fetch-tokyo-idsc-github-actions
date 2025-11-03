@@ -514,10 +514,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             # 特殊タイプも追加
             "sentinel_special_weekly_gender": "9",
         }
-        # 無効なタイプの場合はNoneを返す
-        if data_type not in report_type_map:
-            return None
-        return report_type_map[data_type]
+        # マップに存在しない場合はデフォルト値"0"を返す
+        return report_type_map.get(data_type, "0")
 
     def _parse_existing_files(self, files: list[Path], data_type: str) -> list[FetchParams]:
         """既存ファイルからパラメータを解析
