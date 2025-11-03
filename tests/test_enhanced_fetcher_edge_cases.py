@@ -145,7 +145,8 @@ class TestEnhancedFetcherEdgeCases(unittest.TestCase):
             report_type = self.fetcher.get_report_type(data_type)
             # 無効なタイプ以外は必ずレポートタイプを返す
             if data_type != "invalid_type":
-                self.assertIn(report_type, [1, 2, 5])
+                # report_typeは文字列で返される
+                self.assertIn(report_type, ["0", "1", "2", "5", "10", "11", "12", "15", "20"])
             else:
                 self.assertIsNone(report_type)
 

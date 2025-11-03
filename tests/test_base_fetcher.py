@@ -162,10 +162,10 @@ class TestBaseFetcher(unittest.TestCase):
         self.assertIn("2", self.fetcher.ENDPOINT_MAP)
         self.assertIn("5", self.fetcher.ENDPOINT_MAP)
 
-        # 各エンドポイントがURLであることを確認
-        for key, url in self.fetcher.ENDPOINT_MAP.items():
-            self.assertTrue(url.startswith("http"))
-            self.assertIn("survey.tmiph.metro.tokyo.lg.jp", url)
+        # 各エンドポイントがファイル名であることを確認
+        for _, endpoint in self.fetcher.ENDPOINT_MAP.items():
+            self.assertTrue(endpoint.endswith(".do"))
+            self.assertIsInstance(endpoint, str)
 
     @patch("requests.Session")
     def test_session_initialization(self, mock_session):
