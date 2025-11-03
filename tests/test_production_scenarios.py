@@ -187,7 +187,7 @@ class TestProductionScenarios(unittest.TestCase):
 
         # Act - 10個のリクエストを送信
         start_time = time.time()
-        for i in range(10):
+        for _ in range(10):
             # レートリミッターによる待機時間を計算
             rate_limiter.last_request_time = time.time()
 
@@ -213,7 +213,7 @@ class TestProductionScenarios(unittest.TestCase):
         weekly_total = 0
         for week in range(1, 5):
             week_data = f"week,count\n{week},1250"
-            result = self.storage.save_with_metadata(
+            self.storage.save_with_metadata(
                 data=week_data.encode("utf-8"),
                 data_type="sentinel_weekly_age",
                 is_monthly=False,
@@ -306,21 +306,21 @@ class TestProductionScenarios(unittest.TestCase):
         try:
             self.storage._ensure_directories()
             health_status["storage"] = True
-        except:
+        except Exception:
             pass
 
         # 設定チェック
         try:
             config = self.config_manager.get_default_config()
             health_status["config"] = config is not None
-        except:
+        except Exception:
             pass
 
         # フェッチャーチェック
         try:
             self.assertIsNotNone(self.fetcher)
             health_status["fetcher"] = True
-        except:
+        except Exception:
             pass
 
         # Assert - 全コンポーネントが正常

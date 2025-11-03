@@ -121,7 +121,7 @@ schedule:
         """エラーリカバリーワークフローをテスト"""
         # Act
         # ファイル保存時のエラーをシミュレート（権限エラーなど）
-        invalid_path = "/root/test/file.csv"  # 書き込み権限がないパス
+        # 書き込み権限がないパスを使用
 
         result = self.storage_manager.save_with_metadata(
             data=b"test",
