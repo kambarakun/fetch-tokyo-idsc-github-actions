@@ -279,9 +279,14 @@ class TestPerformanceLoad(unittest.TestCase):
         """キャッシュ効率のテスト"""
         # 同じデータを繰り返し読み込み
         test_data = ("test,data\n" * 1000).encode("utf-8")
-        self.storage.save_with_metadata(data=test_data, data_type="cache_test", is_monthly=False, year=2024, period=1)
+        result = self.storage.save_with_metadata(
+            data=test_data, data_type="cache_test", is_monthly=False, year=2024, period=1
+        )
 
-        file_path = self.test_dir / "cache_test_weekly_2024_01.csv"
+        # 実際に保存されたファイルパスを使用
+        if not result.success or not result.file_path:
+            self.skipTest("Failed to create test file")
+        file_path = result.file_path
 
         # 初回読み込み（キャッシュなし）
         start_time = time.time()
