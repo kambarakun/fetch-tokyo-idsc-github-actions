@@ -4,11 +4,11 @@
   "year": 2025,
   "period": 8,
   "period_type": "weekly",
-  "timestamp": "2025-11-13T08:48:07.957487",
+  "timestamp": "2025-11-20T05:27:20.570474",
   "file_size": 2127,
   "sha256_hash": "88be316878fc8fdc7465115e2b9685a9836412b5ae9300a10748a1d4b3a2837a",
   "encoding": "shift_jis",
   "file_path": "notifiable_weekly_2025_08.csv",
   "force_overwrite": true,
-  "fetch_time": 0.8967266082763672
+  "fetch_time": 0.9658668041229248
 }
