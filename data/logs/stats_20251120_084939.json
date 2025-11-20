@@ -1,0 +1,13 @@
+{
+  "total_files": 279,
+  "successful": 278,
+  "failed": 1,
+  "duplicates": 0,
+  "new_files": 0,
+  "updated_files": 278,
+  "errors": [
+    "Request failed with status code: 403"
+  ],
+  "start_time": "2025-11-20T08:42:31.951190",
+  "end_time": "2025-11-20T08:49:39.043978"
+}
