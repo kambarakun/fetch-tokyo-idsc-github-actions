@@ -559,7 +559,7 @@ class StorageManager:
         """ISO週番号から対応する月を計算する。
 
         Args:
-            year: 年
+            year: ISO週暦年（例: 2025年第1週の年は2025）
             week: ISO週番号（1-53）
 
         Returns:
@@ -568,12 +568,18 @@ class StorageManager:
         Note:
             ISO 8601規格に基づいて計算を行う。
             週の始まりは月曜日として扱われる。
+            年境界を正しく処理するため、date.fromisocalendar()を使用。
+
+        Examples:
+            >>> _get_month_from_week(2025, 1)  # 2025年第1週（2024/12/30-2025/1/5）→ 1月
+            1
+            >>> _get_month_from_week(2024, 52)  # 2024年第52週（2024/12/23-29）→ 12月
+            12
         """
-        # ISO週番号から日付を計算
-        jan4 = date(year, 1, 4)
-        week_start = jan4 - timedelta(days=jan4.weekday())
-        target_date = week_start + timedelta(weeks=week - 1)
-        return target_date.month
+        # ISO週番号から日付を正確に計算（年境界考慮）
+        # 月曜日（weekday=1）を週の始まりとする
+        week_start = date.fromisocalendar(year, week, 1)
+        return week_start.month
 
     def get_existing_files(self, data_type: str | None = None, year: int | None = None) -> list[Path]:
         """既存のCSVファイルを検索して取得する。

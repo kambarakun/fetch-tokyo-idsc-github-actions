@@ -585,7 +585,64 @@ age_df = pd.DataFrame({
 3. **性別セクション**: 男、女、男女合計の3セクションに分割
 4. **年齢別データ**: 年齢区分（0歳、1-4歳等）+ 感染症列 + 性別情報
 5. **メタデータ列**: year, period, data_type, category, report_frequency, aggregation
-6. **数値型**: 報告数・感染症列は全てfloat型（欠損値は0.0）
+6. **数値型**: 報告数・感染症列は全てfloat64型（64ビット浮動小数点数）
+7. **欠損値処理**: 欠損値・空白値は0.0に正規化（データ集計の一貫性のため）
+8. **タイムゾーン**: 年(year)と週(period)の関係はISO 8601準拠（詳細は後述）
+
+### ISO 8601 週番号と年境界処理
+
+**ISO週番号の基本原則**:
+
+```python
+# ISO 8601では、週は月曜日から始まり日曜日で終わる
+# 年の第1週は、1月4日を含む週として定義される
+
+# 例1: 2024年12月30日（月曜日）はISO年では2025年第1週
+date(2024, 12, 30).isocalendar()  # (2025, 1, 1)
+# year=2025, week=1, weekday=1（月曜）
+
+# 例2: 2023年1月1日（日曜日）はISO年では2022年第52週
+date(2023, 1, 1).isocalendar()  # (2022, 52, 7)
+# year=2022, week=52, weekday=7（日曜）
+
+# 例3: 2週前の計算が年をまたぐケース
+# 2025年1月6日（月曜日、第2週）の2週前は2024年第52週
+current = date(2025, 1, 6)
+two_weeks_ago = current - timedelta(weeks=2)
+current.isocalendar()  # (2025, 2, 1)
+two_weeks_ago.isocalendar()  # (2024, 52, 1)
+```
+
+**年境界での週番号取得（GitHub Actions実装）**:
+
+```yaml
+# .github/workflows/fetch-data-daily.yml での実装
+# Linux date コマンドのISO週番号オプション使用
+
+# 現在週
+CURRENT_WEEK=$(date +'%V')  # ISO週番号（01-53）
+CURRENT_YEAR=$(date +'%G')  # ISO週暦年（年境界考慮）
+
+# 前週
+PREVIOUS_WEEK=$(date -d 'last week' +'%V')
+PREVIOUS_WEEK_YEAR=$(date -d 'last week' +'%G')  # 重要: 年も取得
+
+# 2週前
+TWO_WEEKS_AGO=$(date -d '2 weeks ago' +'%V')
+TWO_WEEKS_AGO_YEAR=$(date -d '2 weeks ago' +'%G')  # 重要: 年も取得
+```
+
+**年境界処理の重要性**:
+
+1. **週番号のみでは不十分**: 例えば「第1週」は2024年の第1週か2025年の第1週か区別が必要
+2. **年の範囲計算**: `START_YEAR` は `TWO_WEEKS_AGO_YEAR`, `PREVIOUS_WEEK_YEAR`, `CURRENT_YEAR` の最小値
+3. **ファイル命名**: `{data_type}_{year}_{week:02d}.csv` の年はISO週暦年を使用
+4. **重複回避**: 年とweek の組み合わせでユニークキーを構成
+
+**検証方法**:
+
+- 年境界のテストケース: `tests/test_year_boundary_handling.py` で網羅的にテスト
+- 実行ログでの確認: GitHub Actions Summary で週番号と年の組み合わせを検証
 
 **追加実装予定のデータモデル**:
 
