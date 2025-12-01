@@ -199,13 +199,15 @@ PR_BODY_FILE="/tmp/pr_body.md"
   case "$WORKFLOW_NAME" in
     fetch-data-daily)
       [ -n "${CURRENT_YEAR:-}" ] && echo "- **対象年**: ${CURRENT_YEAR}年"
-      if [ -n "${PREVIOUS_WEEK:-}" ] && [ -n "${CURRENT_WEEK:-}" ]; then
+      if [ -n "${TWO_WEEKS_AGO:-}" ] && [ -n "${PREVIOUS_WEEK:-}" ] && [ -n "${CURRENT_WEEK:-}" ]; then
+        echo "- **対象週**: 第${TWO_WEEKS_AGO}週, 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週（木曜更新考慮）"
+      elif [ -n "${PREVIOUS_WEEK:-}" ] && [ -n "${CURRENT_WEEK:-}" ]; then
         echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週"
       fi
       if [ -n "${PREVIOUS_MONTH:-}" ] && [ -n "${CURRENT_MONTH:-}" ]; then
         echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月"
       fi
-      echo "- **チェック方式**: 最新週＋前週の週次データ、当月＋前月の月次データ"
+      echo "- **チェック方式**: 2週前＋前週＋最新週の週次データ、当月＋前月の月次データ（木曜更新考慮）"
       ;;
     fetch-data-weekly)
       if [ -n "${START_YEAR:-}" ] && [ -n "${END_YEAR:-}" ]; then

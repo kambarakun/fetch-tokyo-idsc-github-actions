@@ -71,8 +71,12 @@ jobs:
           echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
           echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
           # ISO週番号とISO週年を取得（年境界での正確な処理のため）
+          # 木曜更新を考慮: 1週前と2週前のデータを取得
           echo "PREVIOUS_WEEK=$(date -d 'last week' +'%V')" >> $GITHUB_ENV
           echo "PREVIOUS_WEEK_YEAR=$(date -d 'last week' +'%G')" >> $GITHUB_ENV
+          # 2週前のデータ（木曜更新を考慮して確実に利用可能なデータ）
+          echo "TWO_WEEKS_AGO=$(date -d '2 weeks ago' +'%V')" >> $GITHUB_ENV
+          echo "TWO_WEEKS_AGO_YEAR=$(date -d '2 weeks ago' +'%G')" >> $GITHUB_ENV
           # 前月とその年を取得
           echo "PREVIOUS_MONTH=$(date -d 'last month' +'%m')" >> $GITHUB_ENV
           echo "PREVIOUS_MONTH_YEAR=$(date -d 'last month' +'%Y')" >> $GITHUB_ENV
@@ -102,6 +106,7 @@ jobs:
           echo "Daily simple check parameters:"
           echo "  Current year: $CURRENT_YEAR"
           echo "  Current week: $CURRENT_WEEK / Previous week: $PREVIOUS_WEEK (year: $PREVIOUS_WEEK_YEAR)"
+          echo "  Two weeks ago: $TWO_WEEKS_AGO (year: $TWO_WEEKS_AGO_YEAR)"
           echo "  Current month: $CURRENT_MONTH / Previous month: $PREVIOUS_MONTH (year: $PREVIOUS_MONTH_YEAR)"
           echo "  Skip existing: $SKIP_EXISTING"
           echo "  Dry run: $DRY_RUN"
@@ -126,14 +131,14 @@ jobs:
           # コマンドの構築（週次データと月次データを対象週・月を絞って取得）
           FETCH_CMD=(uv run python scripts/fetch_data.py)
 
-          # 年の範囲を適切に設定（前週/前月の年と現在年をカバー）
-          START_YEAR=$(echo "$PREVIOUS_WEEK_YEAR $PREVIOUS_MONTH_YEAR $CURRENT_YEAR" | tr ' ' '\n' | sort -n | head -1)
+          # 年の範囲を適切に設定（2週前/前週/前月の年と現在年をカバー）
+          START_YEAR=$(echo "$TWO_WEEKS_AGO_YEAR $PREVIOUS_WEEK_YEAR $PREVIOUS_MONTH_YEAR $CURRENT_YEAR" | tr ' ' '\n' | sort -n | head -1)
           END_YEAR="$CURRENT_YEAR"
           FETCH_CMD+=(--start-year "$START_YEAR")
           FETCH_CMD+=(--end-year "$END_YEAR")
 
-          # 対象週を最新週と前週に限定
-          FETCH_CMD+=(--target-weeks "$PREVIOUS_WEEK,$CURRENT_WEEK")
+          # 対象週を2週前、前週、現在週に拡張（木曜更新を考慮）
+          FETCH_CMD+=(--target-weeks "$TWO_WEEKS_AGO,$PREVIOUS_WEEK,$CURRENT_WEEK")
 
           # 対象月を当月と前月に限定
           FETCH_CMD+=(--target-months "$PREVIOUS_MONTH,$CURRENT_MONTH")
@@ -151,7 +156,7 @@ jobs:
           FETCH_CMD+=(--log-file "data/logs/daily_${FETCH_TIMESTAMP}.log")
 
           echo "Executing: ${FETCH_CMD[@]}"
-          echo "Checking weeks: $PREVIOUS_WEEK, $CURRENT_WEEK"
+          echo "Checking weeks: $TWO_WEEKS_AGO, $PREVIOUS_WEEK, $CURRENT_WEEK (木曜更新考慮)"
           echo "Checking months: $PREVIOUS_MONTH, $CURRENT_MONTH"
 
           # メインスクリプトの実行
@@ -211,7 +216,7 @@ jobs:
           echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
           echo "- **曜日**: $(date +'%A')" >> $GITHUB_STEP_SUMMARY
           echo "- **対象年**: $CURRENT_YEAR" >> $GITHUB_STEP_SUMMARY
-          echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象週**: 第${TWO_WEEKS_AGO}週, 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週（木曜更新考慮）" >> $GITHUB_STEP_SUMMARY
           echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月" >> $GITHUB_STEP_SUMMARY
           echo "- **既存ファイルスキップ**: ${SKIP_EXISTING:-true}" >> $GITHUB_STEP_SUMMARY
           echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
