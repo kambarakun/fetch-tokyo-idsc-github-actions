@@ -299,34 +299,110 @@ quarantine_enabled: true
 ファイル管理とGit操作の統合、要件に基づく機能実装：
 
 **実装済み機能**:
-- ✅ save_csv: CSVファイルの保存（Shift_JISエンコーディング維持）
-- ✅ save_metadata: メタデータログの保存（JSON形式）
-- ✅ commit_and_push: Git自動コミット・プッシュ
-- ✅ get_existing_files: 既存ファイルの取得
-- ✅ calculate_file_hash: SHA256ハッシュ計算
+- ✅ save_with_metadata: CSVファイル+メタデータの一括保存（Shift_JISエンコーディング維持）
+- ✅ commit_changes: Git自動コミット・プッシュ
+- ✅ get_existing_files: 既存ファイルの取得（データタイプ・年でフィルタ可能）
+- ✅ check_duplicates: SHA256ハッシュによる重複チェック
+- ✅ get_metadata: メタデータの読み込み
+- ✅ get_storage_stats: ストレージ統計情報の取得
 
-**現在の実装**:
+**現在の実装** (`src/managers/storage_manager.py`):
 
 ```python
+@dataclass
+class SaveResult:
+    """保存操作の結果"""
+    success: bool
+    file_path: Path | None = None
+    metadata_path: Path | None = None
+    error: str | None = None
+    is_duplicate: bool = False
+    is_new: bool = False
+
+@dataclass
+class CommitResult:
+    """Git コミット操作の結果"""
+    success: bool
+    commit_hash: str | None = None
+    message: str | None = None
+    error: str | None = None
+
 class StorageManager:
-    def __init__(self, base_dir: Path = Path("data/raw")):
-        self.base_dir = base_dir
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, base_path: Path, config: dict[str, Any]):
+        """
+        Args:
+            base_path: データ保存のベースディレクトリ（例: Path("data/raw")）
+            config: ストレージ設定を含む辞書
+                - auto_commit: Git自動コミットを有効にするか（デフォルト: True）
+        """
+        self.base_path = Path(base_path)
+        self.config = config
+        self.git_handler = GitHandler(config.get("auto_commit", True))
 
-    def save_csv(self, data: bytes, filename: str) -> Path:
-        """Shift_JISエンコーディング維持でCSVファイル保存 (Requirements 3.1, 3.2, 3.3)"""
+        # メタデータ保存用ディレクトリ（.metadata/）
+        self.metadata_dir = self.base_path / ".metadata"
 
-    def save_metadata(self, metadata: FileMetadata) -> Path:
-        """メタデータログの保存 (Requirement 3.4)"""
+        # ハッシュインデックス（重複チェック用）
+        self.hash_index_file = self.metadata_dir / "hash_index.json"
 
-    def commit_and_push(self, message: str) -> None:
-        """Git自動コミット・プッシュ (Requirement 3.5)"""
+    def save_with_metadata(
+        self,
+        data: bytes,
+        data_type: str,
+        year: int,
+        period: int,
+        is_monthly: bool = False,
+        additional_metadata: dict[str, Any] | None = None,
+        force_overwrite: bool = False,
+    ) -> SaveResult:
+        """
+        データファイルとメタデータを一括保存
 
-    def get_existing_files(self, pattern: str = "*.csv") -> list[Path]:
-        """既存ファイルの取得 (Requirement 3.6)"""
+        - SHA256ハッシュで重複チェック (Requirements 3.4, 7.3)
+        - Shift_JISエンコーディング維持 (Requirements 3.1, 3.2, 3.3)
+        - フラット構造でファイル保存（data/raw直下）
+        - メタデータは.metadata/ディレクトリに別途保存 (Requirement 3.4)
+        """
 
-    def calculate_file_hash(self, file_path: Path) -> str:
-        """SHA256ハッシュ計算 (Requirements 3.4, 3.6, 7.3)"""
+    def commit_changes(
+        self,
+        files: list[Path],
+        message: str | None = None,
+    ) -> CommitResult:
+        """
+        Git自動コミット・プッシュ (Requirement 3.5)
+
+        - ファイルをステージング
+        - コミットメッセージ生成（テンプレート対応）
+        - リモートへプッシュ
+        """
+
+    def get_existing_files(
+        self,
+        data_type: str | None = None,
+        year: int | None = None,
+    ) -> list[Path]:
+        """
+        既存ファイルの取得 (Requirement 3.6)
+
+        Args:
+            data_type: フィルタリングするデータタイプ（オプション）
+            year: フィルタリングする年（オプション）
+
+        Returns:
+            条件に一致するファイルパスのリスト（ソート済み）
+        """
+
+    def check_duplicates(self, file_hash: str) -> bool:
+        """
+        SHA256ハッシュによる重複チェック (Requirements 3.4, 7.3)
+
+        Args:
+            file_hash: ファイルのSHA256ハッシュ値
+
+        Returns:
+            重複している場合True
+        """
 ```
 
 **追加実装予定**:
@@ -960,7 +1036,7 @@ class StreamingProcessor:
 
 ### Caching Strategy
 
-```python
+````python
 class DataCache:
     def __init__(self, cache_dir: Path, ttl_hours: int = 24):
         self.cache_dir = cache_dir
@@ -979,7 +1055,7 @@ class DataCache:
 **注意**: 以下は現在の実装状況を反映したディレクトリ構造です。実際の設定は config/config.yml をソース・オブ・トゥルースとしてください。
 
 **実装済み構造**:
-```
+```text
 
 fetch-tokyo-idsc-github-actions/
 ├── .github/
@@ -1016,6 +1092,7 @@ fetch-tokyo-idsc-github-actions/
 ````
 
 **将来の拡張予定（人間レビュー必須）**:
+
 - 🔄 src/quality/ - データ品質管理クラスの統合
 - 🔄 src/notifications/ - 通知システムクラスの統合
 - 🔄 src/security/ - セキュリティ機能
@@ -1032,7 +1109,7 @@ NOTIFICATION_TOKEN    # Issue作成用（必要に応じて）
 DATA_COLLECTION_CONFIG # 設定ファイルパスのオーバーライド
 LOG_LEVEL             # ログレベル設定
 DRY_RUN               # テスト実行モード
-````
+```
 
 ### Continuous Integration
 
