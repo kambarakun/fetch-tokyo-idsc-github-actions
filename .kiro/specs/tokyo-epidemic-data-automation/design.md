@@ -193,12 +193,15 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         """欠損データの特定と重複回避 (Requirement 3.6)"""
 ```
 
-**データ構造処理機能**:
+**データ構造処理機能** (🔄 Requirement 9 - 未実装):
 
-- ✅ 全数報告CSV解析: メタデータ抽出、疾病名・報告数の特定
-- ✅ 定点監視CSV解析: 性別セクション分割、年齢別データ処理
-- ✅ 感染症列の動的抽出: ヘッダー行からの自動検出
-- ✅ 引用符処理: CSVフィールドの正しい解析
+> **注**: 現在の実装は**CSVダウンロードと保存のみ**。
+> 以下のCSV解析機能はRequirement 9で定義されているが、まだ実装されていない。
+
+- 🔄 全数報告CSV解析: メタデータ抽出、疾病名・報告数の特定
+- 🔄 定点監視CSV解析: 性別セクション分割、年齢別データ処理
+- 🔄 感染症列の動的抽出: ヘッダー行からの自動検出
+- 🔄 引用符処理: CSVフィールドの正しい解析
 
 **追加実装予定**:
 
@@ -253,52 +256,52 @@ notifications:
 
 # config.yml の例
 
-"""
+```yaml
 schedule:
-cron: "0 2 \* \* 1"
-timezone: "Asia/Tokyo"
-manual_trigger_enabled: true
+  cron: "0 2 * * 1"
+  timezone: "Asia/Tokyo"
+  manual_trigger_enabled: true
 
 data_collection:
-incremental_mode: true # 増分収集モード
-batch_size: 50 # 一度に処理するファイル数
-date_ranges: - start: "2024-01-01"
-end: "2024-12-31"
-priority: "high" - start: "2000-01-01"
-end: "2023-12-31"
-priority: "low"
+  incremental_mode: true # 増分収集モード
+  batch_size: 50 # 一度に処理するファイル数
+  date_ranges:
+    - start: "2024-01-01"
+      end: "2024-12-31"
+      priority: "high"
+    - start: "2000-01-01"
+      end: "2023-12-31"
+      priority: "low"
 
 data_types:
-
-- name: "sentinel_weekly_gender"
-  enabled: true
-  fetch_method: "fetch_csv_sentinel_weekly_gender"
-  parameters:
-  epid_code: "00"
-- name: "sentinel_weekly_age"
-  enabled: true
-  fetch_method: "fetch_csv_sentinel_weekly_age"
+  - name: "sentinel_weekly_gender"
+    enabled: true
+    fetch_method: "fetch_csv_sentinel_weekly_gender"
+    parameters:
+      epid_code: "00"
+  - name: "sentinel_weekly_age"
+    enabled: true
+    fetch_method: "fetch_csv_sentinel_weekly_age"
 
 storage:
-base_directory: "data/raw"
-directory_structure: "" # フラット構造（現状未使用）
-auto_commit: true
-commit_message_template: "Add {data_type} data for {date_range}"
+  base_directory: "data/raw"
+  directory_structure: "" # フラット構造（現状未使用）
+  auto_commit: true
+  commit_message_template: "Add {data_type} data for {date_range}"
 
 quality:
-file_size_limits:
-csv: [100, 10485760] # 100B - 10MB
-anomaly_detection_enabled: true
-quarantine_enabled: true
-"""
-
-`````
+  file_size_limits:
+    csv: [100, 10485760] # 100B - 10MB
+  anomaly_detection_enabled: true
+  quarantine_enabled: true
+```
 
 ### 3. Storage Manager - ✅ 実装済み
 
 ファイル管理とGit操作の統合、要件に基づく機能実装：
 
 **実装済み機能**:
+
 - ✅ save_with_metadata: CSVファイル+メタデータの一括保存（Shift_JISエンコーディング維持）
 - ✅ commit_changes: Git自動コミット・プッシュ
 - ✅ get_existing_files: 既存ファイルの取得（データタイプ・年でフィルタ可能）
@@ -406,6 +409,7 @@ class StorageManager:
 ```
 
 **追加実装予定**:
+
 - 🔄 archive_old_data: 古いデータのアーカイブ機能 (Requirement 7.2)
 - 🔄 stream_large_files: 大容量ファイルのストリーミング処理 (Requirement 7.5)`
 
@@ -537,7 +541,7 @@ class SystemMetrics:
     total_data_size: int = 0
     last_successful_run: Optional[datetime] = None
     error_counts: Dict[str, int] = field(default_factory=dict)
-`````
+````
 
 ````
 
@@ -596,9 +600,12 @@ class DataFetcherConfig:
     user_agent: str = "TokyoEpidemicDataFetcher/1.0 (GitHub Actions Automation)"
 ```
 
-### Processed Data Structures - ✅ 実装済み
+### Processed Data Structures - 🔄 計画中（未実装）
 
-**Shift_JIS CSV処理後のデータ構造**:
+> **注**: このセクションは**将来のデータ処理機能**のターゲット構造を示しています。
+> 現在の実装はCSVの生データダウンロードのみで、DataFrame変換は未実装です。
+
+**Shift_JIS CSV処理後のデータ構造**（計画）:
 
 ```python
 # 全数報告データの処理後構造（pandas DataFrame）
