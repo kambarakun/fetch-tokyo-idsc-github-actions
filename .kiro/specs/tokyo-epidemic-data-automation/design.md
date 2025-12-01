@@ -4,18 +4,20 @@
 
 東京都感染症発生動向情報の自動データ収集システムは、既存のTokyoEpidemicSurveillanceFetcherクラスを中核として、GitHub Actionsによるスケジュール実行、エラーハンドリング、データ品質管理、自動Git管理を統合したシステムです。
 
-**現在の実装状況**: 基本的なフェッチャー機能とEnhancedEpidemicDataFetcherクラスが実装済み。設定ファイル（config.yml）とプロジェクト構造も整備済み。
+**現在の実装状況**: 基本的なフェッチャー機能とEnhancedEpidemicDataFetcherクラスが実装済み。設定ファイル（config.yml）、GitHub Actionsワークフロー（fetch-data.yml）、およびプロジェクト構造も整備済み。
+
+**実装方針**: 既存のコードとスクリプトを最大限活用し、新規クラスや大規模リファクタリングは必要最小限に留めます。ディレクトリ構造（data/raw のフラット構造）やファイル命名規則（{data*type}*{year}\_{period:02d}.csv）は変更しません。
 
 システムは以下の主要コンポーネントで構成されます：
 
 - **Data Collector (Enhanced Fetcher)**: ✅ 実装済み - 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得エンジン
-- **Configuration Manager**: ✅ 部分実装済み - YAML設定ファイルによる設定管理
-- **Storage Manager**: 🔄 実装予定 - ファイル管理とGit操作を担当
-- **Quality Controller**: 🔄 実装予定 - データ検証と品質管理
-- **Notification System**: 🔄 実装予定 - エラー通知とアラート管理
+- **Configuration Manager**: ✅ 実装済み - YAML設定ファイルによる設定管理（config.yml）
+- **Storage Manager**: ✅ 実装済み - ファイル管理とGit操作を担当
+- **Automation System**: ✅ 実装済み - GitHub Actionsベースのスケジューリングと実行制御システム（fetch-data.yml）
+- **Quality Controller**: 🔄 部分実装済み - データ検証スクリプト（validate_data.py, validate_continuity.py, check_missing.py）
+- **Notification System**: ✅ 実装済み - GitHub Issues連携によるエラー通知
 - **Execution Manager**: 🔄 実装予定 - 実行時間制限とチェックポイント管理
 - **Security Validator**: 🔄 実装予定 - セキュリティ検証と機密情報保護
-- **Automation System**: 🔄 実装予定 - GitHub Actionsベースのスケジューリングと実行制御システム
 
 ### Key Design Decisions
 
@@ -63,25 +65,25 @@ graph TB
 
 ### GitHub Actions Workflow Design
 
-要件に基づくワークフロー設計：
+要件に基づくワークフロー設計（✅ 実装済み: .github/workflows/fetch-data.yml）：
 
 ```yaml
-# .github/workflows/data-collection.yml の概要
-name: Tokyo Epidemic Data Collection
+# .github/workflows/fetch-data.yml の概要
+name: Fetch Tokyo Epidemic Data
 on:
   schedule:
-    - cron: '0 2 * * 1'  # cronベースのスケジューリング (Requirement 4.2)
-  workflow_dispatch:     # 手動トリガーサポート (Requirement 4.5)
+    - cron: '0 10 * * 1'  # cronベースのスケジューリング (Requirement 4.2)
+  workflow_dispatch:      # 手動トリガーサポート (Requirement 4.5)
     inputs:
-      date_range:
-        description: 'Date range (YYYY-MM-DD to YYYY-MM-DD)'
+      start_year:
+        description: 'Start year (YYYY)'
         required: false
-      data_types:
-        description: 'Comma-separated data types'
+      end_year:
+        description: 'End year (YYYY)'
         required: false
 
 jobs:
-  collect-data:
+  fetch-data:
     runs-on: ubuntu-latest
     timeout-minutes: 360  # 6時間制限 (Requirement 7.4)
     permissions:
@@ -191,6 +193,13 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         """欠損データの特定と重複回避 (Requirement 3.6)"""
 ```
 
+**データ構造処理機能**:
+
+- ✅ 全数報告CSV解析: メタデータ抽出、疾病名・報告数の特定
+- ✅ 定点監視CSV解析: 性別セクション分割、年齢別データ処理
+- ✅ 感染症列の動的抽出: ヘッダー行からの自動検出
+- ✅ 引用符処理: CSVフィールドの正しい解析
+
 **追加実装予定**:
 
 - 🔄 並列処理機能の強化 (Requirement 7.1)
@@ -271,8 +280,8 @@ data_types:
   fetch_method: "fetch_csv_sentinel_weekly_age"
 
 storage:
-base_directory: "data/epidemic_surveillance"
-directory_structure: "{year}/{data_type}"
+base_directory: "data/raw"
+directory_structure: "" # フラット構造（現状未使用）
 auto_commit: true
 commit_message_template: "Add {data_type} data for {date_range}"
 
@@ -283,42 +292,46 @@ anomaly_detection_enabled: true
 quarantine_enabled: true
 """
 
-````
+`````
 
-### 3. Storage Manager
+### 3. Storage Manager - ✅ 実装済み
 
 ファイル管理とGit操作の統合、要件に基づく機能実装：
 
+**実装済み機能**:
+- ✅ save_csv: CSVファイルの保存（Shift_JISエンコーディング維持）
+- ✅ save_metadata: メタデータログの保存（JSON形式）
+- ✅ commit_and_push: Git自動コミット・プッシュ
+- ✅ get_existing_files: 既存ファイルの取得
+- ✅ calculate_file_hash: SHA256ハッシュ計算
+
+**現在の実装**:
+
 ```python
 class StorageManager:
-    def __init__(self, base_path: Path, git_config: GitConfig):
-        self.base_path = base_path
-        self.git_handler = GitHandler(git_config)
+    def __init__(self, base_dir: Path = Path("data/raw")):
+        self.base_dir = base_dir
+        self.base_dir.mkdir(parents=True, exist_ok=True)
 
-    def organize_file_path(self, data_type: str, date: date) -> Path:
-        """年/月/週の階層ディレクトリ構造でのファイルパス生成 (Requirement 3.1)"""
+    def save_csv(self, data: bytes, filename: str) -> Path:
+        """Shift_JISエンコーディング維持でCSVファイル保存 (Requirements 3.1, 3.2, 3.3)"""
 
-    def generate_filename(self, data_type: str, date_range: DateRange, timestamp: datetime) -> str:
-        """データタイプ、日付範囲、タイムスタンプを含むファイル名生成 (Requirement 3.3)"""
+    def save_metadata(self, metadata: FileMetadata) -> Path:
+        """メタデータログの保存 (Requirement 3.4)"""
 
-    def save_with_metadata(self, data: bytes, metadata: FileMetadata) -> SaveResult:
-        """Shift_JISエンコーディング維持とメタデータ付きファイル保存 (Requirements 3.2, 3.4)"""
+    def commit_and_push(self, message: str) -> None:
+        """Git自動コミット・プッシュ (Requirement 3.5)"""
 
-    def commit_changes(self, message: str) -> CommitResult:
-        """Git自動コミット (Requirement 3.5)"""
+    def get_existing_files(self, pattern: str = "*.csv") -> list[Path]:
+        """既存ファイルの取得 (Requirement 3.6)"""
 
-    def check_duplicates(self, file_hash: str) -> bool:
-        """SHA256ハッシュベースの重複ファイルチェック (Requirements 3.4, 3.6, 7.3)"""
+    def calculate_file_hash(self, file_path: Path) -> str:
+        """SHA256ハッシュ計算 (Requirements 3.4, 3.6, 7.3)"""
+```
 
-    def calculate_sha256(self, file_path: Path) -> str:
-        """データ整合性検証用SHA256ハッシュ計算 (Requirement 3.4)"""
-
-    def archive_old_data(self, retention_policy: RetentionPolicy) -> ArchiveResult:
-        """古いデータのアーカイブまたは削除提案 (Requirement 7.2)"""
-
-    def stream_large_files(self, file_path: Path) -> Iterator[bytes]:
-        """大容量ファイルのストリーミング処理 (Requirement 7.5)"""
-````
+**追加実装予定**:
+- 🔄 archive_old_data: 古いデータのアーカイブ機能 (Requirement 7.2)
+- 🔄 stream_large_files: 大容量ファイルのストリーミング処理 (Requirement 7.5)`
 
 ### 4. Quality Controller
 
@@ -448,7 +461,7 @@ class SystemMetrics:
     total_data_size: int = 0
     last_successful_run: Optional[datetime] = None
     error_counts: Dict[str, int] = field(default_factory=dict)
-````
+`````
 
 ````
 
@@ -498,7 +511,7 @@ class FetchResult:
 @dataclass
 class DataFetcherConfig:
     """フェッチャー設定 - ✅ 実装済み"""
-    max_retries: int = 3  # (Requirement 1.5)
+    max_retries: int = 3  # (Requirement 1.6)
     base_delay: float = 1.0
     max_delay: float = 60.0
     timeout: int = 30
@@ -506,6 +519,73 @@ class DataFetcherConfig:
     enable_jitter: bool = True
     user_agent: str = "TokyoEpidemicDataFetcher/1.0 (GitHub Actions Automation)"
 ```
+
+### Processed Data Structures - ✅ 実装済み
+
+**Shift_JIS CSV処理後のデータ構造**:
+
+```python
+# 全数報告データの処理後構造（pandas DataFrame）
+# 列: ['疾病名', '報告数', 'year', 'period', 'data_type', 'category',
+#      'report_frequency', 'aggregation', 'start_week', 'end_week']
+notifiable_df = pd.DataFrame({
+    '疾病名': ['インフルエンザ', '結核', ...],
+    '報告数': [123, 45, ...],
+    'year': [2024, 2024, ...],
+    'period': [1, 1, ...],
+    'data_type': ['notifiable_weekly', ...],
+    'category': ['全数報告', ...],
+    'report_frequency': ['週次', ...],
+    'aggregation': ['全体集計', ...],
+    'start_week': ['2024年第1週', ...],
+    'end_week': ['2024年第1週', ...]
+})
+
+# 定点監視データの処理後構造（pandas DataFrame）
+# 列: ['地域・年齢区分', 'インフルエンザ', 'RSウイルス感染症', ...,
+#      'gender', 'year', 'period', 'data_type', 'category',
+#      'report_frequency', 'aggregation']
+sentinel_df = pd.DataFrame({
+    '地域・年齢区分': ['千代田', '中央', '港', ...],
+    'インフルエンザ': [10.5, 8.3, 12.1, ...],
+    'RSウイルス感染症': [2.1, 1.5, 3.2, ...],
+    # ... 他の感染症列 ...
+    'gender': ['男女合計', '男女合計', ...],
+    'year': [2024, 2024, ...],
+    'period': [1, 1, ...],
+    'data_type': ['sentinel_weekly_gender', ...],
+    'category': ['定点監視', ...],
+    'report_frequency': ['週次', ...],
+    'aggregation': ['男女別', ...]
+})
+
+# 年齢別データの処理後構造（pandas DataFrame）
+# 列: ['地域・年齢区分', 'インフルエンザ', 'RSウイルス感染症', ...,
+#      'gender', 'year', 'period', 'data_type', 'category',
+#      'report_frequency', 'aggregation']
+age_df = pd.DataFrame({
+    '地域・年齢区分': ['0歳', '1-4歳', '5-9歳', ...],
+    'インフルエンザ': [5.2, 15.3, 20.1, ...],
+    'RSウイルス感染症': [8.5, 3.2, 1.1, ...],
+    # ... 他の感染症列 ...
+    'gender': ['男', '男', '男', ...],
+    'year': [2024, 2024, ...],
+    'period': [1, 1, ...],
+    'data_type': ['sentinel_weekly_age', ...],
+    'category': ['定点監視', ...],
+    'report_frequency': ['週次', ...],
+    'aggregation': ['年齢別', ...]
+})
+```
+
+**データ構造の特徴**:
+
+1. **全数報告データ**: 疾病名と報告数の2列構造 + メタデータ列
+2. **定点監視データ**: 地域・年齢区分 + 複数の感染症列（動的） + メタデータ列
+3. **性別セクション**: 男、女、男女合計の3セクションに分割
+4. **年齢別データ**: 年齢区分（0歳、1-4歳等）+ 感染症列 + 性別情報
+5. **メタデータ列**: year, period, data_type, category, report_frequency, aggregation
+6. **数値型**: 報告数・感染症列は全てfloat型（欠損値は0.0）
 
 **追加実装予定のデータモデル**:
 
@@ -821,52 +901,57 @@ class DataCache:
 
 ### Repository Structure - 現在の実装状況
 
+**注意**: 以下は現在の実装状況を反映したディレクトリ構造です。実際の設定は config/config.yml をソース・オブ・トゥルースとしてください。
+
 **実装済み構造**:
 ```
 
-tokyo-epidemic-data-automation/
-├── .github/ # 🔄 ワークフロー実装予定
+fetch-tokyo-idsc-github-actions/
+├── .github/
+│ └── workflows/
+│ └── fetch-data.yml # ✅ メインワークフロー実装済み
 ├── src/
 │ ├── fetchers/ # ✅ 実装済み
 │ │ ├── **init**.py
 │ │ ├── base*fetcher.py # ✅ TokyoEpidemicSurveillanceFetcher
 │ │ └── enhanced_fetcher.py # ✅ 拡張版フェッチャー
-│ ├── managers/ # ✅ 基本構造のみ
-│ │ ├── **init**.py
-│ │ ├── config_manager.py # 🔄 実装予定
-│ │ └── storage_manager.py # 🔄 実装予定
-│ └── utils/ # ✅ 空ディレクトリ
+│ └── managers/ # ✅ 実装済み
+│ ├── **init**.py
+│ ├── config_manager.py # ✅ 設定管理実装済み
+│ └── storage_manager.py # ✅ ストレージ管理実装済み
 ├── config/
-│ └── config.yml # ✅ 包括的設定ファイル
+│ └── config.yml # ✅ 包括的設定ファイル（ソース・オブ・トゥルース）
 ├── scripts/ # ✅ 実装済み
-│ ├── fetch_data.py
-│ ├── validate_data.py
-│ └── check_missing.py
+│ ├── fetch_data.py # ✅ メインスクリプト
+│ ├── validate_data.py # ✅ データ検証
+│ ├── validate_continuity.py # ✅ 連続性検証
+│ └── check_missing.py # ✅ 欠損チェック
+├── data/
+│ ├── raw/ # ✅ CSVファイル保存（フラット構造）
+│ └── logs/ # ✅ メタデータログ
 ├── tests/ # ✅ テスト構造
 │ ├── test*\*.py
 │ └── fixtures/
 ├── pyproject.toml # ✅ プロジェクト設定
 ├── .gitignore # ✅ 設定済み
 ├── .pre-commit-config.yaml # ✅ 品質管理
-└── README.md # ✅ 基本ドキュメント
+├── README.md # ✅ 基本ドキュメント
+└── CLAUDE.md # ✅ 開発ドキュメント
 
 ````
 
-**注意**: データディレクトリは一時的に削除済み（token制限対策）
-
-**追加実装予定**:
-- 🔄 .github/workflows/ - GitHub Actionsワークフロー
-- 🔄 src/quality/ - データ品質管理
-- 🔄 src/notifications/ - 通知システム
+**将来の拡張予定（人間レビュー必須）**:
+- 🔄 src/quality/ - データ品質管理クラスの統合
+- 🔄 src/notifications/ - 通知システムクラスの統合
 - 🔄 src/security/ - セキュリティ機能
-- 🔄 data/ - データ保存ディレクトリ（実行時作成）
+- 🔄 src/execution/ - 実行管理システム
 
 ### Environment Variables
 
 ```bash
 # GitHub Actions Secrets
 GITHUB_TOKEN          # リポジトリアクセス用
-NOTIFICATION_TOKEN     # Issue作成用（必要に応じて）
+NOTIFICATION_TOKEN    # Issue作成用（必要に応じて）
 
 # Optional Configuration
 DATA_COLLECTION_CONFIG # 設定ファイルパスのオーバーライド
@@ -898,8 +983,4 @@ jobs:
           flake8 src/
           black --check src/
           mypy src/
-```
-
-```
-
 ```

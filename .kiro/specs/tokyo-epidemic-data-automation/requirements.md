@@ -7,12 +7,12 @@
 ## Glossary
 
 - **Automation_System**: 東京都感染症発生動向データの自動収集・管理システム
-- **EnhancedEpidemicDataFetcher**: 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得クラス（実装済み）
-- **GitHub_Actions**: CI/CDプラットフォームによるスケジュール実行環境（実装済み）
-- **ConfigurationManager**: YAML設定ファイル管理を行うコンポーネント（実装済み）
-- **Storage_Manager**: ファイル保存とGit操作を管理するコンポーネント（部分実装済み）
-- **Quality_Controller**: データ品質検証を行うコンポーネント（実装予定）
-- **Notification_System**: エラー通知とアラート管理を行うコンポーネント（GitHub Issues連携実装済み）
+- **EnhancedEpidemicDataFetcher**: 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得クラス（✅ 実装済み）
+- **GitHub_Actions**: CI/CDプラットフォームによるスケジュール実行環境（✅ 実装済み - fetch-data.yml）
+- **ConfigurationManager**: YAML設定ファイル管理を行うコンポーネント（✅ 実装済み）
+- **Storage_Manager**: ファイル保存とGit操作を管理するコンポーネント（✅ 実装済み）
+- **Quality_Controller**: データ品質検証を行うコンポーネント（🔄 部分実装済み - validate_data.py, validate_continuity.py, check_missing.py）
+- **Notification_System**: エラー通知とアラート管理を行うコンポーネント（✅ 実装済み - GitHub Issues連携）
 - **Data_Collector**: EnhancedEpidemicDataFetcherの別名
 
 ## Requirements
@@ -25,9 +25,10 @@
 
 1. WHEN スケジュール時刻になった時、THE Automation_System SHALL GitHub_Actionsを使用してEnhancedEpidemicDataFetcherを実行する
 2. WHEN データ取得を開始する時、THE EnhancedEpidemicDataFetcher SHALL 既存のTokyoEpidemicSurveillanceFetcherクラスを継承して使用する
-3. WHEN データ取得が成功した時、THE Storage_Manager SHALL タイムスタンプを含む命名規則でCSVファイルを保存する
-4. WHEN ファイル保存が完了した時、THE Storage_Manager SHALL 各ダウンロードファイルのメタデータログを記録する
-5. IF データ取得が失敗した場合、THEN THE EnhancedEpidemicDataFetcher SHALL 指数バックオフで最大3回リトライする
+3. WHEN 週次データを取得する時、THE EnhancedEpidemicDataFetcher SHALL 現在週の2週前のデータを取得する（木曜更新を考慮）
+4. WHEN データ取得が成功した時、THE Storage*Manager SHALL 標準命名規則（{data_type}*{year}\_{period:02d}.csv）でCSVファイルを保存する
+5. WHEN ファイル保存が完了した時、THE Storage_Manager SHALL 各ダウンロードファイルのメタデータログを記録する
+6. IF データ取得が失敗した場合、THEN THE EnhancedEpidemicDataFetcher SHALL 指数バックオフで最大3回リトライする
 
 ### Requirement 2
 
@@ -47,12 +48,14 @@
 
 #### Acceptance Criteria
 
-1. WHEN データを保存する時、THE Storage_Manager SHALL 年/月/週の階層ディレクトリ構造でファイルを整理する
+1. WHEN データを保存する時、THE Storage_Manager SHALL data/raw配下のフラットなディレクトリ構造でファイルを整理する
 2. WHEN CSVファイルを保存する時、THE Storage_Manager SHALL 互換性のため元のShift_JISエンコーディングを維持する
-3. WHEN ファイル名を作成する時、THE Storage_Manager SHALL データタイプ、日付範囲、タイムスタンプ情報を含める
-4. WHEN メタデータを生成する時、THE Storage_Manager SHALL データ整合性検証のためSHA256ハッシュを含める
-5. WHEN データ保存が完了した時、THE Storage_Manager SHALL 変更をGitリポジトリにコミットする
-6. IF 重複データが検出された場合、THEN THE Storage_Manager SHALL 冗長なダウンロードをスキップする
+3. WHEN CSVファイルを保存する時、THE Storage_Manager SHALL UTF-8エンコーディングの整形済みCSVも同時に保存する
+4. WHEN ファイル名を作成する時、THE Storage*Manager SHALL データタイプ、年、週または月インデックス（ゼロ埋め）の形式で命名する（標準形式: {data_type}*{year}\_{period:02d}.csv - これが唯一の正準形式）
+5. WHEN メタデータを生成する時、THE Storage_Manager SHALL データ整合性検証のためSHA256ハッシュを含める
+6. WHEN 旧形式のファイル名（タイムスタンプ付き）を検出した時、THE Storage_Manager SHALL 互換性のため読み取りのみをサポートする（注: 新規保存時は標準形式のみ使用）
+7. WHEN データ保存が完了した時、THE Storage_Manager SHALL 変更をGitリポジトリにコミットする
+8. IF 重複データが検出された場合、THEN THE Storage_Manager SHALL 冗長なダウンロードをスキップする
 
 ### Requirement 4
 
@@ -87,9 +90,11 @@
 
 1. WHEN データがダウンロードされた時、THE Quality_Controller SHALL ファイルサイズが期待範囲内であることを検証する
 2. WHEN CSVファイルが保存された時、THE Quality_Controller SHALL 基本的なCSV構造とエンコーディングを検証する
-3. WHEN 過去のデータと比較する時、THE Quality_Controller SHALL 重大な異常を検出し報告する
-4. WHEN データ検証が失敗した時、THE Quality_Controller SHALL 疑わしいファイルを隔離し管理者にアラートする
-5. IF データ破損が検出された場合、THEN THE EnhancedEpidemicDataFetcher SHALL 影響を受けたファイルの再ダウンロードを試行する
+3. WHEN 全数報告データを処理する時、THE Quality_Controller SHALL 疾病名と報告数の列構造を検証する
+4. WHEN 定点監視データを処理する時、THE Quality_Controller SHALL 性別セクション、年齢別データ、感染症列の構造を検証する
+5. WHEN 過去のデータと比較する時、THE Quality_Controller SHALL 重大な異常を検出し報告する
+6. WHEN データ検証が失敗した時、THE Quality_Controller SHALL 疑わしいファイルを隔離し管理者にアラートする
+7. IF データ破損が検出された場合、THEN THE EnhancedEpidemicDataFetcher SHALL 影響を受けたファイルの再ダウンロードを試行する
 
 ### Requirement 7
 
@@ -102,6 +107,21 @@
 3. WHEN 同一データの重複チェックを行う時、THE Storage_Manager SHALL ハッシュベースの高速比較を使用する
 4. WHEN GitHub_Actionsの実行時間制限に近づく時、THE Automation_System SHALL 処理を分割して継続実行する
 5. IF メモリ使用量が閾値を超える場合、THEN THE EnhancedEpidemicDataFetcher SHALL ストリーミング処理に切り替える
+
+### Requirement 9
+
+**User Story:** データエンジニアとして、システムが実際のデータ構造を正しく解析・処理してほしい。全数報告と定点監視の異なる形式を適切に扱えるようにするため。
+
+#### Acceptance Criteria
+
+1. WHEN 全数報告CSVを解析する時、THE Data_Collector SHALL メタデータ行（集計期間開始週、終了週）を抽出する
+2. WHEN 全数報告CSVを解析する時、THE Data_Collector SHALL 疾病名と報告数のデータ行を特定する
+3. WHEN 定点監視CSVを解析する時、THE Data_Collector SHALL 性別セクション（男、女、男女合計）を特定する
+4. WHEN 定点監視CSVを解析する時、THE Data_Collector SHALL 年齢別データの特別な列構造（空の最初の列）を処理する
+5. WHEN 定点監視CSVを解析する時、THE Data_Collector SHALL 感染症列（インフルエンザ、RSウイルス等）を動的に抽出する
+6. WHEN 定点監視CSVを解析する時、THE Data_Collector SHALL 地域・年齢区分列と集計行（合計、総計）を識別する
+7. WHEN CSVを解析する時、THE Data_Collector SHALL 引用符で囲まれたフィールドを正しく処理する
+8. IF 解析エラーが発生した場合、THEN THE Data_Collector SHALL エラー詳細をログに記録し、該当ファイルをスキップする
 
 ### Requirement 8
 
