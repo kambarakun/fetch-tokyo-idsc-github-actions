@@ -369,15 +369,23 @@ class StorageManager:
 
     def commit_changes(
         self,
-        files: list[Path],
         message: str | None = None,
+        data_type: str | None = None,
+        date_range: str | None = None,
     ) -> CommitResult:
         """
         Git自動コミット・プッシュ (Requirement 3.5)
 
-        - ファイルをステージング
-        - コミットメッセージ生成（テンプレート対応）
-        - リモートへプッシュ
+        Args:
+            message: コミットメッセージ（省略時は自動生成）
+            data_type: データタイプ（メッセージ生成用、例: 'sentinel_weekly_gender'）
+            date_range: 日付範囲（メッセージ生成用、例: '2025-01-01 to 2025-01-07'）
+
+        Note:
+            - base_pathとmetadata_dirを自動的にステージング
+            - コミットメッセージテンプレート対応
+            - リモートへプッシュ
+            - auto_commit設定が無効な場合はスキップ
         """
 
     def get_existing_files(
