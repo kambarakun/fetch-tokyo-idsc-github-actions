@@ -8,6 +8,7 @@
 - 2週前のデータ取得が年をまたぐ場合（例: 2025年第1週の2週前は2024年第51週）
 """
 
+import tempfile
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
@@ -24,7 +25,7 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
         """年末の週が翌年の第1週に属するケース"""
         # 2024年12月30日（月曜日）は2025年第1週
         test_date = date(2024, 12, 30)
-        iso_year, iso_week, iso_weekday = test_date.isocalendar()
+        iso_year, iso_week, _ = test_date.isocalendar()
 
         self.assertEqual(iso_year, 2025, "2024年12月30日はISO年では2025年")
         self.assertEqual(iso_week, 1, "2024年12月30日はISO週では第1週")
@@ -33,7 +34,7 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
         """年始の週が前年の最終週に属するケース"""
         # 2023年1月1日（日曜日）は2022年第52週
         test_date = date(2023, 1, 1)
-        iso_year, iso_week, iso_weekday = test_date.isocalendar()
+        iso_year, iso_week, _ = test_date.isocalendar()
 
         self.assertEqual(iso_year, 2022, "2023年1月1日はISO年では2022年")
         self.assertEqual(iso_week, 52, "2023年1月1日はISO週では第52週")
@@ -56,28 +57,29 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
         """閏年で第53週が存在するケース"""
         # 2020年は第53週が存在する
         last_day_2020 = date(2020, 12, 31)
-        iso_year, iso_week, iso_weekday = last_day_2020.isocalendar()
+        _, iso_week, _ = last_day_2020.isocalendar()
 
         self.assertEqual(iso_week, 53, "2020年には第53週が存在する")
 
     def test_storage_manager_month_from_week_year_boundary(self):
         """StorageManagerの週番号→月変換が年境界で正確"""
         config = {"storage": {"auto_commit": False}}
-        manager = StorageManager(base_path=Path("/tmp/test"), config=config)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manager = StorageManager(base_path=Path(tmpdir), config=config)
 
-        # 2025年第1週（2024年12月30日-2025年1月5日）の開始日は12月
-        # ISO週は月曜日始まりなので、週の開始日の月を返す
-        month_week1 = manager._get_month_from_week(2025, 1)
-        self.assertEqual(month_week1, 12, "2025年第1週の開始日（月曜日）は12月")
+            # 2025年第1週（2024年12月30日-2025年1月5日）の開始日は12月
+            # ISO週は月曜日始まりなので、週の開始日の月を返す
+            month_week1 = manager._get_month_from_week(2025, 1)
+            self.assertEqual(month_week1, 12, "2025年第1週の開始日（月曜日）は12月")
 
-        # 2024年第52週（2024年12月23日-29日）は12月
-        month_week52 = manager._get_month_from_week(2024, 52)
-        self.assertEqual(month_week52, 12, "2024年第52週は12月")
+            # 2024年第52週（2024年12月23日-29日）は12月
+            month_week52 = manager._get_month_from_week(2024, 52)
+            self.assertEqual(month_week52, 12, "2024年第52週は12月")
 
-        # 通常の週（年境界をまたがない）
-        # 2025年第2週（2025年1月6日-12日）は1月
-        month_week2 = manager._get_month_from_week(2025, 2)
-        self.assertEqual(month_week2, 1, "2025年第2週は1月")
+            # 通常の週（年境界をまたがない）
+            # 2025年第2週（2025年1月6日-12日）は1月
+            month_week2 = manager._get_month_from_week(2025, 2)
+            self.assertEqual(month_week2, 1, "2025年第2週は1月")
 
 
 class TestYearBoundaryDataFetching(unittest.TestCase):

@@ -639,6 +639,24 @@ TWO_WEEKS_AGO_YEAR=$(date -d '2 weeks ago' +'%G')  # 重要: 年も取得
 3. **ファイル命名**: `{data_type}_{year}_{week:02d}.csv` の年はISO週暦年を使用
 4. **重複回避**: 年とweek の組み合わせでユニークキーを構成
 
+**fetch_data.pyでの年境界処理**:
+
+```python
+# scripts/fetch_data.py の実装（266-271行）
+# 年ごとにループして週番号をフィルタリング
+for year in range(start_year, end_year + 1):
+    max_week = self._get_weeks_in_year(year)  # 各年の最大週数を取得
+
+    for week in range(1, max_week + 1):
+        # 指定された週番号のみを処理（年をまたぐ場合も正しく処理）
+        if self.target_weeks and week not in self.target_weeks:
+            continue
+        # 各年の該当週のデータを取得
+        # 例: 2024年の第52週と2025年の第1週を両方取得可能
+```
+
+このアプローチにより、`--target-weeks "52,1,2"` と指定しても、`--start-year 2024 --end-year 2025` の組み合わせで、2024年第52週と2025年第1週・第2週が正しく取得されます。
+
 **検証方法**:
 
 - 年境界のテストケース: `tests/test_year_boundary_handling.py` で網羅的にテスト
