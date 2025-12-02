@@ -94,9 +94,9 @@ class DataProcessor:
                 return self._process_sentinel(lines, source_file, metadata)
             return NormalizationResult(success=False, error=f"Unknown category: {metadata['category']}")
 
-        except Exception as e:
-            logger.error(f"処理失敗: {source_file.name} - {e}")
-            return NormalizationResult(success=False, source_path=source_file, error=str(e))
+        except Exception:
+            logger.exception(f"処理失敗: {source_file.name}")
+            return NormalizationResult(success=False, source_path=source_file, error="処理中にエラーが発生しました")
 
     def process_all(self) -> dict[str, Any]:
         """raw/配下の全CSVを処理
@@ -165,9 +165,11 @@ class DataProcessor:
 
             return NormalizationResult(success=True, source_path=source_file, output_files=[output_file])
 
-        except Exception as e:
-            logger.error(f"全数報告処理失敗: {source_file.name} - {e}")
-            return NormalizationResult(success=False, source_path=source_file, error=str(e))
+        except Exception:
+            logger.exception(f"全数報告処理失敗: {source_file.name}")
+            return NormalizationResult(
+                success=False, source_path=source_file, error="全数報告処理中にエラーが発生しました"
+            )
 
     def _process_sentinel(self, lines: list[str], source_file: Path, metadata: dict[str, Any]) -> NormalizationResult:
         """定点監視データの処理（複雑・性別分割）
@@ -226,9 +228,11 @@ class DataProcessor:
 
             return NormalizationResult(success=True, source_path=source_file, output_files=output_files)
 
-        except Exception as e:
-            logger.error(f"定点監視処理失敗: {source_file.name} - {e}")
-            return NormalizationResult(success=False, source_path=source_file, error=str(e))
+        except Exception:
+            logger.exception(f"定点監視処理失敗: {source_file.name}")
+            return NormalizationResult(
+                success=False, source_path=source_file, error="定点監視処理中にエラーが発生しました"
+            )
 
     def _process_sentinel_simple(
         self, lines: list[str], source_file: Path, metadata: dict[str, Any]
@@ -271,11 +275,13 @@ class DataProcessor:
 
             return NormalizationResult(success=True, source_path=source_file, output_files=[output_file])
 
-        except Exception as e:
-            logger.error(f"定点監視処理失敗（単純）: {source_file.name} - {e}")
-            return NormalizationResult(success=False, source_path=source_file, error=str(e))
+        except Exception:
+            logger.exception(f"定点監視処理失敗（単純）: {source_file.name}")
+            return NormalizationResult(
+                success=False, source_path=source_file, error="定点監視単純処理中にエラーが発生しました"
+            )
 
-    def _detect_gender_sections(self, lines: list[str]) -> list[dict]:
+    def _detect_gender_sections(self, lines: list[str]) -> list[dict[str, Any]]:
         """性別セクションを検出
 
         Args:
@@ -331,8 +337,8 @@ class DataProcessor:
 
             return output_file
 
-        except Exception as e:
-            logger.error(f"セクション保存失敗: {gender} - {e}")
+        except Exception:
+            logger.exception(f"セクション保存失敗: {gender}")
             return None
 
     def _extract_section_data(self, lines: list[str], section: dict[str, Any]) -> list[str]:
@@ -434,8 +440,8 @@ class DataProcessor:
 
             return None
 
-        except Exception as e:
-            logger.error(f"メタデータ抽出失敗: {filename} - {e}")
+        except Exception:
+            logger.exception(f"メタデータ抽出失敗: {filename}")
             return None
 
     def _is_empty_data_file(self, file_path: Path) -> bool:
