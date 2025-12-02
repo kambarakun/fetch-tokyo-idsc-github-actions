@@ -25,6 +25,7 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -38,6 +39,24 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
+
+
+def save_stats(data_dir: Path, stats_data: dict[str, Any]) -> None:
+    """処理統計をstats.jsonに保存
+
+    Args:
+        data_dir: データディレクトリ
+        stats_data: 統計データ
+    """
+    stats_file = data_dir / "processed" / "stats.json"
+    stats_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with stats_file.open("w", encoding="utf-8") as f:
+            json.dump(stats_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"📊 処理統計を保存: {stats_file}")
+    except OSError:
+        logger.exception(f"処理統計の保存に失敗しました: {stats_file}")
+        logger.warning("処理統計の保存に失敗しましたが、データ処理自体は完了しています")
 
 
 def main() -> None:  # noqa: PLR0912, PLR0915
@@ -107,16 +126,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
             print_result("処理", result)
 
             # 処理結果をstats.jsonに保存
-            stats_file = data_dir / "processed" / "stats.json"
-            stats_file.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                with stats_file.open("w", encoding="utf-8") as f:
-                    json.dump(result, f, ensure_ascii=False, indent=2)
-                logger.info(f"📊 処理統計を保存: {stats_file}")
-            except OSError:
-                # stats.json保存失敗は本体処理とは独立
-                logger.exception(f"処理統計の保存に失敗しました: {stats_file}")
-                logger.warning("処理統計の保存に失敗しましたが、データ処理自体は完了しています")
+            save_stats(data_dir, result)
 
             # 最終結果サマリー
             logger.info("\n" + "=" * 60)
@@ -145,15 +155,19 @@ def main() -> None:  # noqa: PLR0912, PLR0915
             logger.info(f"📄 ファイル処理: {len(file_paths)}ファイル")
             logger.info("=" * 60)
 
-            total = len(file_paths)
             succeeded = 0
             failed = 0
+            skipped = 0
             errors = []
+            raw_dir = data_dir / "raw"
 
             for file_path in file_paths:
-                # ファイルがraw/にある場合のみ処理
-                if file_path.parent.name != "raw":
-                    logger.warning(f"⚠️ スキップ: raw/配下ではありません - {file_path}")
+                # data/raw/配下のファイルのみ処理（堅牢なチェック）
+                try:
+                    file_path.resolve().relative_to(raw_dir.resolve())
+                except ValueError:
+                    logger.warning(f"⚠️ スキップ: {raw_dir}/配下ではありません - {file_path}")
+                    skipped += 1
                     continue
 
                 logger.info(f"処理中: {file_path.name}")
@@ -167,23 +181,26 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                     errors.append({"file": file_path.name, "error": file_result.error})
                     logger.error(f"  ❌ 失敗: {file_result.error}")
 
+            # 処理対象ファイル数（スキップを除く）
+            total = len(file_paths) - skipped
+
             # 処理結果をstats.jsonに保存
-            stats_file = data_dir / "processed" / "stats.json"
-            stats_file.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                stats_data = {"total": total, "succeeded": succeeded, "failed": failed, "errors": errors}
-                with stats_file.open("w", encoding="utf-8") as f:
-                    json.dump(stats_data, f, ensure_ascii=False, indent=2)
-                logger.info(f"📊 処理統計を保存: {stats_file}")
-            except OSError:
-                logger.exception(f"処理統計の保存に失敗しました: {stats_file}")
-                logger.warning("処理統計の保存に失敗しましたが、データ処理自体は完了しています")
+            stats_data = {
+                "total": total,
+                "succeeded": succeeded,
+                "failed": failed,
+                "skipped": skipped,
+                "errors": errors,
+            }
+            save_stats(data_dir, stats_data)
 
             # 最終結果サマリー
             logger.info("\n" + "=" * 60)
             logger.info("✅ 処理完了")
             logger.info("=" * 60)
             logger.info(f"処理結果: {succeeded}/{total} 成功")
+            if skipped > 0:
+                logger.info(f"スキップ: {skipped}ファイル")
 
             # 失敗があった場合はエラー終了
             if failed > 0:
