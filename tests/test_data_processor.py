@@ -1,5 +1,6 @@
 """データ処理のユニットテスト"""
 
+import csv
 import json
 import shutil
 import sys
@@ -355,6 +356,138 @@ class TestDataProcessor(unittest.TestCase):
         data = self.processor._extract_section_data(lines, section)
 
         self.assertEqual(data, [])
+
+    def test_cross_dataset_consistency_check_success(self):
+        """クロスデータセット整合性チェック (正常系) のテスト"""
+        # 処理済みディレクトリに3つの集計軸のファイルを作成
+        processed_dir = self.processor.processed_dir
+
+        # 同じデータ (合計が一致) を持つファイルを作成
+        test_data = [
+            ["合計", "100", "50", "30", "20"],
+            ["区分A", "50", "25", "15", "10"],
+            ["区分B", "50", "25", "15", "10"],
+        ]
+
+        for aggregation in ["age", "health_center", "medical_district"]:
+            file_path = processed_dir / f"normalized_sentinel_weekly_{aggregation}_total_2025_01.csv"
+            with file_path.open("w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerows(test_data)
+
+        # 整合性チェックを実行 (正常系: エラーなし)
+        # 例外が発生しないことを確認
+        try:
+            self.processor._verify_cross_dataset_consistency()
+        except Exception as e:
+            self.fail(f"整合性チェックで予期しない例外が発生しました: {e}")
+
+    def test_cross_dataset_consistency_check_with_mismatch(self):
+        """クロスデータセット整合性チェック (不一致あり) のテスト"""
+        processed_dir = self.processor.processed_dir
+
+        # 異なるデータを持つファイルを作成
+        test_data_age = [
+            ["合計", "100", "50", "30", "20"],
+            ["区分A", "50", "25", "15", "10"],
+        ]
+
+        test_data_hc = [
+            ["合計", "100", "50", "30", "20"],
+            ["区分A", "50", "25", "15", "10"],
+        ]
+
+        test_data_md = [
+            ["合計", "99", "49", "30", "20"],  # 不一致
+            ["区分A", "49", "24", "15", "10"],  # 不一致
+        ]
+
+        # ageファイル
+        file_path = processed_dir / "normalized_sentinel_weekly_age_total_2025_01.csv"
+        with file_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(test_data_age)
+
+        # health_centerファイル
+        file_path = processed_dir / "normalized_sentinel_weekly_health_center_total_2025_01.csv"
+        with file_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(test_data_hc)
+
+        # medical_districtファイル (不一致)
+        file_path = processed_dir / "normalized_sentinel_weekly_medical_district_total_2025_01.csv"
+        with file_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(test_data_md)
+
+        # 整合性チェックを実行 (警告ログが出るが例外は発生しない)
+        # 警告のみで処理継続することを確認
+        try:
+            self.processor._verify_cross_dataset_consistency()
+        except Exception as e:
+            self.fail(f"警告のみ期待だが予期しない例外が発生しました: {e}")
+
+    def test_collect_periods_for_verification(self):
+        """整合性チェック対象の期間収集のテスト"""
+        processed_dir = self.processor.processed_dir
+
+        # 3つの集計軸のファイルを作成
+        for aggregation in ["age", "health_center", "medical_district"]:
+            file_path = processed_dir / f"normalized_sentinel_weekly_{aggregation}_total_2025_01.csv"
+            file_path.write_text("合計,100\n", encoding="utf-8")
+
+        # 2つしかない場合 (揃っていない)
+        file_path = processed_dir / "normalized_sentinel_monthly_age_total_2025_12.csv"
+        file_path.write_text("合計,50\n", encoding="utf-8")
+
+        # 期間を収集
+        periods = self.processor._collect_periods_for_verification()
+
+        # 3つ揃っている期間のみ返されることを確認
+        self.assertIn("weekly_2025_01", periods)
+        self.assertEqual(len(periods["weekly_2025_01"]), 3)
+        self.assertNotIn("monthly_2025_12", periods)
+
+    def test_extract_total_row(self):
+        """合計行抽出のテスト"""
+        processed_dir = self.processor.processed_dir
+
+        # テストファイルを作成
+        test_file = processed_dir / "test_total.csv"
+        test_data = [
+            ["区分", "値1", "値2"],
+            ["区分A", "10", "20"],
+            ["合計", "100", "200"],
+        ]
+
+        with test_file.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(test_data)
+
+        # 合計行を抽出
+        total_row = self.processor._extract_total_row(test_file)
+
+        self.assertIsNotNone(total_row)
+        self.assertEqual(total_row[0], "合計")
+        self.assertEqual(total_row[1], "100")
+        self.assertEqual(total_row[2], "200")
+
+    def test_extract_total_row_not_found(self):
+        """合計行が見つからない場合のテスト"""
+        processed_dir = self.processor.processed_dir
+
+        # 合計行がないテストファイルを作成
+        test_file = processed_dir / "test_no_total.csv"
+        test_data = [["区分", "値1", "値2"], ["区分A", "10", "20"]]
+
+        with test_file.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(test_data)
+
+        # 合計行を抽出 (見つからない)
+        total_row = self.processor._extract_total_row(test_file)
+
+        self.assertIsNone(total_row)
 
 
 if __name__ == "__main__":

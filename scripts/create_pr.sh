@@ -319,8 +319,30 @@ PR_BODY_FILE="/tmp/pr_body.md"
   # stats.jsonから正常に読み込まれた場合、または実際に変更がある場合は詳細を表示
   # コミットメッセージと同じパターンで条件を記述（可読性・保守性向上）
   if [ "$CHANGED_FILES" -gt 0 ] || [ "$STATS_READ_SUCCESS" = true ]; then
+    echo "#### 生データ（data/raw/）"
     echo "- **新規ファイル**: ${NEW_FILES:-0}件"
     echo "- **更新ファイル**: ${MODIFIED_FILES:-0}件"
+
+    # 処理済みファイル数の表示（環境変数が設定されている場合のみ）
+    if [ -n "${NEW_PROCESSED_FILES:-}" ] && [ "${NEW_PROCESSED_FILES}" -gt 0 ]; then
+      echo ""
+      echo "#### 処理済みデータ（data/processed/）"
+      echo "- **処理済みファイル**: ${NEW_PROCESSED_FILES}件"
+
+      # 処理統計の表示（stats.jsonから取得した場合）
+      if [ -n "${STATS_TOTAL:-}" ]; then
+        echo ""
+        echo "#### 📊 データ処理統計"
+        echo "- **処理対象**: ${STATS_TOTAL}件"
+        echo "- **成功**: ${STATS_SUCCEEDED:-0}件"
+        if [ "${STATS_FAILED:-0}" -gt 0 ]; then
+          echo "- **失敗**: ${STATS_FAILED}件 ⚠️"
+        else
+          echo "- **失敗**: 0件 ✅"
+        fi
+      fi
+    fi
+    echo ""
   fi
   echo "- **合計変更**: ${CHANGED_FILES}件"
   echo ""

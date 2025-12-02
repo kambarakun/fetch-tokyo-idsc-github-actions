@@ -128,6 +128,10 @@ class DataProcessor:
 
         logger.info(f"一括処理完了: 成功={succeeded}, 失敗={failed}")
 
+        # クロスデータセット整合性チェック
+        logger.info("クロスデータセット整合性チェックを開始します...")
+        self._verify_cross_dataset_consistency()
+
         return {"total": total, "succeeded": succeeded, "failed": failed, "errors": errors}
 
     def _process_notifiable(self, lines: list[str], source_file: Path, metadata: dict[str, Any]) -> NormalizationResult:
@@ -653,3 +657,136 @@ class DataProcessor:
         # ログを保存
         with log_file.open("w", encoding="utf-8") as f:
             json.dump(logs, f, ensure_ascii=False, indent=2)
+
+    def _verify_cross_dataset_consistency(self) -> None:
+        """異なる集計軸 (age/health_center/medical_district) のtotal値が一致するか検証
+
+        同じ期間・頻度のデータについて、各集計軸のtotal行を比較し、
+        データの整合性をチェックする。不一致があれば警告ログを出力。
+        """
+        # 処理済みファイルから期間情報を収集
+        periods_to_check = self._collect_periods_for_verification()
+
+        if not periods_to_check:
+            logger.info("整合性チェック対象のファイルセットが見つかりませんでした")
+            return
+
+        logger.info(f"整合性チェック対象: {len(periods_to_check)}期間")
+
+        checked_count = 0
+        error_count = 0
+
+        for period_key, files in periods_to_check.items():
+            # 必要なファイルが全て揃っているか確認
+            if not all(f.exists() for f in files.values()):
+                continue
+
+            try:
+                # 各データセットの合計行を抽出
+                age_total_row = self._extract_total_row(files["age"])
+                hc_total_row = self._extract_total_row(files["health_center"])
+                md_total_row = self._extract_total_row(files["medical_district"])
+
+                if not all((age_total_row, hc_total_row, md_total_row)):
+                    logger.debug(f"合計行が見つかりません: {period_key}")
+                    continue
+
+                # 各疾患列ごとに比較
+                mismatches = []
+                max_cols = min(len(age_total_row), len(hc_total_row), len(md_total_row))
+
+                for col_idx in range(1, max_cols):  # 0列目は「合計」ラベルなのでスキップ
+                    age_val = self._parse_int(age_total_row[col_idx])
+                    hc_val = self._parse_int(hc_total_row[col_idx])
+                    md_val = self._parse_int(md_total_row[col_idx])
+
+                    if not (age_val == hc_val == md_val):
+                        mismatches.append(
+                            {"col": col_idx, "age": age_val, "health_center": hc_val, "medical_district": md_val}
+                        )
+
+                checked_count += 1
+
+                if mismatches:
+                    error_count += 1
+                    logger.warning(f"⚠️  整合性エラー: {period_key} - {len(mismatches)}列で不一致")
+                    # 最初の3件の不一致を詳細表示
+                    for mm in mismatches[:3]:
+                        logger.warning(
+                            f"  列{mm['col']}: age={mm['age']}, health_center={mm['health_center']}, medical_district={mm['medical_district']}"
+                        )
+                    if len(mismatches) > 3:
+                        logger.warning(f"  ... 他{len(mismatches) - 3}列で不一致")
+                else:
+                    logger.info(f"✅ 整合性OK: {period_key}")
+
+            except (OSError, csv.Error, ValueError, IndexError):
+                # 整合性チェック自体は継続しつつ、原因調査のために例外情報は残す
+                logger.exception(
+                    f"整合性チェックエラー: {period_key}\n"
+                    f"  age: {files.get('age', 'N/A')}\n"
+                    f"  health_center: {files.get('health_center', 'N/A')}\n"
+                    f"  medical_district: {files.get('medical_district', 'N/A')}"
+                )
+                continue
+
+        logger.info(f"整合性チェック完了: {checked_count}期間チェック済み、{error_count}件のエラー")
+
+    def _collect_periods_for_verification(self) -> dict[str, dict[str, Path]]:
+        """整合性チェック対象の期間とファイルを収集
+
+        Returns:
+            {period_key: {aggregation: file_path}} の辞書
+        """
+        periods: dict[str, dict[str, Path]] = {}
+
+        # 処理済みファイルをスキャン
+        for file_path in self.processed_dir.glob("normalized_sentinel_*_total_*.csv"):
+            # ファイル名から情報を抽出
+            # 例: normalized_sentinel_weekly_age_total_2025_01.csv
+            parts = file_path.stem.split("_")
+
+            if len(parts) < 6:
+                continue
+
+            # normalized_sentinel_{frequency}_{aggregation}_total_{year}_{period}
+            frequency = parts[2]
+            aggregation = "_".join(parts[3:-3])  # total より前の部分
+            year = parts[-2]
+            period = parts[-1]
+
+            # age, health_center, medical_district のみを対象
+            if aggregation not in ["age", "health_center", "medical_district"]:
+                continue
+
+            period_key = f"{frequency}_{year}_{period}"
+
+            if period_key not in periods:
+                periods[period_key] = {}
+
+            periods[period_key][aggregation] = file_path
+
+        # 3つの集計軸が揃っているもののみを返す
+        return {k: v for k, v in periods.items() if len(v) == 3}
+
+    def _extract_total_row(self, file_path: Path) -> list[str] | None:
+        """CSVファイルから「合計」行を抽出
+
+        Args:
+            file_path: CSVファイルのパス
+
+        Returns:
+            合計行のデータ (見つからない場合はNone)
+        """
+        try:
+            data = self._read_csv_data(file_path)
+        except (OSError, csv.Error, IndexError):
+            logger.debug(f"合計行読み込みエラー: {file_path}")
+            return None
+
+        # 「合計」行を探す
+        for row in data:
+            if row and row[0] == "合計":
+                return row
+
+        return None
