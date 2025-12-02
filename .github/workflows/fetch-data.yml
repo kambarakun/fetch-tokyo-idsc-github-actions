@@ -213,9 +213,17 @@ jobs:
 
             # stats.jsonから処理結果を抽出
             if [ -f "data/processed/stats.json" ]; then
-              STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
-              STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
-              STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
+              # JSON形式を事前検証（jq -eで検証し、不正な場合は警告）
+              if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
+                echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
+                STATS_TOTAL="0"
+                STATS_SUCCEEDED="0"
+                STATS_FAILED="0"
+              else
+                STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
+                STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
+                STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
+              fi
 
               # 環境変数を一括設定（shellcheck SC2129対応）
               {
@@ -251,6 +259,32 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Create issue on processing failure
+        id: create_issue
+        if: env.PROCESS_RESULT == 'failed'
+        run: |
+          echo "📝 処理失敗のGitHub Issueを作成します..."
+
+          ISSUE_TITLE="[自動] データ処理失敗: $(date +'%Y-%m-%d %H:%M')"
+          ISSUE_BODY="データ処理ステップが失敗しました。
+
+          発生日時: $(date +'%Y-%m-%d %H:%M:%S %Z')
+          ワークフロー実行: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          コミット: ${GITHUB_SHA:0:7}
+          Branch: ${GITHUB_REF}
+          Actor: ${GITHUB_ACTOR}
+
+          対応方法:
+          1. ワークフローログで具体的なエラーメッセージを確認
+          2. 処理ログファイル: data/logs/process_${FETCH_TIMESTAMP}.log
+          3. 問題を修正後、手動で再実行してください"
+
+          gh issue create \
+            --title "${ISSUE_TITLE}" \
+            --body "${ISSUE_BODY}" \
+            --label "bug,automated,data-processing" \
+            --assignee "${GITHUB_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
 
       - name: Verify data continuity
         id: verify
