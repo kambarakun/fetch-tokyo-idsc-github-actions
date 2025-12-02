@@ -1,5 +1,6 @@
 """データ処理のユニットテスト"""
 
+import json
 import shutil
 import sys
 import tempfile
@@ -207,8 +208,6 @@ class TestDataProcessor(unittest.TestCase):
         self.assertTrue(log_file.exists())
 
         # ログ内容の確認
-        import json
-
         with log_file.open("r", encoding="utf-8") as f:
             logs = json.load(f)
 
@@ -258,13 +257,11 @@ class TestDataProcessor(unittest.TestCase):
         male_row = ["0歳", "10", "5", "3"]
         female_row = ["0歳", "12"]  # 列数が少ない
 
-        # 警告ログが出るが、処理は継続される
-        result = self.processor._sum_rows(male_row, female_row)
+        # ValueError が発生する（データ整合性保証のため）
+        with self.assertRaises(ValueError) as context:
+            self.processor._sum_rows(male_row, female_row)
 
-        # 短い方に合わせて処理される
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0], "0歳")
-        self.assertEqual(result[1], "22")
+        self.assertIn("列数不一致", str(context.exception))
 
     def test_is_empty_data_file(self):
         """_is_empty_data_file のテスト"""

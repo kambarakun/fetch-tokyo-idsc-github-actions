@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,13 @@ class DataProcessor:
 
     # クラス定数: マジックナンバー/ストリングを定数化
     HEADER_SEARCH_RANGE = 20  # ヘッダー行を探す範囲（行数）
-    DISEASE_KEYWORDS = ["インフルエンザ", "ウイルス", "感染症", "球菌", "結膜"]
+    DISEASE_KEYWORDS: ClassVar[list[str]] = [
+        "インフルエンザ",
+        "ウイルス",
+        "感染症",
+        "球菌",
+        "結膜",
+    ]
     MIN_DISEASE_COUNT = 2  # ヘッダー行と判定する最小疾病数
     COMMENT_PREFIX = "*"  # 注釈行のプレフィックス
     GENDER_MALE = "男性"
@@ -94,9 +100,9 @@ class DataProcessor:
                 return self._process_sentinel(lines, source_file, metadata)
             return NormalizationResult(success=False, error=f"Unknown category: {metadata['category']}")
 
-        except Exception:
+        except (UnicodeDecodeError, OSError, KeyError, ValueError) as e:
             logger.exception(f"処理失敗: {source_file.name}")
-            return NormalizationResult(success=False, source_path=source_file, error="処理中にエラーが発生しました")
+            return NormalizationResult(success=False, source_path=source_file, error=str(e))
 
     def process_all(self) -> dict[str, Any]:
         """raw/配下の全CSVを処理
@@ -165,7 +171,7 @@ class DataProcessor:
 
             return NormalizationResult(success=True, source_path=source_file, output_files=[output_file])
 
-        except Exception:
+        except (OSError, csv.Error, ValueError):
             logger.exception(f"全数報告処理失敗: {source_file.name}")
             return NormalizationResult(
                 success=False, source_path=source_file, error="全数報告処理中にエラーが発生しました"
@@ -228,7 +234,7 @@ class DataProcessor:
 
             return NormalizationResult(success=True, source_path=source_file, output_files=output_files)
 
-        except Exception:
+        except (OSError, csv.Error, ValueError):
             logger.exception(f"定点監視処理失敗: {source_file.name}")
             return NormalizationResult(
                 success=False, source_path=source_file, error="定点監視処理中にエラーが発生しました"
@@ -275,7 +281,7 @@ class DataProcessor:
 
             return NormalizationResult(success=True, source_path=source_file, output_files=[output_file])
 
-        except Exception:
+        except (OSError, csv.Error, ValueError):
             logger.exception(f"定点監視処理失敗（単純）: {source_file.name}")
             return NormalizationResult(
                 success=False, source_path=source_file, error="定点監視単純処理中にエラーが発生しました"
@@ -337,7 +343,7 @@ class DataProcessor:
 
             return output_file
 
-        except Exception:
+        except (OSError, csv.Error, ValueError):
             logger.exception(f"セクション保存失敗: {gender}")
             return None
 
@@ -440,7 +446,7 @@ class DataProcessor:
 
             return None
 
-        except Exception:
+        except (KeyError, ValueError, AttributeError):
             logger.exception(f"メタデータ抽出失敗: {filename}")
             return None
 
@@ -476,9 +482,16 @@ class DataProcessor:
             value: パースする文字列
 
         Returns:
-            整数値（空文字列の場合は0）
+            整数値（空文字列の場合は0、変換失敗時も0）
         """
-        return int(value) if value.strip() else 0
+        stripped = value.strip()
+        if not stripped:
+            return 0
+        try:
+            return int(stripped)
+        except ValueError:
+            logger.warning(f"数値変換失敗: '{value}' -> 0として処理")
+            return 0
 
     def _sum_rows(self, male_row: list[str], female_row: list[str]) -> list[str]:
         """男性と女性のデータ行を加算
@@ -489,12 +502,17 @@ class DataProcessor:
 
         Returns:
             合計データの行
+
+        Raises:
+            ValueError: 列数が一致しない場合
         """
         if len(male_row) != len(female_row):
-            logger.warning(f"行の列数が不一致: male={len(male_row)}, female={len(female_row)}")
+            error_msg = f"列数不一致: male={len(male_row)}, female={len(female_row)}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         total_row = [male_row[0]]  # 最初の列（地域名や年齢区分など）
-        for j in range(1, min(len(male_row), len(female_row))):
+        for j in range(1, len(male_row)):
             male_val = self._parse_int(male_row[j])
             female_val = self._parse_int(female_row[j])
             total_row.append(str(male_val + female_val))
@@ -534,7 +552,7 @@ class DataProcessor:
 
             logger.info(f"totalを計算しました: {total_file.name} (male + female)")
 
-        except Exception:
+        except (OSError, csv.Error, ValueError, IndexError):
             logger.exception(f"total計算失敗: {total_file.name}")
 
     def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:
@@ -593,7 +611,7 @@ class DataProcessor:
             else:
                 logger.info(f"total検証OK: {total_file.name} (male + female と一致)")
 
-        except Exception:
+        except (OSError, csv.Error, ValueError, IndexError):
             logger.exception(f"total検証失敗: {total_file.name}")
 
     def _log_processing(self, source: Path, outputs: list[Path], metadata: dict[str, Any]) -> None:
