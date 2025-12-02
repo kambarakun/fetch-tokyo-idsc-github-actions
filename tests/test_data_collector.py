@@ -194,7 +194,7 @@ class TestDataCollectorIntegration(unittest.TestCase):
     @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("scripts.fetch_data.ConfigurationManager")
     def test_normal_mode_without_options(self, mock_config_manager_class, mock_fetcher_class, mock_storage_class):
-        """オプションなしの通常モード"""
+        """オプションなしの通常モード（skip_existing=False優先）"""
         # 設定マネージャーのモック
         mock_config_manager = Mock()
         mock_config_manager_class.return_value = mock_config_manager
@@ -221,15 +221,16 @@ class TestDataCollectorIntegration(unittest.TestCase):
         mock_storage_class.return_value = mock_storage
         mock_storage.get_existing_files.return_value = []
 
-        # オプションなしでコレクター作成
+        # オプションなしでコレクター作成（skip_existing=False）
         collector = DataCollector(mock_config, dry_run=False, skip_existing=False, force_update=False)
 
-        # incremental_mode=Trueの場合の動作確認
+        # skip_existing=Falseの場合、全期間取得モードになる
         collector._collect_data_type("test_data", 2024, 2024)
 
-        # incremental_modeでget_missing_dataが呼ばれることを確認
-        mock_storage.get_existing_files.assert_called_once()
-        mock_fetcher.get_missing_data.assert_called_once()
+        # skip_existing=Falseの場合、ワークフローパラメータが優先され全期間取得
+        # get_existing_filesやget_missing_dataは呼ばれない（全期間取得のため）
+        mock_storage.get_existing_files.assert_not_called()
+        mock_fetcher.get_missing_data.assert_not_called()
 
 
 if __name__ == "__main__":

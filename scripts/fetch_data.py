@@ -125,28 +125,33 @@ class DataCollector:
             self.logger.info(f"強制更新モード: {data_type}の全データを再取得")
             # 全パラメータを生成（target_weeks/monthsも考慮）
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-        # スキップモードまたは増分モードの場合
-        else:
+        # skip_existingが明示的にFalseの場合は全期間取得（ワークフローパラメータを優先）
+        elif not self.skip_existing:
+            # 全期間のパラメータ生成（既存ファイルも再取得して更新チェック）
+            missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
+            self.logger.info(
+                f"全期間取得モード: {data_type}の{len(missing_params)}件のデータを取得（既存も更新チェック）"
+            )
+        # skip_existingがTrueまたはconfig.incremental_modeがTrueの場合は増分取得
+        elif self.skip_existing or self.config.collection.incremental_mode:
             existing_files = self.storage.get_existing_files(data_type=data_type)
+            missing_params = self.fetcher.get_missing_data(
+                data_type,
+                existing_files,
+                start_year,
+                end_year,
+                self.target_weeks,
+                self.target_months,
+            )
 
-            # 増分モードまたはskip_existingの場合は、get_missing_dataを使用
-            if self.skip_existing or self.config.collection.incremental_mode:
-                missing_params = self.fetcher.get_missing_data(
-                    data_type,
-                    existing_files,
-                    start_year,
-                    end_year,
-                    self.target_weeks,
-                    self.target_months,
-                )
-
-                if self.skip_existing:
-                    self.logger.info(f"スキップモード: 欠損データ {len(missing_params)}件のみ取得")
-                else:
-                    self.logger.info(f"増分収集モード: 欠損データ {len(missing_params)}件")
+            if self.skip_existing:
+                self.logger.info(f"増分取得モード: {data_type}の欠損データ {len(missing_params)}件のみ取得")
             else:
-                # 全期間のパラメータ生成
-                missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
+                self.logger.info(f"増分収集モード（config設定）: {data_type}の欠損データ {len(missing_params)}件")
+        else:
+            # フォールバック：全期間のパラメータ生成
+            missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
+            self.logger.info(f"全期間取得モード（フォールバック）: {data_type}の{len(missing_params)}件")
 
         # バッチ処理
         batch_size = self.config.collection.batch_size
