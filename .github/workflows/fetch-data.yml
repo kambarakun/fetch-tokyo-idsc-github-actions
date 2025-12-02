@@ -208,58 +208,75 @@ jobs:
 
           echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
 
-          # データ処理の実行（全ファイル処理）
-          # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
-          if uv run python scripts/process_data.py --all 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
-            echo "✅ データ処理: 成功"
-            echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
+          # 変更されたdata/raw/*.csvファイルのみを取得（working treeから）
+          # git statusを使用してunstaged/staged両方の変更を検出
+          mapfile -t CHANGED_RAW_FILES < <(git status --porcelain | grep -E '^\s*[AM].*data/raw/.*\.csv$' | sed 's/^...//')
 
-            # stats.jsonから処理結果を抽出
-            if [ -f "data/processed/stats.json" ]; then
-              # JSON形式を事前検証（jq -eで検証し、不正な場合は警告）
-              if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
-                echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
-                STATS_TOTAL="0"
-                STATS_SUCCEEDED="0"
-                STATS_FAILED="0"
-              else
-                STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
-                STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
-                STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
-              fi
+          if [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
+            echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
+            echo "PROCESS_RESULT=skipped" >> "$GITHUB_ENV"
+          else
+            # 変更ファイル数を表示
+            FILE_COUNT=${#CHANGED_RAW_FILES[@]}
+            echo "📊 処理対象: ${FILE_COUNT}ファイル"
+            for file in "${CHANGED_RAW_FILES[@]}"; do
+              echo "  - $file"
+            done
 
-              # 環境変数を一括設定（shellcheck SC2129対応）
-              {
-                echo "STATS_TOTAL=${STATS_TOTAL}"
-                echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
-                echo "STATS_FAILED=${STATS_FAILED}"
-              } >> "$GITHUB_ENV"
+            # データ処理の実行（変更されたファイルのみ）
+            # 配列を安全に展開してスペースを含むファイル名にも対応
+            # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
+            if uv run python scripts/process_data.py --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
+              echo "✅ データ処理: 成功"
+              echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
 
-              echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
+              # stats.jsonから処理結果を抽出
+              if [ -f "data/processed/stats.json" ]; then
+                # JSON形式を事前検証（jq -eで検証し、不正な場合は警告）
+                if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
+                  echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
+                  STATS_TOTAL="0"
+                  STATS_SUCCEEDED="0"
+                  STATS_FAILED="0"
+                else
+                  STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
+                  STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
+                  STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
+                fi
 
-              # エラー詳細を表示（最大5件）
-              ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
-              if [ "${ERROR_COUNT}" -gt 0 ]; then
-                echo "⚠️ エラー詳細:"
-                jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
-                if [ "${ERROR_COUNT}" -gt 5 ]; then
-                  echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
+                # 環境変数を一括設定（shellcheck SC2129対応）
+                {
+                  echo "STATS_TOTAL=${STATS_TOTAL}"
+                  echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
+                  echo "STATS_FAILED=${STATS_FAILED}"
+                } >> "$GITHUB_ENV"
+
+                echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
+
+                # エラー詳細を表示（最大5件）
+                ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
+                if [ "${ERROR_COUNT}" -gt 0 ]; then
+                  echo "⚠️ エラー詳細:"
+                  jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
+                  if [ "${ERROR_COUNT}" -gt 5 ]; then
+                    echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
+                  fi
                 fi
               fi
-            fi
-          else
-            echo "❌ データ処理: 失敗"
-            echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
-
-            # 強制マージオプションが有効な場合は警告のみでワークフローを継続
-            if [ "$FORCE_MERGE_ON_FAILURE" = "true" ]; then
-              echo "⚠️ 警告: 強制マージオプションが有効です。データ処理に失敗しましたが、ワークフローを継続します。"
-              echo "⚠️ データ品質が保証されない可能性があります。"
             else
-              # データ処理は重要なステップなので、失敗時はワークフローを停止
-              echo "💥 データ処理に失敗したため、ワークフローを停止します。"
-              echo "💡 強制的にマージしたい場合は、force_merge_on_failure オプションを有効にして再実行してください。"
-              exit 1
+              echo "❌ データ処理: 失敗"
+              echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
+
+              # 強制マージオプションが有効な場合は警告のみでワークフローを継続
+              if [ "$FORCE_MERGE_ON_FAILURE" = "true" ]; then
+                echo "⚠️ 警告: 強制マージオプションが有効です。データ処理に失敗しましたが、ワークフローを継続します。"
+                echo "⚠️ データ品質が保証されない可能性があります。"
+              else
+                # データ処理は重要なステップなので、失敗時はワークフローを停止
+                echo "💥 データ処理に失敗したため、ワークフローを停止します。"
+                echo "💡 強制的にマージしたい場合は、force_merge_on_failure オプションを有効にして再実行してください。"
+                exit 1
+              fi
             fi
           fi
 

@@ -6,7 +6,7 @@ UTF-8変換・CSV分割・正規化機能を提供するモジュール。
 import csv
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -26,11 +26,18 @@ class ConversionResult:
 
 @dataclass
 class NormalizationResult:
-    """正規化結果を表すデータクラス"""
+    """正規化結果を表すデータクラス
+
+    Attributes:
+        success: 処理が成功したかどうか
+        source_path: 処理元ファイルパス
+        output_files: 生成された出力ファイルのリスト（デフォルトは空リスト）
+        error: エラーメッセージ（失敗時のみ）
+    """
 
     success: bool
     source_path: Path | None = None
-    output_files: list[Path] | None = None
+    output_files: list[Path] = field(default_factory=list)
     error: str | None = None
 
 
