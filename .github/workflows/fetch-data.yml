@@ -186,6 +186,28 @@ jobs:
           # 実行結果の保存
           echo "FETCH_RESULT=$?" >> $GITHUB_ENV
 
+      - name: Process epidemic data
+        id: process
+        if: env.DRY_RUN != 'true'
+        run: |
+          echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
+
+          # データ処理の実行（全ファイル処理）
+          if uv run python scripts/process_data.py --all 2>&1 | tee data/logs/process_${FETCH_TIMESTAMP}.log; then
+            echo "✅ データ処理: 成功"
+            echo "PROCESS_RESULT=success" >> $GITHUB_ENV
+
+            # stats.jsonが生成されているか確認
+            if [ -f "data/processed/stats.json" ]; then
+              echo "STATS_FILE=data/processed/stats.json" >> $GITHUB_ENV
+              echo "📊 処理統計ファイル: data/processed/stats.json"
+              cat data/processed/stats.json
+            fi
+          else
+            echo "⚠️ データ処理: エラー"
+            echo "PROCESS_RESULT=failed" >> $GITHUB_ENV
+          fi
+
       - name: Verify data continuity
         id: verify
         if: env.VERIFY_CONTINUITY == 'true'
@@ -235,32 +257,46 @@ jobs:
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
 
             # 新規ファイルと変更ファイルを分けて集計
-            # 新規CSVファイル数の取得
-            NEW_CSV_FILES=$(git diff --cached --name-status | grep '^A.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            # 新規rawファイル数（data/raw/*.csv）
+            NEW_RAW_FILES=$(git diff --cached --name-status | grep '^A\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
 
-            # 変更されたCSVファイル数の取得
-            MODIFIED_CSV_FILES=$(git diff --cached --name-status | grep '^M.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            # 変更されたrawファイル数
+            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep '^M\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 処理済みファイル数（data/processed/normalized_*.csv）
+            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep '^A\s\+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 合計CSVファイル数
             TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 空文字列や非数値の場合のフォールバック
-            if ! [[ "$NEW_CSV_FILES" =~ ^[0-9]+$ ]]; then
-              NEW_CSV_FILES="0"
+            if ! [[ "$NEW_RAW_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_RAW_FILES="0"
             fi
-            if ! [[ "$MODIFIED_CSV_FILES" =~ ^[0-9]+$ ]]; then
-              MODIFIED_CSV_FILES="0"
+            if ! [[ "$MODIFIED_RAW_FILES" =~ ^[0-9]+$ ]]; then
+              MODIFIED_RAW_FILES="0"
+            fi
+            if ! [[ "$NEW_PROCESSED_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_PROCESSED_FILES="0"
             fi
             if ! [[ "$TOTAL_CSV_FILES" =~ ^[0-9]+$ ]]; then
               TOTAL_CSV_FILES="0"
             fi
 
+            # fetch-data用の変数名を設定（後方互換性のため）
+            NEW_CSV_FILES=$NEW_RAW_FILES
+            MODIFIED_CSV_FILES=$MODIFIED_RAW_FILES
+
             echo "NEW_CSV_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
             echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
+            echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
             echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
-            echo "New CSV files: $NEW_CSV_FILES"
-            echo "Modified CSV files: $MODIFIED_CSV_FILES"
-            echo "Total CSV files: $TOTAL_CSV_FILES"
+
+            echo "📊 変更統計:"
+            echo "  - 新規rawファイル: $NEW_RAW_FILES"
+            echo "  - 更新rawファイル: $MODIFIED_RAW_FILES"
+            echo "  - 処理済みファイル: $NEW_PROCESSED_FILES"
+            echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
           fi
 
       - name: Create Pull Request
@@ -274,6 +310,7 @@ jobs:
           NEW_FILES: ${{ env.NEW_CSV_FILES }}
           MODIFIED_FILES: ${{ env.MODIFIED_CSV_FILES }}
           CHANGED_FILES: ${{ env.CSV_FILES }}
+          NEW_PROCESSED_FILES: ${{ env.NEW_PROCESSED_FILES }}
         run: |
           # 共通スクリプトを呼び出し
           bash scripts/create_pr.sh "fetch-data" "手動/スケジュール実行"
@@ -338,18 +375,29 @@ jobs:
 
           if [ "$HAS_CHANGES" = "true" ]; then
             echo "### ✅ 変更" >> $GITHUB_STEP_SUMMARY
-            if [ "$NEW_CSV_FILES" -gt 0 ] && [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
-              echo "- **新規CSVファイル数**: $NEW_CSV_FILES" >> $GITHUB_STEP_SUMMARY
-              echo "- **変更CSVファイル数**: $MODIFIED_CSV_FILES" >> $GITHUB_STEP_SUMMARY
-              echo "- **合計CSVファイル数**: $CSV_FILES" >> $GITHUB_STEP_SUMMARY
-            elif [ "$NEW_CSV_FILES" -gt 0 ]; then
-              echo "- **新規CSVファイル数**: $NEW_CSV_FILES" >> $GITHUB_STEP_SUMMARY
-            elif [ "$MODIFIED_CSV_FILES" -gt 0 ]; then
-              echo "- **変更CSVファイル数**: $MODIFIED_CSV_FILES" >> $GITHUB_STEP_SUMMARY
+            echo "#### 生データ（data/raw/）" >> $GITHUB_STEP_SUMMARY
+            if [ "${NEW_CSV_FILES:-0}" -gt 0 ] && [ "${MODIFIED_CSV_FILES:-0}" -gt 0 ]; then
+              echo "- **新規**: ${NEW_CSV_FILES}件" >> $GITHUB_STEP_SUMMARY
+              echo "- **更新**: ${MODIFIED_CSV_FILES}件" >> $GITHUB_STEP_SUMMARY
+            elif [ "${NEW_CSV_FILES:-0}" -gt 0 ]; then
+              echo "- **新規**: ${NEW_CSV_FILES}件" >> $GITHUB_STEP_SUMMARY
+            elif [ "${MODIFIED_CSV_FILES:-0}" -gt 0 ]; then
+              echo "- **更新**: ${MODIFIED_CSV_FILES}件" >> $GITHUB_STEP_SUMMARY
             else
-              echo "- **CSVファイル変更**: なし" >> $GITHUB_STEP_SUMMARY
+              echo "- 変更なし" >> $GITHUB_STEP_SUMMARY
             fi
+
+            if [ "${NEW_PROCESSED_FILES:-0}" -gt 0 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "#### 処理済みデータ（data/processed/）" >> $GITHUB_STEP_SUMMARY
+              echo "- **処理済み**: ${NEW_PROCESSED_FILES}件" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**合計**: ${CSV_FILES:-0}ファイル" >> $GITHUB_STEP_SUMMARY
+
             if [ -n "$PR_URL" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
               echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
             fi
           else
@@ -359,5 +407,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📁 ストレージ情報" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          du -sh data/raw/ 2>/dev/null || echo "N/A" >> $GITHUB_STEP_SUMMARY
+          echo "生データ: $(du -sh data/raw/ 2>/dev/null | cut -f1 || echo 'N/A')" >> $GITHUB_STEP_SUMMARY
+          echo "処理済み: $(du -sh data/processed/ 2>/dev/null | cut -f1 || echo 'N/A')" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
