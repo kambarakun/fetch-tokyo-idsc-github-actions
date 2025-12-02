@@ -687,7 +687,7 @@ class DataProcessor:
                 hc_total_row = self._extract_total_row(files["health_center"])
                 md_total_row = self._extract_total_row(files["medical_district"])
 
-                if not all([age_total_row, hc_total_row, md_total_row]):
+                if not all((age_total_row, hc_total_row, md_total_row)):
                     logger.debug(f"合計行が見つかりません: {period_key}")
                     continue
 

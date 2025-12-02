@@ -213,21 +213,24 @@ jobs:
 
             # stats.jsonから処理結果を抽出
             if [ -f "data/processed/stats.json" ]; then
-              STATS_TOTAL=$(jq -r '.total' data/processed/stats.json)
-              STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json)
-              STATS_FAILED=$(jq -r '.failed' data/processed/stats.json)
+              STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
+              STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
+              STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
 
-              echo "STATS_TOTAL=${STATS_TOTAL}" >> "$GITHUB_ENV"
-              echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}" >> "$GITHUB_ENV"
-              echo "STATS_FAILED=${STATS_FAILED}" >> "$GITHUB_ENV"
+              # 環境変数を一括設定（shellcheck SC2129対応）
+              {
+                echo "STATS_TOTAL=${STATS_TOTAL}"
+                echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
+                echo "STATS_FAILED=${STATS_FAILED}"
+              } >> "$GITHUB_ENV"
 
               echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
 
               # エラー詳細を表示（最大5件）
-              ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json)
+              ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
               if [ "${ERROR_COUNT}" -gt 0 ]; then
                 echo "⚠️ エラー詳細:"
-                jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json
+                jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
                 if [ "${ERROR_COUNT}" -gt 5 ]; then
                   echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
                 fi

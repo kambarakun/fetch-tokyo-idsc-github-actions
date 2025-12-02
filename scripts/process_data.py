@@ -26,7 +26,7 @@ from pathlib import Path
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.processors.data_processor import DataProcessor
+from src.processors.data_processor import DataProcessor, NormalizationResult
 
 # ログ設定
 logging.basicConfig(
@@ -37,7 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main():  # noqa: PLR0912, PLR0915
+def main() -> None:  # noqa: PLR0912, PLR0915
     """メイン処理"""
     parser = argparse.ArgumentParser(
         description="東京都感染症データの処理スクリプト",
@@ -103,9 +103,14 @@ def main():  # noqa: PLR0912, PLR0915
             # 処理結果をstats.jsonに保存
             stats_file = data_dir / "processed" / "stats.json"
             stats_file.parent.mkdir(parents=True, exist_ok=True)
-            with stats_file.open("w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
-            logger.info(f"📊 処理統計を保存: {stats_file}")
+            try:
+                with stats_file.open("w", encoding="utf-8") as f:
+                    json.dump(result, f, ensure_ascii=False, indent=2)
+                logger.info(f"📊 処理統計を保存: {stats_file}")
+            except OSError:
+                # stats.json保存失敗は本体処理とは独立
+                logger.exception(f"処理統計の保存に失敗しました: {stats_file}")
+                logger.warning("処理統計の保存に失敗しましたが、データ処理自体は完了しています")
 
             # 最終結果サマリー
             logger.info("\n" + "=" * 60)
@@ -131,13 +136,13 @@ def main():  # noqa: PLR0912, PLR0915
 
             # ファイルがraw/にある場合のみ処理
             if file_path.parent.name == "raw":
-                result = processor.process_file(file_path)
-                if result.success:
-                    logger.info(f"✅ 処理成功: {len(result.output_files)}ファイル生成")
-                    for output_file in result.output_files:
+                single_result: NormalizationResult = processor.process_file(file_path)
+                if single_result.success:
+                    logger.info(f"✅ 処理成功: {len(single_result.output_files)}ファイル生成")
+                    for output_file in single_result.output_files:
                         logger.info(f"  - {output_file.name}")
                 else:
-                    logger.error(f"❌ 処理失敗: {result.error}")
+                    logger.error(f"❌ 処理失敗: {single_result.error}")
             else:
                 logger.error("ファイルはdata/raw/配下である必要があります")
                 sys.exit(1)
