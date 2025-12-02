@@ -196,7 +196,7 @@ class DataProcessor:
 
             # 各性別セクションを処理
             for section in gender_sections:
-                output_file = self._save_gender_section(lines, source_file, section, metadata)
+                output_file = self._save_gender_section(lines, section, metadata)
                 if output_file:
                     output_files.append(output_file)
                     gender = section["gender"]
@@ -213,11 +213,11 @@ class DataProcessor:
             # totalファイルが空の場合、male + female で計算
             if total_file and male_file and female_file and self._is_empty_data_file(total_file):
                 logger.info(f"totalファイルが空のため、male + female で計算します: {total_file.name}")
-                self._calculate_total_from_gender(male_file, female_file, total_file, metadata)
+                self._calculate_total_from_gender(male_file, female_file, total_file)
 
             # totalファイルが元データにある場合、計算結果と一致するか検証
             if total_file and male_file and female_file and not self._is_empty_data_file(total_file):
-                self._verify_total_calculation(male_file, female_file, total_file, metadata)
+                self._verify_total_calculation(male_file, female_file, total_file)
 
             logger.info(f"定点監視処理成功: {source_file.name} → {len(output_files)}ファイル")
 
@@ -296,14 +296,11 @@ class DataProcessor:
 
         return sections
 
-    def _save_gender_section(
-        self, lines: list[str], source_file: Path, section: dict[str, Any], metadata: dict[str, Any]
-    ) -> Path | None:
+    def _save_gender_section(self, lines: list[str], section: dict[str, Any], metadata: dict[str, Any]) -> Path | None:
         """性別セクションを保存
 
         Args:
             lines: UTF-8変換済みの行リスト
-            source_file: 元ファイル
             section: セクション情報
             metadata: ファイルメタデータ
 
@@ -497,16 +494,13 @@ class DataProcessor:
             total_row.append(str(male_val + female_val))
         return total_row
 
-    def _calculate_total_from_gender(
-        self, male_file: Path, female_file: Path, total_file: Path, metadata: dict[str, Any]
-    ) -> None:
+    def _calculate_total_from_gender(self, male_file: Path, female_file: Path, total_file: Path) -> None:
         """male + female でtotalを計算
 
         Args:
             male_file: 男性データファイル
             female_file: 女性データファイル
             total_file: 合計ファイル（上書きされる）
-            metadata: メタデータ
         """
         try:
             # ヘルパーメソッドでCSV読み込み
@@ -537,16 +531,13 @@ class DataProcessor:
         except Exception:
             logger.exception(f"total計算失敗: {total_file.name}")
 
-    def _verify_total_calculation(
-        self, male_file: Path, female_file: Path, total_file: Path, metadata: dict[str, Any]
-    ) -> None:
+    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:
         """元データのtotalが male + female と一致するか検証
 
         Args:
             male_file: 男性データファイル
             female_file: 女性データファイル
             total_file: 合計ファイル
-            metadata: メタデータ
         """
         try:
             # ヘルパーメソッドでCSV読み込み

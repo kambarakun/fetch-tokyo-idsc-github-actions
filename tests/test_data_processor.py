@@ -295,10 +295,8 @@ class TestDataProcessor(unittest.TestCase):
         female_file.write_text("年齢区分,インフルエンザ\n0歳,12\n", encoding="utf-8")
         total_file.write_text("年齢区分,インフルエンザ\n", encoding="utf-8")
 
-        metadata = {"category": "test", "year": "2025", "period": "01"}
-
         # 警告ログが出て、処理が中断される
-        self.processor._calculate_total_from_gender(male_file, female_file, total_file, metadata)
+        self.processor._calculate_total_from_gender(male_file, female_file, total_file)
 
         # totalファイルはヘッダーのみのまま（処理されない）
         total_content = total_file.read_text(encoding="utf-8")
@@ -318,10 +316,8 @@ class TestDataProcessor(unittest.TestCase):
         female_file.write_text("年齢区分,インフルエンザ\n0歳,5\n", encoding="utf-8")
         total_file.write_text("年齢区分,インフルエンザ\n0歳,20\n", encoding="utf-8")
 
-        metadata = {"category": "test", "year": "2025", "period": "01"}
-
         # 警告ログが出る（不一致検出）
-        self.processor._verify_total_calculation(male_file, female_file, total_file, metadata)
+        self.processor._verify_total_calculation(male_file, female_file, total_file)
 
         # エラーにはならず、警告のみ
 
