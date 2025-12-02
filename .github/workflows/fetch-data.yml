@@ -203,10 +203,13 @@ jobs:
         id: process
         if: env.DRY_RUN != 'true'
         run: |
+          # パイプラインの終了コードを正しく伝播（pipefailオプション）
+          set -o pipefail
+
           echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
 
           # データ処理の実行（全ファイル処理）
-          # 注: process_data.pyは失敗時にexit 1を返すため、パイプラインの最終終了コードを確認
+          # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
           if uv run python scripts/process_data.py --all 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
             echo "✅ データ処理: 成功"
             echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
