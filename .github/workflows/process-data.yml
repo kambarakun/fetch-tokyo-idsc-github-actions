@@ -126,14 +126,15 @@ jobs:
             # カンマ区切りをスペース区切りに変換
             IFS=',' read -ra FILES <<< "$TARGET_FILES"
             PROCESS_CMD+=(--files "${FILES[@]}")
+          else
+            # ターゲットファイルが指定されていない場合は全ファイルを処理
+            PROCESS_CMD+=(--all)
           fi
 
           # DRY_RUNがtrueの場合のみ--dry-runフラグを追加
           if [ "$DRY_RUN" = "true" ]; then
             PROCESS_CMD+=(--dry-run)
           fi
-
-          PROCESS_CMD+=(--log-file "data/logs/process_${PROCESS_TIMESTAMP}.log")
 
           echo "Executing: ${PROCESS_CMD[@]}"
 
