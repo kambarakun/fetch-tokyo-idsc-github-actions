@@ -44,7 +44,7 @@
 
 ```text
 data/
-├── raw/                                        # 生データ（Shift_JIS）
+├── raw/                                        # 生データ（Shift_JIS エンコーディング）
 │   ├── .metadata/                             # メタデータ保存用
 │   │   ├── hash_index.json                    # 重複チェック用ハッシュインデックス
 │   │   └── *.json                             # 各データファイルのメタデータ
@@ -52,16 +52,68 @@ data/
 │   ├── sentinel_weekly_age_2025_01.csv        # 2025年第1週の年齢群データ
 │   ├── notifiable_weekly_2025_01.csv          # 2025年第1週の全数把握データ
 │   └── sentinel_monthly_age_2025_01.csv       # 2025年1月の月次年齢群データ
-├── processed/                                  # 処理済みデータ
+├── processed/                                  # 処理済みデータ（UTF-8、性別分割済み）
+│   ├── .metadata/                             # 処理ログ
+│   │   └── processing_log.json                # 処理履歴
+│   ├── normalized_notifiable_weekly_2000_01.csv              # 全数報告（UTF-8、メタデータ除去）
+│   ├── normalized_sentinel_weekly_age_male_2000_01.csv       # 定点・年齢群・男性（UTF-8）
+│   ├── normalized_sentinel_weekly_age_female_2000_01.csv     # 定点・年齢群・女性（UTF-8）
+│   ├── normalized_sentinel_weekly_age_total_2000_01.csv      # 定点・年齢群・合計（UTF-8、検証済み）
+│   ├── normalized_sentinel_weekly_medical_district_male_2000_01.csv   # 定点・医療圏・男性（UTF-8）
+│   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv # 定点・医療圏・女性（UTF-8）
+│   ├── normalized_sentinel_weekly_medical_district_total_2000_01.csv  # 定点・医療圏・合計（UTF-8、計算値*）
+│   └── normalized_sentinel_weekly_gender_2000_01.csv         # 定点・性別（UTF-8、性別列形式のため分割なし）
 └── logs/                                       # ログファイル
 ```
 
+> **注:** `*` 印のファイル（total）は、`medical_district` の場合は male + female の計算値です。他のデータタイプは元データの値を使用します。
+
 ### ファイル命名規則
+
+**生データ（data/raw/）:**
 
 - **共通パターン**: `{data_type}_{year}_{period:02d}.csv`
   - 週次データ例: `sentinel_weekly_gender_2025_01.csv` (2025年第1週)
   - 月次データ例: `sentinel_monthly_age_2025_01.csv` (2025年1月)
   - 全数把握例: `notifiable_weekly_2025_01.csv` (2025年第1週)
+
+**処理済みデータ（data/processed/）:**
+
+- **全数報告**: `normalized_{data_type}_{year}_{period}.csv`
+  - 例: `normalized_notifiable_weekly_2000_01.csv`
+- **定点監視（性別分割あり）**: `normalized_{data_type}_{gender}_{year}_{period}.csv`
+  - 例: `normalized_sentinel_weekly_age_male_2000_01.csv`
+  - gender: `male` (男性), `female` (女性), `total` (男女合計)
+- **定点監視（分割なし）**: `normalized_{data_type}_{year}_{period}.csv`
+  - 例: `normalized_sentinel_weekly_gender_2000_01.csv`
+
+### 🔄 データ処理の詳細
+
+`data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理を施したファイルが格納されます：
+
+**処理内容:**
+
+1. **エンコーディング変換**: Shift_JIS → UTF-8
+   - **raw/**: Shift_JIS エンコーディング（東京都IDSCの元データ形式を維持）
+   - **processed/**: UTF-8 エンコーディング（Python、R、Excel等の解析ツールで扱いやすい形式）
+2. **メタデータ除去**: ヘッダー情報（集計期間等）や注釈行（`*` で始まる行）を除去し、純粋なデータ部分のみを抽出
+3. **性別データ分割**: 性別セクション（男性・女性・男女合計）がある場合、3つのファイルに分割
+   - 例: `sentinel_weekly_age_2000_01.csv` → `normalized_sentinel_weekly_age_male_2000_01.csv`, `normalized_sentinel_weekly_age_female_2000_01.csv`, `normalized_sentinel_weekly_age_total_2000_01.csv`
+4. **男女合計の計算・検証**:
+   - 元データに男女合計がある場合: male + female = total の一致を検証
+   - 元データに男女合計がない場合（`medical_district`）: **male + female で計算して total を生成**
+
+**ファイル形式:**
+
+- すべて UTF-8 エンコーディング
+- CSV形式（ヘッダー行 + データ行）
+- メタデータ・注釈なし（純粋なデータのみ）
+
+**注意事項:**
+
+- `sentinel_*_medical_district` の `total` ファイルは、元データに男女合計が含まれていないため、**男性データと女性データを加算して計算生成**しています
+- 他のデータタイプ（`age`, `health_center` 等）の `total` は元データの値を使用し、male + female との一致を検証しています
+- 定点数の列など、加算が意味をなさない列は検証対象外です
 
 ## 🔄 GitHub Actionsワークフロー
 

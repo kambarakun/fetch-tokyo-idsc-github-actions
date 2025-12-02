@@ -70,6 +70,149 @@ uv.lock                     # 依存関係のロックファイル
 
 ==============================================================================
 
+## 📊 データ処理フロー（Mermaid）
+
+### 全体フロー
+
+```mermaid
+flowchart TD
+    Start[開始] --> CheckRaw{data/raw/<br/>に生データあり?}
+    CheckRaw -->|No| FetchData[データ取得<br/>fetch_data.py]
+    CheckRaw -->|Yes| ProcessData[データ処理<br/>process_data.py]
+    FetchData --> ProcessData
+
+    ProcessData --> ReadFile[Shift_JISファイル読み込み]
+    ReadFile --> ConvertUTF8[UTF-8変換]
+    ConvertUTF8 --> ExtractMeta[ファイル名から<br/>メタデータ抽出]
+    ExtractMeta --> CheckType{データ種別}
+
+    CheckType -->|notifiable| ProcessNotifiable[全数報告処理<br/>_process_notifiable]
+    CheckType -->|sentinel_gender| ProcessSimple[定点監視<br/>単純処理<br/>_process_sentinel_simple]
+    CheckType -->|sentinel_age<br/>sentinel_health_center<br/>sentinel_medical_district| ProcessSentinel[定点監視<br/>性別分割処理<br/>_process_sentinel]
+
+    ProcessNotifiable --> SaveNotifiable[1ファイル保存<br/>normalized_notifiable_*]
+    ProcessSimple --> SaveSimple[1ファイル保存<br/>normalized_sentinel_gender_*]
+
+    ProcessSentinel --> DetectGender[性別セクション検出<br/>_detect_gender_sections]
+    DetectGender --> ExtractMale[男性セクション抽出]
+    DetectGender --> ExtractFemale[女性セクション抽出]
+    DetectGender --> ExtractTotal[合計セクション抽出]
+
+    ExtractMale --> SaveMale[male_*.csv保存]
+    ExtractFemale --> SaveFemale[female_*.csv保存]
+    ExtractTotal --> CheckEmpty{totalファイル<br/>が空?}
+
+    CheckEmpty -->|Yes| CalcTotal[male + female<br/>で計算<br/>_calculate_total_from_gender]
+    CheckEmpty -->|No| VerifyTotal[male + female = total<br/>を検証<br/>_verify_total_calculation]
+
+    CalcTotal --> SaveTotal[total_*.csv保存]
+    VerifyTotal --> SaveTotal
+
+    SaveNotifiable --> LogProcess[処理ログ記録<br/>_log_processing]
+    SaveSimple --> LogProcess
+    SaveTotal --> LogProcess
+
+    LogProcess --> CheckMore{他のファイルあり?}
+    CheckMore -->|Yes| ReadFile
+    CheckMore -->|No| Complete[完了]
+```
+
+### 性別セクション検出の詳細
+
+```mermaid
+flowchart TD
+    Start[CSVファイル<br/>全行読み込み] --> ScanLines[行をスキャン]
+
+    ScanLines --> CheckLine{行に<br/>「性別」が<br/>含まれる?}
+    CheckLine -->|No| NextLine[次の行へ]
+    CheckLine -->|Yes| ParseGender[性別を抽出]
+
+    ParseGender --> CheckMale{「男性」?}
+    ParseGender --> CheckFemale{「女性」?}
+    ParseGender --> CheckTotal{「男女合計」?}
+
+    CheckMale -->|Yes| RecordMale[maleセクション記録<br/>start_line: N]
+    CheckFemale -->|Yes| RecordFemale[femaleセクション記録<br/>start_line: N]
+    CheckTotal -->|Yes| RecordTotal[totalセクション記録<br/>start_line: N]
+
+    RecordMale --> NextLine
+    RecordFemale --> NextLine
+    RecordTotal --> NextLine
+    NextLine --> MoreLines{さらに行がある?}
+
+    MoreLines -->|Yes| ScanLines
+    MoreLines -->|No| ReturnSections[性別セクション<br/>リスト返却]
+```
+
+### データ行抽出の詳細
+
+```mermaid
+flowchart TD
+    Start[セクション開始行] --> FindHeader[ヘッダー行を探索<br/>開始行+20行範囲]
+
+    FindHeader --> CheckDisease{疾病キーワード<br/>2個以上?}
+    CheckDisease -->|No| NextSearch[次の行を探索]
+    CheckDisease -->|Yes| FoundHeader[ヘッダー行確定]
+
+    NextSearch --> SearchComplete{20行探索完了?}
+    SearchComplete -->|No| FindHeader
+    SearchComplete -->|Yes| NoHeader[ヘッダー行なし<br/>空リスト返却]
+
+    FoundHeader --> InitData[ヘッダー行を<br/>データリストに追加]
+    InitData --> ReadNext[次の行を読み込み]
+
+    ReadNext --> CheckEmpty{空行?}
+    CheckEmpty -->|Yes| ReadNext
+    CheckEmpty -->|No| CheckComment{注釈行<br/>先頭が*?}
+
+    CheckComment -->|Yes| ReadNext
+    CheckComment -->|No| CheckSection{次セクション<br/>開始行?}
+
+    CheckSection -->|Yes| ReturnData[データリスト返却]
+    CheckSection -->|No| AddLine[データリストに追加]
+
+    AddLine --> CheckTotal{「合計」行?}
+    CheckTotal -->|Yes| ReturnData
+    CheckTotal -->|No| MoreLines{さらに行がある?}
+
+    MoreLines -->|Yes| ReadNext
+    MoreLines -->|No| ReturnData
+```
+
+### 男女合計計算の詳細
+
+```mermaid
+flowchart TD
+    Start[male_*.csv<br/>female_*.csv<br/>total_*.csv] --> ReadMale[maleデータ読み込み<br/>_read_csv_data]
+    ReadMale --> ReadFemale[femaleデータ読み込み<br/>_read_csv_data]
+
+    ReadFemale --> CheckRows{行数一致?}
+    CheckRows -->|No| WarnRows[警告ログ出力<br/>処理中断]
+    CheckRows -->|Yes| InitTotal[ヘッダー行を<br/>totalデータに追加]
+
+    InitTotal --> LoopRows[各データ行を処理]
+    LoopRows --> SumRow[行を加算<br/>_sum_rows]
+
+    SumRow --> ParseMale[male値をパース<br/>_parse_int]
+    SumRow --> ParseFemale[female値をパース<br/>_parse_int]
+
+    ParseMale --> Add[male + female]
+    ParseFemale --> Add
+
+    Add --> AddToTotal[total行に追加]
+    AddToTotal --> MoreRows{さらに行がある?}
+
+    MoreRows -->|Yes| LoopRows
+    MoreRows -->|No| WriteTotal[totalファイルに書き込み]
+
+    WriteTotal --> LogSuccess[成功ログ出力]
+    LogSuccess --> Complete[完了]
+
+    WarnRows --> Complete
+```
+
+==============================================================================
+
 ## 🔧 ワークフロー別クイックコマンド
 
 ### 🔍 ファイル検索
@@ -422,6 +565,101 @@ data/
 ├── processed/
 └── logs/
 ```
+
+### 5.4 Mermaidによるフロー図の作成規約（必須）
+
+**基本原則**: MDファイル内でフロー、シーケンス、状態遷移などを記述する場合は、**必ずMermaid記法を使用すること**。
+
+#### 必須事項
+
+1. **ASCIIアート図の禁止**
+
+   - `┌─┐`, `│ │`, `└─┘`, `→`, `▼` などのASCIIアート図は使用しない
+   - 既存のASCIIアート図を発見した場合は、Mermaidに変換する
+
+2. **Mermaidの使用が必須な場面**
+
+   - データフロー（システム全体の流れ）
+   - プロセスフロー（処理の手順）
+   - 状態遷移図
+   - シーケンス図（処理の時系列）
+   - ER図（データモデル）
+
+3. **推奨するMermaid記法**
+
+```markdown
+# フローチャート（最も一般的）
+
+\`\`\`mermaid
+flowchart TD
+Start[開始] --> Process[処理]
+Process --> End[終了]
+\`\`\`
+
+# シーケンス図（処理の時系列）
+
+\`\`\`mermaid
+sequenceDiagram
+User->>System: リクエスト
+System->>Database: クエリ
+Database-->>System: 結果
+System-->>User: レスポンス
+\`\`\`
+
+# 状態遷移図
+
+\`\`\`mermaid
+stateDiagram-v2
+[*] --> Idle
+Idle --> Processing: start
+Processing --> Complete: success
+Processing --> Error: failure
+Complete --> [*]
+Error --> [*]
+\`\`\`
+```
+
+4. **スタイリングの推奨**
+
+   - 重要なノードには色付けを行う
+   - `style NodeName fill:#f9f,stroke:#333,stroke-width:2px`
+   - データ保存場所: `#f9f` (ピンク)
+   - 処理中: `#bbf` (青)
+   - 完了: `#bfb` (緑)
+
+5. **アクセシビリティ**
+   - ノード名は日本語でOK（可読性優先）
+   - 改行は `<br/>` を使用
+
+#### 悪い例（ASCIIアート）❌
+
+```
+┌─────────────┐
+│ データ取得  │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ データ処理  │
+└──────┬──────┘
+```
+
+#### 良い例（Mermaid）✅
+
+```mermaid
+flowchart TD
+    Fetch[データ取得] --> Process[データ処理]
+    Process --> Save[保存]
+
+    style Save fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+#### 実装ガイドライン
+
+- **新規作成時**: 必ずMermaidを使用
+- **既存ドキュメント修正時**: ASCIIアートを見つけたらMermaidに変換
+- **レビュー時**: ASCIIアートがあればMermaidへの変換を指摘
+- **参照**: [Mermaid公式ドキュメント](https://mermaid.js.org/)
 
 ## 6. デバッグとトラブルシューティング
 
