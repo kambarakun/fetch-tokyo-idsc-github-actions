@@ -1,0 +1,393 @@
+name: 🔄 データ処理（raw→processed変換・手動実行）
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_files:
+        description: "📁 処理対象ファイル (カンマ区切りのパス。空欄=全rawファイル処理)"
+        required: false
+        default: ""
+      dry_run:
+        description: "🧪 テスト実行モード (処理のみ、コミット/PR作成なし)"
+        required: false
+        type: boolean
+        default: false
+      verify_output:
+        description: "🔍 出力データ検証 (処理済みデータの品質チェック)"
+        required: false
+        type: boolean
+        default: false
+      auto_merge:
+        description: "🔀 PR自動マージ (Branch protectionルールに従う)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  actions: read
+  pull-requests: write
+
+concurrency:
+  group: process-data
+  cancel-in-progress: true
+
+jobs:
+  process-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # 1時間制限
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Verify lockfile is up-to-date
+        run: uv lock --check
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create directories
+        run: |
+          mkdir -p data/raw data/processed data/logs
+          mkdir -p config
+
+      - name: Set environment variables
+        run: |
+          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+          echo "PROCESS_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+
+      - name: Prepare processing parameters
+        id: params
+        run: |
+          TARGET_FILES="${{ github.event.inputs.target_files }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          VERIFY_OUTPUT="${{ github.event.inputs.verify_output }}"
+          AUTO_MERGE="${{ github.event.inputs.auto_merge }}"
+
+          # デフォルト値の設定
+          if [ -z "$DRY_RUN" ]; then
+            DRY_RUN="false"
+          fi
+
+          if [ -z "$VERIFY_OUTPUT" ]; then
+            VERIFY_OUTPUT="false"
+          fi
+
+          if [ -z "$AUTO_MERGE" ]; then
+            AUTO_MERGE="false"
+          fi
+
+          # 環境変数として設定
+          echo "TARGET_FILES=$TARGET_FILES" >> $GITHUB_ENV
+          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+          echo "VERIFY_OUTPUT=$VERIFY_OUTPUT" >> $GITHUB_ENV
+          echo "AUTO_MERGE=$AUTO_MERGE" >> $GITHUB_ENV
+
+          echo "Processing parameters:"
+          echo "  Target files: ${TARGET_FILES:-ALL raw/*.csv}"
+          echo "  Dry run: $DRY_RUN"
+          echo "  Verify output: $VERIFY_OUTPUT"
+          echo "  Auto merge: $AUTO_MERGE"
+
+      - name: Process epidemic data
+        id: process
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+
+          echo "Starting data processing at $PROCESS_TIMESTAMP"
+
+          # コマンドの構築
+          PROCESS_CMD=(uv run python scripts/process_data.py)
+
+          # ターゲットファイルの指定
+          if [ -n "$TARGET_FILES" ]; then
+            # カンマ区切りをスペース区切りに変換
+            IFS=',' read -ra FILES <<< "$TARGET_FILES"
+            PROCESS_CMD+=(--files "${FILES[@]}")
+          fi
+
+          # DRY_RUNがtrueの場合のみ--dry-runフラグを追加
+          if [ "$DRY_RUN" = "true" ]; then
+            PROCESS_CMD+=(--dry-run)
+          fi
+
+          PROCESS_CMD+=(--log-file "data/logs/process_${PROCESS_TIMESTAMP}.log")
+
+          echo "Executing: ${PROCESS_CMD[@]}"
+
+          # メインスクリプトの実行
+          if "${PROCESS_CMD[@]}" 2>&1 | tee data/logs/console_${PROCESS_TIMESTAMP}.log; then
+            echo "✅ データ処理: 成功"
+            echo "PROCESS_RESULT=success" >> $GITHUB_ENV
+
+            # stats.jsonから処理結果を抽出
+            if [ -f "data/processed/stats.json" ]; then
+              if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
+                echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
+                STATS_TOTAL="0"
+                STATS_SUCCEEDED="0"
+                STATS_FAILED="0"
+              else
+                STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
+                STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
+                STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
+              fi
+
+              {
+                echo "STATS_TOTAL=${STATS_TOTAL}"
+                echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
+                echo "STATS_FAILED=${STATS_FAILED}"
+              } >> "$GITHUB_ENV"
+
+              echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
+
+              # エラー詳細を表示（最大5件）
+              ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
+              if [ "${ERROR_COUNT}" -gt 0 ]; then
+                echo "⚠️ エラー詳細:"
+                jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
+                if [ "${ERROR_COUNT}" -gt 5 ]; then
+                  echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
+                fi
+              fi
+            fi
+          else
+            echo "❌ データ処理: 失敗"
+            echo "PROCESS_RESULT=failed" >> $GITHUB_ENV
+            echo "💥 データ処理に失敗したため、ワークフローを停止します。"
+            exit 1
+          fi
+
+      - name: Create issue on processing failure
+        id: create_issue
+        if: env.PROCESS_RESULT == 'failed'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "📝 処理失敗のGitHub Issueを作成します..."
+
+          ISSUE_TITLE="[自動] データ処理失敗: $(date +'%Y-%m-%d %H:%M')"
+          ISSUE_BODY="データ処理ステップが失敗しました。
+
+          発生日時: $(date +'%Y-%m-%d %H:%M:%S %Z')
+          ワークフロー実行: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          コミット: ${GITHUB_SHA:0:7}
+          Branch: ${GITHUB_REF}
+          Actor: ${GITHUB_ACTOR}
+
+          対応方法:
+          1. ワークフローログで具体的なエラーメッセージを確認
+          2. 処理ログファイル: data/logs/process_${PROCESS_TIMESTAMP}.log
+          3. 問題を修正後、手動で再実行してください"
+
+          gh issue create \
+            --title "${ISSUE_TITLE}" \
+            --body "${ISSUE_BODY}" \
+            --label "bug,automated,data-processing" \
+            --assignee "${GITHUB_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
+
+      - name: Verify processed data
+        id: verify
+        if: env.VERIFY_OUTPUT == 'true' && env.PROCESS_RESULT == 'success'
+        run: |
+          echo "処理済みデータを検証しています..."
+
+          # 検証スクリプトの実行
+          if uv run python scripts/validate_data.py data/processed \
+              --format markdown \
+              --output "data/logs/validation_report_${PROCESS_TIMESTAMP}.md"; then
+
+            echo "✅ データ検証: 成功"
+            echo "VALIDATION_PASSED=true" >> $GITHUB_ENV
+
+            # レポートを表示
+            echo "## データ検証レポート" >> $GITHUB_STEP_SUMMARY
+            cat "data/logs/validation_report_${PROCESS_TIMESTAMP}.md" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ データ検証: 警告あり"
+            echo "VALIDATION_PASSED=false" >> $GITHUB_ENV
+
+            # レポートを表示
+            echo "## ⚠️ データ検証レポート - 警告あり" >> $GITHUB_STEP_SUMMARY
+            cat "data/logs/validation_report_${PROCESS_TIMESTAMP}.md" >> $GITHUB_STEP_SUMMARY
+
+            # テキスト形式のレポートも生成
+            uv run python scripts/validate_data.py data/processed \
+              --format text || true
+          fi
+
+      - name: Check for changes
+        id: changes
+        if: env.DRY_RUN != 'true'
+        run: |
+          # 変更の有無をチェック
+          git add data/
+
+          if git diff --cached --quiet; then
+            echo "No changes detected"
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+          else
+            echo "Changes detected"
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+
+            # 処理済みファイル数を集計
+            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep '^A\s\+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            MODIFIED_PROCESSED_FILES=$(git diff --cached --name-status | grep '^M\s\+data/processed/.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 空文字列や非数値の場合のフォールバック
+            if ! [[ "$NEW_PROCESSED_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_PROCESSED_FILES="0"
+            fi
+            if ! [[ "$MODIFIED_PROCESSED_FILES" =~ ^[0-9]+$ ]]; then
+              MODIFIED_PROCESSED_FILES="0"
+            fi
+            if ! [[ "$TOTAL_CSV_FILES" =~ ^[0-9]+$ ]]; then
+              TOTAL_CSV_FILES="0"
+            fi
+
+            echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
+            echo "MODIFIED_PROCESSED_FILES=$MODIFIED_PROCESSED_FILES" >> $GITHUB_ENV
+            echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+
+            echo "📊 変更統計:"
+            echo "  - 新規処理済みファイル: $NEW_PROCESSED_FILES"
+            echo "  - 更新処理済みファイル: $MODIFIED_PROCESSED_FILES"
+            echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
+          fi
+
+      - name: Create Pull Request
+        if: env.HAS_CHANGES == 'true' && env.DRY_RUN != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # process-data固有の変数をエクスポート
+          NEW_FILES: ${{ env.NEW_PROCESSED_FILES }}
+          MODIFIED_FILES: ${{ env.MODIFIED_PROCESSED_FILES }}
+          CHANGED_FILES: ${{ env.CSV_FILES }}
+          TARGET_FILES: ${{ env.TARGET_FILES }}
+          VERIFY_OUTPUT: ${{ env.VERIFY_OUTPUT }}
+          VALIDATION_PASSED: ${{ env.VALIDATION_PASSED }}
+        run: |
+          # 共通スクリプトを呼び出し
+          bash scripts/create_pr.sh "process-data" "手動実行"
+
+      - name: Create issue on error
+        if: failure() && env.DRY_RUN != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const issueBody = `## データ処理エラー
+
+            データ処理（raw→processed変換）でエラーが発生しました。
+
+            ### エラー情報
+            - **日時**: ${date}
+            - **ワークフロー実行**: ${runUrl}
+            - **対象ファイル**: ${process.env.TARGET_FILES || 'ALL raw/*.csv'}
+
+            ### 対応方法
+            1. 上記のワークフロー実行リンクからログを確認
+            2. エラー内容を特定
+            3. 必要に応じて手動で再実行
+
+            ### 自動ラベル
+            - data-processing
+            - error
+            - automated`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[自動通知] データ処理エラー - ${date}`,
+              body: issueBody,
+              labels: ['data-processing', 'error', 'automated']
+            });
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: process-logs-${{ env.PROCESS_TIMESTAMP }}
+          path: data/logs/
+          retention-days: 30
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 🔄 データ処理サマリー" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **実行日時**: $CURRENT_DATE ${{ env.PROCESS_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象ファイル**: ${TARGET_FILES:-ALL raw/*.csv}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "- **自動マージ**: ${AUTO_MERGE:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${STATS_TOTAL:-0}" -gt 0 ]; then
+            echo "### 📊 処理結果" >> $GITHUB_STEP_SUMMARY
+            echo "- **処理対象**: ${STATS_TOTAL}件" >> $GITHUB_STEP_SUMMARY
+            echo "- **成功**: ${STATS_SUCCEEDED}件" >> $GITHUB_STEP_SUMMARY
+            if [ "${STATS_FAILED:-0}" -gt 0 ]; then
+              echo "- **失敗**: ${STATS_FAILED}件 ⚠️" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$HAS_CHANGES" = "true" ]; then
+            echo "### ✅ 変更" >> $GITHUB_STEP_SUMMARY
+            echo "#### 処理済みデータ（data/processed/）" >> $GITHUB_STEP_SUMMARY
+            if [ "${NEW_PROCESSED_FILES:-0}" -gt 0 ] && [ "${MODIFIED_PROCESSED_FILES:-0}" -gt 0 ]; then
+              echo "- **新規**: ${NEW_PROCESSED_FILES}件" >> $GITHUB_STEP_SUMMARY
+              echo "- **更新**: ${MODIFIED_PROCESSED_FILES}件" >> $GITHUB_STEP_SUMMARY
+            elif [ "${NEW_PROCESSED_FILES:-0}" -gt 0 ]; then
+              echo "- **新規**: ${NEW_PROCESSED_FILES}件" >> $GITHUB_STEP_SUMMARY
+            elif [ "${MODIFIED_PROCESSED_FILES:-0}" -gt 0 ]; then
+              echo "- **更新**: ${MODIFIED_PROCESSED_FILES}件" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- 変更なし" >> $GITHUB_STEP_SUMMARY
+            fi
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**合計**: ${CSV_FILES:-0}ファイル" >> $GITHUB_STEP_SUMMARY
+
+            if [ -n "$PR_URL" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ℹ️ 変更なし" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📁 ストレージ情報" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "生データ: $(du -sh data/raw/ 2>/dev/null | cut -f1 || echo 'N/A')" >> $GITHUB_STEP_SUMMARY
+          echo "処理済み: $(du -sh data/processed/ 2>/dev/null | cut -f1 || echo 'N/A')" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
