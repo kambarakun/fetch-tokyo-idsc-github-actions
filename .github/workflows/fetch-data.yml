@@ -4,39 +4,39 @@ on:
   workflow_dispatch:
     inputs:
       data_types:
-        description: "データタイプ（カンマ区切り、空の場合は全て）"
+        description: "📊 データタイプ (カンマ区切り。空欄=全タイプ取得)"
         required: false
         default: ""
       start_year:
-        description: "開始年（デフォルト: 現在年）"
+        description: "📅 開始年 (デフォルト: 現在年)"
         required: false
         default: ""
       end_year:
-        description: "終了年（デフォルト: 現在年）"
+        description: "📅 終了年 (デフォルト: 現在年)"
         required: false
         default: ""
       dry_run:
-        description: "テスト実行（データ取得のみでコミットしない）"
+        description: "🧪 テスト実行モード (データ取得のみ、コミット/PR作成なし)"
         required: false
         type: boolean
         default: false
       skip_existing:
-        description: "既存ファイルをスキップ（新規データのみ取得）"
+        description: "⏭️ 増分取得モード (ON=欠損期間のみ取得 / OFF=既存期間も再取得して更新チェック)"
         required: false
         type: boolean
-        default: true
+        default: false
       verify_continuity:
-        description: "データの連続性を検証（欠損チェック）"
+        description: "🔍 データ連続性検証 (欠損データの有無をチェック)"
         required: false
         type: boolean
         default: false
       auto_merge:
-        description: "PRを自動マージする（Branch protectionルールに従う）"
+        description: "🔀 PR自動マージ (Branch protectionルールに従う)"
         required: false
         type: boolean
         default: false
       force_merge_on_failure:
-        description: "データ処理失敗時でもPRを作成してマージする（警告: データ品質が保証されない可能性があります）"
+        description: "⚠️ 処理失敗時も強制マージ (警告: データ品質が保証されない可能性あり)"
         required: false
         type: boolean
         default: false
@@ -123,9 +123,9 @@ jobs:
             DRY_RUN="false"
           fi
 
-          # SKIP_EXISTINGのデフォルト値（手動実行時はtrue）
+          # SKIP_EXISTINGのデフォルト値（デフォルトはfalse: 既存期間も再取得して更新チェック）
           if [ -z "$SKIP_EXISTING" ]; then
-            SKIP_EXISTING="true"
+            SKIP_EXISTING="false"
           fi
 
           # VERIFY_CONTINUITYのデフォルト値
@@ -158,7 +158,7 @@ jobs:
           echo "  Start year: $START_YEAR"
           echo "  End year: $END_YEAR"
           echo "  Dry run: $DRY_RUN"
-          echo "  Skip existing: $SKIP_EXISTING"
+          echo "  Incremental mode (skip existing): $SKIP_EXISTING"
           echo "  Verify continuity: $VERIFY_CONTINUITY"
           echo "  Auto merge: $AUTO_MERGE"
           echo "  Force merge on failure: $FORCE_MERGE_ON_FAILURE"
