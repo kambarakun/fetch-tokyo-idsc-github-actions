@@ -179,23 +179,25 @@ jobs:
 
           echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
 
-          # 変更されたdata/raw/*.csvファイルのみを取得
-          CHANGED_RAW_FILES=$(git diff --cached --name-only --diff-filter=AM | grep '^data/raw/.*\.csv$' || true)
+          # 変更されたdata/raw/*.csvファイルのみを取得（working treeから）
+          # git statusを使用してunstaged/staged両方の変更を検出
+          mapfile -t CHANGED_RAW_FILES < <(git status --porcelain | grep -E '^\s*[AM].*data/raw/.*\.csv$' | sed 's/^...//')
 
-          if [ -z "$CHANGED_RAW_FILES" ]; then
+          if [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
             echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
             echo "PROCESS_RESULT=skipped" >> "$GITHUB_ENV"
           else
             # 変更ファイル数を表示
-            FILE_COUNT=$(echo "$CHANGED_RAW_FILES" | wc -l | tr -d ' ')
+            FILE_COUNT=${#CHANGED_RAW_FILES[@]}
             echo "📊 処理対象: ${FILE_COUNT}ファイル"
-            echo "$CHANGED_RAW_FILES" | while read -r file; do
+            for file in "${CHANGED_RAW_FILES[@]}"; do
               echo "  - $file"
             done
 
             # データ処理の実行（変更されたファイルのみ）
+            # 配列を安全に展開してスペースを含むファイル名にも対応
             # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
-            if uv run python scripts/process_data.py --files $CHANGED_RAW_FILES 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
+            if uv run python scripts/process_data.py --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
               echo "✅ データ処理: 成功"
               echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
 
