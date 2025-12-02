@@ -37,6 +37,16 @@ class NormalizationResult:
 class DataProcessor:
     """データ処理を統合的に管理するクラス"""
 
+    # クラス定数: マジックナンバー/ストリングを定数化
+    HEADER_SEARCH_RANGE = 20  # ヘッダー行を探す範囲（行数）
+    DISEASE_KEYWORDS = ["インフルエンザ", "ウイルス", "感染症", "球菌", "結膜"]
+    MIN_DISEASE_COUNT = 2  # ヘッダー行と判定する最小疾病数
+    COMMENT_PREFIX = "*"  # 注釈行のプレフィックス
+    GENDER_MALE = "男性"
+    GENDER_FEMALE = "女性"
+    GENDER_TOTAL = "男女合計"
+    GENDER_MARKER = "性別"
+
     def __init__(self, base_dir: Path):
         """DataProcessorを初期化する。
 
@@ -114,7 +124,7 @@ class DataProcessor:
 
         return {"total": total, "succeeded": succeeded, "failed": failed, "errors": errors}
 
-    def _process_notifiable(self, lines: list[str], source_file: Path, metadata: dict) -> NormalizationResult:
+    def _process_notifiable(self, lines: list[str], source_file: Path, metadata: dict[str, Any]) -> NormalizationResult:
         """全数報告データの処理（シンプル）
 
         Args:
@@ -159,7 +169,7 @@ class DataProcessor:
             logger.error(f"全数報告処理失敗: {source_file.name} - {e}")
             return NormalizationResult(success=False, source_path=source_file, error=str(e))
 
-    def _process_sentinel(self, lines: list[str], source_file: Path, metadata: dict) -> NormalizationResult:
+    def _process_sentinel(self, lines: list[str], source_file: Path, metadata: dict[str, Any]) -> NormalizationResult:
         """定点監視データの処理（複雑・性別分割）
 
         Args:
@@ -190,11 +200,11 @@ class DataProcessor:
                 if output_file:
                     output_files.append(output_file)
                     gender = section["gender"]
-                    if gender == "男性":
+                    if gender == self.GENDER_MALE:
                         male_file = output_file
-                    elif gender == "女性":
+                    elif gender == self.GENDER_FEMALE:
                         female_file = output_file
-                    elif gender == "男女合計":
+                    elif gender == self.GENDER_TOTAL:
                         total_file = output_file
 
             if not output_files:
@@ -220,7 +230,9 @@ class DataProcessor:
             logger.error(f"定点監視処理失敗: {source_file.name} - {e}")
             return NormalizationResult(success=False, source_path=source_file, error=str(e))
 
-    def _process_sentinel_simple(self, lines: list[str], source_file: Path, metadata: dict) -> NormalizationResult:
+    def _process_sentinel_simple(
+        self, lines: list[str], source_file: Path, metadata: dict[str, Any]
+    ) -> NormalizationResult:
         """定点監視データの単純処理（性別が列形式の場合）
 
         Args:
@@ -275,16 +287,18 @@ class DataProcessor:
         sections = []
 
         for i, line in enumerate(lines):
-            if "性別" in line and "," in line:
+            if self.GENDER_MARKER in line and "," in line:
                 parts = [p.strip().strip('"') for p in line.split(",")]
                 if len(parts) >= 2:
                     gender = parts[1]
-                    if gender in ["男性", "女性", "男女合計"]:
+                    if gender in [self.GENDER_MALE, self.GENDER_FEMALE, self.GENDER_TOTAL]:
                         sections.append({"gender": gender, "start_line": i})
 
         return sections
 
-    def _save_gender_section(self, lines: list[str], source_file: Path, section: dict, metadata: dict) -> Path | None:
+    def _save_gender_section(
+        self, lines: list[str], source_file: Path, section: dict[str, Any], metadata: dict[str, Any]
+    ) -> Path | None:
         """性別セクションを保存
 
         Args:
@@ -324,7 +338,7 @@ class DataProcessor:
             logger.error(f"セクション保存失敗: {gender} - {e}")
             return None
 
-    def _extract_section_data(self, lines: list[str], section: dict) -> list[str]:
+    def _extract_section_data(self, lines: list[str], section: dict[str, Any]) -> list[str]:
         """セクションのデータ部分を抽出
 
         Args:
@@ -338,12 +352,10 @@ class DataProcessor:
 
         # ヘッダー行を探す（疾病名が複数含まれる行）
         header_idx = None
-        for i in range(start_idx, min(start_idx + 20, len(lines))):
+        for i in range(start_idx, min(start_idx + self.HEADER_SEARCH_RANGE, len(lines))):
             line = lines[i]
-            disease_count = sum(
-                1 for keyword in ["インフルエンザ", "ウイルス", "感染症", "球菌", "結膜"] if keyword in line
-            )
-            if disease_count >= 2:
+            disease_count = sum(1 for keyword in self.DISEASE_KEYWORDS if keyword in line)
+            if disease_count >= self.MIN_DISEASE_COUNT:
                 header_idx = i
                 break
 
@@ -360,11 +372,11 @@ class DataProcessor:
             if not line.strip():
                 continue
 
-            if "性別" in line or "定点報告" in line or "集計期間" in line:
+            if self.GENDER_MARKER in line or "定点報告" in line or "集計期間" in line:
                 break
 
             # 注釈行をスキップ
-            if line.startswith("*"):
+            if line.startswith(self.COMMENT_PREFIX):
                 continue
 
             # データ行を追加
@@ -385,10 +397,10 @@ class DataProcessor:
         Returns:
             ファイル名サフィックス（male/female/total）
         """
-        mapping = {"男性": "male", "女性": "female", "男女合計": "total"}
+        mapping = {self.GENDER_MALE: "male", self.GENDER_FEMALE: "female", self.GENDER_TOTAL: "total"}
         return mapping.get(gender, "unknown")
 
-    def _extract_metadata_from_filename(self, filename: str) -> dict | None:
+    def _extract_metadata_from_filename(self, filename: str) -> dict[str, Any] | None:
         """ファイル名からメタデータを抽出
 
         Args:
@@ -442,7 +454,52 @@ class DataProcessor:
             lines = f.readlines()
         return len(lines) <= 1
 
-    def _calculate_total_from_gender(self, male_file: Path, female_file: Path, total_file: Path, metadata: dict):
+    def _read_csv_data(self, file_path: Path) -> list[list[str]]:
+        """CSVファイルを読み込む
+
+        Args:
+            file_path: CSVファイルのパス
+
+        Returns:
+            CSV行のリスト
+        """
+        with file_path.open("r", encoding="utf-8") as f:
+            return list(csv.reader(f))
+
+    def _parse_int(self, value: str) -> int:
+        """文字列を整数にパース（空文字列は0）
+
+        Args:
+            value: パースする文字列
+
+        Returns:
+            整数値（空文字列の場合は0）
+        """
+        return int(value) if value.strip() else 0
+
+    def _sum_rows(self, male_row: list[str], female_row: list[str]) -> list[str]:
+        """男性と女性のデータ行を加算
+
+        Args:
+            male_row: 男性データの行
+            female_row: 女性データの行
+
+        Returns:
+            合計データの行
+        """
+        if len(male_row) != len(female_row):
+            logger.warning(f"行の列数が不一致: male={len(male_row)}, female={len(female_row)}")
+
+        total_row = [male_row[0]]  # 最初の列（地域名や年齢区分など）
+        for j in range(1, min(len(male_row), len(female_row))):
+            male_val = self._parse_int(male_row[j])
+            female_val = self._parse_int(female_row[j])
+            total_row.append(str(male_val + female_val))
+        return total_row
+
+    def _calculate_total_from_gender(
+        self, male_file: Path, female_file: Path, total_file: Path, metadata: dict[str, Any]
+    ) -> None:
         """male + female でtotalを計算
 
         Args:
@@ -451,43 +508,23 @@ class DataProcessor:
             total_file: 合計ファイル（上書きされる）
             metadata: メタデータ
         """
-
         try:
-            # 男性データを読み込み
-            with male_file.open("r", encoding="utf-8") as f:
-                male_reader = csv.reader(f)
-                male_data = list(male_reader)
-
-            # 女性データを読み込み
-            with female_file.open("r", encoding="utf-8") as f:
-                female_reader = csv.reader(f)
-                female_data = list(female_reader)
+            # ヘルパーメソッドでCSV読み込み
+            male_data = self._read_csv_data(male_file)
+            female_data = self._read_csv_data(female_file)
 
             if len(male_data) != len(female_data):
-                logger.warning(f"male と female の行数が一致しません: {male_file.name}")
+                logger.warning(
+                    f"male と female の行数が一致しません: male={len(male_data)}, female={len(female_data)}, file={male_file.name}"
+                )
                 return
 
             # ヘッダー行
             total_data = [male_data[0]]
 
-            # データ行を加算
+            # データ行をヘルパーメソッドで加算
             for i in range(1, len(male_data)):
-                male_row = male_data[i]
-                female_row = female_data[i]
-
-                # 最初の列（地域名など）はmaleから取得
-                total_row = [male_row[0]]
-
-                # 数値列を加算
-                for j in range(1, len(male_row)):
-                    try:
-                        male_val = int(male_row[j]) if male_row[j].strip() else 0
-                        female_val = int(female_row[j]) if female_row[j].strip() else 0
-                        total_row.append(str(male_val + female_val))
-                    except ValueError:
-                        # 数値でない場合はそのまま
-                        total_row.append(male_row[j])
-
+                total_row = self._sum_rows(male_data[i], female_data[i])
                 total_data.append(total_row)
 
             # totalファイルに書き込み
@@ -497,10 +534,12 @@ class DataProcessor:
 
             logger.info(f"totalを計算しました: {total_file.name} (male + female)")
 
-        except Exception as e:
-            logger.error(f"total計算失敗: {total_file.name} - {e}")
+        except Exception:
+            logger.exception(f"total計算失敗: {total_file.name}")
 
-    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path, metadata: dict):
+    def _verify_total_calculation(
+        self, male_file: Path, female_file: Path, total_file: Path, metadata: dict[str, Any]
+    ) -> None:
         """元データのtotalが male + female と一致するか検証
 
         Args:
@@ -509,32 +548,28 @@ class DataProcessor:
             total_file: 合計ファイル
             metadata: メタデータ
         """
-
         try:
-            # 各ファイルを読み込み
-            with male_file.open("r", encoding="utf-8") as f:
-                male_data = list(csv.reader(f))
-
-            with female_file.open("r", encoding="utf-8") as f:
-                female_data = list(csv.reader(f))
-
-            with total_file.open("r", encoding="utf-8") as f:
-                total_data = list(csv.reader(f))
+            # ヘルパーメソッドでCSV読み込み
+            male_data = self._read_csv_data(male_file)
+            female_data = self._read_csv_data(female_file)
+            total_data = self._read_csv_data(total_file)
 
             # データ行数チェック
             if len(male_data) != len(female_data) or len(male_data) != len(total_data):
-                logger.warning(f"行数不一致: {total_file.name}")
+                logger.warning(
+                    f"行数不一致: male={len(male_data)}, female={len(female_data)}, total={len(total_data)}, file={total_file.name}"
+                )
                 return
 
             mismatches = []
 
             # データ行を検証（ヘッダーをスキップ）
             for i in range(1, len(male_data)):
-                for j in range(1, len(male_data[i])):
+                for j in range(1, min(len(male_data[i]), len(female_data[i]), len(total_data[i]))):
                     try:
-                        male_val = int(male_data[i][j]) if male_data[i][j].strip() else 0
-                        female_val = int(female_data[i][j]) if female_data[i][j].strip() else 0
-                        total_val = int(total_data[i][j]) if total_data[i][j].strip() else 0
+                        male_val = self._parse_int(male_data[i][j])
+                        female_val = self._parse_int(female_data[i][j])
+                        total_val = self._parse_int(total_data[i][j])
                         calculated = male_val + female_val
 
                         if calculated != total_val:
@@ -561,10 +596,10 @@ class DataProcessor:
             else:
                 logger.info(f"total検証OK: {total_file.name} (male + female と一致)")
 
-        except Exception as e:
-            logger.error(f"total検証失敗: {total_file.name} - {e}")
+        except Exception:
+            logger.exception(f"total検証失敗: {total_file.name}")
 
-    def _log_processing(self, source: Path, outputs: list[Path], metadata: dict):
+    def _log_processing(self, source: Path, outputs: list[Path], metadata: dict[str, Any]) -> None:
         """処理ログを記録
 
         Args:
