@@ -272,20 +272,53 @@ jobs:
           git add data/
 
           if git diff --cached --quiet; then
-            echo "No new data found today"
+            echo "No changes detected"
             echo "HAS_CHANGES=false" >> $GITHUB_ENV
           else
-            echo "New data found!"
+            echo "Changes detected"
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
 
-            # 変更ファイル数の取得
-            CHANGED_FILES=$(git diff --cached --name-only | wc -l)
-            echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
-            echo "Changed files: $CHANGED_FILES"
+            # 新規ファイルと変更ファイルを分けて集計（週次実行と統一）
+            # 新規rawファイル数（data/raw/*.csv）
+            NEW_RAW_FILES=$(git diff --cached --name-status | grep '^A\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
 
-            # 新規ファイルリストを作成
-            echo "New files detected:"
-            git diff --cached --name-only --diff-filter=A
+            # 変更されたrawファイル数
+            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep '^M\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 処理済みファイル数（data/processed/normalized_*.csv）
+            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep '^A\s\+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 合計CSVファイル数
+            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 空文字列や非数値の場合のフォールバック
+            if ! [[ "$NEW_RAW_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_RAW_FILES="0"
+            fi
+            if ! [[ "$MODIFIED_RAW_FILES" =~ ^[0-9]+$ ]]; then
+              MODIFIED_RAW_FILES="0"
+            fi
+            if ! [[ "$NEW_PROCESSED_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_PROCESSED_FILES="0"
+            fi
+            if ! [[ "$TOTAL_CSV_FILES" =~ ^[0-9]+$ ]]; then
+              TOTAL_CSV_FILES="0"
+            fi
+
+            # 環境変数を設定
+            NEW_CSV_FILES=$NEW_RAW_FILES
+            MODIFIED_CSV_FILES=$MODIFIED_RAW_FILES
+
+            echo "NEW_CSV_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
+            echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
+            echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
+            echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+
+            echo "📊 変更統計:"
+            echo "  - 新規rawファイル: $NEW_RAW_FILES"
+            echo "  - 更新rawファイル: $MODIFIED_RAW_FILES"
+            echo "  - 処理済みファイル: $NEW_PROCESSED_FILES"
+            echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
           fi
 
       - name: Create Pull Request
@@ -295,6 +328,11 @@ jobs:
           # 共通スクリプトで使用する環境変数
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # 詳細統計（週次実行と統一）
+          NEW_FILES: ${{ env.NEW_CSV_FILES }}
+          MODIFIED_FILES: ${{ env.MODIFIED_CSV_FILES }}
+          CHANGED_FILES: ${{ env.CSV_FILES }}
+          NEW_PROCESSED_FILES: ${{ env.NEW_PROCESSED_FILES }}
         run: |
           # 共通スクリプトを呼び出し
           bash scripts/create_pr.sh "fetch-data-daily" "毎日簡易チェック"

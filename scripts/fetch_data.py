@@ -6,6 +6,7 @@
 import argparse
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -410,7 +411,10 @@ def main():
 
         # 結果をJSONファイルに保存
         if not args.dry_run:
-            stats_file = Path("data/logs") / f"stats_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            # 環境変数FETCH_TIMESTAMPを取得、なければ現在時刻を使用
+            # これによりGitHub Actionsワークフローと統計ファイル名が一致する
+            fetch_timestamp = os.environ.get("FETCH_TIMESTAMP", datetime.now().strftime("%Y%m%d_%H%M%S"))
+            stats_file = Path("data/logs") / f"stats_{fetch_timestamp}.json"
             stats_file.parent.mkdir(parents=True, exist_ok=True)
 
             # datetimeオブジェクトを文字列に変換
@@ -418,6 +422,7 @@ def main():
 
             with stats_file.open("w") as f:
                 json.dump(stats_json, f, indent=2, ensure_ascii=False)
+            logger.info(f"統計情報を保存しました: {stats_file}")
 
         # 終了コード
         if stats["failed"] > 0:
