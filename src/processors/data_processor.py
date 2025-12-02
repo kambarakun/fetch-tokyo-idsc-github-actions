@@ -659,7 +659,7 @@ class DataProcessor:
             json.dump(logs, f, ensure_ascii=False, indent=2)
 
     def _verify_cross_dataset_consistency(self) -> None:
-        """異なる集計軸（age/health_center/medical_district）のtotal値が一致するか検証
+        """異なる集計軸 (age/health_center/medical_district) のtotal値が一致するか検証
 
         同じ期間・頻度のデータについて、各集計軸のtotal行を比較し、
         データの整合性をチェックする。不一致があれば警告ログを出力。
@@ -720,8 +720,9 @@ class DataProcessor:
                 else:
                     logger.info(f"✅ 整合性OK: {period_key}")
 
-            except (OSError, csv.Error, ValueError, IndexError) as e:
-                logger.debug(f"整合性チェックエラー: {period_key} - {e}")
+            except (OSError, csv.Error, ValueError, IndexError):
+                # 整合性チェック自体は継続しつつ、原因調査のために例外情報は残す
+                logger.exception(f"整合性チェックエラー: {period_key}")
                 continue
 
         logger.info(f"整合性チェック完了: {checked_count}期間チェック済み、{error_count}件のエラー")
@@ -770,17 +771,17 @@ class DataProcessor:
             file_path: CSVファイルのパス
 
         Returns:
-            合計行のデータ（見つからない場合はNone）
+            合計行のデータ (見つからない場合はNone)
         """
         try:
             data = self._read_csv_data(file_path)
-
-            # 「合計」行を探す
-            for row in data:
-                if row and row[0] == "合計":
-                    return row
-
-            return None
-
         except (OSError, csv.Error, IndexError):
+            logger.debug(f"合計行読み込みエラー: {file_path}")
             return None
+
+        # 「合計」行を探す
+        for row in data:
+            if row and row[0] == "合計":
+                return row
+
+        return None

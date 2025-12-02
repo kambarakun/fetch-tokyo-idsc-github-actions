@@ -193,19 +193,19 @@ jobs:
           echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
 
           # データ処理の実行（全ファイル処理）
-          if uv run python scripts/process_data.py --all 2>&1 | tee data/logs/process_${FETCH_TIMESTAMP}.log; then
+          if uv run python scripts/process_data.py --all 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
             echo "✅ データ処理: 成功"
-            echo "PROCESS_RESULT=success" >> $GITHUB_ENV
+            echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
 
             # stats.jsonが生成されているか確認
             if [ -f "data/processed/stats.json" ]; then
-              echo "STATS_FILE=data/processed/stats.json" >> $GITHUB_ENV
+              echo "STATS_FILE=data/processed/stats.json" >> "$GITHUB_ENV"
               echo "📊 処理統計ファイル: data/processed/stats.json"
               cat data/processed/stats.json
             fi
           else
             echo "⚠️ データ処理: エラー"
-            echo "PROCESS_RESULT=failed" >> $GITHUB_ENV
+            echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
           fi
 
       - name: Verify data continuity
