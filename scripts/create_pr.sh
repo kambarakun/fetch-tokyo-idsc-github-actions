@@ -317,8 +317,8 @@ PR_BODY_FILE="/tmp/pr_body.md"
   echo ""
   echo "### 📈 更新統計"
   # stats.jsonから正常に読み込まれた場合、または実際に変更がある場合は詳細を表示
-  # コミットメッセージとの一貫性を保つため、STATS_READ_SUCCESSも考慮
-  if [ "$STATS_READ_SUCCESS" = true ] || [ "$NEW_FILES" -gt 0 ] || [ "$MODIFIED_FILES" -gt 0 ]; then
+  # コミットメッセージと同じパターンで条件を記述（可読性・保守性向上）
+  if [ "$CHANGED_FILES" -gt 0 ] || [ "$STATS_READ_SUCCESS" = true ]; then
     echo "- **新規ファイル**: ${NEW_FILES:-0}件"
     echo "- **更新ファイル**: ${MODIFIED_FILES:-0}件"
   fi
