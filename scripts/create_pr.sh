@@ -220,23 +220,16 @@ CHANGED_FILES=$((NEW_FILES + MODIFIED_FILES))
 echo "Final counts: new=$NEW_FILES, updated=$MODIFIED_FILES, total=$CHANGED_FILES" >&2
 
 # コミットメッセージの作成（統一形式）
-# stats.jsonの値を使用する場合は、新規0件・更新0件でも明示的に表示
+# 常に「X件 (新規Y件/更新Z件)」の形式で表示
+# 0件の場合も明示的に表示することで一貫性を保つ
+#
 # フォーマット: "データ更新: YYYY-MM-DD - X件 (新規Y件/更新Z件)"
+# 例:
+#   - データ更新: 2025-12-02 - 2件 (新規2件/更新0件)
+#   - データ更新: 2025-12-02 - 3件 (新規1件/更新2件)
+#   - データ更新: 2025-12-02 - 0件 (新規0件/更新0件)
 
-# DRY原則に従い、FILE_DETAILを一箇所で定義
-FILE_DETAIL="新規${NEW_FILES}件/更新${MODIFIED_FILES}件"
-
-if [ "$CHANGED_FILES" -gt 0 ]; then
-  COMMIT_MSG="データ更新: $CURRENT_DATE - ${CHANGED_FILES}件 ($FILE_DETAIL)"
-else
-  # 変更がない場合でも、stats.jsonが正常に読み込まれた場合は詳細を表示
-  # バグ修正: STATS_FILEの存在だけでなく、読み取り成功フラグで判断
-  if [ "$STATS_READ_SUCCESS" = true ]; then
-    COMMIT_MSG="データ更新: $CURRENT_DATE - 0件 ($FILE_DETAIL)"
-  else
-    COMMIT_MSG="データ更新: $CURRENT_DATE - 0件"
-  fi
-fi
+COMMIT_MSG="データ更新: $CURRENT_DATE - ${CHANGED_FILES}件 (新規${NEW_FILES}件/更新${MODIFIED_FILES}件)"
 
 # コミット実行
 if ! git commit -m "$COMMIT_MSG"; then
