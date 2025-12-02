@@ -566,6 +566,101 @@ data/
 └── logs/
 ```
 
+### 5.4 Mermaidによるフロー図の作成規約（必須）
+
+**基本原則**: MDファイル内でフロー、シーケンス、状態遷移などを記述する場合は、**必ずMermaid記法を使用すること**。
+
+#### 必須事項
+
+1. **ASCIIアート図の禁止**
+
+   - `┌─┐`, `│ │`, `└─┘`, `→`, `▼` などのASCIIアート図は使用しない
+   - 既存のASCIIアート図を発見した場合は、Mermaidに変換する
+
+2. **Mermaidの使用が必須な場面**
+
+   - データフロー（システム全体の流れ）
+   - プロセスフロー（処理の手順）
+   - 状態遷移図
+   - シーケンス図（処理の時系列）
+   - ER図（データモデル）
+
+3. **推奨するMermaid記法**
+
+```markdown
+# フローチャート（最も一般的）
+
+\`\`\`mermaid
+flowchart TD
+Start[開始] --> Process[処理]
+Process --> End[終了]
+\`\`\`
+
+# シーケンス図（処理の時系列）
+
+\`\`\`mermaid
+sequenceDiagram
+User->>System: リクエスト
+System->>Database: クエリ
+Database-->>System: 結果
+System-->>User: レスポンス
+\`\`\`
+
+# 状態遷移図
+
+\`\`\`mermaid
+stateDiagram-v2
+[*] --> Idle
+Idle --> Processing: start
+Processing --> Complete: success
+Processing --> Error: failure
+Complete --> [*]
+Error --> [*]
+\`\`\`
+```
+
+4. **スタイリングの推奨**
+
+   - 重要なノードには色付けを行う
+   - `style NodeName fill:#f9f,stroke:#333,stroke-width:2px`
+   - データ保存場所: `#f9f` (ピンク)
+   - 処理中: `#bbf` (青)
+   - 完了: `#bfb` (緑)
+
+5. **アクセシビリティ**
+   - ノード名は日本語でOK（可読性優先）
+   - 改行は `<br/>` を使用
+
+#### 悪い例（ASCIIアート）❌
+
+```
+┌─────────────┐
+│ データ取得  │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ データ処理  │
+└──────┬──────┘
+```
+
+#### 良い例（Mermaid）✅
+
+```mermaid
+flowchart TD
+    Fetch[データ取得] --> Process[データ処理]
+    Process --> Save[保存]
+
+    style Save fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+#### 実装ガイドライン
+
+- **新規作成時**: 必ずMermaidを使用
+- **既存ドキュメント修正時**: ASCIIアートを見つけたらMermaidに変換
+- **レビュー時**: ASCIIアートがあればMermaidへの変換を指摘
+- **参照**: [Mermaid公式ドキュメント](https://mermaid.js.org/)
+
 ## 6. デバッグとトラブルシューティング
 
 ### 6.1 一般的なエラー

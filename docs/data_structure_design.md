@@ -46,35 +46,24 @@ data/
 
 ## データフロー
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ 1. データ取得 (GitHub Actions)                           │
-│    東京都IDSC → data/raw/ (Shift_JIS)                    │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ 2. UTF-8変換 (構造維持)                                  │
-│    data/raw/*.csv → data/utf8/*.csv                      │
-│    - エンコーディングのみ変換                             │
-│    - 複数表の混在構造はそのまま                           │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ 3. 正規化・分割 (分析用)                                 │
-│    data/utf8/*.csv → data/normalized/                    │
-│    - 性別ごとに分割                                       │
-│    - メタデータ抽出                                       │
-│    - クリーンなCSV形式                                    │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ 4. 分析・可視化                                          │
-│    - Streamlit/Jupyter Notebook                          │
-│    - データ分析スクリプト                                 │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    IDSC[東京都IDSC] -->|定期取得| FetchData[1. データ取得<br/>GitHub Actions]
+    FetchData -->|Shift_JIS| RawDir[data/raw/*.csv<br/>Shift_JIS エンコーディング]
+
+    RawDir -->|変換| UTF8Convert[2. UTF-8変換<br/>構造維持]
+    UTF8Convert -->|エンコーディングのみ変換<br/>複数表の混在構造はそのまま| ProcessedDir[data/processed/*.csv<br/>UTF-8 エンコーディング]
+
+    ProcessedDir -->|正規化| Normalize[3. 正規化・分割<br/>分析用]
+    Normalize -->|性別ごとに分割<br/>メタデータ抽出<br/>クリーンなCSV形式| NormalizedDir[data/processed/<br/>normalized_*.csv]
+
+    NormalizedDir --> Analysis[4. 分析・可視化]
+    Analysis -->|データ分析| Streamlit[Streamlit/<br/>Jupyter Notebook]
+    Analysis -->|スクリプト実行| Scripts[分析スクリプト]
+
+    style RawDir fill:#f9f,stroke:#333,stroke-width:2px
+    style ProcessedDir fill:#bbf,stroke:#333,stroke-width:2px
+    style NormalizedDir fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
 ## ファイル命名規則
@@ -225,23 +214,50 @@ uv run python scripts/normalize_data.py --all --dry-run
 
 ### 定期データ取得時（GitHub Actions）
 
-1. 東京都IDSCからデータ取得 → `data/raw/`
-2. 自動でUTF-8変換 → `data/utf8/`
-3. 自動で正規化 → `data/normalized/`
-4. `data/raw/`のみコミット・プッシュ
+```mermaid
+flowchart TD
+    Schedule[スケジュール実行<br/>毎週月曜 19:00 JST] --> Fetch[データ取得<br/>fetch_data.py]
+    Fetch --> SaveRaw[data/raw/に保存<br/>Shift_JIS]
+    SaveRaw --> Process[データ処理<br/>process_data.py]
+    Process --> ConvertUTF8[UTF-8変換]
+    ConvertUTF8 --> Normalize[正規化・分割]
+    Normalize --> SaveProcessed[data/processed/に保存<br/>UTF-8]
+    SaveProcessed --> GitAdd[git add data/raw/]
+    GitAdd --> GitCommit[git commit]
+    GitCommit --> GitPush[git push]
+
+    style SaveRaw fill:#f9f,stroke:#333,stroke-width:2px
+    style SaveProcessed fill:#bfb,stroke:#333,stroke-width:2px
+```
 
 ### ローカル開発時
 
-1. リポジトリクローン
-2. `uv run python scripts/convert_to_utf8.py --all`
-3. `uv run python scripts/normalize_data.py --all`
-4. 分析・開発開始
+```mermaid
+flowchart TD
+    Clone[リポジトリクローン] --> CheckData{data/processed/<br/>が存在?}
+    CheckData -->|No| ProcessLocal[データ処理<br/>uv run python scripts/process_data.py --all]
+    CheckData -->|Yes| Analysis[分析・開発開始]
+    ProcessLocal --> Analysis
+
+    Analysis --> UpdateRaw{data/raw/<br/>を更新?}
+    UpdateRaw -->|Yes| Reprocess[再処理<br/>uv run python scripts/process_data.py --all]
+    UpdateRaw -->|No| Continue[開発継続]
+    Reprocess --> Continue
+```
 
 ### データ更新時
 
-1. `data/raw/`が更新されたら自動的に
-2. `data/utf8/`を再生成
-3. `data/normalized/`を再生成
+```mermaid
+flowchart TD
+    Update[data/raw/が更新] --> Auto[自動検出]
+    Auto --> Reprocess[データ処理トリガー]
+    Reprocess --> Convert[UTF-8変換<br/>_convert_to_utf8]
+    Convert --> Norm[正規化<br/>_normalize]
+    Norm --> Save[data/processed/に保存]
+
+    style Update fill:#f9f,stroke:#333,stroke-width:2px
+    style Save fill:#bfb,stroke:#333,stroke-width:2px
+```
 
 ## 利点
 
