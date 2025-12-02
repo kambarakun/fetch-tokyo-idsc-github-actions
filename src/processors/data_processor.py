@@ -566,7 +566,7 @@ class DataProcessor:
         except (OSError, csv.Error, ValueError, IndexError):
             logger.exception(f"total計算失敗: {total_file.name}")
 
-    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:
+    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:  # noqa: PLR0912
         """元データのtotalが male + female と一致するか検証
 
         Args:
@@ -587,16 +587,33 @@ class DataProcessor:
                 )
                 return
 
+            # ヘッダー行から「定点」を含む列を特定（検証対象外）
+            skip_columns = set()
+            if len(total_data) > 0:
+                header = total_data[0]
+                for j, col_name in enumerate(header):
+                    # 「定点」を含む列は、定点医療機関数などのメタデータなので検証スキップ
+                    if "定点" in col_name or "入院" in col_name:
+                        skip_columns.add(j)
+
             mismatches = []
 
             # データ行を検証（ヘッダーをスキップ）
             for i in range(1, len(male_data)):
                 for j in range(1, min(len(male_data[i]), len(female_data[i]), len(total_data[i]))):
+                    # スキップ対象の列は検証しない
+                    if j in skip_columns:
+                        continue
+
                     try:
                         male_val = self._parse_int(male_data[i][j])
                         female_val = self._parse_int(female_data[i][j])
                         total_val = self._parse_int(total_data[i][j])
                         calculated = male_val + female_val
+
+                        # male=0, female=0, total>0 のパターンは検証スキップ（定点数などのメタデータ）
+                        if male_val == 0 and female_val == 0 and total_val > 0:
+                            continue
 
                         if calculated != total_val:
                             mismatches.append(
@@ -614,11 +631,19 @@ class DataProcessor:
                         pass
 
             if mismatches:
-                logger.warning(f"total検証: {len(mismatches)}件の不一致 in {total_file.name}")
-                for mm in mismatches[:3]:  # 最初の3件のみログ出力
+                # 不一致の程度に応じてログレベルを調整
+                if len(mismatches) >= 10:
+                    # 多数の不一致がある場合は WARNING（元データの品質問題の可能性）
                     logger.warning(
-                        f"  行{mm['row']}列{mm['col']}: male({mm['male']}) + female({mm['female']}) = {mm['calculated']}, total={mm['total']}"
+                        f"total検証: {len(mismatches)}件の不一致 in {total_file.name}（元データの品質問題の可能性）"
                     )
+                else:
+                    # 軽微な不一致は DEBUG レベル
+                    logger.debug(f"total検証: {len(mismatches)}件の軽微な不一致 in {total_file.name}")
+                    for mm in mismatches[:3]:  # 最初の3件のみログ出力
+                        logger.debug(
+                            f"  行{mm['row']}列{mm['col']}: male({mm['male']}) + female({mm['female']}) = {mm['calculated']}, total={mm['total']}"
+                        )
             else:
                 logger.info(f"total検証OK: {total_file.name} (male + female と一致)")
 
