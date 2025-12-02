@@ -170,6 +170,103 @@ jobs:
           # 実行結果の保存
           echo "FETCH_RESULT=$?" >> $GITHUB_ENV
 
+      - name: Process epidemic data
+        id: process
+        if: env.DRY_RUN != 'true'
+        run: |
+          # パイプラインの終了コードを正しく伝播（pipefailオプション）
+          set -o pipefail
+
+          echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
+
+          # 変更されたdata/raw/*.csvファイルのみを取得
+          CHANGED_RAW_FILES=$(git diff --cached --name-only --diff-filter=AM | grep '^data/raw/.*\.csv$' || true)
+
+          if [ -z "$CHANGED_RAW_FILES" ]; then
+            echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
+            echo "PROCESS_RESULT=skipped" >> "$GITHUB_ENV"
+          else
+            # 変更ファイル数を表示
+            FILE_COUNT=$(echo "$CHANGED_RAW_FILES" | wc -l | tr -d ' ')
+            echo "📊 処理対象: ${FILE_COUNT}ファイル"
+            echo "$CHANGED_RAW_FILES" | while read -r file; do
+              echo "  - $file"
+            done
+
+            # データ処理の実行（変更されたファイルのみ）
+            # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
+            if uv run python scripts/process_data.py --files $CHANGED_RAW_FILES 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
+              echo "✅ データ処理: 成功"
+              echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
+
+              # stats.jsonから処理結果を抽出
+              if [ -f "data/processed/stats.json" ]; then
+                # JSON形式を事前検証（jq -eで検証し、不正な場合は警告）
+                if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
+                  echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
+                  STATS_TOTAL="0"
+                  STATS_SUCCEEDED="0"
+                  STATS_FAILED="0"
+                else
+                  STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
+                  STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
+                  STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
+                fi
+
+                # 環境変数を一括設定（shellcheck SC2129対応）
+                {
+                  echo "STATS_TOTAL=${STATS_TOTAL}"
+                  echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
+                  echo "STATS_FAILED=${STATS_FAILED}"
+                } >> "$GITHUB_ENV"
+
+                echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
+
+                # エラー詳細を表示（最大5件）
+                ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
+                if [ "${ERROR_COUNT}" -gt 0 ]; then
+                  echo "⚠️ エラー詳細:"
+                  jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
+                  if [ "${ERROR_COUNT}" -gt 5 ]; then
+                    echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
+                  fi
+                fi
+              fi
+            else
+              echo "❌ データ処理: 失敗"
+              echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
+
+              # 週次実行でも処理失敗時は警告のみでワークフローを継続
+              echo "⚠️ 警告: データ処理に失敗しましたが、ワークフローを継続します（週次実行）。"
+            fi
+          fi
+
+      - name: Create issue on processing failure
+        id: create_issue
+        if: env.PROCESS_RESULT == 'failed'
+        run: |
+          echo "📝 処理失敗のGitHub Issueを作成します..."
+
+          ISSUE_TITLE="[自動/週次] データ処理失敗: $(date +'%Y-%m-%d %H:%M')"
+          ISSUE_BODY="データ処理ステップが失敗しました（週次実行）。
+
+          発生日時: $(date +'%Y-%m-%d %H:%M:%S %Z')
+          ワークフロー実行: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          コミット: ${GITHUB_SHA:0:7}
+          Branch: ${GITHUB_REF}
+          Actor: ${GITHUB_ACTOR}
+
+          対応方法:
+          1. ワークフローログで具体的なエラーメッセージを確認
+          2. 処理ログファイル: data/logs/process_${FETCH_TIMESTAMP}.log
+          3. 問題を修正後、手動で再実行してください"
+
+          gh issue create \
+            --title "${ISSUE_TITLE}" \
+            --body "${ISSUE_BODY}" \
+            --label "bug,automated,data-processing,weekly-check" \
+            --assignee "${GITHUB_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
+
       - name: Validate fetched data
         id: validate-after
         if: env.DRY_RUN != 'true'

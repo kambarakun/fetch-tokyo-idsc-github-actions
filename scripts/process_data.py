@@ -7,8 +7,11 @@ Usage:
     # 全ファイルを処理
     uv run python scripts/process_data.py --all
 
-    # 特定ファイルのみ処理
-    uv run python scripts/process_data.py --file data/raw/sentinel_weekly_gender_2025_01.csv
+    # 特定ファイルを処理（1個）
+    uv run python scripts/process_data.py --files data/raw/sentinel_weekly_gender_2025_01.csv
+
+    # 複数ファイルを処理
+    uv run python scripts/process_data.py --files file1.csv file2.csv file3.csv
 
     # ドライラン
     uv run python scripts/process_data.py --all --dry-run
@@ -47,8 +50,11 @@ def main() -> None:  # noqa: PLR0912, PLR0915
   # 全ファイルを処理
   %(prog)s --all
 
-  # 特定ファイルのみ処理
-  %(prog)s --file data/raw/sentinel_weekly_gender_2025_01.csv
+  # 特定ファイルを処理（1個）
+  %(prog)s --files data/raw/sentinel_weekly_gender_2025_01.csv
+
+  # 複数ファイルを処理
+  %(prog)s --files file1.csv file2.csv file3.csv
 
   # ドライラン
   %(prog)s --all --dry-run
@@ -65,7 +71,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
     # 処理モード選択
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument("--all", action="store_true", help="全ファイルを処理")
-    mode_group.add_argument("--file", type=str, help="特定ファイルのみ処理")
+    mode_group.add_argument("--files", type=str, nargs="+", help="指定したファイルを処理（1個以上、スペース区切り）")
 
     args = parser.parse_args()
 
@@ -123,28 +129,65 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                 logger.error(f"❌ {result['failed']}件の処理が失敗しました")
                 sys.exit(1)
 
-        elif args.file:
-            # 特定ファイルのみ処理
-            file_path = Path(args.file)
-            if not file_path.exists():
-                logger.error(f"ファイルが見つかりません: {file_path}")
+        elif args.files:
+            # 指定されたファイルを処理（1個以上）
+            file_paths = [Path(f) for f in args.files]
+
+            # 存在しないファイルをチェック
+            missing_files = [fp for fp in file_paths if not fp.exists()]
+            if missing_files:
+                logger.error("以下のファイルが見つかりません:")
+                for missing_file in missing_files:
+                    logger.error(f"  - {missing_file}")
                 sys.exit(1)
 
             logger.info("=" * 60)
-            logger.info(f"📄 ファイル処理: {file_path.name}")
+            logger.info(f"📄 ファイル処理: {len(file_paths)}ファイル")
             logger.info("=" * 60)
 
-            # ファイルがraw/にある場合のみ処理
-            if file_path.parent.name == "raw":
-                single_result: NormalizationResult = processor.process_file(file_path)
-                if single_result.success:
-                    logger.info(f"✅ 処理成功: {len(single_result.output_files)}ファイル生成")
-                    for output_file in single_result.output_files:
-                        logger.info(f"  - {output_file.name}")
+            total = len(file_paths)
+            succeeded = 0
+            failed = 0
+            errors = []
+
+            for file_path in file_paths:
+                # ファイルがraw/にある場合のみ処理
+                if file_path.parent.name != "raw":
+                    logger.warning(f"⚠️ スキップ: raw/配下ではありません - {file_path}")
+                    continue
+
+                logger.info(f"処理中: {file_path.name}")
+                file_result: NormalizationResult = processor.process_file(file_path)
+
+                if file_result.success:
+                    succeeded += 1
+                    logger.info(f"  ✅ 成功: {len(file_result.output_files)}ファイル生成")
                 else:
-                    logger.error(f"❌ 処理失敗: {single_result.error}")
-            else:
-                logger.error("ファイルはdata/raw/配下である必要があります")
+                    failed += 1
+                    errors.append({"file": file_path.name, "error": file_result.error})
+                    logger.error(f"  ❌ 失敗: {file_result.error}")
+
+            # 処理結果をstats.jsonに保存
+            stats_file = data_dir / "processed" / "stats.json"
+            stats_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                stats_data = {"total": total, "succeeded": succeeded, "failed": failed, "errors": errors}
+                with stats_file.open("w", encoding="utf-8") as f:
+                    json.dump(stats_data, f, ensure_ascii=False, indent=2)
+                logger.info(f"📊 処理統計を保存: {stats_file}")
+            except OSError:
+                logger.exception(f"処理統計の保存に失敗しました: {stats_file}")
+                logger.warning("処理統計の保存に失敗しましたが、データ処理自体は完了しています")
+
+            # 最終結果サマリー
+            logger.info("\n" + "=" * 60)
+            logger.info("✅ 処理完了")
+            logger.info("=" * 60)
+            logger.info(f"処理結果: {succeeded}/{total} 成功")
+
+            # 失敗があった場合はエラー終了
+            if failed > 0:
+                logger.error(f"❌ {failed}件の処理が失敗しました")
                 sys.exit(1)
 
     except KeyboardInterrupt:
