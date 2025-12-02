@@ -128,54 +128,76 @@ NEW_FILES="${NEW_FILES:-}"
 MODIFIED_FILES="${MODIFIED_FILES:-}"
 CHANGED_FILES="${CHANGED_FILES:-}"
 
+# stats.jsonからの読み取り成功フラグ（フォールバックロジックのバグ修正）
+STATS_READ_SUCCESS=false
+
 # 1. stats.jsonから実際のデータ取得状況を読み取る（最優先）
-# data/logsディレクトリが存在しない場合もエラーにならないよう || true を追加
-STATS_FILE=$(find data/logs -name "stats_${FETCH_TIMESTAMP}.json" -type f 2>/dev/null | head -1 || true)
-if [ -n "$STATS_FILE" ] && [ -f "$STATS_FILE" ]; then
-  echo "Reading stats from: $STATS_FILE" >&2
+# 明示的なパスを使用して競合状態を回避
+STATS_FILE="data/logs/stats_${FETCH_TIMESTAMP}.json"
 
-  # jqの存在確認
-  if command -v jq &> /dev/null; then
-    # パフォーマンス最適化: 1回のjq呼び出しで全データを取得
-    # JSON妥当性チェックとデータ抽出を同時に実行
-    STATS_DATA=$(jq -r '[.new_files // 0, .updated_files // 0, .duplicates // 0] | @tsv' "$STATS_FILE" 2>/dev/null || echo "")
+# パス検証（セキュリティ: ディレクトリトラバーサル攻撃を防止）
+# FETCH_TIMESTAMPが既に検証済み（英数字、アンダースコア、ハイフンのみ）であることを前提
+if [ -f "$STATS_FILE" ]; then
+  # 追加のパス検証: 期待されるディレクトリ内にあることを確認
+  STATS_REALPATH=$(realpath "$STATS_FILE" 2>/dev/null || echo "")
+  EXPECTED_DIR=$(realpath "data/logs" 2>/dev/null || echo "")
 
-    if [ -n "$STATS_DATA" ]; then
-      # タブ区切りのデータを配列に分割
-      read -r STATS_NEW_FILES STATS_UPDATED_FILES STATS_DUPLICATES <<< "$STATS_DATA"
+  if [ -n "$STATS_REALPATH" ] && [ -n "$EXPECTED_DIR" ] && [[ "$STATS_REALPATH" == "$EXPECTED_DIR"/* ]]; then
+    echo "Reading stats from: $STATS_FILE" >&2
 
-      # 値の妥当性検証（非負整数のみ許可）
-      # 正規表現 ^[0-9]+$ で非負整数を確認（-ge 0 チェックは冗長なので削除）
-      if [[ "$STATS_NEW_FILES" =~ ^[0-9]+$ ]] && [[ "$STATS_UPDATED_FILES" =~ ^[0-9]+$ ]] && [[ "$STATS_DUPLICATES" =~ ^[0-9]+$ ]]; then
-        NEW_FILES="${STATS_NEW_FILES}"
-        MODIFIED_FILES="${STATS_UPDATED_FILES}"
-        # TODO: STATS_DUPLICATESは将来的にPR本文やコミットメッセージで使用予定
-        echo "✓ Using stats.json data: new=$NEW_FILES, updated=$MODIFIED_FILES, duplicates=$STATS_DUPLICATES" >&2
+    # jqの存在確認
+    if command -v jq &> /dev/null; then
+      # パフォーマンス最適化: 1回のjq呼び出しで全データを取得
+      # JSON妥当性チェックとデータ抽出を同時に実行
+      STATS_DATA=$(jq -r '[.new_files // 0, .updated_files // 0, .duplicates // 0] | @tsv' "$STATS_FILE" 2>/dev/null || echo "")
+
+      if [ -n "$STATS_DATA" ]; then
+        # タブ区切りのデータを配列に分割
+        read -r STATS_NEW_FILES STATS_UPDATED_FILES STATS_DUPLICATES <<< "$STATS_DATA"
+
+        # 値の妥当性検証（非負整数のみ許可）
+        # 正規表現 ^[0-9]+$ で非負整数を確認
+        if [[ "$STATS_NEW_FILES" =~ ^[0-9]+$ ]] && [[ "$STATS_UPDATED_FILES" =~ ^[0-9]+$ ]] && [[ "$STATS_DUPLICATES" =~ ^[0-9]+$ ]]; then
+          NEW_FILES="${STATS_NEW_FILES}"
+          MODIFIED_FILES="${STATS_UPDATED_FILES}"
+          STATS_READ_SUCCESS=true
+          # TODO: STATS_DUPLICATESは将来的にPR本文やコミットメッセージで使用予定
+          echo "✓ Using stats.json data: new=$NEW_FILES, updated=$MODIFIED_FILES, duplicates=$STATS_DUPLICATES (source: stats.json)" >&2
+        else
+          echo "⚠ Warning: stats.json contains invalid values, falling back to git diff" >&2
+        fi
       else
-        echo "⚠ Warning: stats.json contains invalid values, falling back to git diff" >&2
+        echo "⚠ Warning: stats.json is not valid JSON or empty, falling back to git diff" >&2
       fi
     else
-      echo "⚠ Warning: stats.json is not valid JSON or empty, falling back to git diff" >&2
+      echo "⚠ Warning: jq not found, falling back to git diff" >&2
     fi
   else
-    echo "⚠ Warning: jq not found, falling back to git diff" >&2
+    echo "⚠ Warning: stats.json path validation failed (security check), falling back to git diff" >&2
   fi
+else
+  echo "ℹ stats.json not found at $STATS_FILE, using git diff" >&2
 fi
 
-# 2. 環境変数が設定されていない場合はgitから計算（フォールバック）
-if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
-  echo "Calculating file counts from git diff..." >&2
-  # 一度のgit diffで全ての変更情報を取得（パフォーマンス最適化）
-  GIT_STATUS=$(git diff --cached --name-status)
-  if [ -z "$NEW_FILES" ]; then
-    # data/raw/配下のCSVファイルのみをカウント（メタデータは除外）
-    # 冗長なgrep "^A"を削除し、直接パターンマッチ
-    NEW_FILES=$(echo "$GIT_STATUS" | grep -E '^A\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
-  fi
-  if [ -z "$MODIFIED_FILES" ]; then
-    # data/raw/配下のCSVファイルのみをカウント（修正時も同様）
-    # 冗長なgrep "^M"を削除し、直接パターンマッチ
-    MODIFIED_FILES=$(echo "$GIT_STATUS" | grep -E '^M\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
+# 2. stats.jsonからの読み取りに失敗した場合、環境変数またはgitから計算（フォールバック）
+# バグ修正: 空文字列チェックではなく、成功フラグで判断
+if [ "$STATS_READ_SUCCESS" = false ]; then
+  # 環境変数が設定されているか確認
+  if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
+    echo "Calculating file counts from git diff..." >&2
+    # 一度のgit diffで全ての変更情報を取得（パフォーマンス最適化）
+    GIT_STATUS=$(git diff --cached --name-status)
+    if [ -z "$NEW_FILES" ]; then
+      # data/raw/配下のCSVファイルのみをカウント（メタデータは除外）
+      NEW_FILES=$(echo "$GIT_STATUS" | grep -E '^A\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
+    fi
+    if [ -z "$MODIFIED_FILES" ]; then
+      # data/raw/配下のCSVファイルのみをカウント（修正時も同様）
+      MODIFIED_FILES=$(echo "$GIT_STATUS" | grep -E '^M\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
+    fi
+    echo "✓ Using git diff data: new=$NEW_FILES, updated=$MODIFIED_FILES (source: git diff)" >&2
+  else
+    echo "✓ Using environment variables: new=$NEW_FILES, updated=$MODIFIED_FILES (source: environment)" >&2
   fi
 fi
 
