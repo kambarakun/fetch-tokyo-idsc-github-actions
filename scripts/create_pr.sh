@@ -229,8 +229,9 @@ FILE_DETAIL="新規${NEW_FILES}件/更新${MODIFIED_FILES}件"
 if [ "$CHANGED_FILES" -gt 0 ]; then
   COMMIT_MSG="データ更新: $CURRENT_DATE - ${CHANGED_FILES}件 ($FILE_DETAIL)"
 else
-  # 変更がない場合でも、stats.jsonが存在する場合は詳細を表示
-  if [ -n "$STATS_FILE" ] && [ -f "$STATS_FILE" ]; then
+  # 変更がない場合でも、stats.jsonが正常に読み込まれた場合は詳細を表示
+  # バグ修正: STATS_FILEの存在だけでなく、読み取り成功フラグで判断
+  if [ "$STATS_READ_SUCCESS" = true ]; then
     COMMIT_MSG="データ更新: $CURRENT_DATE - 0件 ($FILE_DETAIL)"
   else
     COMMIT_MSG="データ更新: $CURRENT_DATE - 0件"
@@ -315,7 +316,9 @@ PR_BODY_FILE="/tmp/pr_body.md"
 
   echo ""
   echo "### 📈 更新統計"
-  if [ "$NEW_FILES" -gt 0 ] || [ "$MODIFIED_FILES" -gt 0 ]; then
+  # stats.jsonから正常に読み込まれた場合、または実際に変更がある場合は詳細を表示
+  # コミットメッセージとの一貫性を保つため、STATS_READ_SUCCESSも考慮
+  if [ "$STATS_READ_SUCCESS" = true ] || [ "$NEW_FILES" -gt 0 ] || [ "$MODIFIED_FILES" -gt 0 ]; then
     echo "- **新規ファイル**: ${NEW_FILES:-0}件"
     echo "- **更新ファイル**: ${MODIFIED_FILES:-0}件"
   fi
