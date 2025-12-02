@@ -176,7 +176,8 @@ jobs:
 
           # 変更されたdata/raw/*.csvファイルのみを取得（working treeから）
           # git statusを使用してunstaged/staged両方の変更を検出
-          mapfile -t CHANGED_RAW_FILES < <(git status --porcelain | grep -E '^\s*[AM].*data/raw/.*\.csv$' | sed 's/^...//')
+          # POSIX準拠の空白クラス [[:space:]] を使用
+          mapfile -t CHANGED_RAW_FILES < <(git status --porcelain | grep -E '^[[:space:]]*[AM].*data/raw/.*\.csv$' | sed 's/^...//')
 
           if [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
             echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
@@ -279,14 +280,16 @@ jobs:
             echo "HAS_CHANGES=true" >> $GITHUB_ENV
 
             # 新規ファイルと変更ファイルを分けて集計（週次実行と統一）
+            # POSIX準拠の空白クラス [[:space:]] と拡張正規表現 -E を使用
+
             # 新規rawファイル数（data/raw/*.csv）
-            NEW_RAW_FILES=$(git diff --cached --name-status | grep '^A\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            NEW_RAW_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 変更されたrawファイル数
-            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep '^M\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep -E '^M[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 処理済みファイル数（data/processed/normalized_*.csv）
-            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep '^A\s\+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 合計CSVファイル数
             TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
@@ -306,6 +309,7 @@ jobs:
             fi
 
             # 環境変数を設定
+            # サマリーとPR作成スクリプトの両方で使用できるよう、2つの命名規則で設定
             NEW_CSV_FILES=$NEW_RAW_FILES
             MODIFIED_CSV_FILES=$MODIFIED_RAW_FILES
 
@@ -313,6 +317,11 @@ jobs:
             echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
             echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
             echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+
+            # サマリー用の変数名も設定（後方互換性）
+            echo "NEW_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
+            echo "MODIFIED_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
+            echo "CHANGED_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
 
             echo "📊 変更統計:"
             echo "  - 新規rawファイル: $NEW_RAW_FILES"

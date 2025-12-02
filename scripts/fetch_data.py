@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 from datetime import date, datetime
@@ -343,7 +344,46 @@ class DataCollector:
         self.logger.info("=" * 60)
 
 
-def main():
+def save_stats_to_file(stats: dict[str, Any], logger: logging.Logger) -> None:
+    """統計情報をJSONファイルに保存
+
+    Args:
+        stats: 統計情報の辞書
+        logger: ロガーインスタンス
+    """
+    # 環境変数FETCH_TIMESTAMPを取得、なければ現在時刻を使用
+    # これによりGitHub Actionsワークフローと統計ファイル名が一致する
+    fetch_timestamp = os.environ.get("FETCH_TIMESTAMP")
+
+    # FETCH_TIMESTAMPの検証（YYYYMMDD_HHMMSS形式）
+    if fetch_timestamp:
+        # 正規表現でタイムスタンプ形式を検証
+        timestamp_pattern = re.compile(r"^\d{8}_\d{6}$")
+        if not timestamp_pattern.match(fetch_timestamp):
+            logger.warning(
+                f"FETCH_TIMESTAMPの形式が不正です（期待: YYYYMMDD_HHMMSS、実際: {fetch_timestamp}）。"
+                "現在時刻を使用します。"
+            )
+            fetch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        else:
+            logger.info(f"環境変数FETCH_TIMESTAMPを使用: {fetch_timestamp}")
+    else:
+        fetch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        logger.info(f"FETCH_TIMESTAMPが未設定のため、現在時刻を使用: {fetch_timestamp}")
+
+    stats_file = Path("data/logs") / f"stats_{fetch_timestamp}.json"
+    stats_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # datetimeオブジェクトを文字列に変換
+    stats_json = {k: v.isoformat() if isinstance(v, datetime) else v for k, v in stats.items()}
+
+    # エンコーディングを明示的にUTF-8に指定（プラットフォーム依存を回避）
+    with stats_file.open("w", encoding="utf-8") as f:
+        json.dump(stats_json, f, indent=2, ensure_ascii=False)
+    logger.info(f"統計情報を保存しました: {stats_file}")
+
+
+def main():  # noqa: PLR0915
     """メイン関数"""
     parser = argparse.ArgumentParser(description="東京都感染症発生動向データの自動取得")
 
@@ -411,18 +451,7 @@ def main():
 
         # 結果をJSONファイルに保存
         if not args.dry_run:
-            # 環境変数FETCH_TIMESTAMPを取得、なければ現在時刻を使用
-            # これによりGitHub Actionsワークフローと統計ファイル名が一致する
-            fetch_timestamp = os.environ.get("FETCH_TIMESTAMP", datetime.now().strftime("%Y%m%d_%H%M%S"))
-            stats_file = Path("data/logs") / f"stats_{fetch_timestamp}.json"
-            stats_file.parent.mkdir(parents=True, exist_ok=True)
-
-            # datetimeオブジェクトを文字列に変換
-            stats_json = {k: v.isoformat() if isinstance(v, datetime) else v for k, v in stats.items()}
-
-            with stats_file.open("w") as f:
-                json.dump(stats_json, f, indent=2, ensure_ascii=False)
-            logger.info(f"統計情報を保存しました: {stats_file}")
+            save_stats_to_file(stats, logger)
 
         # 終了コード
         if stats["failed"] > 0:
