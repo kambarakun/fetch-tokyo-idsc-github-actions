@@ -216,6 +216,153 @@ class TestDataProcessor(unittest.TestCase):
         self.assertEqual(len(logs["processing"]), 1)
         self.assertEqual(logs["processing"][0]["success"], True)
 
+    def test_parse_int_helper(self):
+        """_parse_int ヘルパーメソッドのテスト"""
+        # 通常の整数
+        self.assertEqual(self.processor._parse_int("123"), 123)
+        self.assertEqual(self.processor._parse_int("0"), 0)
+
+        # 空文字列
+        self.assertEqual(self.processor._parse_int(""), 0)
+        self.assertEqual(self.processor._parse_int("   "), 0)
+
+        # 負の数
+        self.assertEqual(self.processor._parse_int("-5"), -5)
+
+    def test_sum_rows_helper(self):
+        """_sum_rows ヘルパーメソッドのテスト"""
+        male_row = ["0歳", "10", "5", "3"]
+        female_row = ["0歳", "12", "6", "4"]
+
+        result = self.processor._sum_rows(male_row, female_row)
+
+        self.assertEqual(result[0], "0歳")  # 最初の列はそのまま
+        self.assertEqual(result[1], "22")  # 10 + 12
+        self.assertEqual(result[2], "11")  # 5 + 6
+        self.assertEqual(result[3], "7")  # 3 + 4
+
+    def test_sum_rows_with_empty_values(self):
+        """_sum_rows で空値を含む場合のテスト"""
+        male_row = ["0歳", "10", "", "3"]
+        female_row = ["0歳", "", "6", "4"]
+
+        result = self.processor._sum_rows(male_row, female_row)
+
+        self.assertEqual(result[0], "0歳")
+        self.assertEqual(result[1], "10")  # 10 + 0
+        self.assertEqual(result[2], "6")  # 0 + 6
+        self.assertEqual(result[3], "7")  # 3 + 4
+
+    def test_sum_rows_mismatched_length(self):
+        """_sum_rows で行の列数が不一致の場合のテスト"""
+        male_row = ["0歳", "10", "5", "3"]
+        female_row = ["0歳", "12"]  # 列数が少ない
+
+        # 警告ログが出るが、処理は継続される
+        result = self.processor._sum_rows(male_row, female_row)
+
+        # 短い方に合わせて処理される
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0], "0歳")
+        self.assertEqual(result[1], "22")
+
+    def test_is_empty_data_file(self):
+        """_is_empty_data_file のテスト"""
+        # ヘッダーのみのファイル
+        test_file = self.data_dir / "processed" / "empty_test.csv"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_text("年齢区分,インフルエンザ\n", encoding="utf-8")
+
+        self.assertTrue(self.processor._is_empty_data_file(test_file))
+
+        # データ行があるファイル
+        test_file2 = self.data_dir / "processed" / "non_empty_test.csv"
+        test_file2.write_text("年齢区分,インフルエンザ\n0歳,10\n", encoding="utf-8")
+
+        self.assertFalse(self.processor._is_empty_data_file(test_file2))
+
+    def test_calculate_total_with_mismatched_rows(self):
+        """male と female の行数が不一致の場合の _calculate_total_from_gender のテスト"""
+        # テストファイルを作成
+        male_file = self.data_dir / "processed" / "test_male.csv"
+        female_file = self.data_dir / "processed" / "test_female.csv"
+        total_file = self.data_dir / "processed" / "test_total.csv"
+
+        male_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # 男性：3行、女性：2行（不一致）
+        male_file.write_text("年齢区分,インフルエンザ\n0歳,10\n1-4歳,20\n", encoding="utf-8")
+        female_file.write_text("年齢区分,インフルエンザ\n0歳,12\n", encoding="utf-8")
+        total_file.write_text("年齢区分,インフルエンザ\n", encoding="utf-8")
+
+        metadata = {"category": "test", "year": "2025", "period": "01"}
+
+        # 警告ログが出て、処理が中断される
+        self.processor._calculate_total_from_gender(male_file, female_file, total_file, metadata)
+
+        # totalファイルはヘッダーのみのまま（処理されない）
+        total_content = total_file.read_text(encoding="utf-8")
+        self.assertEqual(total_content.strip(), "年齢区分,インフルエンザ")
+
+    def test_verify_total_with_mismatch(self):
+        """total 検証で不一致がある場合のテスト"""
+        # テストファイルを作成
+        male_file = self.data_dir / "processed" / "verify_male.csv"
+        female_file = self.data_dir / "processed" / "verify_female.csv"
+        total_file = self.data_dir / "processed" / "verify_total.csv"
+
+        male_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # male=10, female=5 だが total=20（不一致）
+        male_file.write_text("年齢区分,インフルエンザ\n0歳,10\n", encoding="utf-8")
+        female_file.write_text("年齢区分,インフルエンザ\n0歳,5\n", encoding="utf-8")
+        total_file.write_text("年齢区分,インフルエンザ\n0歳,20\n", encoding="utf-8")
+
+        metadata = {"category": "test", "year": "2025", "period": "01"}
+
+        # 警告ログが出る（不一致検出）
+        self.processor._verify_total_calculation(male_file, female_file, total_file, metadata)
+
+        # エラーにはならず、警告のみ
+
+    def test_process_file_with_encoding_error(self):
+        """エンコーディングエラー時の処理テスト"""
+        # UTF-8で書かれたファイル（Shift_JISとして読むとエラー）
+        test_file = self.raw_dir / "broken_encoding.csv"
+        test_file.write_text("これはUTF-8です\n特殊文字: 🎉", encoding="utf-8")
+
+        # エラーハンドリングで errors="replace" が使われるため、処理は継続される
+        result = self.processor.process_file(test_file)
+
+        # ファイル名が不正なのでメタデータ抽出に失敗するが、エラーではなく失敗として記録される
+        self.assertFalse(result.success)
+
+    def test_extract_metadata_with_multi_word_aggregation(self):
+        """複数単語の集計軸のメタデータ抽出テスト"""
+        # health_center
+        metadata = self.processor._extract_metadata_from_filename("sentinel_weekly_health_center_2025_01.csv")
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata["aggregation"], "health_center")
+
+        # medical_district
+        metadata = self.processor._extract_metadata_from_filename("sentinel_weekly_medical_district_2025_01.csv")
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata["aggregation"], "medical_district")
+
+    def test_extract_section_data_with_no_header(self):
+        """ヘッダー行が見つからない場合のセクションデータ抽出テスト"""
+        lines = [
+            '性別,"男性"',
+            "データ1",
+            "データ2",
+        ]
+        section = {"gender": "男性", "start_line": 0}
+
+        # ヘッダー行（疾病キーワード2個以上）が見つからない場合、空リストが返る
+        data = self.processor._extract_section_data(lines, section)
+
+        self.assertEqual(data, [])
+
 
 if __name__ == "__main__":
     unittest.main()
