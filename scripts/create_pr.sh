@@ -121,29 +121,52 @@ if ! git checkout -b "$BRANCH_NAME"; then
 fi
 
 # 変更内訳の取得
-# まずstats.jsonから実際のデータ取得状況を読み取る（最優先）
+# 優先順位: stats.json > 環境変数 > git diff
+
+# デフォルト値の初期化（防御的プログラミング）
+NEW_FILES="${NEW_FILES:-}"
+MODIFIED_FILES="${MODIFIED_FILES:-}"
+CHANGED_FILES="${CHANGED_FILES:-}"
+STATS_DUPLICATES=0
+
+# 1. stats.jsonから実際のデータ取得状況を読み取る（最優先）
 STATS_FILE=$(find data/logs -name "stats_${FETCH_TIMESTAMP}.json" -type f 2>/dev/null | head -1)
 if [ -n "$STATS_FILE" ] && [ -f "$STATS_FILE" ]; then
-  echo "Reading stats from: $STATS_FILE"
+  echo "Reading stats from: $STATS_FILE" >&2
 
-  # jqを使用してstats.jsonから情報を抽出
+  # jqの存在確認
   if command -v jq &> /dev/null; then
-    STATS_NEW_FILES=$(jq -r '.new_files // 0' "$STATS_FILE" 2>/dev/null || echo "0")
-    STATS_UPDATED_FILES=$(jq -r '.updated_files // 0' "$STATS_FILE" 2>/dev/null || echo "0")
-    STATS_DUPLICATES=$(jq -r '.duplicates // 0' "$STATS_FILE" 2>/dev/null || echo "0")
+    # JSON妥当性チェック（破損したJSONの検出）
+    if jq empty "$STATS_FILE" 2>/dev/null; then
+      # stats.jsonから情報を抽出
+      STATS_NEW_FILES=$(jq -r '.new_files // 0' "$STATS_FILE" 2>/dev/null || echo "0")
+      STATS_UPDATED_FILES=$(jq -r '.updated_files // 0' "$STATS_FILE" 2>/dev/null || echo "0")
+      STATS_DUPLICATES=$(jq -r '.duplicates // 0' "$STATS_FILE" 2>/dev/null || echo "0")
 
-    # stats.jsonの値が有効な場合は使用
-    if [[ "$STATS_NEW_FILES" =~ ^[0-9]+$ ]] && [[ "$STATS_UPDATED_FILES" =~ ^[0-9]+$ ]]; then
-      NEW_FILES="${STATS_NEW_FILES}"
-      MODIFIED_FILES="${STATS_UPDATED_FILES}"
-      echo "Using stats.json data: new=$NEW_FILES, updated=$MODIFIED_FILES, duplicates=$STATS_DUPLICATES"
+      # 値の妥当性検証（非負整数のみ許可）
+      if [[ "$STATS_NEW_FILES" =~ ^[0-9]+$ ]] && [[ "$STATS_UPDATED_FILES" =~ ^[0-9]+$ ]] && [[ "$STATS_DUPLICATES" =~ ^[0-9]+$ ]]; then
+        # 負の数値でないことを追加確認
+        if [ "$STATS_NEW_FILES" -ge 0 ] && [ "$STATS_UPDATED_FILES" -ge 0 ] && [ "$STATS_DUPLICATES" -ge 0 ]; then
+          NEW_FILES="${STATS_NEW_FILES}"
+          MODIFIED_FILES="${STATS_UPDATED_FILES}"
+          echo "✓ Using stats.json data: new=$NEW_FILES, updated=$MODIFIED_FILES, duplicates=$STATS_DUPLICATES" >&2
+        else
+          echo "⚠ Warning: stats.json contains negative values, falling back to git diff" >&2
+        fi
+      else
+        echo "⚠ Warning: stats.json contains invalid values, falling back to git diff" >&2
+      fi
+    else
+      echo "⚠ Warning: stats.json is not valid JSON, falling back to git diff" >&2
     fi
+  else
+    echo "⚠ Warning: jq not found, falling back to git diff" >&2
   fi
 fi
 
-# 環境変数が設定されている場合はそれを使用（fetch-data.ymlのCSVカウント等）
-# 設定されていない場合はgitから計算（最適化: 1回のgit diffで全情報取得）
+# 2. 環境変数が設定されていない場合はgitから計算（フォールバック）
 if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
+  echo "Calculating file counts from git diff..." >&2
   # 一度のgit diffで全ての変更情報を取得（パフォーマンス最適化）
   GIT_STATUS=$(git diff --cached --name-status)
   if [ -z "$NEW_FILES" ]; then
@@ -155,22 +178,38 @@ if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
     MODIFIED_FILES=$(echo "$GIT_STATUS" | grep "^M" | grep -E '^M\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
   fi
 fi
-# CHANGED_FILESのデフォルト値設定
-if [ -z "$CHANGED_FILES" ]; then
-  CHANGED_FILES=$((NEW_FILES + MODIFIED_FILES))
+
+# 3. 最終的なデフォルト値設定と検証
+NEW_FILES="${NEW_FILES:-0}"
+MODIFIED_FILES="${MODIFIED_FILES:-0}"
+
+# 数値検証（空文字列や非数値の場合のフォールバック）
+if ! [[ "$NEW_FILES" =~ ^[0-9]+$ ]]; then
+  NEW_FILES=0
 fi
+if ! [[ "$MODIFIED_FILES" =~ ^[0-9]+$ ]]; then
+  MODIFIED_FILES=0
+fi
+
+# 4. CHANGED_FILESの計算（必ず最新値で再計算）
+# stats.jsonや環境変数からの値に関わらず、NEW_FILES + MODIFIED_FILESで統一
+CHANGED_FILES=$((NEW_FILES + MODIFIED_FILES))
+
+echo "Final counts: new=$NEW_FILES, updated=$MODIFIED_FILES, total=$CHANGED_FILES" >&2
 
 # コミットメッセージの作成（統一形式）
 # stats.jsonの値を使用する場合は、新規0件・更新0件でも明示的に表示
 # フォーマット: "データ更新: YYYY-MM-DD - X件 (新規Y件/更新Z件)"
+
+# DRY原則に従い、FILE_DETAILを一箇所で定義
+FILE_DETAIL="新規${NEW_FILES}件/更新${MODIFIED_FILES}件"
+
 if [ "$CHANGED_FILES" -gt 0 ]; then
-  # 常に "新規X件/更新Y件" の形式で統一
-  FILE_DETAIL="新規${NEW_FILES}件/更新${MODIFIED_FILES}件"
   COMMIT_MSG="データ更新: $CURRENT_DATE - ${CHANGED_FILES}件 ($FILE_DETAIL)"
 else
   # 変更がない場合でも、stats.jsonが存在する場合は詳細を表示
   if [ -n "$STATS_FILE" ] && [ -f "$STATS_FILE" ]; then
-    COMMIT_MSG="データ更新: $CURRENT_DATE - 0件 (新規0件/更新0件)"
+    COMMIT_MSG="データ更新: $CURRENT_DATE - 0件 ($FILE_DETAIL)"
   else
     COMMIT_MSG="データ更新: $CURRENT_DATE - 0件"
   fi
