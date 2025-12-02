@@ -364,8 +364,8 @@ jobs:
             # 処理済みファイル数（data/processed/normalized_*.csv）
             NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep '^A\s\+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
 
-            # 合計CSVファイル数
-            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
+            # 合計rawファイル数（data/raw/*.csv のみ、JSONやメタデータは除外）
+            TOTAL_RAW_CSV_FILES=$((NEW_RAW_FILES + MODIFIED_RAW_FILES))
 
             # 空文字列や非数値の場合のフォールバック
             if ! [[ "$NEW_RAW_FILES" =~ ^[0-9]+$ ]]; then
@@ -377,9 +377,6 @@ jobs:
             if ! [[ "$NEW_PROCESSED_FILES" =~ ^[0-9]+$ ]]; then
               NEW_PROCESSED_FILES="0"
             fi
-            if ! [[ "$TOTAL_CSV_FILES" =~ ^[0-9]+$ ]]; then
-              TOTAL_CSV_FILES="0"
-            fi
 
             # fetch-data用の変数名を設定（後方互換性のため）
             NEW_CSV_FILES=$NEW_RAW_FILES
@@ -388,13 +385,14 @@ jobs:
             echo "NEW_CSV_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
             echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
             echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
-            echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+            # CSV_FILES: data/raw/*.csvファイルのみをカウント（JSONやメタデータは除外）
+            echo "CSV_FILES=$TOTAL_RAW_CSV_FILES" >> $GITHUB_ENV
 
             echo "📊 変更統計:"
             echo "  - 新規rawファイル: $NEW_RAW_FILES"
             echo "  - 更新rawファイル: $MODIFIED_RAW_FILES"
             echo "  - 処理済みファイル: $NEW_PROCESSED_FILES"
-            echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
+            echo "  - 合計rawファイル: $TOTAL_RAW_CSV_FILES"
           fi
 
       - name: Create Pull Request
