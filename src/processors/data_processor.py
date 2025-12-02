@@ -722,7 +722,12 @@ class DataProcessor:
 
             except (OSError, csv.Error, ValueError, IndexError):
                 # 整合性チェック自体は継続しつつ、原因調査のために例外情報は残す
-                logger.exception(f"整合性チェックエラー: {period_key}")
+                logger.exception(
+                    f"整合性チェックエラー: {period_key}\n"
+                    f"  age: {files.get('age', 'N/A')}\n"
+                    f"  health_center: {files.get('health_center', 'N/A')}\n"
+                    f"  medical_district: {files.get('medical_district', 'N/A')}"
+                )
                 continue
 
         logger.info(f"整合性チェック完了: {checked_count}期間チェック済み、{error_count}件のエラー")

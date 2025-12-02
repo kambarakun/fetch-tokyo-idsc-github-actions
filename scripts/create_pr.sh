@@ -328,6 +328,19 @@ PR_BODY_FILE="/tmp/pr_body.md"
       echo ""
       echo "#### 処理済みデータ（data/processed/）"
       echo "- **処理済みファイル**: ${NEW_PROCESSED_FILES}件"
+
+      # 処理統計の表示（stats.jsonから取得した場合）
+      if [ -n "${STATS_TOTAL:-}" ]; then
+        echo ""
+        echo "#### 📊 データ処理統計"
+        echo "- **処理対象**: ${STATS_TOTAL}件"
+        echo "- **成功**: ${STATS_SUCCEEDED:-0}件"
+        if [ "${STATS_FAILED:-0}" -gt 0 ]; then
+          echo "- **失敗**: ${STATS_FAILED}件 ⚠️"
+        else
+          echo "- **失敗**: 0件 ✅"
+        fi
+      fi
     fi
     echo ""
   fi

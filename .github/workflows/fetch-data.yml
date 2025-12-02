@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      force_merge_on_failure:
+        description: "データ処理失敗時でもPRを作成してマージする（警告: データ品質が保証されない可能性があります）"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -102,6 +107,7 @@ jobs:
           SKIP_EXISTING="${{ github.event.inputs.skip_existing }}"
           VERIFY_CONTINUITY="${{ github.event.inputs.verify_continuity }}"
           AUTO_MERGE="${{ github.event.inputs.auto_merge }}"
+          FORCE_MERGE_ON_FAILURE="${{ github.event.inputs.force_merge_on_failure }}"
 
           # デフォルト値の設定
           if [ -z "$START_YEAR" ]; then
@@ -132,6 +138,11 @@ jobs:
             AUTO_MERGE="false"
           fi
 
+          # FORCE_MERGE_ON_FAILUREのデフォルト値
+          if [ -z "$FORCE_MERGE_ON_FAILURE" ]; then
+            FORCE_MERGE_ON_FAILURE="false"
+          fi
+
           # 環境変数として設定
           echo "DATA_TYPES=$DATA_TYPES" >> $GITHUB_ENV
           echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
@@ -140,6 +151,7 @@ jobs:
           echo "SKIP_EXISTING=$SKIP_EXISTING" >> $GITHUB_ENV
           echo "VERIFY_CONTINUITY=$VERIFY_CONTINUITY" >> $GITHUB_ENV
           echo "AUTO_MERGE=$AUTO_MERGE" >> $GITHUB_ENV
+          echo "FORCE_MERGE_ON_FAILURE=$FORCE_MERGE_ON_FAILURE" >> $GITHUB_ENV
 
           echo "Fetch parameters:"
           echo "  Data types: ${DATA_TYPES:-ALL}"
@@ -149,6 +161,7 @@ jobs:
           echo "  Skip existing: $SKIP_EXISTING"
           echo "  Verify continuity: $VERIFY_CONTINUITY"
           echo "  Auto merge: $AUTO_MERGE"
+          echo "  Force merge on failure: $FORCE_MERGE_ON_FAILURE"
 
       - name: Fetch epidemic data
         id: fetch
@@ -193,19 +206,47 @@ jobs:
           echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
 
           # データ処理の実行（全ファイル処理）
+          # 注: process_data.pyは失敗時にexit 1を返すため、パイプラインの最終終了コードを確認
           if uv run python scripts/process_data.py --all 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
             echo "✅ データ処理: 成功"
             echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
 
-            # stats.jsonが生成されているか確認
+            # stats.jsonから処理結果を抽出
             if [ -f "data/processed/stats.json" ]; then
-              echo "STATS_FILE=data/processed/stats.json" >> "$GITHUB_ENV"
-              echo "📊 処理統計ファイル: data/processed/stats.json"
-              cat data/processed/stats.json
+              STATS_TOTAL=$(jq -r '.total' data/processed/stats.json)
+              STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json)
+              STATS_FAILED=$(jq -r '.failed' data/processed/stats.json)
+
+              echo "STATS_TOTAL=${STATS_TOTAL}" >> "$GITHUB_ENV"
+              echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}" >> "$GITHUB_ENV"
+              echo "STATS_FAILED=${STATS_FAILED}" >> "$GITHUB_ENV"
+
+              echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
+
+              # エラー詳細を表示（最大5件）
+              ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json)
+              if [ "${ERROR_COUNT}" -gt 0 ]; then
+                echo "⚠️ エラー詳細:"
+                jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json
+                if [ "${ERROR_COUNT}" -gt 5 ]; then
+                  echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
+                fi
+              fi
             fi
           else
-            echo "⚠️ データ処理: エラー"
+            echo "❌ データ処理: 失敗"
             echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
+
+            # 強制マージオプションが有効な場合は警告のみでワークフローを継続
+            if [ "$FORCE_MERGE_ON_FAILURE" = "true" ]; then
+              echo "⚠️ 警告: 強制マージオプションが有効です。データ処理に失敗しましたが、ワークフローを継続します。"
+              echo "⚠️ データ品質が保証されない可能性があります。"
+            else
+              # データ処理は重要なステップなので、失敗時はワークフローを停止
+              echo "💥 データ処理に失敗したため、ワークフローを停止します。"
+              echo "💡 強制的にマージしたい場合は、force_merge_on_failure オプションを有効にして再実行してください。"
+              exit 1
+            fi
           fi
 
       - name: Verify data continuity

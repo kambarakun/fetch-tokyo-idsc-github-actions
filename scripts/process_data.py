@@ -18,6 +18,7 @@ Usage:
 """
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -99,11 +100,23 @@ def main():  # noqa: PLR0912, PLR0915
             result = processor.process_all()
             print_result("処理", result)
 
+            # 処理結果をstats.jsonに保存
+            stats_file = data_dir / "processed" / "stats.json"
+            stats_file.parent.mkdir(parents=True, exist_ok=True)
+            with stats_file.open("w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+            logger.info(f"📊 処理統計を保存: {stats_file}")
+
             # 最終結果サマリー
             logger.info("\n" + "=" * 60)
             logger.info("✅ 処理完了")
             logger.info("=" * 60)
             logger.info(f"処理結果: {result['succeeded']}/{result['total']} 成功")
+
+            # 失敗があった場合はエラー終了
+            if result["failed"] > 0:
+                logger.error(f"❌ {result['failed']}件の処理が失敗しました")
+                sys.exit(1)
 
         elif args.file:
             # 特定ファイルのみ処理
