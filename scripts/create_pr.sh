@@ -12,7 +12,7 @@ set -e
 #   scripts/create_pr.sh <workflow_name> <workflow_display_name>
 #
 # 引数:
-#   $1 workflow_name         - ワークフロー識別子 (fetch-data-daily|fetch-data-weekly|fetch-data)
+#   $1 workflow_name         - ワークフロー識別子 (fetch-data-daily|fetch-data-weekly|fetch-data|process-data)
 #   $2 workflow_display_name - PR本文に表示するワークフロー名
 #
 # 必須環境変数:
@@ -34,6 +34,11 @@ set -e
 #     - DATA_TYPES, SKIP_EXISTING
 #     - VERIFY_CONTINUITY, CONTINUITY_VALID
 #     - NEW_FILES, MODIFIED_FILES, CHANGED_FILES (CSVカウント用)
+#   process-data:
+#     - TARGET_FILES (処理対象ファイル)
+#     - VERIFY_OUTPUT (true|false)
+#     - VALIDATION_PASSED (true|false)
+#     - NEW_FILES, MODIFIED_FILES, CHANGED_FILES (処理済みファイルカウント用)
 #
 # GitHub環境変数（デフォルト値あり）:
 #   - GITHUB_SERVER_URL : GitHubサーバーURL (デフォルト: https://github.com)
@@ -106,6 +111,9 @@ case "$WORKFLOW_NAME" in
     ;;
   fetch-data)
     BRANCH_NAME="data-update-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
+    ;;
+  process-data)
+    BRANCH_NAME="data-process-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
     ;;
   *)
     BRANCH_NAME="data-update-${WORKFLOW_NAME}-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
@@ -305,6 +313,13 @@ PR_BODY_FILE="/tmp/pr_body.md"
         echo "- **チェック方式**: 全ファイル取得"
       fi
       ;;
+    process-data)
+      echo "- **対象**: ${TARGET_FILES:-ALL raw/*.csv}"
+      echo "- **処理内容**: raw→processed変換（Shift_JIS→UTF-8、正規化）"
+      if [ "${VERIFY_OUTPUT:-false}" = "true" ]; then
+        echo "- **検証**: 出力データの品質チェックを実施"
+      fi
+      ;;
   esac
 
   echo ""
@@ -370,6 +385,18 @@ PR_BODY_FILE="/tmp/pr_body.md"
         fi
       fi
       ;;
+    process-data)
+      echo "- [x] raw→processed変換完了"
+      echo "- [x] エンコーディング変換（Shift_JIS→UTF-8）"
+      echo "- [x] データ正規化"
+      if [ "${VERIFY_OUTPUT:-false}" = "true" ]; then
+        if [ "${VALIDATION_PASSED:-false}" = "true" ]; then
+          echo "- [x] 出力データ検証"
+        else
+          echo "- [ ] 出力データ検証 ⚠️ **要確認**"
+        fi
+      fi
+      ;;
     *)
       echo "- [x] データ取得完了"
       echo "- [x] ファイル検証済み"
@@ -402,6 +429,15 @@ PR_BODY_FILE="/tmp/pr_body.md"
         echo "- データタイプが指定されています: $DATA_TYPES"
       fi
       ;;
+    process-data)
+      echo "- このワークフローは手動実行により起動されました"
+      echo "- 処理済みデータは data/processed/ ディレクトリに保存されます"
+      if [ -n "$TARGET_FILES" ]; then
+        echo "- 特定のファイルのみが処理対象として指定されています"
+      else
+        echo "- data/raw/ 内の全CSVファイルが処理対象です"
+      fi
+      ;;
   esac
 
   echo ""
@@ -425,6 +461,10 @@ case "$WORKFLOW_NAME" in
   fetch-data-weekly)
     gh label create "weekly-update" --description "Weekly full data check" --color "5319E7" 2>/dev/null || true
     SPECIFIC_LABEL="weekly-update"
+    ;;
+  process-data)
+    gh label create "data-processing" --description "Data processing (raw to processed)" --color "D876E3" 2>/dev/null || true
+    SPECIFIC_LABEL="data-processing"
     ;;
   *)
     SPECIFIC_LABEL=""
