@@ -356,10 +356,10 @@ jobs:
 
             # 新規ファイルと変更ファイルを分けて集計
             # 新規rawファイル数（data/raw/*.csv）
-            NEW_RAW_FILES=$(git diff --cached --name-status | grep '^A\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            NEW_RAW_FILES=$(git diff --cached --name-status | grep '^A\s\+data/raw/[^/]\+\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 変更されたrawファイル数
-            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep '^M\s\+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep '^M\s\+data/raw/[^/]\+\.csv$' | wc -l | tr -d ' ' || echo "0")
 
             # 処理済みファイル数（data/processed/normalized_*.csv）
             NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep '^A\s\+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
