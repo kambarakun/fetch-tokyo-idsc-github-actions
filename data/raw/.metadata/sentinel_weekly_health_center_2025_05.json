@@ -4,11 +4,11 @@
   "year": 2025,
   "period": 5,
   "period_type": "weekly",
-  "timestamp": "2025-12-02T18:32:31.913142",
+  "timestamp": "2025-12-04T08:46:10.983010",
   "file_size": 14112,
   "sha256_hash": "2c86c4e1251157b3d7ba730c862045c323c946275a8b161c5c97f4f64a970909",
   "encoding": "shift_jis",
   "file_path": "sentinel_weekly_health_center_2025_05.csv",
   "force_overwrite": true,
-  "fetch_time": 0.5820741653442383
+  "fetch_time": 0.8498468399047852
 }
