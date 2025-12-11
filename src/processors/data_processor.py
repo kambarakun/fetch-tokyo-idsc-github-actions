@@ -215,11 +215,11 @@ class DataProcessor:
 
             # 各性別セクションを処理
             for section in gender_sections:
-                # medical_districtのtotalセクションはスキップ（元データに含まれない仕様）
+                # medical_districtのtotalセクションはスキップ(元データに含まれない仕様)
                 if metadata.get("aggregation") == "medical_district" and section["gender"] == self.GENDER_TOTAL:
                     logger.info(
                         "medical_districtのtotalセクションをスキップします "
-                        "（元データに男女合計が含まれていない仕様です）"
+                        "(元データに男女合計が含まれていない仕様です)"
                     )
                     continue
 
@@ -237,11 +237,11 @@ class DataProcessor:
             if not output_files:
                 return NormalizationResult(success=False, error="出力ファイルが生成されませんでした")
 
-            # totalファイルが空の場合は警告のみ（生データを尊重し、計算で埋めない）
+            # totalファイルが空の場合は警告のみ(生データを尊重し、計算で埋めない)
             if total_file and male_file and female_file and self._is_empty_data_file(total_file):
                 logger.warning(
                     f"totalセクションが空です。生データを尊重してそのまま保存します。"
-                    f"（データ抽出エラーの可能性があります）: {total_file.name}"
+                    f"(データ抽出エラーの可能性があります): {total_file.name}"
                 )
 
             # totalファイルが元データにある場合、計算結果と一致するか検証
@@ -639,10 +639,13 @@ class DataProcessor:
             json.dump(logs, f, ensure_ascii=False, indent=2)
 
     def _verify_cross_dataset_consistency(self) -> None:
-        """異なる集計軸 (age/health_center/medical_district) のtotal値が一致するか検証
+        """異なる集計軸 (age/health_center) のtotal値が一致するか検証
 
-        同じ期間・頻度のデータについて、各集計軸のtotal行を比較し、
+        同じ期間・頻度のデータについて、age と health_center のtotal行を比較し、
         データの整合性をチェックする。不一致があれば警告ログを出力。
+
+        注: medical_districtは元データにtotalセクションが含まれないため、
+        整合性チェックの対象外とする。
         """
         # 処理済みファイルから期間情報を収集
         periods_to_check = self._collect_periods_for_verification()
@@ -651,7 +654,7 @@ class DataProcessor:
             logger.info("整合性チェック対象のファイルセットが見つかりませんでした")
             return
 
-        logger.info(f"整合性チェック対象: {len(periods_to_check)}期間")
+        logger.info(f"整合性チェック対象: {len(periods_to_check)}期間 (age vs health_center)")
 
         checked_count = 0
         error_count = 0
@@ -665,25 +668,21 @@ class DataProcessor:
                 # 各データセットの合計行を抽出
                 age_total_row = self._extract_total_row(files["age"])
                 hc_total_row = self._extract_total_row(files["health_center"])
-                md_total_row = self._extract_total_row(files["medical_district"])
 
-                if not all((age_total_row, hc_total_row, md_total_row)):
+                if not all((age_total_row, hc_total_row)):
                     logger.debug(f"合計行が見つかりません: {period_key}")
                     continue
 
                 # 各疾患列ごとに比較
                 mismatches = []
-                max_cols = min(len(age_total_row), len(hc_total_row), len(md_total_row))
+                max_cols = min(len(age_total_row), len(hc_total_row))
 
                 for col_idx in range(1, max_cols):  # 0列目は「合計」ラベルなのでスキップ
                     age_val = self._parse_int(age_total_row[col_idx])
                     hc_val = self._parse_int(hc_total_row[col_idx])
-                    md_val = self._parse_int(md_total_row[col_idx])
 
-                    if not (age_val == hc_val == md_val):
-                        mismatches.append(
-                            {"col": col_idx, "age": age_val, "health_center": hc_val, "medical_district": md_val}
-                        )
+                    if age_val != hc_val:
+                        mismatches.append({"col": col_idx, "age": age_val, "health_center": hc_val})
 
                 checked_count += 1
 
@@ -692,9 +691,7 @@ class DataProcessor:
                     logger.warning(f"⚠️  整合性エラー: {period_key} - {len(mismatches)}列で不一致")
                     # 最初の3件の不一致を詳細表示
                     for mm in mismatches[:3]:
-                        logger.warning(
-                            f"  列{mm['col']}: age={mm['age']}, health_center={mm['health_center']}, medical_district={mm['medical_district']}"
-                        )
+                        logger.warning(f"  列{mm['col']}: age={mm['age']}, health_center={mm['health_center']}")
                     if len(mismatches) > 3:
                         logger.warning(f"  ... 他{len(mismatches) - 3}列で不一致")
                 else:
@@ -705,8 +702,7 @@ class DataProcessor:
                 logger.exception(
                     f"整合性チェックエラー: {period_key}\n"
                     f"  age: {files.get('age', 'N/A')}\n"
-                    f"  health_center: {files.get('health_center', 'N/A')}\n"
-                    f"  medical_district: {files.get('medical_district', 'N/A')}"
+                    f"  health_center: {files.get('health_center', 'N/A')}"
                 )
                 continue
 
@@ -714,6 +710,9 @@ class DataProcessor:
 
     def _collect_periods_for_verification(self) -> dict[str, dict[str, Path]]:
         """整合性チェック対象の期間とファイルを収集
+
+        注: medical_districtは元データにtotalセクションが含まれないため対象外。
+        age と health_center の2軸のみをチェック対象とする。
 
         Returns:
             {period_key: {aggregation: file_path}} の辞書
@@ -735,8 +734,8 @@ class DataProcessor:
             year = parts[-2]
             period = parts[-1]
 
-            # age, health_center, medical_district のみを対象
-            if aggregation not in ["age", "health_center", "medical_district"]:
+            # age と health_center のみを対象（medical_districtは除外）
+            if aggregation not in ["age", "health_center"]:
                 continue
 
             period_key = f"{frequency}_{year}_{period}"
@@ -746,8 +745,8 @@ class DataProcessor:
 
             periods[period_key][aggregation] = file_path
 
-        # 3つの集計軸が揃っているもののみを返す
-        return {k: v for k, v in periods.items() if len(v) == 3}
+        # 2つの集計軸（age, health_center）が揃っているもののみを返す
+        return {k: v for k, v in periods.items() if len(v) == 2}
 
     def _extract_total_row(self, file_path: Path) -> list[str] | None:
         """CSVファイルから「合計」行を抽出
