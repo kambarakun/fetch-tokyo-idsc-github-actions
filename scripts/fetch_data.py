@@ -468,7 +468,13 @@ def main():  # noqa: PLR0915
 
         # データ収集実行
         collector = DataCollector(
-            config, args.dry_run, args.skip_existing, args.force_update, args.save_all_zero, target_weeks, target_months
+            config=config,
+            dry_run=args.dry_run,
+            skip_existing=args.skip_existing,
+            force_update=args.force_update,
+            save_all_zero=args.save_all_zero,
+            target_weeks=target_weeks,
+            target_months=target_months,
         )
         stats = collector.collect_data(data_types=data_types, start_year=args.start_year, end_year=args.end_year)
 

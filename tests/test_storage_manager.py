@@ -726,6 +726,78 @@ class TestStorageManager(unittest.TestCase):
         expected_file = self.base_path / "sentinel_weekly_test_2025_53.csv"
         self.assertFalse(expected_file.exists(), "ファイルは存在しないべきです")
 
+    def test_save_with_metadata_non_zero_data_records_save_all_zero_false(self):
+        """save_all_zero=False(デフォルト)で非ゼロデータ保存時、メタデータに記録されることを確認"""
+        # 非ゼロデータを作成
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","5","10"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # save_all_zero=False(デフォルト)で保存
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=54,
+            is_monthly=False,
+            # save_all_zero はデフォルト False
+        )
+
+        # 保存されたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertFalse(result.is_skipped, "非ゼロデータはスキップされないべきです")
+
+        # メタデータに save_all_zero=False が記録されていることを確認
+        expected_file = self.base_path / "sentinel_weekly_test_2025_54.csv"
+        metadata = self.storage.get_metadata(expected_file)
+        self.assertIsNotNone(metadata, "メタデータが存在すべきです")
+        self.assertFalse(metadata.get("save_all_zero", True), "save_all_zero=Falseが記録されるべきです")
+
+    def test_force_overwrite_with_all_zero_does_not_overwrite_existing_non_zero(self):
+        """既存の非ゼロデータがある状態でforce_overwrite=True & all-zeroを渡しても上書きされないことを確認"""
+        # まず非ゼロデータを保存
+        non_zero_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","5","10"
+"""
+        data = non_zero_data.encode("shift_jis")
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=55,
+            is_monthly=False,
+        )
+        self.assertTrue(result.success)
+        expected_file = self.base_path / "sentinel_weekly_test_2025_55.csv"
+        self.assertTrue(expected_file.exists())
+
+        # 元のファイルサイズを記録
+        original_size = expected_file.stat().st_size
+
+        # 全て0のデータでforce_overwrite=True（ただしsave_all_zero=False）で保存を試みる
+        all_zero_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","0","0"
+"""
+        result = self.storage.save_with_metadata(
+            data=all_zero_data.encode("shift_jis"),
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=55,
+            is_monthly=False,
+            force_overwrite=True,  # 上書きフラグTrue
+            # save_all_zero=False (デフォルト) - 全て0はスキップ
+        )
+
+        # スキップされ、ファイルは上書きされないことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertTrue(result.is_skipped, "全て0データはスキップされるべきです")
+        self.assertTrue(expected_file.exists(), "既存ファイルは残るべきです")
+        self.assertEqual(expected_file.stat().st_size, original_size, "ファイルは上書きされないべきです")
+
     def test_is_all_zero_data_with_comma_in_field(self):
         """フィールド内にカンマが含まれるデータが正しく処理されることを確認"""
         # フィールド内にカンマが含まれるCSVデータ（RFC 4180準拠）

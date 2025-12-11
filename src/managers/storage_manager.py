@@ -277,7 +277,10 @@ class StorageManager:
 
             # 全て0のデータかチェック(save_all_zeroがFalseの場合のみ)
             if not save_all_zero and self._is_all_zero_data(data):
-                logger.info(f"Skipping all-zero data: {data_type}_{year}_{period:02d}")
+                logger.info(
+                    f"Skipping all-zero unpublished data: {data_type}_{year}_{period:02d} "
+                    "(use --save-all-zero to save)"
+                )
                 return SaveResult(success=True, is_skipped=True)
 
             # ファイルパス生成
