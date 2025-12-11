@@ -215,6 +215,14 @@ class DataProcessor:
 
             # 各性別セクションを処理
             for section in gender_sections:
+                # medical_districtのtotalセクションはスキップ（元データに含まれない仕様）
+                if metadata.get("aggregation") == "medical_district" and section["gender"] == self.GENDER_TOTAL:
+                    logger.info(
+                        "medical_districtのtotalセクションをスキップします "
+                        "（元データに男女合計が含まれていない仕様です）"
+                    )
+                    continue
+
                 output_file = self._save_gender_section(lines, section, metadata)
                 if output_file:
                     output_files.append(output_file)
@@ -229,10 +237,12 @@ class DataProcessor:
             if not output_files:
                 return NormalizationResult(success=False, error="出力ファイルが生成されませんでした")
 
-            # totalファイルが空の場合、male + female で計算
+            # totalファイルが空の場合は警告のみ（生データを尊重し、計算で埋めない）
             if total_file and male_file and female_file and self._is_empty_data_file(total_file):
-                logger.info(f"totalファイルが空のため、male + female で計算します: {total_file.name}")
-                self._calculate_total_from_gender(male_file, female_file, total_file)
+                logger.warning(
+                    f"totalセクションが空です。生データを尊重してそのまま保存します。"
+                    f"（データ抽出エラーの可能性があります）: {total_file.name}"
+                )
 
             # totalファイルが元データにある場合、計算結果と一致するか検証
             if total_file and male_file and female_file and not self._is_empty_data_file(total_file):
@@ -503,68 +513,6 @@ class DataProcessor:
         except ValueError:
             logger.warning(f"数値変換失敗: '{value}' -> 0として処理")
             return 0
-
-    def _sum_rows(self, male_row: list[str], female_row: list[str]) -> list[str]:
-        """男性と女性のデータ行を加算
-
-        Args:
-            male_row: 男性データの行
-            female_row: 女性データの行
-
-        Returns:
-            合計データの行
-
-        Raises:
-            ValueError: 列数が一致しない場合
-        """
-        if len(male_row) != len(female_row):
-            error_msg = f"列数不一致: male={len(male_row)}, female={len(female_row)}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        total_row = [male_row[0]]  # 最初の列（地域名や年齢区分など）
-        for j in range(1, len(male_row)):
-            male_val = self._parse_int(male_row[j])
-            female_val = self._parse_int(female_row[j])
-            total_row.append(str(male_val + female_val))
-        return total_row
-
-    def _calculate_total_from_gender(self, male_file: Path, female_file: Path, total_file: Path) -> None:
-        """male + female でtotalを計算
-
-        Args:
-            male_file: 男性データファイル
-            female_file: 女性データファイル
-            total_file: 合計ファイル（上書きされる）
-        """
-        try:
-            # ヘルパーメソッドでCSV読み込み
-            male_data = self._read_csv_data(male_file)
-            female_data = self._read_csv_data(female_file)
-
-            if len(male_data) != len(female_data):
-                logger.warning(
-                    f"male と female の行数が一致しません: male={len(male_data)}, female={len(female_data)}, file={male_file.name}"
-                )
-                return
-
-            # ヘッダー行
-            total_data = [male_data[0]]
-
-            # データ行をヘルパーメソッドで加算
-            for i in range(1, len(male_data)):
-                total_row = self._sum_rows(male_data[i], female_data[i])
-                total_data.append(total_row)
-
-            # totalファイルに書き込み
-            with total_file.open("w", encoding="utf-8", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerows(total_data)
-
-            logger.info(f"totalを計算しました: {total_file.name} (male + female)")
-
-        except (OSError, csv.Error, ValueError, IndexError):
-            logger.exception(f"total計算失敗: {total_file.name}")
 
     def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:  # noqa: PLR0912
         """元データのtotalが male + female と一致するか検証

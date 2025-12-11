@@ -229,41 +229,6 @@ class TestDataProcessor(unittest.TestCase):
         # 負の数
         self.assertEqual(self.processor._parse_int("-5"), -5)
 
-    def test_sum_rows_helper(self):
-        """_sum_rows ヘルパーメソッドのテスト"""
-        male_row = ["0歳", "10", "5", "3"]
-        female_row = ["0歳", "12", "6", "4"]
-
-        result = self.processor._sum_rows(male_row, female_row)
-
-        self.assertEqual(result[0], "0歳")  # 最初の列はそのまま
-        self.assertEqual(result[1], "22")  # 10 + 12
-        self.assertEqual(result[2], "11")  # 5 + 6
-        self.assertEqual(result[3], "7")  # 3 + 4
-
-    def test_sum_rows_with_empty_values(self):
-        """_sum_rows で空値を含む場合のテスト"""
-        male_row = ["0歳", "10", "", "3"]
-        female_row = ["0歳", "", "6", "4"]
-
-        result = self.processor._sum_rows(male_row, female_row)
-
-        self.assertEqual(result[0], "0歳")
-        self.assertEqual(result[1], "10")  # 10 + 0
-        self.assertEqual(result[2], "6")  # 0 + 6
-        self.assertEqual(result[3], "7")  # 3 + 4
-
-    def test_sum_rows_mismatched_length(self):
-        """_sum_rows で行の列数が不一致の場合のテスト"""
-        male_row = ["0歳", "10", "5", "3"]
-        female_row = ["0歳", "12"]  # 列数が少ない
-
-        # ValueError が発生する（データ整合性保証のため）
-        with self.assertRaises(ValueError) as context:
-            self.processor._sum_rows(male_row, female_row)
-
-        self.assertIn("列数不一致", str(context.exception))
-
     def test_is_empty_data_file(self):
         """_is_empty_data_file のテスト"""
         # ヘッダーのみのファイル
@@ -278,27 +243,6 @@ class TestDataProcessor(unittest.TestCase):
         test_file2.write_text("年齢区分,インフルエンザ\n0歳,10\n", encoding="utf-8")
 
         self.assertFalse(self.processor._is_empty_data_file(test_file2))
-
-    def test_calculate_total_with_mismatched_rows(self):
-        """male と female の行数が不一致の場合の _calculate_total_from_gender のテスト"""
-        # テストファイルを作成
-        male_file = self.data_dir / "processed" / "test_male.csv"
-        female_file = self.data_dir / "processed" / "test_female.csv"
-        total_file = self.data_dir / "processed" / "test_total.csv"
-
-        male_file.parent.mkdir(parents=True, exist_ok=True)
-
-        # 男性：3行、女性：2行（不一致）
-        male_file.write_text("年齢区分,インフルエンザ\n0歳,10\n1-4歳,20\n", encoding="utf-8")
-        female_file.write_text("年齢区分,インフルエンザ\n0歳,12\n", encoding="utf-8")
-        total_file.write_text("年齢区分,インフルエンザ\n", encoding="utf-8")
-
-        # 警告ログが出て、処理が中断される
-        self.processor._calculate_total_from_gender(male_file, female_file, total_file)
-
-        # totalファイルはヘッダーのみのまま（処理されない）
-        total_content = total_file.read_text(encoding="utf-8")
-        self.assertEqual(total_content.strip(), "年齢区分,インフルエンザ")
 
     def test_verify_total_with_mismatch(self):
         """total 検証で不一致がある場合のテスト"""
