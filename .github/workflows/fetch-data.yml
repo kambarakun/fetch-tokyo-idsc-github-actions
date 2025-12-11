@@ -196,8 +196,8 @@ jobs:
           # メインスクリプトの実行（配列展開による安全な実行）
           "${FETCH_CMD[@]}" 2>&1 | tee data/logs/console_${FETCH_TIMESTAMP}.log
 
-          # 実行結果の保存
-          echo "FETCH_RESULT=$?" >> $GITHUB_ENV
+          # 実行結果の保存（PIPESTATUS[0]でパイプライン内の最初のコマンドの終了コードを取得）
+          echo "FETCH_RESULT=${PIPESTATUS[0]}" >> $GITHUB_ENV
 
       - name: Process epidemic data
         id: process
