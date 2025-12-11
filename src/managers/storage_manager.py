@@ -30,6 +30,7 @@ class SaveResult:
         error: エラーメッセージ（失敗時のみ）
         is_duplicate: 重複ファイルとして検出されたかどうか
         is_new: 新規ファイルとして保存されたかどうか
+        is_skipped: 全て0のデータとしてスキップされたかどうか
     """
 
     success: bool
@@ -38,6 +39,7 @@ class SaveResult:
     error: str | None = None
     is_duplicate: bool = False
     is_new: bool = False
+    is_skipped: bool = False
 
 
 @dataclass
@@ -269,6 +271,11 @@ class StorageManager:
             if not force_overwrite and self.check_duplicates(data_hash):
                 logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
                 return SaveResult(success=True, is_duplicate=True)
+
+            # 全て0のデータかチェック（force_overwriteがFalseの場合のみ）
+            if not force_overwrite and self._is_all_zero_data(data):
+                logger.info(f"Skipping all-zero data: {data_type}_{year}_{period:02d}")
+                return SaveResult(success=True, is_skipped=True)
 
             # ファイルパス生成
             dir_path = self.organize_file_path(data_type, year, period, is_monthly)
@@ -554,6 +561,89 @@ class StorageManager:
         # 英数字とアンダースコアのみを許可
         pattern = re.compile(r"^[a-zA-Z0-9_]+$")
         return bool(pattern.match(data_type))
+
+    def _is_all_zero_data(self, data: bytes) -> bool:
+        """データの全ての数値カラムが0かどうかをチェックする。
+
+        Args:
+            data: チェックするCSVデータ（Shift_JISエンコーディング）
+
+        Returns:
+            全ての数値カラムが0または空の場合True、それ以外False
+
+        Note:
+            未発表データは全てのカウントが0になっているため、
+            そのようなデータは保存する価値がないとしてスキップする。
+            ヘッダー行や注釈行は無視し、データ行のみをチェックする。
+        """
+        try:
+            # Shift_JISでデコード
+            content = data.decode("shift_jis", errors="replace")
+            lines = content.split("\n")
+
+            # 数値を含む行を探す
+            has_data_row = False
+            has_non_zero_value = False
+
+            for raw_line in lines:
+                line = raw_line.strip()
+
+                # 空行をスキップ
+                if not line:
+                    continue
+
+                # 注釈行をスキップ（*で始まる行）
+                if line.startswith("*") or line.startswith('"*'):
+                    continue
+
+                # CSVとして解析（簡易的な処理）
+                # カンマ区切りで分割し、引用符を除去
+                parts = [p.strip().strip('"') for p in line.split(",")]
+
+                # 最初のカラムが空でない場合、データ行の可能性がある
+                # 2列目以降に数値があるかチェック
+                if len(parts) > 1:
+                    # 最初のカラムは通常、行ラベル（年齢、地域名など）
+                    # 2列目以降が数値データ
+                    numeric_columns = parts[1:]
+
+                    # 数値カラムがあるかチェック
+                    has_numeric = False
+                    for raw_col in numeric_columns:
+                        col = raw_col.strip()
+                        # 空文字列はスキップ
+                        if not col:
+                            continue
+
+                        # 数字かどうかチェック（整数または浮動小数点数）
+                        try:
+                            value = float(col)
+                            has_numeric = True
+                            has_data_row = True
+
+                            # 0以外の値があればFalseを返す
+                            if value != 0:
+                                has_non_zero_value = True
+                                return False
+                        except ValueError:
+                            # 数値でない場合はスキップ（ヘッダー行や疾病名など）
+                            continue
+
+                    # この行に数値カラムがあった場合のみ、データ行としてカウント
+                    if has_numeric:
+                        has_data_row = True
+
+            # データ行が見つからなかった場合は、空データとして扱わない（保存する）
+            if not has_data_row:
+                return False
+
+            # 全ての数値が0の場合はTrue
+            return not has_non_zero_value
+
+        except Exception as e:
+            # デコードエラーなどが発生した場合は、安全側に倒して保存する
+            logger.warning(f"Failed to check for all-zero data: {e}")
+            return False
 
     def _get_month_from_week(self, year: int, week: int) -> int:
         """ISO週番号から対応する月を計算する。
