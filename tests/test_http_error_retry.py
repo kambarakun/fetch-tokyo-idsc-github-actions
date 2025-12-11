@@ -180,6 +180,31 @@ class TestRetryHandlerHTTPErrors(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.handler._is_rate_limit_error(error))
 
     @patch("asyncio.sleep")
+    async def test_http_error_without_response_uses_normal_delay(self, mock_sleep):
+        """responseがないHTTPErrorは通常の遅延でリトライすることをテスト"""
+        call_count = 0
+
+        async def func_http_error_no_response_then_success():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # responseがないHTTPErrorをシミュレート
+                error = HTTPError("Generic HTTP Error")
+                # response属性を明示的に削除
+                if hasattr(error, "response"):
+                    delattr(error, "response")
+                raise error
+            return "success"
+
+        result = await self.handler.execute_with_retry(func_http_error_no_response_then_success)
+
+        self.assertEqual(result, "success")
+        self.assertEqual(call_count, 2)
+        # responseがない場合は通常の遅延
+        # base_delay * 2^0 = 1.0 * 1 = 1.0
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("asyncio.sleep")
     async def test_retry_on_403_with_rate_limit_headers(self, mock_sleep):
         """レート制限ヘッダー付き403エラー時に2倍の待機時間でリトライすることをテスト"""
         call_count = 0
@@ -247,7 +272,7 @@ class TestRetryHandlerHTTPErrors(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPError):
             await self.handler.execute_with_retry(func_always_403_no_headers)
 
-        # 1回だけリトライ（計2回実行）
+        # 1回だけリトライ(計2回実行)
         self.assertEqual(mock_sleep.call_count, 1)
 
     @patch("asyncio.sleep")

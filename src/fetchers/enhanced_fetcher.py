@@ -139,22 +139,23 @@ class RetryHandler:
                 last_error = e
 
                 if isinstance(e, HTTPError):
-                    # レート制限エラーの判定
-                    is_rate_limit = self._is_rate_limit_error(e)
+                    # HTTPErrorのresponse属性を安全に取得
+                    response = getattr(e, "response", None)
 
-                    if is_rate_limit:
-                        # レート制限の場合は長めの遅延（2倍）
+                    # レート制限エラーの判定
+                    if response is not None and self._is_rate_limit_error(e):
+                        # レート制限の場合は長めの遅延(2倍)
                         delay = self.calculate_delay(attempt + 1) * 2
                         logger.warning(
-                            f"{e.response.status_code} rate limit detected "
-                            f"(headers: {dict(e.response.headers)}). "
-                            f"Retrying with extended delay..."
+                            f"{response.status_code} rate limit detected "
+                            f"(headers: {dict(response.headers)}). "
+                            "Retrying with extended delay..."
                         )
-                    elif e.response.status_code == 403:
+                    elif response is not None and response.status_code == 403:
                         # レート制限でない403は永続的なエラーの可能性が高い
                         # 1回だけリトライして、それでも失敗したら諦める
                         if attempt >= 1:
-                            logger.error(
+                            logger.exception(
                                 "403 Forbidden without rate limit headers. "
                                 "Likely permanent error. Not retrying further."
                             )
@@ -164,7 +165,7 @@ class RetryHandler:
                             "403 Forbidden without rate limit headers. " "Retrying once in case of temporary issue..."
                         )
                     else:
-                        # その他のHTTPエラーは通常の遅延
+                        # その他のHTTPエラー(responseがNoneの場合も含む)は通常の遅延
                         delay = self.calculate_delay(attempt)
                 else:
                     # タイムアウト、接続エラーは通常の遅延

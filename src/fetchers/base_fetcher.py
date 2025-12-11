@@ -138,8 +138,8 @@ class TokyoEpidemicSurveillanceFetcher:
         # HTTPErrorを投げることで、enhanced_fetcherのリトライロジックが機能する
         response.raise_for_status()
         # raise_for_status()は常に例外を投げるため、ここには到達しない
-        # 型チェッカーを満足させるための明示的なreturn
-        raise RuntimeError("Unreachable: raise_for_status() should have raised HTTPError")
+        # 型チェッカー対策: 実際には到達しない
+        raise RuntimeError("Unreachable")
 
     # ========== 定点監視 週報告分データ取得メソッド ==========
 
