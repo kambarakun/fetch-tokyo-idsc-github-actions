@@ -242,22 +242,22 @@ class StorageManager:
         """データファイルとメタデータを保存する。
 
         Args:
-            data: 保存するデータ（バイト形式）
-            data_type: データタイプ（例: 'sentinel_weekly_age'）
-            year: 年（例: 2025）
-            period: 期間（週番号または月番号）
+            data: 保存するデータ(バイト形式)
+            data_type: データタイプ(例: 'sentinel_weekly_age')
+            year: 年(例: 2025)
+            period: 期間(週番号または月番号)
             is_monthly: 月次データの場合True、週次データの場合False
-            additional_metadata: 追加のメタデータ（オプション）
+            additional_metadata: 追加のメタデータ(オプション)
             force_overwrite: 既存ファイルを強制的に上書きする場合True
-            save_all_zero: 全て0のデータも保存する場合True（デフォルト: False）
+            save_all_zero: 全て0のデータも保存する場合True(デフォルト: False)
 
         Returns:
             保存操作の結果を含むSaveResultオブジェクト
 
         Note:
             - SHA256ハッシュで重複チェックを行う
-            - 重複データは保存をスキップする（force_overwriteがFalseの場合）
-            - 全て0のデータは保存をスキップする（save_all_zeroがFalseの場合）
+            - 重複データは保存をスキップする(force_overwriteがFalseの場合)
+            - 全て0のデータは保存をスキップする(save_all_zeroがFalseの場合)
             - メタデータは.metadataディレクトリに別途保存される
         """
         # data_typeのバリデーション（セキュリティ対策）
@@ -270,12 +270,12 @@ class StorageManager:
             # データハッシュ計算
             data_hash = hashlib.sha256(data).hexdigest()
 
-            # 重複チェック（force_overwriteがFalseの場合のみ）
+            # 重複チェック(force_overwriteがFalseの場合のみ)
             if not force_overwrite and self.check_duplicates(data_hash):
                 logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
                 return SaveResult(success=True, is_duplicate=True)
 
-            # 全て0のデータかチェック（save_all_zeroがFalseの場合のみ）
+            # 全て0のデータかチェック(save_all_zeroがFalseの場合のみ)
             if not save_all_zero and self._is_all_zero_data(data):
                 logger.info(f"Skipping all-zero data: {data_type}_{year}_{period:02d}")
                 return SaveResult(success=True, is_skipped=True)
@@ -334,6 +334,7 @@ class StorageManager:
                 "encoding": "shift_jis",
                 "file_path": str(file_path.relative_to(self.base_path)),
                 "force_overwrite": force_overwrite,
+                "save_all_zero": save_all_zero,
             }
 
             if additional_metadata:

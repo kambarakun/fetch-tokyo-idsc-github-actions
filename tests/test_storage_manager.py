@@ -693,6 +693,11 @@ class TestStorageManager(unittest.TestCase):
         expected_file = self.base_path / "sentinel_weekly_test_2025_52.csv"
         self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
 
+        # メタデータに save_all_zero が記録されていることを確認
+        metadata = self.storage.get_metadata(expected_file)
+        self.assertIsNotNone(metadata, "メタデータが存在すべきです")
+        self.assertTrue(metadata.get("save_all_zero", False), "save_all_zero=Trueが記録されるべきです")
+
     def test_save_with_metadata_force_overwrite_still_skips_all_zero(self):
         """force_overwrite=Trueでもsave_all_zero=Falseなら全て0のデータはスキップされることを確認"""
         # 全て0のCSVデータを作成

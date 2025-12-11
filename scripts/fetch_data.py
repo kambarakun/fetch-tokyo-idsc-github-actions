@@ -209,9 +209,11 @@ class DataCollector:
                         save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
 
-                    if save_result.is_duplicate and not self.force_update:
+                    # 統計カウント: force_update の有無に関わらず、
+                    # is_duplicate / is_skipped を優先してカウント
+                    if save_result.is_duplicate:
                         self.stats["duplicates"] += 1
-                    elif save_result.is_skipped and not self.force_update:
+                    elif save_result.is_skipped:
                         self.stats["skipped"] += 1
                     elif save_result.success:
                         self.stats["successful"] += 1
@@ -417,7 +419,7 @@ def main():  # noqa: PLR0915
 
     parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得（更新チェック）")
 
-    parser.add_argument("--save-all-zero", action="store_true", help="全て0のデータも保存する（デフォルト: スキップ）")
+    parser.add_argument("--save-all-zero", action="store_true", help="全て0のデータも保存する(デフォルト: スキップ)")
 
     parser.add_argument("--log-file", type=str, help="ログファイルのパス")
 
