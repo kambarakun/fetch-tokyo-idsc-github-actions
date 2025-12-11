@@ -103,9 +103,11 @@ class RetryHandler:
             except (Timeout, ConnectionError, HTTPError) as e:
                 last_error = e
 
-                if isinstance(e, HTTPError) and e.response.status_code == 429:
-                    # レート制限エラーの場合は長めに待つ
+                if isinstance(e, HTTPError) and e.response.status_code in (403, 429):
+                    # レート制限エラー(429)または一時的なアクセス拒否(403)の場合は長めに待つ
                     delay = self.calculate_delay(attempt + 1) * 2
+                    if e.response.status_code == 403:
+                        logger.warning("403 Forbidden received. May be temporary rate limiting. Retrying with delay...")
                 else:
                     delay = self.calculate_delay(attempt)
 
