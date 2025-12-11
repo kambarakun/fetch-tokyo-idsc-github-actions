@@ -237,6 +237,7 @@ class StorageManager:
         is_monthly: bool = False,
         additional_metadata: dict[str, Any] | None = None,
         force_overwrite: bool = False,
+        save_all_zero: bool = False,
     ) -> SaveResult:
         """データファイルとメタデータを保存する。
 
@@ -248,6 +249,7 @@ class StorageManager:
             is_monthly: 月次データの場合True、週次データの場合False
             additional_metadata: 追加のメタデータ（オプション）
             force_overwrite: 既存ファイルを強制的に上書きする場合True
+            save_all_zero: 全て0のデータも保存する場合True（デフォルト: False）
 
         Returns:
             保存操作の結果を含むSaveResultオブジェクト
@@ -255,6 +257,7 @@ class StorageManager:
         Note:
             - SHA256ハッシュで重複チェックを行う
             - 重複データは保存をスキップする（force_overwriteがFalseの場合）
+            - 全て0のデータは保存をスキップする（save_all_zeroがFalseの場合）
             - メタデータは.metadataディレクトリに別途保存される
         """
         # data_typeのバリデーション（セキュリティ対策）
@@ -272,8 +275,8 @@ class StorageManager:
                 logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
                 return SaveResult(success=True, is_duplicate=True)
 
-            # 全て0のデータかチェック（force_overwriteがFalseの場合のみ）
-            if not force_overwrite and self._is_all_zero_data(data):
+            # 全て0のデータかチェック（save_all_zeroがFalseの場合のみ）
+            if not save_all_zero and self._is_all_zero_data(data):
                 logger.info(f"Skipping all-zero data: {data_type}_{year}_{period:02d}")
                 return SaveResult(success=True, is_skipped=True)
 

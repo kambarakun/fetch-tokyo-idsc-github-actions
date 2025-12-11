@@ -665,8 +665,8 @@ class TestStorageManager(unittest.TestCase):
         expected_file = self.base_path / "sentinel_weekly_test_2025_51.csv"
         self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
 
-    def test_save_with_metadata_force_overwrite_saves_all_zero_data(self):
-        """force_overwriteがTrueの場合、全て0のデータも保存されることを確認"""
+    def test_save_with_metadata_save_all_zero_saves_all_zero_data(self):
+        """save_all_zero=Trueの場合、全て0のデータも保存されることを確認"""
         # 全て0のCSVデータを作成
         csv_data = """"定点報告疾患"
 "","疾病A","疾病B"
@@ -674,24 +674,52 @@ class TestStorageManager(unittest.TestCase):
 """
         data = csv_data.encode("shift_jis")
 
-        # force_overwrite=Trueで保存を試みる
+        # save_all_zero=Trueで保存を試みる
         result = self.storage.save_with_metadata(
             data=data,
             data_type="sentinel_weekly_test",
             year=2025,
             period=52,
             is_monthly=False,
-            force_overwrite=True,
+            save_all_zero=True,
         )
 
         # 保存されたことを確認
         self.assertTrue(result.success, "処理は成功すべきです")
-        self.assertFalse(result.is_skipped, "force_overwrite=Trueの場合はスキップされないべきです")
+        self.assertFalse(result.is_skipped, "save_all_zero=Trueの場合はスキップされないべきです")
         self.assertIsNotNone(result.file_path, "ファイルパスが返されるべきです")
 
         # ファイルが実際に保存されていることを確認
         expected_file = self.base_path / "sentinel_weekly_test_2025_52.csv"
         self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
+
+    def test_save_with_metadata_force_overwrite_still_skips_all_zero(self):
+        """force_overwrite=Trueでもsave_all_zero=Falseなら全て0のデータはスキップされることを確認"""
+        # 全て0のCSVデータを作成
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # force_overwrite=Trueだが save_all_zero=False(デフォルト)で保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=53,
+            is_monthly=False,
+            force_overwrite=True,
+        )
+
+        # スキップされたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertTrue(result.is_skipped, "save_all_zero=Falseの場合はスキップされるべきです")
+        self.assertIsNone(result.file_path, "ファイルは保存されないべきです")
+
+        # ファイルが実際に保存されていないことを確認
+        expected_file = self.base_path / "sentinel_weekly_test_2025_53.csv"
+        self.assertFalse(expected_file.exists(), "ファイルは存在しないべきです")
 
     def test_is_all_zero_data_with_comma_in_field(self):
         """フィールド内にカンマが含まれるデータが正しく処理されることを確認"""
