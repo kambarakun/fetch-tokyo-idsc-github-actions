@@ -677,17 +677,17 @@ class StorageManager:
             # 全ての数値が0の場合はTrue
             return has_data_row
 
-        except UnicodeDecodeError as e:
+        except UnicodeDecodeError:
             # Shift_JISデコードエラー - 安全側に倒して保存する
-            logger.exception(f"Failed to decode CSV data as Shift_JIS: {e}")
+            logger.exception("Failed to decode CSV data as Shift_JIS")
             return False
-        except csv.Error as e:
+        except csv.Error:
             # CSV解析エラー - 安全側に倒して保存する
-            logger.exception(f"Failed to parse CSV data: {e}")
+            logger.exception("Failed to parse CSV data")
             return False
-        except Exception as e:
+        except Exception:
             # その他の予期しないエラー - 安全側に倒して保存する
-            logger.exception(f"Unexpected error while checking for all-zero data: {e}")
+            logger.exception("Unexpected error while checking for all-zero data")
             return False
 
     def _get_month_from_week(self, year: int, week: int) -> int:
