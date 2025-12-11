@@ -134,7 +134,12 @@ class TokyoEpidemicSurveillanceFetcher:
 
         if response.status_code == 200:
             return response.content
-        raise Exception(f"Request failed with status code: {response.status_code}")
+
+        # HTTPErrorを投げることで、enhanced_fetcherのリトライロジックが機能する
+        response.raise_for_status()
+        # raise_for_status()は常に例外を投げるため、ここには到達しない
+        # 型チェッカー対策: 実際には到達しない
+        raise RuntimeError("Unreachable")
 
     # ========== 定点監視 週報告分データ取得メソッド ==========
 
