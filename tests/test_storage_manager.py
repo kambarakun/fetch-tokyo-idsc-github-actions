@@ -777,7 +777,7 @@ class TestStorageManager(unittest.TestCase):
         # 元のファイルサイズを記録
         original_size = expected_file.stat().st_size
 
-        # 全て0のデータでforce_overwrite=True（ただしsave_all_zero=False）で保存を試みる
+        # 全て0のデータでforce_overwrite=True(ただしsave_all_zero=False)で保存を試みる
         all_zero_data = """"定点報告疾患"
 "","疾病A","疾病B"
 "地域1","0","0"
