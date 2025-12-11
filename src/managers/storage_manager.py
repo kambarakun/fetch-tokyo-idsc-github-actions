@@ -4,7 +4,9 @@
 フラットなディレクトリ構造でデータファイルを管理し、重複チェックや自動コミット機能を提供。
 """
 
+import csv
 import hashlib
+import io
 import json
 import logging
 import os
@@ -270,18 +272,20 @@ class StorageManager:
             # データハッシュ計算
             data_hash = hashlib.sha256(data).hexdigest()
 
-            # 重複チェック(force_overwriteがFalseの場合のみ)
-            if not force_overwrite and self.check_duplicates(data_hash):
-                logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
-                return SaveResult(success=True, is_duplicate=True)
-
             # 全て0のデータかチェック(save_all_zeroがFalseの場合のみ)
+            # 優先度: 全て0チェック > 重複チェック
+            # 理由: データ品質の問題は効率性の問題より優先される
             if not save_all_zero and self._is_all_zero_data(data):
                 logger.info(
                     f"Skipping all-zero unpublished data: {data_type}_{year}_{period:02d} "
                     "(use --save-all-zero to save)"
                 )
                 return SaveResult(success=True, is_skipped=True)
+
+            # 重複チェック(force_overwriteがFalseの場合のみ)
+            if not force_overwrite and self.check_duplicates(data_hash):
+                logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
+                return SaveResult(success=True, is_duplicate=True)
 
             # ファイルパス生成
             dir_path = self.organize_file_path(data_type, year, period, is_monthly)
@@ -563,8 +567,6 @@ class StorageManager:
             パストラバーサル攻撃や不正な文字を防ぐため、
             英数字とアンダースコアのみを許可する。
         """
-        import re
-
         # 英数字とアンダースコアのみを許可
         pattern = re.compile(r"^[a-zA-Z0-9_]+$")
         return bool(pattern.match(data_type))
@@ -643,9 +645,6 @@ class StorageManager:
             RFC 4180準拠のCSV解析により、フィールド内のカンマや
             引用符のエスケープを正しく処理する。
         """
-        import csv
-        import io
-
         try:
             # Shift_JISでデコードしてStringIOオブジェクトを作成
             content = data.decode("shift_jis", errors="replace")
@@ -680,15 +679,15 @@ class StorageManager:
 
         except UnicodeDecodeError as e:
             # Shift_JISデコードエラー - 安全側に倒して保存する
-            logger.warning(f"Failed to decode CSV data as Shift_JIS: {e}")
+            logger.exception(f"Failed to decode CSV data as Shift_JIS: {e}")
             return False
         except csv.Error as e:
             # CSV解析エラー - 安全側に倒して保存する
-            logger.warning(f"Failed to parse CSV data: {e}")
+            logger.exception(f"Failed to parse CSV data: {e}")
             return False
         except Exception as e:
             # その他の予期しないエラー - 安全側に倒して保存する
-            logger.warning(f"Unexpected error while checking for all-zero data: {e}")
+            logger.exception(f"Unexpected error while checking for all-zero data: {e}")
             return False
 
     def _get_month_from_week(self, year: int, week: int) -> int:
