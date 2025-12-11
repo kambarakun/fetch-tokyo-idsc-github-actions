@@ -49,6 +49,7 @@ class DataCollector:
         dry_run: bool = False,
         skip_existing: bool = False,
         force_update: bool = False,
+        save_all_zero: bool = False,
         target_weeks: list[int] | None = None,
         target_months: list[int] | None = None,
     ):
@@ -56,6 +57,7 @@ class DataCollector:
         self.dry_run = dry_run
         self.skip_existing = skip_existing
         self.force_update = force_update
+        self.save_all_zero = save_all_zero
         self.target_weeks = target_weeks
         self.target_months = target_months
         self.logger = logging.getLogger(__name__)
@@ -204,11 +206,17 @@ class DataCollector:
                         is_monthly,
                         {"fetch_time": result.fetch_time},
                         force_overwrite=self.force_update,  # 強制更新フラグを渡す
+                        save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
 
-                    if save_result.is_duplicate and not self.force_update:
+                    # 統計カウント優先順位: duplicate > skipped > success
+                    # - duplicateとskippedはsuccessの一種だが、別カウントで追跡
+                    # - force_updateの有無に関わらず、is_duplicate/is_skippedを優先
+                    # - これにより、force_update=Trueでも全ゼロデータがスキップされた場合、
+                    #   updated_filesではなくskippedとして正確にカウントされる
+                    if save_result.is_duplicate:
                         self.stats["duplicates"] += 1
-                    elif save_result.is_skipped and not self.force_update:
+                    elif save_result.is_skipped:
                         self.stats["skipped"] += 1
                     elif save_result.success:
                         self.stats["successful"] += 1
@@ -414,6 +422,12 @@ def main():  # noqa: PLR0915
 
     parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得（更新チェック）")
 
+    parser.add_argument(
+        "--save-all-zero",
+        action="store_true",
+        help="全て0のデータも保存する(デフォルト: スキップ)。未発表データのテストや特殊な分析用途に使用",
+    )
+
     parser.add_argument("--log-file", type=str, help="ログファイルのパス")
 
     parser.add_argument(
@@ -452,9 +466,22 @@ def main():  # noqa: PLR0915
             logger.error("--skip-existing と --force-update は同時に指定できません")
             sys.exit(1)
 
+        # --save-all-zeroは特殊用途のため、誤用防止の警告を表示
+        # ログ集約システムでの可読性のため、複数の個別ログとして出力
+        if args.save_all_zero:
+            logger.warning("--save-all-zero が有効です。未発表データ(全て0のデータ)も保存されます。")
+            logger.warning("このオプションは通常の運用では不要です。")
+            logger.warning("用途: データ収集システムのテスト、未発表データの存在確認など")
+
         # データ収集実行
         collector = DataCollector(
-            config, args.dry_run, args.skip_existing, args.force_update, target_weeks, target_months
+            config=config,
+            dry_run=args.dry_run,
+            skip_existing=args.skip_existing,
+            force_update=args.force_update,
+            save_all_zero=args.save_all_zero,
+            target_weeks=target_weeks,
+            target_months=target_months,
         )
         stats = collector.collect_data(data_types=data_types, start_year=args.start_year, end_year=args.end_year)
 

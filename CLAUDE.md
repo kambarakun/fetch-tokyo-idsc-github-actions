@@ -244,6 +244,12 @@ uv run python scripts/fetch_data.py --dry-run
 
 # 欠番チェック
 uv run python scripts/check_missing.py data/raw
+
+# 全て0データの保存(特殊用途)
+# 通常は不要ですが、以下の場合に--save-all-zeroを使用:
+# - 未発表データの存在自体を記録したい場合
+# - データ収集システムのテスト時
+uv run python scripts/fetch_data.py --save-all-zero
 ```
 
 ### 📦 デプロイとスケジューリング
@@ -320,8 +326,9 @@ gh workflow run fetch-data.yml
 - 重複データの検出とスキップ
 - **全て0の未発表データの自動スキップ（2025-12-12追加）**
   - 未発表の週や月のデータ（全てのカウントが0）を自動検出
-  - ストレージ節約とデータ品質向上
-  - force_overwrite=True時は保存（明示的な上書き）
+  - 可視化・分析への未発表データ混入を防止（データ品質確保）
+  - デフォルト: 全て0のデータはスキップ
+  - `--save-all-zero`オプション使用時のみ保存（特殊用途）
 
 #### エラーハンドリング
 
@@ -883,7 +890,7 @@ def is_all_zero_data(data: bytes) -> bool:
     """未発表データ（全て0）を検出
 
     未発表の週や月のデータは全てのカウントが0になっているため、
-    これらを自動的にスキップしてストレージを節約する。
+    これらを自動的にスキップして可視化・分析への混入を防ぐ。
 
     実装箇所: src/managers/storage_manager.py::_is_all_zero_data()
     """
@@ -902,7 +909,7 @@ def is_all_zero_data(data: bytes) -> bool:
 - **エラー時は** 必ずログを記録し、必要に応じて通知する
 - **全て0のデータは自動的にスキップされる**（2025-12-12以降）
   - 未発表の週や月のデータは保存されない
-  - force_overwrite=True で明示的に上書きする場合のみ保存される
+  - `--save-all-zero`オプションで明示的に指定した場合のみ保存される
 
 ## 10. プロジェクト運用ガイドライン
 
