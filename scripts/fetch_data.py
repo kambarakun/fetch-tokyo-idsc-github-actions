@@ -466,6 +466,14 @@ def main():  # noqa: PLR0915
             logger.error("--skip-existing と --force-update は同時に指定できません")
             sys.exit(1)
 
+        # --save-all-zeroは特殊用途のため、誤用防止の警告を表示
+        if args.save_all_zero:
+            logger.warning(
+                "⚠️  --save-all-zero が有効です。未発表データ(全て0のデータ)も保存されます。\n"
+                "   通常の運用では不要なオプションです。\n"
+                "   用途: データ収集システムのテスト、未発表データの存在確認など"
+            )
+
         # データ収集実行
         collector = DataCollector(
             config=config,
