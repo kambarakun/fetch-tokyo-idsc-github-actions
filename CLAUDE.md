@@ -244,6 +244,12 @@ uv run python scripts/fetch_data.py --dry-run
 
 # 欠番チェック
 uv run python scripts/check_missing.py data/raw
+
+# 全て0データの保存(特殊用途)
+# 通常は不要ですが、以下の場合に--save-all-zeroを使用:
+# - 未発表データの存在自体を記録したい場合
+# - データ収集システムのテスト時
+uv run python scripts/fetch_data.py --save-all-zero
 ```
 
 ### 📦 デプロイとスケジューリング

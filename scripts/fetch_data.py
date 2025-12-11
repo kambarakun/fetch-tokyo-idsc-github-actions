@@ -209,8 +209,11 @@ class DataCollector:
                         save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
 
-                    # 統計カウント: force_update の有無に関わらず、
-                    # is_duplicate / is_skipped を優先してカウント
+                    # 統計カウント優先順位: duplicate > skipped > success
+                    # - duplicateとskippedはsuccessの一種だが、別カウントで追跡
+                    # - force_updateの有無に関わらず、is_duplicate/is_skippedを優先
+                    # - これにより、force_update=Trueでも全ゼロデータがスキップされた場合、
+                    #   updated_filesではなくskippedとして正確にカウントされる
                     if save_result.is_duplicate:
                         self.stats["duplicates"] += 1
                     elif save_result.is_skipped:
@@ -419,7 +422,11 @@ def main():  # noqa: PLR0915
 
     parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得（更新チェック）")
 
-    parser.add_argument("--save-all-zero", action="store_true", help="全て0のデータも保存する(デフォルト: スキップ)")
+    parser.add_argument(
+        "--save-all-zero",
+        action="store_true",
+        help="全て0のデータも保存する(デフォルト: スキップ)。未発表データのテストや特殊な分析用途に使用",
+    )
 
     parser.add_argument("--log-file", type=str, help="ログファイルのパス")
 
