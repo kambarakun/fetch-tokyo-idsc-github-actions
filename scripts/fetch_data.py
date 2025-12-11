@@ -467,12 +467,11 @@ def main():  # noqa: PLR0915
             sys.exit(1)
 
         # --save-all-zeroは特殊用途のため、誤用防止の警告を表示
+        # ログ集約システムでの可読性のため、複数の個別ログとして出力
         if args.save_all_zero:
-            logger.warning(
-                "⚠️  --save-all-zero が有効です。未発表データ(全て0のデータ)も保存されます。\n"
-                "   通常の運用では不要なオプションです。\n"
-                "   用途: データ収集システムのテスト、未発表データの存在確認など"
-            )
+            logger.warning("--save-all-zero が有効です。未発表データ(全て0のデータ)も保存されます。")
+            logger.warning("このオプションは通常の運用では不要です。")
+            logger.warning("用途: データ収集システムのテスト、未発表データの存在確認など")
 
         # データ収集実行
         collector = DataCollector(
