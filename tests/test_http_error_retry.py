@@ -116,37 +116,139 @@ class TestBaseFetcherHTTPErrors(unittest.TestCase):
         mock_response.raise_for_status.assert_not_called()
 
 
-class TestRetryHandlerHTTPErrors(unittest.TestCase):
+class TestRetryHandlerHTTPErrors(unittest.IsolatedAsyncioTestCase):
     """RetryHandlerのHTTPエラー処理のテスト"""
 
     def setUp(self):
         self.config = DataFetcherConfig(max_retries=3, base_delay=1.0, max_delay=10.0, enable_jitter=False)
         self.handler = RetryHandler(self.config)
 
+    def test_is_rate_limit_error_with_429(self):
+        """429エラーは常にレート制限と判定されることをテスト"""
+        response = Mock()
+        response.status_code = 429
+        response.headers = {}
+        error = HTTPError("429 Too Many Requests")
+        error.response = response
+
+        self.assertTrue(self.handler._is_rate_limit_error(error))
+
+    def test_is_rate_limit_error_with_403_and_retry_after(self):
+        """Retry-Afterヘッダー付き403はレート制限と判定されることをテスト"""
+        response = Mock()
+        response.status_code = 403
+        response.headers = {"Retry-After": "60"}
+        error = HTTPError("403 Forbidden")
+        error.response = response
+
+        self.assertTrue(self.handler._is_rate_limit_error(error))
+
+    def test_is_rate_limit_error_with_403_and_x_ratelimit_headers(self):
+        """X-RateLimit-*ヘッダー付き403はレート制限と判定されることをテスト"""
+        response = Mock()
+        response.status_code = 403
+        response.headers = {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1234567890"}
+        error = HTTPError("403 Forbidden")
+        error.response = response
+
+        self.assertTrue(self.handler._is_rate_limit_error(error))
+
+    def test_is_rate_limit_error_with_403_no_headers(self):
+        """レート制限ヘッダーなし403はレート制限と判定されないことをテスト"""
+        response = Mock()
+        response.status_code = 403
+        response.headers = {}
+        error = HTTPError("403 Forbidden")
+        error.response = response
+
+        self.assertFalse(self.handler._is_rate_limit_error(error))
+
+    def test_is_rate_limit_error_with_500(self):
+        """500エラーはレート制限と判定されないことをテスト"""
+        response = Mock()
+        response.status_code = 500
+        response.headers = {}
+        error = HTTPError("500 Internal Server Error")
+        error.response = response
+
+        self.assertFalse(self.handler._is_rate_limit_error(error))
+
+    def test_is_rate_limit_error_without_response(self):
+        """responseがないエラーはレート制限と判定されないことをテスト"""
+        error = HTTPError("Generic HTTP Error")
+
+        self.assertFalse(self.handler._is_rate_limit_error(error))
+
     @patch("asyncio.sleep")
-    async def test_retry_on_403_with_double_delay(self, mock_sleep):
-        """403エラー時に2倍の待機時間でリトライすることをテスト"""
+    async def test_retry_on_403_with_rate_limit_headers(self, mock_sleep):
+        """レート制限ヘッダー付き403エラー時に2倍の待機時間でリトライすることをテスト"""
         call_count = 0
 
-        async def func_403_then_success():
+        async def func_403_rate_limit_then_success():
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                # 403エラーをシミュレート
+                # レート制限ヘッダー付き403エラーをシミュレート
                 response = Mock()
                 response.status_code = 403
+                response.headers = {"Retry-After": "60", "X-RateLimit-Remaining": "0"}
                 error = HTTPError("403 Forbidden")
                 error.response = response
                 raise error
             return "success"
 
-        result = await self.handler.execute_with_retry(func_403_then_success)
+        result = await self.handler.execute_with_retry(func_403_rate_limit_then_success)
 
         self.assertEqual(result, "success")
         self.assertEqual(call_count, 2)
-        # 2倍の待機時間でリトライされたことを確認
+        # レート制限の場合は2倍の待機時間でリトライされる
         # base_delay * 2^1 * 2 = 1.0 * 2 * 2 = 4.0
         mock_sleep.assert_called_once_with(4.0)
+
+    @patch("asyncio.sleep")
+    async def test_retry_on_403_without_rate_limit_headers_once(self, mock_sleep):
+        """レート制限ヘッダーなし403エラーは1回だけリトライすることをテスト"""
+        call_count = 0
+
+        async def func_403_no_headers_then_success():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # レート制限ヘッダーなし403エラーをシミュレート
+                response = Mock()
+                response.status_code = 403
+                response.headers = {}
+                error = HTTPError("403 Forbidden")
+                error.response = response
+                raise error
+            return "success"
+
+        result = await self.handler.execute_with_retry(func_403_no_headers_then_success)
+
+        self.assertEqual(result, "success")
+        self.assertEqual(call_count, 2)
+        # レート制限ヘッダーがない場合は通常の待機時間
+        # base_delay * 2^0 = 1.0 * 1 = 1.0
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("asyncio.sleep")
+    async def test_403_without_rate_limit_headers_fails_after_one_retry(self, mock_sleep):
+        """レート制限ヘッダーなし403エラーは1回リトライ後に失敗することをテスト"""
+
+        async def func_always_403_no_headers():
+            # 常にレート制限ヘッダーなし403エラー
+            response = Mock()
+            response.status_code = 403
+            response.headers = {}
+            error = HTTPError("403 Forbidden")
+            error.response = response
+            raise error
+
+        with self.assertRaises(HTTPError):
+            await self.handler.execute_with_retry(func_always_403_no_headers)
+
+        # 1回だけリトライ（計2回実行）
+        self.assertEqual(mock_sleep.call_count, 1)
 
     @patch("asyncio.sleep")
     async def test_retry_on_429_with_double_delay(self, mock_sleep):
@@ -160,6 +262,7 @@ class TestRetryHandlerHTTPErrors(unittest.TestCase):
                 # 429エラーをシミュレート
                 response = Mock()
                 response.status_code = 429
+                response.headers = {}
                 error = HTTPError("429 Too Many Requests")
                 error.response = response
                 raise error
@@ -194,30 +297,32 @@ class TestRetryHandlerHTTPErrors(unittest.TestCase):
         self.assertEqual(result, "success")
         self.assertEqual(call_count, 2)
         # 通常の待機時間でリトライされたことを確認
-        # base_delay * 2^1 = 1.0 * 2 = 2.0
-        mock_sleep.assert_called_once_with(2.0)
+        # base_delay * 2^0 = 1.0 * 1 = 1.0
+        mock_sleep.assert_called_once_with(1.0)
 
     @patch("asyncio.sleep")
-    async def test_multiple_403_errors_exponential_backoff(self, mock_sleep):
-        """複数回の403エラー時に指数バックオフでリトライすることをテスト"""
+    async def test_multiple_403_rate_limit_errors_exponential_backoff(self, mock_sleep):
+        """複数回のレート制限403エラー時に指数バックオフでリトライすることをテスト"""
         call_count = 0
 
-        async def func_403_twice_then_success():
+        async def func_403_rate_limit_twice_then_success():
             nonlocal call_count
             call_count += 1
             if call_count <= 2:
-                # 403エラーをシミュレート
+                # レート制限ヘッダー付き403エラーをシミュレート
                 response = Mock()
                 response.status_code = 403
+                response.headers = {"Retry-After": "60"}
                 error = HTTPError("403 Forbidden")
                 error.response = response
                 raise error
             return "success"
 
-        result = await self.handler.execute_with_retry(func_403_twice_then_success)
+        result = await self.handler.execute_with_retry(func_403_rate_limit_twice_then_success)
 
         self.assertEqual(result, "success")
         self.assertEqual(call_count, 3)
+        # レート制限の場合は2倍の遅延
         # 1回目: base_delay * 2^1 * 2 = 1.0 * 2 * 2 = 4.0
         # 2回目: base_delay * 2^2 * 2 = 1.0 * 4 * 2 = 8.0
         self.assertEqual(mock_sleep.call_count, 2)
@@ -225,21 +330,22 @@ class TestRetryHandlerHTTPErrors(unittest.TestCase):
         self.assertEqual(calls, [4.0, 8.0])
 
     @patch("asyncio.sleep")
-    async def test_403_error_max_retries_exceeded(self, mock_sleep):
-        """403エラーが最大リトライ回数を超えた場合のテスト"""
+    async def test_429_error_max_retries_exceeded(self, mock_sleep):
+        """429エラーが最大リトライ回数を超えた場合のテスト"""
 
-        async def func_always_403():
-            # 常に403エラーをシミュレート
+        async def func_always_429():
+            # 常に429エラーをシミュレート
             response = Mock()
-            response.status_code = 403
-            error = HTTPError("403 Forbidden")
+            response.status_code = 429
+            response.headers = {}
+            error = HTTPError("429 Too Many Requests")
             error.response = response
             raise error
 
         with self.assertRaises(HTTPError):
-            await self.handler.execute_with_retry(func_always_403)
+            await self.handler.execute_with_retry(func_always_429)
 
-        # max_retries=3なので、3回リトライ（計4回実行）
+        # max_retries=3なので、3回リトライ(計4回実行)
         self.assertEqual(mock_sleep.call_count, 3)
 
 

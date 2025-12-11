@@ -92,6 +92,41 @@ class RetryHandler:
 
         return delay
 
+    def _is_rate_limit_error(self, http_error: HTTPError) -> bool:
+        """HTTPErrorがレート制限によるものかを判定
+
+        Args:
+            http_error: 判定するHTTPError
+
+        Returns:
+            bool: レート制限エラーの場合True
+        """
+        if not hasattr(http_error, "response") or http_error.response is None:
+            return False
+
+        status_code = http_error.response.status_code
+
+        # 429は常にレート制限
+        if status_code == 429:
+            return True
+
+        # 403の場合はヘッダーを確認
+        if status_code == 403:
+            headers = http_error.response.headers
+            # Retry-Afterヘッダーまたはレート制限関連ヘッダーが存在するか確認
+            rate_limit_indicators = [
+                "Retry-After",
+                "X-RateLimit-Limit",
+                "X-RateLimit-Remaining",
+                "X-RateLimit-Reset",
+                "X-Rate-Limit-Limit",
+                "X-Rate-Limit-Remaining",
+                "X-Rate-Limit-Reset",
+            ]
+            return any(header in headers for header in rate_limit_indicators)
+
+        return False
+
     async def execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
         """リトライ機能付き実行"""
         last_error = None
@@ -103,12 +138,36 @@ class RetryHandler:
             except (Timeout, ConnectionError, HTTPError) as e:
                 last_error = e
 
-                if isinstance(e, HTTPError) and e.response.status_code in (403, 429):
-                    # レート制限エラー(429)または一時的なアクセス拒否(403)の場合は長めに待つ
-                    delay = self.calculate_delay(attempt + 1) * 2
-                    if e.response.status_code == 403:
-                        logger.warning("403 Forbidden received. May be temporary rate limiting. Retrying with delay...")
+                if isinstance(e, HTTPError):
+                    # レート制限エラーの判定
+                    is_rate_limit = self._is_rate_limit_error(e)
+
+                    if is_rate_limit:
+                        # レート制限の場合は長めの遅延（2倍）
+                        delay = self.calculate_delay(attempt + 1) * 2
+                        logger.warning(
+                            f"{e.response.status_code} rate limit detected "
+                            f"(headers: {dict(e.response.headers)}). "
+                            f"Retrying with extended delay..."
+                        )
+                    elif e.response.status_code == 403:
+                        # レート制限でない403は永続的なエラーの可能性が高い
+                        # 1回だけリトライして、それでも失敗したら諦める
+                        if attempt >= 1:
+                            logger.error(
+                                "403 Forbidden without rate limit headers. "
+                                "Likely permanent error. Not retrying further."
+                            )
+                            raise
+                        delay = self.calculate_delay(attempt)
+                        logger.warning(
+                            "403 Forbidden without rate limit headers. " "Retrying once in case of temporary issue..."
+                        )
+                    else:
+                        # その他のHTTPエラーは通常の遅延
+                        delay = self.calculate_delay(attempt)
                 else:
+                    # タイムアウト、接続エラーは通常の遅延
                     delay = self.calculate_delay(attempt)
 
                 if attempt < self.config.max_retries:
