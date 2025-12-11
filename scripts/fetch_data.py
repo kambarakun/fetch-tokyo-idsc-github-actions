@@ -49,6 +49,7 @@ class DataCollector:
         dry_run: bool = False,
         skip_existing: bool = False,
         force_update: bool = False,
+        save_all_zero: bool = False,
         target_weeks: list[int] | None = None,
         target_months: list[int] | None = None,
     ):
@@ -56,6 +57,7 @@ class DataCollector:
         self.dry_run = dry_run
         self.skip_existing = skip_existing
         self.force_update = force_update
+        self.save_all_zero = save_all_zero
         self.target_weeks = target_weeks
         self.target_months = target_months
         self.logger = logging.getLogger(__name__)
@@ -204,6 +206,7 @@ class DataCollector:
                         is_monthly,
                         {"fetch_time": result.fetch_time},
                         force_overwrite=self.force_update,  # 強制更新フラグを渡す
+                        save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
 
                     if save_result.is_duplicate and not self.force_update:
@@ -414,6 +417,8 @@ def main():  # noqa: PLR0915
 
     parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得（更新チェック）")
 
+    parser.add_argument("--save-all-zero", action="store_true", help="全て0のデータも保存する（デフォルト: スキップ）")
+
     parser.add_argument("--log-file", type=str, help="ログファイルのパス")
 
     parser.add_argument(
@@ -454,7 +459,7 @@ def main():  # noqa: PLR0915
 
         # データ収集実行
         collector = DataCollector(
-            config, args.dry_run, args.skip_existing, args.force_update, target_weeks, target_months
+            config, args.dry_run, args.skip_existing, args.force_update, args.save_all_zero, target_weeks, target_months
         )
         stats = collector.collect_data(data_types=data_types, start_year=args.start_year, end_year=args.end_year)
 
