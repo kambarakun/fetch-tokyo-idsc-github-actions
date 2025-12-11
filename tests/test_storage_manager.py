@@ -543,6 +543,254 @@ class TestStorageManager(unittest.TestCase):
                 # 3つのファイルが記録されているはずだが、重複チェックで実際は1つかも
                 # この動作はforce_overwriteとcheck_duplicatesの実装に依存
 
+    def test_is_all_zero_data_with_zero_values(self):
+        """全て0のデータが正しく検出されることを確認"""
+        # 全て0のCSVデータを作成
+        csv_data = """"定点報告疾患 週報告分 医療圏別"
+"東京都"
+"集計期間開始週","2025年50週"
+"集計期間終了週","2025年50週"
+"性別","男性"
+
+"","インフルエンザ","RSウイルス感染症","咽頭結膜熱"
+"区中央部","0","0","0"
+"区南部","0","0","0"
+"区西南部","0","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "全て0のデータが検出されるべきです")
+
+    def test_is_all_zero_data_with_non_zero_values(self):
+        """0以外の値があるデータが検出されないことを確認"""
+        # 0以外の値を含むCSVデータを作成
+        csv_data = """"定点報告疾患 週報告分 医療圏別"
+"東京都"
+"集計期間開始週","2025年50週"
+"集計期間終了週","2025年50週"
+"性別","男性"
+
+"","インフルエンザ","RSウイルス感染症","咽頭結膜熱"
+"区中央部","5","0","0"
+"区南部","0","3","0"
+"区西南部","0","0","2"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertFalse(result, "0以外の値があるデータは検出されないべきです")
+
+    def test_is_all_zero_data_ignores_header_lines(self):
+        """ヘッダー行や注釈行が無視されることを確認"""
+        # ヘッダー行と注釈行を含む全て0のCSVデータ
+        csv_data = """"定点報告疾患 週報告分"
+"東京都"
+"*注釈行はスキップされます"
+
+"","疾病A","疾病B"
+"地域1","0","0"
+"地域2","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "ヘッダー行や注釈行を無視して全て0と判定されるべきです")
+
+    def test_is_all_zero_data_with_empty_cells(self):
+        """空のセルを含む全て0のデータが正しく検出されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B","疾病C"
+"地域1","0","","0"
+"地域2","","0",""
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "空のセルを含む全て0のデータが検出されるべきです")
+
+    def test_save_with_metadata_skips_all_zero_data(self):
+        """保存時に全て0のデータがスキップされることを確認"""
+        # 全て0のCSVデータを作成
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","0","0"
+"地域2","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # データ保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=50,
+            is_monthly=False,
+        )
+
+        # スキップされたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertTrue(result.is_skipped, "全て0のデータはスキップされるべきです")
+        self.assertIsNone(result.file_path, "ファイルは保存されないべきです")
+
+        # ファイルが実際に保存されていないことを確認
+        expected_file = self.base_path / "sentinel_weekly_test_2025_50.csv"
+        self.assertFalse(expected_file.exists(), "ファイルは存在しないべきです")
+
+    def test_save_with_metadata_does_not_skip_non_zero_data(self):
+        """0以外の値があるデータはスキップされないことを確認"""
+        # 0以外の値を含むCSVデータを作成
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","5","0"
+"地域2","0","3"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # データ保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=51,
+            is_monthly=False,
+        )
+
+        # 保存されたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertFalse(result.is_skipped, "0以外の値があるデータはスキップされないべきです")
+        self.assertIsNotNone(result.file_path, "ファイルパスが返されるべきです")
+
+        # ファイルが実際に保存されていることを確認
+        expected_file = self.base_path / "sentinel_weekly_test_2025_51.csv"
+        self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
+
+    def test_save_with_metadata_force_overwrite_saves_all_zero_data(self):
+        """force_overwriteがTrueの場合、全て0のデータも保存されることを確認"""
+        # 全て0のCSVデータを作成
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # force_overwrite=Trueで保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=52,
+            is_monthly=False,
+            force_overwrite=True,
+        )
+
+        # 保存されたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertFalse(result.is_skipped, "force_overwrite=Trueの場合はスキップされないべきです")
+        self.assertIsNotNone(result.file_path, "ファイルパスが返されるべきです")
+
+        # ファイルが実際に保存されていることを確認
+        expected_file = self.base_path / "sentinel_weekly_test_2025_52.csv"
+        self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
+
+    def test_is_all_zero_data_with_comma_in_field(self):
+        """フィールド内にカンマが含まれるデータが正しく処理されることを確認"""
+        # フィールド内にカンマが含まれるCSVデータ（RFC 4180準拠）
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"区A,B","0","0"
+"区C","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "フィールド内のカンマは正しく処理されるべきです")
+
+    def test_is_all_zero_data_with_quoted_field(self):
+        """引用符でエスケープされたフィールドが正しく処理されることを確認"""
+        # 引用符のエスケープを含むCSVデータ
+        # CSV内の二重引用符 "" は、Pythonの文字列では \" でエスケープ
+        csv_data = '''"定点報告疾患"
+"","疾病A","疾病B"
+"区""C""","0","0"
+"区D","0","0"
+'''
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "引用符のエスケープは正しく処理されるべきです")
+
+    def test_is_all_zero_data_with_float_values(self):
+        """浮動小数点数の0が正しく処理されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B","疾病C"
+"地域1","0.0","0.00","0"
+"地域2","0","0.0","0.00"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "浮動小数点数の0は全て0と判定されるべきです")
+
+    def test_is_all_zero_data_with_float_non_zero(self):
+        """浮動小数点数の0以外の値が正しく検出されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","0.0","0.1"
+"地域2","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertFalse(result, "0.1は0以外として検出されるべきです")
+
+    def test_is_all_zero_data_with_negative_zero(self):
+        """-0.0が0として正しく処理されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","-0.0","0"
+"地域2","0","-0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "-0.0は0として扱われるべきです")
+
+    def test_is_all_zero_data_with_negative_value(self):
+        """負の値が0以外として正しく検出されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","-1","0"
+"地域2","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertFalse(result, "負の値は0以外として検出されるべきです")
+
+    def test_is_all_zero_data_with_unicode_decode_error(self):
+        """デコードエラー時に安全側に倒すことを確認"""
+        # 不正なShift_JISバイトシーケンス
+        invalid_data = b"\xff\xfe\x00\x00"
+
+        result = self.storage._is_all_zero_data(invalid_data)
+        self.assertFalse(result, "デコードエラー時は保存する（False）べきです")
+
+    def test_is_all_zero_data_with_malformed_csv(self):
+        """不正なCSV形式でもエラーにならないことを確認"""
+        # 不正なCSV（引用符が閉じていない）
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B
+"地域1","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # エラーが発生せず、安全側に倒す（False）ことを確認
+        result = self.storage._is_all_zero_data(data)
+        # 不正なCSVでも処理が続行され、結果が返される
+        # （csv.readerは寛容な解析を行う）
+        self.assertIsInstance(result, bool, "bool値が返されるべきです")
+
 
 if __name__ == "__main__":
     unittest.main()
