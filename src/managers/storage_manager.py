@@ -562,6 +562,63 @@ class StorageManager:
         pattern = re.compile(r"^[a-zA-Z0-9_]+$")
         return bool(pattern.match(data_type))
 
+    def _is_skippable_row(self, row: list[str]) -> bool:
+        """CSVの行がスキップすべき行かどうかを判定する。
+
+        Args:
+            row: CSV行のセルのリスト
+
+        Returns:
+            スキップすべき行の場合True、それ以外False
+        """
+        # 空行をスキップ
+        if not row or all(not cell.strip() for cell in row):
+            return True
+
+        # 最初のセルが注釈行（*で始まる）をスキップ
+        first_cell = row[0].strip()
+        if first_cell.startswith("*"):
+            return True
+
+        # 1列以下の行はスキップ（データ行ではない）
+        return len(row) <= 1
+
+    def _check_numeric_cells(self, cells: list[str]) -> tuple[bool, bool]:
+        """数値セルをチェックして、数値があるか、0以外の値があるかを返す。
+
+        Args:
+            cells: チェックするセルのリスト
+
+        Returns:
+            (数値セルがあるか, 0以外の値があるか) のタプル
+        """
+        has_numeric = False
+        has_non_zero = False
+
+        for cell in cells:
+            cell_value = cell.strip()
+
+            # 空文字列はスキップ
+            if not cell_value:
+                continue
+
+            # 数字かどうかチェック（整数または浮動小数点数）
+            try:
+                numeric_value = float(cell_value)
+                has_numeric = True
+
+                # 0以外の値があれば記録（0.0や-0.0は0として扱う）
+                if numeric_value != 0.0:
+                    has_non_zero = True
+                    # 早期リターン: 0以外が見つかったら即座に返す
+                    return has_numeric, has_non_zero
+
+            except ValueError:
+                # 数値でない場合はスキップ（ヘッダー行や疾病名など）
+                continue
+
+        return has_numeric, has_non_zero
+
     def _is_all_zero_data(self, data: bytes) -> bool:
         """データの全ての数値カラムが0かどうかをチェックする。
 
@@ -575,74 +632,56 @@ class StorageManager:
             未発表データは全てのカウントが0になっているため、
             そのようなデータは保存する価値がないとしてスキップする。
             ヘッダー行や注釈行は無視し、データ行のみをチェックする。
+
+            RFC 4180準拠のCSV解析により、フィールド内のカンマや
+            引用符のエスケープを正しく処理する。
         """
+        import csv
+        import io
+
         try:
-            # Shift_JISでデコード
+            # Shift_JISでデコードしてStringIOオブジェクトを作成
             content = data.decode("shift_jis", errors="replace")
-            lines = content.split("\n")
+            csv_reader = csv.reader(io.StringIO(content))
 
             # 数値を含む行を探す
             has_data_row = False
-            has_non_zero_value = False
 
-            for raw_line in lines:
-                line = raw_line.strip()
-
-                # 空行をスキップ
-                if not line:
+            for row in csv_reader:
+                # スキップすべき行かチェック
+                if self._is_skippable_row(row):
                     continue
 
-                # 注釈行をスキップ（*で始まる行）
-                if line.startswith("*") or line.startswith('"*'):
-                    continue
+                # 最初のカラムは通常、行ラベル（年齢、地域名など）
+                # 2列目以降が数値データ
+                numeric_columns = row[1:]
 
-                # CSVとして解析（簡易的な処理）
-                # カンマ区切りで分割し、引用符を除去
-                parts = [p.strip().strip('"') for p in line.split(",")]
+                # 数値カラムがあるかチェック
+                has_numeric_in_row, has_non_zero_in_row = self._check_numeric_cells(numeric_columns)
 
-                # 最初のカラムが空でない場合、データ行の可能性がある
-                # 2列目以降に数値があるかチェック
-                if len(parts) > 1:
-                    # 最初のカラムは通常、行ラベル（年齢、地域名など）
-                    # 2列目以降が数値データ
-                    numeric_columns = parts[1:]
+                # 0以外の値があれば即座にFalseを返す
+                if has_non_zero_in_row:
+                    return False
 
-                    # 数値カラムがあるかチェック
-                    has_numeric = False
-                    for raw_col in numeric_columns:
-                        col = raw_col.strip()
-                        # 空文字列はスキップ
-                        if not col:
-                            continue
-
-                        # 数字かどうかチェック（整数または浮動小数点数）
-                        try:
-                            value = float(col)
-                            has_numeric = True
-                            has_data_row = True
-
-                            # 0以外の値があればFalseを返す
-                            if value != 0:
-                                has_non_zero_value = True
-                                return False
-                        except ValueError:
-                            # 数値でない場合はスキップ（ヘッダー行や疾病名など）
-                            continue
-
-                    # この行に数値カラムがあった場合のみ、データ行としてカウント
-                    if has_numeric:
-                        has_data_row = True
+                # この行に数値カラムがあった場合のみ、データ行としてカウント
+                if has_numeric_in_row:
+                    has_data_row = True
 
             # データ行が見つからなかった場合は、空データとして扱わない（保存する）
-            if not has_data_row:
-                return False
-
             # 全ての数値が0の場合はTrue
-            return not has_non_zero_value
+            return has_data_row
 
+        except UnicodeDecodeError as e:
+            # Shift_JISデコードエラー - 安全側に倒して保存する
+            logger.warning(f"Failed to decode CSV data as Shift_JIS: {e}")
+            return False
+        except csv.Error as e:
+            # CSV解析エラー - 安全側に倒して保存する
+            logger.warning(f"Failed to parse CSV data: {e}")
+            return False
         except Exception as e:
-            # デコードエラーなどが発生した場合は、安全側に倒して保存する
-            logger.warning(f"Failed to check for all-zero data: {e}")
+            # その他の予期しないエラー - 安全側に倒して保存する
+            logger.warning(f"Unexpected error while checking for all-zero data: {e}")
             return False
 
     def _get_month_from_week(self, year: int, week: int) -> int:

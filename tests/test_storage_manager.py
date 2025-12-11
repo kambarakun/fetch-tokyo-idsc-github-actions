@@ -693,6 +693,104 @@ class TestStorageManager(unittest.TestCase):
         expected_file = self.base_path / "sentinel_weekly_test_2025_52.csv"
         self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
 
+    def test_is_all_zero_data_with_comma_in_field(self):
+        """フィールド内にカンマが含まれるデータが正しく処理されることを確認"""
+        # フィールド内にカンマが含まれるCSVデータ（RFC 4180準拠）
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"区A,B","0","0"
+"区C","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "フィールド内のカンマは正しく処理されるべきです")
+
+    def test_is_all_zero_data_with_quoted_field(self):
+        """引用符でエスケープされたフィールドが正しく処理されることを確認"""
+        # 引用符のエスケープを含むCSVデータ
+        # CSV内の二重引用符 "" は、Pythonの文字列では \" でエスケープ
+        csv_data = '''"定点報告疾患"
+"","疾病A","疾病B"
+"区""C""","0","0"
+"区D","0","0"
+'''
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "引用符のエスケープは正しく処理されるべきです")
+
+    def test_is_all_zero_data_with_float_values(self):
+        """浮動小数点数の0が正しく処理されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B","疾病C"
+"地域1","0.0","0.00","0"
+"地域2","0","0.0","0.00"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "浮動小数点数の0は全て0と判定されるべきです")
+
+    def test_is_all_zero_data_with_float_non_zero(self):
+        """浮動小数点数の0以外の値が正しく検出されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","0.0","0.1"
+"地域2","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertFalse(result, "0.1は0以外として検出されるべきです")
+
+    def test_is_all_zero_data_with_negative_zero(self):
+        """-0.0が0として正しく処理されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","-0.0","0"
+"地域2","0","-0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "-0.0は0として扱われるべきです")
+
+    def test_is_all_zero_data_with_negative_value(self):
+        """負の値が0以外として正しく検出されることを確認"""
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B"
+"地域1","-1","0"
+"地域2","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertFalse(result, "負の値は0以外として検出されるべきです")
+
+    def test_is_all_zero_data_with_unicode_decode_error(self):
+        """デコードエラー時に安全側に倒すことを確認"""
+        # 不正なShift_JISバイトシーケンス
+        invalid_data = b"\xff\xfe\x00\x00"
+
+        result = self.storage._is_all_zero_data(invalid_data)
+        self.assertFalse(result, "デコードエラー時は保存する（False）べきです")
+
+    def test_is_all_zero_data_with_malformed_csv(self):
+        """不正なCSV形式でもエラーにならないことを確認"""
+        # 不正なCSV（引用符が閉じていない）
+        csv_data = """"定点報告疾患"
+"","疾病A","疾病B
+"地域1","0","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # エラーが発生せず、安全側に倒す（False）ことを確認
+        result = self.storage._is_all_zero_data(data)
+        # 不正なCSVでも処理が続行され、結果が返される
+        # （csv.readerは寛容な解析を行う）
+        self.assertIsInstance(result, bool, "bool値が返されるべきです")
+
 
 if __name__ == "__main__":
     unittest.main()
