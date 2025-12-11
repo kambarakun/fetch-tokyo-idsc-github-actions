@@ -4,11 +4,11 @@
   "year": 2025,
   "period": 21,
   "period_type": "weekly",
-  "timestamp": "2025-12-09T12:49:58.346105",
+  "timestamp": "2025-12-11T08:46:03.420910",
   "file_size": 13318,
   "sha256_hash": "37ff70f0350500b173293126c7d877650fc34fc8e06de20a15792d4b2261f824",
   "encoding": "shift_jis",
   "file_path": "sentinel_weekly_age_2025_21.csv",
   "force_overwrite": true,
-  "fetch_time": 0.5349090099334717
+  "fetch_time": 1.109928846359253
 }
