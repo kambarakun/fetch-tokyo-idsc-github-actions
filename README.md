@@ -59,15 +59,12 @@ data/
 │   ├── normalized_notifiable_weekly_2000_01.csv              # 全数報告（UTF-8、メタデータ除去）
 │   ├── normalized_sentinel_weekly_age_male_2000_01.csv       # 定点・年齢群・男性（UTF-8）
 │   ├── normalized_sentinel_weekly_age_female_2000_01.csv     # 定点・年齢群・女性（UTF-8）
-│   ├── normalized_sentinel_weekly_age_total_2000_01.csv      # 定点・年齢群・合計（UTF-8、検証済み）
+│   ├── normalized_sentinel_weekly_age_total_2000_01.csv      # 定点・年齢群・合計（UTF-8、元データの値を検証済み）
 │   ├── normalized_sentinel_weekly_medical_district_male_2000_01.csv   # 定点・医療圏・男性（UTF-8）
 │   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv # 定点・医療圏・女性（UTF-8）
-│   ├── normalized_sentinel_weekly_medical_district_total_2000_01.csv  # 定点・医療圏・合計（UTF-8、計算値*）
 │   └── normalized_sentinel_weekly_gender_2000_01.csv         # 定点・性別（UTF-8、性別列形式のため分割なし）
 └── logs/                                       # ログファイル
 ```
-
-> **注:** `*` 印のファイル（total）は、`medical_district` の場合は male + female の計算値です。他のデータタイプは元データの値を使用します。
 
 ### ファイル命名規則
 
@@ -84,7 +81,7 @@ data/
   - 例: `normalized_notifiable_weekly_2000_01.csv`
 - **定点監視（性別分割あり）**: `normalized_{data_type}_{gender}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_age_male_2000_01.csv`
-  - gender: `male` (男性), `female` (女性), `total` (男女合計)
+  - gender: `male` (男性), `female` (女性), `total` (男女合計、ただし`medical_district`は出力されない）
 - **定点監視（分割なし）**: `normalized_{data_type}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_gender_2000_01.csv`
 
@@ -98,11 +95,12 @@ data/
    - **raw/**: Shift_JIS エンコーディング（東京都IDSCの元データ形式を維持）
    - **processed/**: UTF-8 エンコーディング（Python、R、Excel等の解析ツールで扱いやすい形式）
 2. **メタデータ除去**: ヘッダー情報（集計期間等）や注釈行（`*` で始まる行）を除去し、純粋なデータ部分のみを抽出
-3. **性別データ分割**: 性別セクション（男性・女性・男女合計）がある場合、3つのファイルに分割
+3. **性別データ分割**: 性別セクション（男性・女性・男女合計）がある場合、最大3つのファイルに分割
    - 例: `sentinel_weekly_age_2000_01.csv` → `normalized_sentinel_weekly_age_male_2000_01.csv`, `normalized_sentinel_weekly_age_female_2000_01.csv`, `normalized_sentinel_weekly_age_total_2000_01.csv`
-4. **男女合計の計算・検証**:
-   - 元データに男女合計がある場合: male + female = total の一致を検証
-   - 元データに男女合計がない場合（`medical_district`）: **male + female で計算して total を生成**
+   - `medical_district`の場合: 元データにtotalセクションが含まれないため、male と female のみ出力
+4. **男女合計の検証**:
+   - 元データにtotalセクションがある場合: male + female = total の一致を検証
+   - 生データを尊重し、totalの推定計算は行わない
 
 **ファイル形式:**
 
@@ -112,9 +110,10 @@ data/
 
 **注意事項:**
 
-- `sentinel_*_medical_district` の `total` ファイルは、元データに男女合計が含まれていないため、**男性データと女性データを加算して計算生成**しています
-- 他のデータタイプ（`age`, `health_center` 等）の `total` は元データの値を使用し、male + female との一致を検証しています
-- 定点数の列など、加算が意味をなさない列は検証対象外です
+- **生データ至上主義**: 元データに存在しないデータは推定計算で生成しません
+- `sentinel_*_medical_district`: 元データにtotalセクションが含まれていないため、**totalファイルは出力されません**（male, female のみ）
+- 他のデータタイプ（`age`, `health_center` 等）: 元データのtotalを使用し、male + female との一致を検証
+- 検証時、定点数の列など加算が意味をなさない列は検証対象外です
 
 ## 🔄 GitHub Actionsワークフロー
 

@@ -100,12 +100,15 @@ flowchart TD
 
     ExtractMale --> SaveMale[male_*.csv保存]
     ExtractFemale --> SaveFemale[female_*.csv保存]
-    ExtractTotal --> CheckEmpty{totalファイル<br/>が空?}
+    ExtractTotal --> CheckMedical{medical_district<br/>かつtotal?}
 
-    CheckEmpty -->|Yes| CalcTotal[male + female<br/>で計算<br/>_calculate_total_from_gender]
+    CheckMedical -->|Yes| SkipTotal[totalをスキップ<br/>生データに含まれない]
+    CheckMedical -->|No| CheckEmpty{totalファイル<br/>が空?}
+
+    CheckEmpty -->|Yes| WarnEmpty[警告ログ出力<br/>空のまま保存]
     CheckEmpty -->|No| VerifyTotal[male + female = total<br/>を検証<br/>_verify_total_calculation]
 
-    CalcTotal --> SaveTotal[total_*.csv保存]
+    WarnEmpty --> SaveTotal[total_*.csv保存]
     VerifyTotal --> SaveTotal
 
     SaveNotifiable --> LogProcess[処理ログ記録<br/>_log_processing]
@@ -177,38 +180,6 @@ flowchart TD
 
     MoreLines -->|Yes| ReadNext
     MoreLines -->|No| ReturnData
-```
-
-### 男女合計計算の詳細
-
-```mermaid
-flowchart TD
-    Start[male_*.csv<br/>female_*.csv<br/>total_*.csv] --> ReadMale[maleデータ読み込み<br/>_read_csv_data]
-    ReadMale --> ReadFemale[femaleデータ読み込み<br/>_read_csv_data]
-
-    ReadFemale --> CheckRows{行数一致?}
-    CheckRows -->|No| WarnRows[警告ログ出力<br/>処理中断]
-    CheckRows -->|Yes| InitTotal[ヘッダー行を<br/>totalデータに追加]
-
-    InitTotal --> LoopRows[各データ行を処理]
-    LoopRows --> SumRow[行を加算<br/>_sum_rows]
-
-    SumRow --> ParseMale[male値をパース<br/>_parse_int]
-    SumRow --> ParseFemale[female値をパース<br/>_parse_int]
-
-    ParseMale --> Add[male + female]
-    ParseFemale --> Add
-
-    Add --> AddToTotal[total行に追加]
-    AddToTotal --> MoreRows{さらに行がある?}
-
-    MoreRows -->|Yes| LoopRows
-    MoreRows -->|No| WriteTotal[totalファイルに書き込み]
-
-    WriteTotal --> LogSuccess[成功ログ出力]
-    LogSuccess --> Complete[完了]
-
-    WarnRows --> Complete
 ```
 
 ==============================================================================

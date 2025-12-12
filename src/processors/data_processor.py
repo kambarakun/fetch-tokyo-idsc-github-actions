@@ -31,8 +31,8 @@ class NormalizationResult:
     Attributes:
         success: 処理が成功したかどうか
         source_path: 処理元ファイルパス
-        output_files: 生成された出力ファイルのリスト（デフォルトは空リスト）
-        error: エラーメッセージ（失敗時のみ）
+        output_files: 生成された出力ファイルのリスト(デフォルトは空リスト)
+        error: エラーメッセージ(失敗時のみ)
     """
 
     success: bool
@@ -45,7 +45,7 @@ class DataProcessor:
     """データ処理を統合的に管理するクラス"""
 
     # クラス定数: マジックナンバー/ストリングを定数化
-    HEADER_SEARCH_RANGE = 20  # ヘッダー行を探す範囲（行数）
+    HEADER_SEARCH_RANGE = 20  # ヘッダー行を探す範囲(行数)
     DISEASE_KEYWORDS: ClassVar[list[str]] = [
         "インフルエンザ",
         "ウイルス",
@@ -77,7 +77,7 @@ class DataProcessor:
         (self.processed_dir / ".metadata").mkdir(parents=True, exist_ok=True)
 
     def process_file(self, source_file: Path) -> NormalizationResult:
-        """ファイルを処理（UTF-8変換 + 正規化を一度に実行）
+        """ファイルを処理(UTF-8変換 + 正規化を一度に実行)
 
         Args:
             source_file: raw/配下のファイルパス
@@ -94,7 +94,7 @@ class DataProcessor:
             if not metadata:
                 return NormalizationResult(success=False, error=f"Invalid filename: {source_file.name}")
 
-            # Shift_JIS → UTF-8変換（メモリ上）
+            # Shift_JIS → UTF-8変換(メモリ上)
             with source_file.open("r", encoding="shift_jis", errors="replace") as f:
                 content = f.read()
 
@@ -142,7 +142,7 @@ class DataProcessor:
         return {"total": total, "succeeded": succeeded, "failed": failed, "errors": errors}
 
     def _process_notifiable(self, lines: list[str], source_file: Path, metadata: dict[str, Any]) -> NormalizationResult:
-        """全数報告データの処理（シンプル）
+        """全数報告データの処理(シンプル)
 
         Args:
             lines: UTF-8変換済みの行リスト
@@ -188,8 +188,103 @@ class DataProcessor:
                 success=False, source_path=source_file, error="全数報告処理中にエラーが発生しました"
             )
 
+    def _validate_medical_district_sections(
+        self, gender_sections: list[dict[str, Any]], source_file: Path, metadata: dict[str, Any]
+    ) -> NormalizationResult | None:
+        """medical_districtデータの性別セクション妥当性検証
+
+        Args:
+            gender_sections: 検出された性別セクション
+            source_file: 元ファイルパス
+            metadata: ファイルメタデータ
+
+        Returns:
+            検証失敗時はエラーのNormalizationResult、成功時はNone
+        """
+        if metadata.get("aggregation") != "medical_district":
+            return None
+
+        has_male_or_female = any(
+            section.get("gender") in (self.GENDER_MALE, self.GENDER_FEMALE) for section in gender_sections
+        )
+        if not has_male_or_female:
+            logger.error(f"medical_districtデータに男性/女性セクションが存在しません(異常データ): {source_file.name}")
+            return NormalizationResult(
+                success=False,
+                source_path=source_file,
+                error="medical_districtデータに必須の性別セクション(男性/女性)が存在しません",
+            )
+        return None
+
+    def _process_gender_sections(
+        self, lines: list[str], gender_sections: list[dict[str, Any]], metadata: dict[str, Any]
+    ) -> tuple[list[Path], Path | None, Path | None, Path | None]:
+        """性別セクションを処理してファイルを生成
+
+        Args:
+            lines: UTF-8変換済みの行リスト
+            gender_sections: 検出された性別セクション
+            metadata: ファイルメタデータ
+
+        Returns:
+            (output_files, male_file, female_file, total_file)のタプル
+        """
+        output_files: list[Path] = []
+        male_file: Path | None = None
+        female_file: Path | None = None
+        total_file: Path | None = None
+
+        for section in gender_sections:
+            # medical_districtのtotalセクションはスキップ(元データに含まれない仕様)
+            if metadata.get("aggregation") == "medical_district" and section.get("gender") == self.GENDER_TOTAL:
+                logger.info(
+                    "medical_districtのtotalセクションをスキップします(元データに男女合計が含まれていない仕様です)"
+                )
+                continue
+
+            output_file = self._save_gender_section(lines, section, metadata)
+            if output_file:
+                output_files.append(output_file)
+                gender = section.get("gender")
+                if gender == self.GENDER_MALE:
+                    male_file = output_file
+                elif gender == self.GENDER_FEMALE:
+                    female_file = output_file
+                elif gender == self.GENDER_TOTAL:
+                    total_file = output_file
+
+        return output_files, male_file, female_file, total_file
+
+    def _validate_total_file(self, total_file: Path | None, male_file: Path | None, female_file: Path | None) -> None:
+        """totalファイルの妥当性検証
+
+        Args:
+            total_file: totalファイルパス
+            male_file: maleファイルパス
+            female_file: femaleファイルパス
+        """
+        if not (total_file and male_file and female_file):
+            return
+
+        # totalファイルが空の場合は警告のみ(生データを尊重し、計算で埋めない)
+        try:
+            is_empty = self._is_empty_data_file(total_file)
+        except OSError:
+            logger.warning(f"totalセクションの空判定に失敗しました(検証スキップ): {total_file.name}")
+            return
+
+        if is_empty:
+            logger.warning(
+                f"totalセクションが空です。生データを尊重してそのまま保存します。"
+                f"(データ抽出エラーの可能性があります): {total_file.name}"
+            )
+            return
+
+        # totalファイルが元データにある場合、計算結果と一致するか検証
+        self._verify_total_calculation(male_file, female_file, total_file)
+
     def _process_sentinel(self, lines: list[str], source_file: Path, metadata: dict[str, Any]) -> NormalizationResult:
-        """定点監視データの処理（複雑・性別分割）
+        """定点監視データの処理(複雑・性別分割)
 
         Args:
             lines: UTF-8変換済みの行リスト
@@ -205,38 +300,24 @@ class DataProcessor:
 
             if not gender_sections:
                 # 性別セクションがない場合は、列形式の可能性があるので
-                # そのまま保存（分割なし）
+                # そのまま保存(分割なし)
                 return self._process_sentinel_simple(lines, source_file, metadata)
 
-            output_files = []
-            male_file = None
-            female_file = None
-            total_file = None
+            # medical_districtの場合、male/femaleセクションの存在を検証
+            validation_error = self._validate_medical_district_sections(gender_sections, source_file, metadata)
+            if validation_error:
+                return validation_error
 
             # 各性別セクションを処理
-            for section in gender_sections:
-                output_file = self._save_gender_section(lines, section, metadata)
-                if output_file:
-                    output_files.append(output_file)
-                    gender = section["gender"]
-                    if gender == self.GENDER_MALE:
-                        male_file = output_file
-                    elif gender == self.GENDER_FEMALE:
-                        female_file = output_file
-                    elif gender == self.GENDER_TOTAL:
-                        total_file = output_file
+            output_files, male_file, female_file, total_file = self._process_gender_sections(
+                lines, gender_sections, metadata
+            )
 
             if not output_files:
                 return NormalizationResult(success=False, error="出力ファイルが生成されませんでした")
 
-            # totalファイルが空の場合、male + female で計算
-            if total_file and male_file and female_file and self._is_empty_data_file(total_file):
-                logger.info(f"totalファイルが空のため、male + female で計算します: {total_file.name}")
-                self._calculate_total_from_gender(male_file, female_file, total_file)
-
-            # totalファイルが元データにある場合、計算結果と一致するか検証
-            if total_file and male_file and female_file and not self._is_empty_data_file(total_file):
-                self._verify_total_calculation(male_file, female_file, total_file)
+            # totalファイルの妥当性検証
+            self._validate_total_file(total_file, male_file, female_file)
 
             logger.info(f"定点監視処理成功: {source_file.name} → {len(output_files)}ファイル")
 
@@ -254,7 +335,7 @@ class DataProcessor:
     def _process_sentinel_simple(
         self, lines: list[str], source_file: Path, metadata: dict[str, Any]
     ) -> NormalizationResult:
-        """定点監視データの単純処理（性別が列形式の場合）
+        """定点監視データの単純処理(性別が列形式の場合)
 
         Args:
             lines: UTF-8変換済みの行リスト
@@ -285,7 +366,7 @@ class DataProcessor:
             with output_file.open("w", encoding="utf-8") as f:
                 f.writelines(data_lines)
 
-            logger.info(f"定点監視処理成功（単純）: {source_file.name} → {output_filename}")
+            logger.info(f"定点監視処理成功(単純): {source_file.name} → {output_filename}")
 
             # ログ記録
             self._log_processing(source_file, [output_file], metadata)
@@ -293,7 +374,7 @@ class DataProcessor:
             return NormalizationResult(success=True, source_path=source_file, output_files=[output_file])
 
         except (OSError, csv.Error, ValueError):
-            logger.exception(f"定点監視処理失敗（単純）: {source_file.name}")
+            logger.exception(f"定点監視処理失敗(単純): {source_file.name}")
             return NormalizationResult(
                 success=False, source_path=source_file, error="定点監視単純処理中にエラーが発生しました"
             )
@@ -370,7 +451,7 @@ class DataProcessor:
         """
         start_idx = section["start_line"]
 
-        # ヘッダー行を探す（疾病名が複数含まれる行）
+        # ヘッダー行を探す(疾病名が複数含まれる行)
         header_idx = None
         for i in range(start_idx, min(start_idx + self.HEADER_SEARCH_RANGE, len(lines))):
             line = lines[i]
@@ -415,7 +496,7 @@ class DataProcessor:
             gender: 性別表示名
 
         Returns:
-            ファイル名サフィックス（male/female/total）
+            ファイル名サフィックス(male/female/total)
         """
         mapping = {self.GENDER_MALE: "male", self.GENDER_FEMALE: "female", self.GENDER_TOTAL: "total"}
         return mapping.get(gender, "unknown")
@@ -462,7 +543,7 @@ class DataProcessor:
             return None
 
     def _is_empty_data_file(self, file_path: Path) -> bool:
-        """データファイルが空（ヘッダーのみ）かチェック
+        """データファイルが空(ヘッダーのみ)かチェック
 
         Args:
             file_path: チェック対象ファイル
@@ -487,13 +568,13 @@ class DataProcessor:
             return list(csv.reader(f))
 
     def _parse_int(self, value: str) -> int:
-        """文字列を整数にパース（空文字列は0）
+        """文字列を整数にパース(空文字列は0)
 
         Args:
             value: パースする文字列
 
         Returns:
-            整数値（空文字列の場合は0、変換失敗時も0）
+            整数値(空文字列の場合は0、変換失敗時も0)
         """
         stripped = value.strip()
         if not stripped:
@@ -503,68 +584,6 @@ class DataProcessor:
         except ValueError:
             logger.warning(f"数値変換失敗: '{value}' -> 0として処理")
             return 0
-
-    def _sum_rows(self, male_row: list[str], female_row: list[str]) -> list[str]:
-        """男性と女性のデータ行を加算
-
-        Args:
-            male_row: 男性データの行
-            female_row: 女性データの行
-
-        Returns:
-            合計データの行
-
-        Raises:
-            ValueError: 列数が一致しない場合
-        """
-        if len(male_row) != len(female_row):
-            error_msg = f"列数不一致: male={len(male_row)}, female={len(female_row)}"
-            logger.error(error_msg)
-            raise ValueError(error_msg)
-
-        total_row = [male_row[0]]  # 最初の列（地域名や年齢区分など）
-        for j in range(1, len(male_row)):
-            male_val = self._parse_int(male_row[j])
-            female_val = self._parse_int(female_row[j])
-            total_row.append(str(male_val + female_val))
-        return total_row
-
-    def _calculate_total_from_gender(self, male_file: Path, female_file: Path, total_file: Path) -> None:
-        """male + female でtotalを計算
-
-        Args:
-            male_file: 男性データファイル
-            female_file: 女性データファイル
-            total_file: 合計ファイル（上書きされる）
-        """
-        try:
-            # ヘルパーメソッドでCSV読み込み
-            male_data = self._read_csv_data(male_file)
-            female_data = self._read_csv_data(female_file)
-
-            if len(male_data) != len(female_data):
-                logger.warning(
-                    f"male と female の行数が一致しません: male={len(male_data)}, female={len(female_data)}, file={male_file.name}"
-                )
-                return
-
-            # ヘッダー行
-            total_data = [male_data[0]]
-
-            # データ行をヘルパーメソッドで加算
-            for i in range(1, len(male_data)):
-                total_row = self._sum_rows(male_data[i], female_data[i])
-                total_data.append(total_row)
-
-            # totalファイルに書き込み
-            with total_file.open("w", encoding="utf-8", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerows(total_data)
-
-            logger.info(f"totalを計算しました: {total_file.name} (male + female)")
-
-        except (OSError, csv.Error, ValueError, IndexError):
-            logger.exception(f"total計算失敗: {total_file.name}")
 
     def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:  # noqa: PLR0912
         """元データのtotalが male + female と一致するか検証
@@ -587,7 +606,7 @@ class DataProcessor:
                 )
                 return
 
-            # ヘッダー行から「定点」を含む列を特定（検証対象外）
+            # ヘッダー行から「定点」を含む列を特定(検証対象外)
             skip_columns = set()
             if len(total_data) > 0:
                 header = total_data[0]
@@ -598,7 +617,7 @@ class DataProcessor:
 
             mismatches = []
 
-            # データ行を検証（ヘッダーをスキップ）
+            # データ行を検証(ヘッダーをスキップ)
             for i in range(1, len(male_data)):
                 for j in range(1, min(len(male_data[i]), len(female_data[i]), len(total_data[i]))):
                     # スキップ対象の列は検証しない
@@ -611,7 +630,7 @@ class DataProcessor:
                         total_val = self._parse_int(total_data[i][j])
                         calculated = male_val + female_val
 
-                        # male=0, female=0, total>0 のパターンは検証スキップ（定点数などのメタデータ）
+                        # male=0, female=0, total>0 のパターンは検証スキップ(定点数などのメタデータ)
                         if male_val == 0 and female_val == 0 and total_val > 0:
                             continue
 
@@ -633,9 +652,9 @@ class DataProcessor:
             if mismatches:
                 # 不一致の程度に応じてログレベルを調整
                 if len(mismatches) >= 10:
-                    # 多数の不一致がある場合は WARNING（元データの品質問題の可能性）
+                    # 多数の不一致がある場合は WARNING(元データの品質問題の可能性)
                     logger.warning(
-                        f"total検証: {len(mismatches)}件の不一致 in {total_file.name}（元データの品質問題の可能性）"
+                        f"total検証: {len(mismatches)}件の不一致 in {total_file.name}(元データの品質問題の可能性)"
                     )
                 else:
                     # 軽微な不一致は DEBUG レベル
@@ -691,10 +710,13 @@ class DataProcessor:
             json.dump(logs, f, ensure_ascii=False, indent=2)
 
     def _verify_cross_dataset_consistency(self) -> None:
-        """異なる集計軸 (age/health_center/medical_district) のtotal値が一致するか検証
+        """異なる集計軸 (age/health_center) のtotal値が一致するか検証
 
-        同じ期間・頻度のデータについて、各集計軸のtotal行を比較し、
+        同じ期間・頻度のデータについて、age と health_center のtotal行を比較し、
         データの整合性をチェックする。不一致があれば警告ログを出力。
+
+        注: medical_districtは元データにtotalセクションが含まれないため、
+        整合性チェックの対象外とする。
         """
         # 処理済みファイルから期間情報を収集
         periods_to_check = self._collect_periods_for_verification()
@@ -703,7 +725,7 @@ class DataProcessor:
             logger.info("整合性チェック対象のファイルセットが見つかりませんでした")
             return
 
-        logger.info(f"整合性チェック対象: {len(periods_to_check)}期間")
+        logger.info(f"整合性チェック対象: {len(periods_to_check)}期間 (age vs health_center)")
 
         checked_count = 0
         error_count = 0
@@ -717,25 +739,25 @@ class DataProcessor:
                 # 各データセットの合計行を抽出
                 age_total_row = self._extract_total_row(files["age"])
                 hc_total_row = self._extract_total_row(files["health_center"])
-                md_total_row = self._extract_total_row(files["medical_district"])
 
-                if not all((age_total_row, hc_total_row, md_total_row)):
+                if not all((age_total_row, hc_total_row)):
                     logger.debug(f"合計行が見つかりません: {period_key}")
                     continue
 
                 # 各疾患列ごとに比較
                 mismatches = []
-                max_cols = min(len(age_total_row), len(hc_total_row), len(md_total_row))
+                if len(age_total_row) != len(hc_total_row):
+                    logger.debug(
+                        f"列数不一致: {period_key} age_cols={len(age_total_row)} health_center_cols={len(hc_total_row)}"
+                    )
+                max_cols = min(len(age_total_row), len(hc_total_row))
 
                 for col_idx in range(1, max_cols):  # 0列目は「合計」ラベルなのでスキップ
                     age_val = self._parse_int(age_total_row[col_idx])
                     hc_val = self._parse_int(hc_total_row[col_idx])
-                    md_val = self._parse_int(md_total_row[col_idx])
 
-                    if not (age_val == hc_val == md_val):
-                        mismatches.append(
-                            {"col": col_idx, "age": age_val, "health_center": hc_val, "medical_district": md_val}
-                        )
+                    if age_val != hc_val:
+                        mismatches.append({"col": col_idx, "age": age_val, "health_center": hc_val})
 
                 checked_count += 1
 
@@ -744,9 +766,7 @@ class DataProcessor:
                     logger.warning(f"⚠️  整合性エラー: {period_key} - {len(mismatches)}列で不一致")
                     # 最初の3件の不一致を詳細表示
                     for mm in mismatches[:3]:
-                        logger.warning(
-                            f"  列{mm['col']}: age={mm['age']}, health_center={mm['health_center']}, medical_district={mm['medical_district']}"
-                        )
+                        logger.warning(f"  列{mm['col']}: age={mm['age']}, health_center={mm['health_center']}")
                     if len(mismatches) > 3:
                         logger.warning(f"  ... 他{len(mismatches) - 3}列で不一致")
                 else:
@@ -757,8 +777,7 @@ class DataProcessor:
                 logger.exception(
                     f"整合性チェックエラー: {period_key}\n"
                     f"  age: {files.get('age', 'N/A')}\n"
-                    f"  health_center: {files.get('health_center', 'N/A')}\n"
-                    f"  medical_district: {files.get('medical_district', 'N/A')}"
+                    f"  health_center: {files.get('health_center', 'N/A')}"
                 )
                 continue
 
@@ -766,6 +785,9 @@ class DataProcessor:
 
     def _collect_periods_for_verification(self) -> dict[str, dict[str, Path]]:
         """整合性チェック対象の期間とファイルを収集
+
+        注: medical_districtは元データにtotalセクションが含まれないため対象外。
+        age と health_center の2軸のみをチェック対象とする。
 
         Returns:
             {period_key: {aggregation: file_path}} の辞書
@@ -787,8 +809,8 @@ class DataProcessor:
             year = parts[-2]
             period = parts[-1]
 
-            # age, health_center, medical_district のみを対象
-            if aggregation not in ["age", "health_center", "medical_district"]:
+            # age と health_center のみを対象 (medical_districtは除外)
+            if aggregation not in ["age", "health_center"]:
                 continue
 
             period_key = f"{frequency}_{year}_{period}"
@@ -798,8 +820,8 @@ class DataProcessor:
 
             periods[period_key][aggregation] = file_path
 
-        # 3つの集計軸が揃っているもののみを返す
-        return {k: v for k, v in periods.items() if len(v) == 3}
+        # 2つの集計軸 (age, health_center) が揃っているもののみを返す
+        return {k: v for k, v in periods.items() if len(v) == 2}
 
     def _extract_total_row(self, file_path: Path) -> list[str] | None:
         """CSVファイルから「合計」行を抽出
