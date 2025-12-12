@@ -188,7 +188,9 @@ class DataProcessor:
                 success=False, source_path=source_file, error="全数報告処理中にエラーが発生しました"
             )
 
-    def _process_sentinel(self, lines: list[str], source_file: Path, metadata: dict[str, Any]) -> NormalizationResult:
+    def _process_sentinel(  # noqa: PLR0912  # 性別セクション処理+medical_district特別処理+total検証の複合ロジックのため複雑
+        self, lines: list[str], source_file: Path, metadata: dict[str, Any]
+    ) -> NormalizationResult:
         """定点監視データの処理（複雑・性別分割）
 
         Args:
@@ -212,6 +214,21 @@ class DataProcessor:
             male_file = None
             female_file = None
             total_file = None
+
+            # medical_districtの場合、male/femaleセクションの存在を検証
+            if metadata.get("aggregation") == "medical_district":
+                has_male_or_female = any(
+                    section["gender"] in [self.GENDER_MALE, self.GENDER_FEMALE] for section in gender_sections
+                )
+                if not has_male_or_female:
+                    logger.error(
+                        f"medical_districtデータに男性/女性セクションが存在しません(異常データ): {source_file.name}"
+                    )
+                    return NormalizationResult(
+                        success=False,
+                        source_path=source_file,
+                        error="medical_districtデータに必須の性別セクション(男性/女性)が存在しません",
+                    )
 
             # 各性別セクションを処理
             for section in gender_sections:

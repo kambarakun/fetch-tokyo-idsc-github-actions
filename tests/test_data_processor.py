@@ -56,7 +56,7 @@ class TestDataProcessor(unittest.TestCase):
         output_file = self.data_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv"
         self.assertTrue(output_file.exists())
 
-        # 内容確認（メタデータ行が除外されているか）
+        # 内容確認(メタデータ行が除外されているか)
         output_content = output_file.read_text(encoding="utf-8")
         self.assertIn("疾病名", output_content)
         self.assertIn("インフルエンザ", output_content)
@@ -105,7 +105,7 @@ class TestDataProcessor(unittest.TestCase):
 
     def test_process_sentinel_simple(self):
         """性別セクションなし定点監視データ処理のテスト"""
-        # Shift_JISテストファイルを作成（性別が列形式）
+        # Shift_JISテストファイルを作成(性別が列形式)
         test_file = self.raw_dir / "sentinel_weekly_gender_2025_01.csv"
         test_content = """定点報告疾患,週報告分
 年齢区分,男性,女性,合計
@@ -147,7 +147,7 @@ class TestDataProcessor(unittest.TestCase):
 
         self.assertTrue(result.success)
         self.assertIsNotNone(result.output_files)
-        # medical_districtはmale, femaleのみ（totalはスキップ）
+        # medical_districtはmale, femaleのみ(totalはスキップ)
         self.assertEqual(len(result.output_files), 2)
 
         # male/femaleファイルは存在するがtotalは存在しない
@@ -159,15 +159,36 @@ class TestDataProcessor(unittest.TestCase):
         self.assertTrue(female_file.exists())
         self.assertFalse(total_file.exists())  # totalはスキップされる
 
-    def test_empty_total_file_warning(self):
-        """totalファイルが空の場合に警告が出ることを確認"""
-        # 実際にはこのケースは発生しにくいが、データ抽出エラーをシミュレート
-        # maleとfemaleは正常だが、totalセクションのデータ行が欠落している状況
+    def test_medical_district_total_only_error(self):
+        """medical_districtでtotalセクションのみ存在する異常データの検出"""
+        # Arrange: totalセクションのみのmedical_districtデータ(異常)
+        test_file = self.raw_dir / "sentinel_weekly_medical_district_2025_02.csv"
+        test_content = """定点報告疾患,週報告分
+性別,"男女合計"
+医療圏,インフルエンザ,RSウイルス
+区中央部,22,11
+"""
+        test_file.write_text(test_content, encoding="shift_jis")
+
+        # Act: 処理実行(エラーログをキャプチャ)
+        with self.assertLogs("src.processors.data_processor", level="ERROR") as log_context:
+            result = self.processor.process_file(test_file)
+
+        # Assert: 処理失敗と明示的なエラーメッセージ
+        self.assertFalse(result.success)
+        self.assertIn("必須の性別セクション(男性/女性)が存在しません", result.error)
+
+        # エラーログが出力されていることを確認
+        error_logs = [record.getMessage() for record in log_context.records if record.levelno >= 40]  # ERROR以上
+        self.assertTrue(
+            any("男性/女性セクションが存在しません" in log for log in error_logs),
+            f"エラーログが見つかりません。実際のログ: {error_logs}",
+        )
+
+    def test_missing_total_section(self):
+        """totalセクションが欠落している場合の動作を確認"""
+        # maleとfemaleはあるが、totalセクションがないケース
         test_file = self.raw_dir / "sentinel_weekly_age_2025_02.csv"
-        # totalセクションにはヘッダーのみでデータ行がないケースを想定
-        # ただし、実際の処理ではこれは「セクションデータなし」となりスキップされる
-        # そのため、このテストは削除するか、別の形で検証する必要がある
-        # とりあえず、maleとfemaleだけを処理してtotalがない状況をテスト
         test_content = """定点報告疾患,週報告分
 性別,"男性"
 年齢区分,インフルエンザ,RSウイルス
@@ -193,6 +214,53 @@ class TestDataProcessor(unittest.TestCase):
         self.assertTrue(male_file.exists())
         self.assertTrue(female_file.exists())
         self.assertFalse(total_file.exists())  # totalセクションがないため生成されない
+
+    def test_empty_total_section_triggers_warning(self):
+        """totalセクションが空(ヘッダーのみ)の場合に警告ログが出ることを確認"""
+        # totalセクションはあるが、データ行がない(ヘッダーのみ)ケース
+        # この場合、totalファイルは生成されるが空(ヘッダーのみ)となり、警告ログが出力される
+        test_file = self.raw_dir / "sentinel_weekly_age_2025_03.csv"
+        test_content = """定点報告疾患,週報告分
+性別,"男性"
+年齢区分,インフルエンザ,RSウイルス
+0歳,10,5
+1-4歳,20,8
+性別,"女性"
+年齢区分,インフルエンザ,RSウイルス
+0歳,12,6
+1-4歳,18,7
+性別,"男女合計"
+年齢区分,インフルエンザ,RSウイルス
+"""
+        test_file.write_text(test_content, encoding="shift_jis")
+
+        # ログ出力をキャプチャするため、logging を使用
+
+        # 処理実行
+        with self.assertLogs("src.processors.data_processor", level="WARNING") as log_context:
+            result = self.processor.process_file(test_file)
+
+        self.assertTrue(result.success)
+        # male, female, total の3ファイルが生成される
+        self.assertEqual(len(result.output_files), 3)
+
+        # totalファイルは存在するがヘッダーのみで空
+        total_file = self.data_dir / "processed" / "normalized_sentinel_weekly_age_total_2025_03.csv"
+        self.assertTrue(total_file.exists())
+
+        # 警告ログが出力されていることを確認
+        warning_logs = [record.message for record in log_context.records if record.levelname == "WARNING"]
+        # 「totalセクションが空です」という警告が含まれることを確認
+        self.assertTrue(
+            any("totalセクションが空です" in log for log in warning_logs),
+            f"警告ログが見つかりません。実際のログ: {warning_logs}",
+        )
+
+        # ファイル内容を確認(ヘッダーのみ)
+        total_content = total_file.read_text(encoding="utf-8")
+        lines = [line for line in total_content.strip().split("\n") if line]
+        self.assertEqual(len(lines), 1)  # ヘッダー行のみ
+        self.assertIn("年齢区分", lines[0])
 
     def test_process_all(self):
         """全ファイル処理のテスト"""
@@ -322,19 +390,19 @@ class TestDataProcessor(unittest.TestCase):
 
         male_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # male=10, female=5 だが total=20（不一致）
+        # male=10, female=5 だが total=20(不一致)
         male_file.write_text("年齢区分,インフルエンザ\n0歳,10\n", encoding="utf-8")
         female_file.write_text("年齢区分,インフルエンザ\n0歳,5\n", encoding="utf-8")
         total_file.write_text("年齢区分,インフルエンザ\n0歳,20\n", encoding="utf-8")
 
-        # 警告ログが出る（不一致検出）
+        # 警告ログが出る(不一致検出)
         self.processor._verify_total_calculation(male_file, female_file, total_file)
 
         # エラーにはならず、警告のみ
 
     def test_process_file_with_encoding_error(self):
         """エンコーディングエラー時の処理テスト"""
-        # UTF-8で書かれたファイル（Shift_JISとして読むとエラー）
+        # UTF-8で書かれたファイル(Shift_JISとして読むとエラー)
         test_file = self.raw_dir / "broken_encoding.csv"
         test_file.write_text("これはUTF-8です\n特殊文字: 🎉", encoding="utf-8")
 
@@ -365,7 +433,7 @@ class TestDataProcessor(unittest.TestCase):
         ]
         section = {"gender": "男性", "start_line": 0}
 
-        # ヘッダー行（疾病キーワード2個以上）が見つからない場合、空リストが返る
+        # ヘッダー行(疾病キーワード2個以上)が見つからない場合、空リストが返る
         data = self.processor._extract_section_data(lines, section)
 
         self.assertEqual(data, [])
@@ -382,7 +450,7 @@ class TestDataProcessor(unittest.TestCase):
             ["区分B", "50", "25", "15", "10"],
         ]
 
-        # age と health_center のみ（medical_districtは除外）
+        # age と health_center のみ(medical_districtは除外)
         for aggregation in ["age", "health_center"]:
             file_path = processed_dir / f"normalized_sentinel_weekly_{aggregation}_total_2025_01.csv"
             with file_path.open("w", encoding="utf-8", newline="") as f:
@@ -417,7 +485,7 @@ class TestDataProcessor(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerows(test_data_age)
 
-        # health_centerファイル（age と不一致）
+        # health_centerファイル(age と不一致)
         file_path = processed_dir / "normalized_sentinel_weekly_health_center_total_2025_01.csv"
         with file_path.open("w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
@@ -434,7 +502,7 @@ class TestDataProcessor(unittest.TestCase):
         """整合性チェック対象の期間収集のテスト"""
         processed_dir = self.processor.processed_dir
 
-        # 2つの集計軸のファイルを作成（age, health_center）
+        # 2つの集計軸のファイルを作成(age, health_center)
         for aggregation in ["age", "health_center"]:
             file_path = processed_dir / f"normalized_sentinel_weekly_{aggregation}_total_2025_01.csv"
             file_path.write_text("合計,100\n", encoding="utf-8")
