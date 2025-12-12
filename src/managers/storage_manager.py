@@ -673,9 +673,9 @@ class StorageManager:
                 if has_numeric_in_row:
                     has_data_row = True
 
-            # データ行が見つからなかった場合は、空データとして扱わない（保存する）
-            # 全ての数値が0の場合はTrue
-            return has_data_row
+            # データ行が見つからなかった場合も空データとして扱う（スキップする）
+            # ヘッダーのみのファイルや全ての数値が0の場合はTrue
+            return True
 
         except UnicodeDecodeError:
             # Shift_JISデコードエラー - 安全側に倒して保存する
