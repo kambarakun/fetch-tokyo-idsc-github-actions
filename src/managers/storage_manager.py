@@ -650,9 +650,6 @@ class StorageManager:
             content = data.decode("shift_jis", errors="replace")
             csv_reader = csv.reader(io.StringIO(content))
 
-            # 数値を含む行を探す
-            has_data_row = False
-
             for row in csv_reader:
                 # スキップすべき行かチェック
                 if self._is_skippable_row(row):
@@ -663,18 +660,15 @@ class StorageManager:
                 numeric_columns = row[1:]
 
                 # 数値カラムがあるかチェック
-                has_numeric_in_row, has_non_zero_in_row = self._check_numeric_cells(numeric_columns)
+                _, has_non_zero_in_row = self._check_numeric_cells(numeric_columns)
 
-                # 0以外の値があれば即座にFalseを返す
+                # 0以外の値があれば即座にFalseを返す（保存対象）
                 if has_non_zero_in_row:
                     return False
 
-                # この行に数値カラムがあった場合のみ、データ行としてカウント
-                if has_numeric_in_row:
-                    has_data_row = True
-
-            # データ行が見つからなかった場合も空データとして扱う（スキップする）
-            # ヘッダーのみのファイルや全ての数値が0の場合はTrue
+            # 以下の場合はスキップ対象（True）:
+            # 1. ヘッダーのみでデータ行がない（未発表データ）
+            # 2. データ行はあるが全ての数値が0
             return True
 
         except UnicodeDecodeError:

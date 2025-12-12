@@ -898,6 +898,101 @@ class TestStorageManager(unittest.TestCase):
         # （csv.readerは寛容な解析を行う）
         self.assertIsInstance(result, bool, "bool値が返されるべきです")
 
+    def test_is_all_zero_data_with_header_only(self):
+        """ヘッダーのみ（データ行なし）のCSVがスキップ対象として検出されることを確認
+
+        PR #144の主要なユースケース: 未発表データはヘッダー情報のみで
+        データ行が存在しない。このようなファイルはスキップ対象とする。
+        """
+        # 実際の未発表データと同じ形式（ヘッダー行のみでデータ行なし）
+        csv_data = """"定点報告疾患 週報告分"
+"東京都"
+"集計期間開始週","2025年50週"
+"集計期間終了週","2025年50週"
+
+"疾病名","男性","女性","男女合計","定点数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "ヘッダーのみのファイルはスキップ対象として検出されるべきです")
+
+    def test_is_all_zero_data_with_header_only_minimal(self):
+        """最小限のヘッダーのみCSVがスキップ対象として検出されることを確認"""
+        # ヘッダー行1行のみのCSV
+        csv_data = """"疾病名","報告数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "ヘッダー1行のみのファイルはスキップ対象として検出されるべきです")
+
+    def test_save_with_metadata_skips_header_only_data(self):
+        """保存時にヘッダーのみのデータがスキップされることを確認
+
+        未発表データ（ヘッダーのみ）が自動的にスキップされ、
+        不要なファイルが保存されないことを検証。
+        """
+        # ヘッダーのみのCSVデータ（未発表データを模倣）
+        csv_data = """"定点報告疾患 週報告分"
+"東京都"
+"集計期間開始週","2025年50週"
+"集計期間終了週","2025年50週"
+
+"疾病名","男性","女性","男女合計","定点数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # データ保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_gender",
+            year=2025,
+            period=50,
+            is_monthly=False,
+        )
+
+        # スキップされたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertTrue(result.is_skipped, "ヘッダーのみのデータはスキップされるべきです")
+        self.assertIsNone(result.file_path, "ファイルは保存されないべきです")
+
+        # ファイルが実際に保存されていないことを確認
+        expected_file = self.base_path / "sentinel_weekly_gender_2025_50.csv"
+        self.assertFalse(expected_file.exists(), "ファイルは存在しないべきです")
+
+    def test_save_with_metadata_header_only_save_all_zero_saves_data(self):
+        """save_all_zero=Trueの場合、ヘッダーのみのデータも保存されることを確認
+
+        特殊用途（データ収集システムのテスト等）でヘッダーのみの
+        ファイルも保存したい場合に対応。
+        """
+        # ヘッダーのみのCSVデータ
+        csv_data = """"定点報告疾患 週報告分"
+"東京都"
+"疾病名","報告数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # save_all_zero=Trueで保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_header_test",
+            year=2025,
+            period=50,
+            is_monthly=False,
+            save_all_zero=True,
+        )
+
+        # 保存されたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertFalse(result.is_skipped, "save_all_zero=Trueの場合はスキップされないべきです")
+        self.assertIsNotNone(result.file_path, "ファイルパスが返されるべきです")
+
+        # ファイルが実際に保存されていることを確認
+        expected_file = self.base_path / "sentinel_weekly_header_test_2025_50.csv"
+        self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
+
 
 if __name__ == "__main__":
     unittest.main()
