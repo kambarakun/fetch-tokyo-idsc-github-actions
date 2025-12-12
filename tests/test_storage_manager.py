@@ -137,7 +137,8 @@ class TestStorageManager(unittest.TestCase):
 
     def test_save_with_metadata_duplicate(self):
         """重複データの保存テスト"""
-        data = b"duplicate,data"
+        # 数値データを含む有効なCSV形式
+        data = b'"header","value"\n"row1","1"'
         data_hash = hashlib.sha256(data).hexdigest()
 
         # ハッシュインデックスに追加
@@ -279,8 +280,8 @@ class TestStorageManager(unittest.TestCase):
 
     def test_save_with_force_overwrite(self):
         """force_overwriteパラメータのテスト"""
-        # 初回保存
-        test_data = b"initial data"
+        # 初回保存（数値データを含む有効なCSV形式）
+        test_data = b'"header","value"\n"row1","1"'
         result = self.storage.save_with_metadata(
             test_data,
             "test_type",
@@ -307,7 +308,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertTrue(result.is_duplicate)
 
         # force_overwrite=Trueで異なるデータを上書き
-        new_data = b"updated data"
+        new_data = b'"header","value"\n"row1","2"'
         result = self.storage.save_with_metadata(
             new_data,
             "test_type",
@@ -334,8 +335,8 @@ class TestStorageManager(unittest.TestCase):
 
     def test_force_overwrite_updates_hash_index(self):
         """force_overwriteでハッシュインデックスが更新されることのテスト"""
-        # 初回保存
-        initial_data = b"initial content"
+        # 初回保存（数値データを含む有効なCSV形式）
+        initial_data = b'"header","value"\n"row1","10"'
         initial_hash = hashlib.sha256(initial_data).hexdigest()
 
         result = self.storage.save_with_metadata(
@@ -347,7 +348,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertIn(initial_hash, self.storage.hash_index)
 
         # force_overwrite=Trueで異なるデータで上書き
-        updated_data = b"updated content"
+        updated_data = b'"header","value"\n"row1","20"'
         updated_hash = hashlib.sha256(updated_data).hexdigest()
 
         result = self.storage.save_with_metadata(
@@ -361,8 +362,8 @@ class TestStorageManager(unittest.TestCase):
 
     def test_force_overwrite_with_same_data(self):
         """同じデータでforce_overwriteした場合のテスト"""
-        # 同じデータで2回保存
-        test_data = b"same data"
+        # 同じデータで2回保存（数値データを含む有効なCSV形式）
+        test_data = b'"header","value"\n"row1","30"'
         data_hash = hashlib.sha256(test_data).hexdigest()
 
         # 初回保存
@@ -382,8 +383,8 @@ class TestStorageManager(unittest.TestCase):
 
     def test_multiple_files_same_hash(self):
         """同じ内容の複数ファイルを正しく管理できることのテスト"""
-        # 同じ内容のデータ
-        test_data = b"duplicate content"
+        # 同じ内容のデータ（数値データを含む有効なCSV形式）
+        test_data = b'"header","value"\n"row1","40"'
         data_hash = hashlib.sha256(test_data).hexdigest()
 
         # 異なる期間に同じデータを保存
@@ -400,7 +401,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertIn(data_hash, self.storage.hash_index)
 
         # 片方を異なるデータで上書き（force_overwrite）
-        new_data = b"updated content"
+        new_data = b'"header","value"\n"row1","50"'
         new_hash = hashlib.sha256(new_data).hexdigest()
 
         result3 = self.storage.save_with_metadata(
@@ -415,8 +416,8 @@ class TestStorageManager(unittest.TestCase):
 
     def test_hash_index_cleanup_on_overwrite(self):
         """force_overwrite時のハッシュインデックスクリーンアップテスト"""
-        # データを保存
-        data1 = b"first data"
+        # データを保存（数値データを含む有効なCSV形式）
+        data1 = b'"header","value"\n"row1","60"'
         hash1 = hashlib.sha256(data1).hexdigest()
 
         result1 = self.storage.save_with_metadata(data1, "cleanup_test", 2025, 1, is_monthly=False)
@@ -424,7 +425,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertIn(hash1, self.storage.hash_index)
 
         # 同じファイルを異なるデータで上書き
-        data2 = b"second data"
+        data2 = b'"header","value"\n"row1","70"'
         hash2 = hashlib.sha256(data2).hexdigest()
 
         result2 = self.storage.save_with_metadata(
@@ -480,11 +481,11 @@ class TestStorageManager(unittest.TestCase):
 
     def test_hash_index_sorting(self):
         """hash_indexがファイル名順に正しくソートされることをテスト"""
-        # 複数のファイルを異なる順序で保存
+        # 複数のファイルを異なる順序で保存（数値データを含む有効なCSV形式）
         files_data = [
-            (b"data1", "type_z", 2025, 3),
-            (b"data2", "type_a", 2025, 1),
-            (b"data3", "type_m", 2025, 2),
+            (b'"header","value"\n"row1","80"', "type_z", 2025, 3),
+            (b'"header","value"\n"row1","81"', "type_a", 2025, 1),
+            (b'"header","value"\n"row1","82"', "type_m", 2025, 2),
         ]
 
         for data, dtype, year, period in files_data:
@@ -873,13 +874,14 @@ class TestStorageManager(unittest.TestCase):
         result = self.storage._is_all_zero_data(data)
         self.assertFalse(result, "負の値は0以外として検出されるべきです")
 
-    def test_is_all_zero_data_with_unicode_decode_error(self):
-        """デコードエラー時に安全側に倒すことを確認"""
+    def test_is_all_zero_data_with_invalid_bytes(self):
+        """不正なバイトシーケンスはerrors='replace'で置換され、空データとして扱われる"""
         # 不正なShift_JISバイトシーケンス
+        # errors='replace'により置換文字に変換され、データ行がないためスキップ対象
         invalid_data = b"\xff\xfe\x00\x00"
 
         result = self.storage._is_all_zero_data(invalid_data)
-        self.assertFalse(result, "デコードエラー時は保存する（False）べきです")
+        self.assertTrue(result, "データ行がないためスキップ対象（True）になるべきです")
 
     def test_is_all_zero_data_with_malformed_csv(self):
         """不正なCSV形式でもエラーにならないことを確認"""
@@ -895,6 +897,101 @@ class TestStorageManager(unittest.TestCase):
         # 不正なCSVでも処理が続行され、結果が返される
         # （csv.readerは寛容な解析を行う）
         self.assertIsInstance(result, bool, "bool値が返されるべきです")
+
+    def test_is_all_zero_data_with_header_only(self):
+        """ヘッダーのみ（データ行なし）のCSVがスキップ対象として検出されることを確認
+
+        PR #144の主要なユースケース: 未発表データはヘッダー情報のみで
+        データ行が存在しない。このようなファイルはスキップ対象とする。
+        """
+        # 実際の未発表データと同じ形式（ヘッダー行のみでデータ行なし）
+        csv_data = """"定点報告疾患 週報告分"
+"東京都"
+"集計期間開始週","2025年50週"
+"集計期間終了週","2025年50週"
+
+"疾病名","男性","女性","男女合計","定点数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "ヘッダーのみのファイルはスキップ対象として検出されるべきです")
+
+    def test_is_all_zero_data_with_header_only_minimal(self):
+        """最小限のヘッダーのみCSVがスキップ対象として検出されることを確認"""
+        # ヘッダー行1行のみのCSV
+        csv_data = """"疾病名","報告数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._is_all_zero_data(data)
+        self.assertTrue(result, "ヘッダー1行のみのファイルはスキップ対象として検出されるべきです")
+
+    def test_save_with_metadata_skips_header_only_data(self):
+        """保存時にヘッダーのみのデータがスキップされることを確認
+
+        未発表データ（ヘッダーのみ）が自動的にスキップされ、
+        不要なファイルが保存されないことを検証。
+        """
+        # ヘッダーのみのCSVデータ（未発表データを模倣）
+        csv_data = """"定点報告疾患 週報告分"
+"東京都"
+"集計期間開始週","2025年50週"
+"集計期間終了週","2025年50週"
+
+"疾病名","男性","女性","男女合計","定点数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # データ保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_gender",
+            year=2025,
+            period=50,
+            is_monthly=False,
+        )
+
+        # スキップされたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertTrue(result.is_skipped, "ヘッダーのみのデータはスキップされるべきです")
+        self.assertIsNone(result.file_path, "ファイルは保存されないべきです")
+
+        # ファイルが実際に保存されていないことを確認
+        expected_file = self.base_path / "sentinel_weekly_gender_2025_50.csv"
+        self.assertFalse(expected_file.exists(), "ファイルは存在しないべきです")
+
+    def test_save_with_metadata_header_only_save_all_zero_saves_data(self):
+        """save_all_zero=Trueの場合、ヘッダーのみのデータも保存されることを確認
+
+        特殊用途（データ収集システムのテスト等）でヘッダーのみの
+        ファイルも保存したい場合に対応。
+        """
+        # ヘッダーのみのCSVデータ
+        csv_data = """"定点報告疾患 週報告分"
+"東京都"
+"疾病名","報告数"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # save_all_zero=Trueで保存を試みる
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_header_test",
+            year=2025,
+            period=50,
+            is_monthly=False,
+            save_all_zero=True,
+        )
+
+        # 保存されたことを確認
+        self.assertTrue(result.success, "処理は成功すべきです")
+        self.assertFalse(result.is_skipped, "save_all_zero=Trueの場合はスキップされないべきです")
+        self.assertIsNotNone(result.file_path, "ファイルパスが返されるべきです")
+
+        # ファイルが実際に保存されていることを確認
+        expected_file = self.base_path / "sentinel_weekly_header_test_2025_50.csv"
+        self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
 
 
 if __name__ == "__main__":
