@@ -306,6 +306,86 @@ class DataValidator:
             "results": self.validation_results,
         }
 
+    def generate_markdown_report(self) -> str:
+        """検証レポートをMarkdown形式で生成"""
+        report = self.generate_report()
+        summary = report["summary"]
+        lines: list[str] = []
+
+        # ヘッダー
+        lines.append("# データ検証レポート")
+        lines.append("")
+        lines.append(f"**実行日時**: {report['timestamp']}")
+        lines.append("")
+
+        # サマリー
+        lines.append("## サマリー")
+        lines.append("")
+
+        # ステータスアイコン
+        if summary["has_errors"]:
+            status_icon = "❌"
+            status_text = "エラーあり"
+        elif summary["has_warnings"]:
+            status_icon = "⚠️"
+            status_text = "警告あり"
+        else:
+            status_icon = "✅"
+            status_text = "正常"
+
+        lines.append(f"| 項目 | 値 |")
+        lines.append(f"|------|-----|")
+        lines.append(f"| ステータス | {status_icon} {status_text} |")
+        lines.append(f"| 総ファイル数 | {summary['total_files']} |")
+        lines.append(f"| 有効 | {summary['valid_files']} |")
+        lines.append(f"| 無効 | {summary['invalid_files']} |")
+        lines.append(f"| 成功率 | {summary['success_rate']:.1f}% |")
+        lines.append("")
+
+        # エラー/警告の詳細
+        errors_exist = any(r["errors"] for r in report["results"])
+        warnings_exist = any(r["warnings"] for r in report["results"])
+
+        if errors_exist:
+            lines.append("## ❌ エラー")
+            lines.append("")
+            for result in report["results"]:
+                if result["errors"]:
+                    lines.append(f"### `{result['file']}`")
+                    lines.append("")
+                    for error in result["errors"]:
+                        lines.append(f"- {error}")
+                    lines.append("")
+
+        if warnings_exist:
+            lines.append("## ⚠️ 警告")
+            lines.append("")
+            for result in report["results"]:
+                if result["warnings"]:
+                    lines.append(f"### `{result['file']}`")
+                    lines.append("")
+                    for warning in result["warnings"]:
+                        lines.append(f"- {warning}")
+                    lines.append("")
+
+        # 検証済みファイル一覧 (エラー/警告がない場合のみ詳細表示)
+        if not errors_exist and not warnings_exist and report["results"]:
+            lines.append("## 検証済みファイル")
+            lines.append("")
+            lines.append("| ファイル | サイズ | 行数 | ステータス |")
+            lines.append("|----------|--------|------|------------|")
+            for result in report["results"]:
+                file_name = Path(result["file"]).name
+                size = result.get("checks", {}).get("file_size", {}).get("size_mb", "N/A")
+                if isinstance(size, (int, float)):
+                    size = f"{size:.2f} MB"
+                line_count = result.get("checks", {}).get("csv_format", {}).get("line_count", "N/A")
+                status = "✅" if result["valid"] else "❌"
+                lines.append(f"| {file_name} | {size} | {line_count} | {status} |")
+            lines.append("")
+
+        return "\n".join(lines)
+
 
 def main():
     """メイン関数"""
@@ -331,7 +411,14 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        help="検証結果をJSONファイルに出力",
+        help="検証結果をファイルに出力",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default="json",
+        choices=["json", "markdown"],
+        help="出力形式 (json または markdown)",
     )
     parser.add_argument(
         "--log-level",
@@ -367,7 +454,10 @@ def main():
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
+            if args.format == "markdown":
+                f.write(validator.generate_markdown_report())
+            else:
+                json.dump(report, f, ensure_ascii=False, indent=2)
         logger.info(f"Report saved to: {output_path}")
 
     # サマリー表示
