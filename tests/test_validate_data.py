@@ -132,7 +132,7 @@ class TestDataValidatorFormatOption(unittest.TestCase):
 
     テストは自己完結型: 実データに依存せず、テスト用フィクスチャを使用
     このテストは出力フォーマットの検証に焦点を当て、
-    パス検証エラーは許容する（パス検証は他のテストでカバー）
+    パス検証エラーは許容する(パス検証は他のテストでカバー)
     """
 
     def setUp(self):
@@ -158,7 +158,7 @@ class TestDataValidatorFormatOption(unittest.TestCase):
         """JSON形式出力のテスト
 
         出力フォーマットがJSONとして有効で、期待される構造を持つことを検証
-        注: パス検証エラーは許容（テスト用一時ディレクトリはdata/外）
+        注: パス検証エラーは許容(テスト用一時ディレクトリはdata/外)
         """
         output_file = Path(self.temp_dir) / "report.json"
 
@@ -201,7 +201,7 @@ class TestDataValidatorFormatOption(unittest.TestCase):
         """Markdown形式出力のテスト
 
         出力フォーマットがMarkdownとして有効で、期待される構造を持つことを検証
-        注: パス検証エラーは許容（テスト用一時ディレクトリはdata/外）
+        注: パス検証エラーは許容(テスト用一時ディレクトリはdata/外)
         """
         output_file = Path(self.temp_dir) / "report.md"
 
