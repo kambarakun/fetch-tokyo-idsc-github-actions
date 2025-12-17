@@ -278,10 +278,12 @@ class StorageManager:
             - SHA256ハッシュで重複チェックを行う
             - 重複データは保存をスキップする(force_overwriteがFalseの場合)
             - 全て0のデータは保存をスキップする(save_all_zeroがFalseの場合)
+            - パス安全性チェックは保存前に実行され、失敗時は保存を中断
+              (パストラバーサル攻撃等のセキュリティリスクを事前に防止)
             - メタデータは.metadataディレクトリに別途保存される
-            - 保存後に自動検証を実行し、結果はmetadata["verification"]に記録
-            - 検証失敗(verification.status=="failed")でもファイルは保存される
-              (検証はデータ品質の記録目的であり、保存の可否は判定しない)
+            - 保存後にデータ品質検証を実行し、結果はmetadata["verification"]に記録
+            - データ品質検証失敗(encoding, csv_format, file_size)でもファイルは保存される
+              (データ品質検証は記録目的であり、保存の可否は判定しない)
         """
         # data_typeのバリデーション(セキュリティ対策)
         if not self._validate_data_type(data_type):
@@ -316,20 +318,18 @@ class StorageManager:
             filename = f"{data_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
 
+            # パス安全性チェック(保存前に実行 - セキュリティクリティカル)
+            # パストラバーサル攻撃等が検出された場合は保存を中断
+            path_safety_error = self._check_path_safety_pre_save(file_path)
+            if path_safety_error:
+                return SaveResult(success=False, error=path_safety_error)
+
             # 新規ファイルかどうかを判定
             is_new_file = not file_path.exists()
 
             # 既存ファイルのチェック (force_overwriteの場合、古いハッシュを削除)
             if file_path.exists() and force_overwrite:
-                # 既存ファイルのハッシュを計算
-                old_data = file_path.read_bytes()
-                old_hash = hashlib.sha256(old_data).hexdigest()
-
-                # ヘルパーメソッドを使用してハッシュインデックスから削除
-                file_path_str = str(file_path)
-                self._remove_from_hash_index(old_hash, file_path_str)
-
-                logger.info(f"Overwriting existing file: {file_path}")
+                self._handle_existing_file_overwrite(file_path)
 
             # CSVファイル保存(Shift_JISのまま) - 原子的書き込みで安全性を確保
             # 一時ファイルを作成して書き込み
@@ -1070,6 +1070,33 @@ class StorageManager:
             result["valid"] = False
 
         return result
+
+    def _check_path_safety_pre_save(self, file_path: Path) -> str | None:
+        """保存前のパス安全性チェック (セキュリティクリティカル)。
+
+        Args:
+            file_path: 検証するファイルパス
+
+        Returns:
+            エラーメッセージ (問題がある場合)、問題がない場合はNone
+        """
+        path_safety_result = self._check_path_safety_validation(file_path)
+        if not path_safety_result["valid"]:
+            error_msg = "; ".join(path_safety_result.get("errors", ["Path safety check failed"]))
+            logger.error(f"Path safety check failed, aborting save: {error_msg}")
+            return error_msg
+        return None
+
+    def _handle_existing_file_overwrite(self, file_path: Path) -> None:
+        """既存ファイルの上書き処理 (ハッシュインデックス更新)。
+
+        Args:
+            file_path: 上書きするファイルパス
+        """
+        old_data = file_path.read_bytes()
+        old_hash = hashlib.sha256(old_data).hexdigest()
+        self._remove_from_hash_index(old_hash, str(file_path))
+        logger.info(f"Overwriting existing file: {file_path}")
 
     def _truncate_messages(self, messages: list[str], max_count: int) -> list[str]:
         """メッセージリストを制限する。

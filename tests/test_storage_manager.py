@@ -1366,6 +1366,40 @@ class TestMetadataEnhancements(unittest.TestCase):
             any("Dangerous pattern" in err for err in result["errors"])
         )
 
+    def test_save_aborted_on_path_safety_failure(self):
+        """パス安全性チェック失敗時に保存が中断されることを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # パス安全性チェックが失敗するようにモック
+        with patch.object(
+            self.storage, "_check_path_safety_validation"
+        ) as mock_check:
+            mock_check.return_value = {
+                "valid": False,
+                "errors": ["[path_safety] Path traversal detected: test"]
+            }
+
+            result = self.storage.save_with_metadata(
+                data=data,
+                data_type="sentinel_weekly_test",
+                year=2025,
+                period=99,
+                is_monthly=False,
+            )
+
+            # 保存が失敗することを確認
+            self.assertFalse(result.success)
+            self.assertIsNotNone(result.error)
+            self.assertIn("path_safety", result.error)
+
+            # ファイルが作成されていないことを確認
+            expected_path = self.base_path / "sentinel_weekly_test_2025_99.csv"
+            self.assertFalse(expected_path.exists())
+
     def test_encoding_validation_with_invalid_bytes(self):
         """_check_encoding_validationが無効なバイトシーケンスを検出することを確認"""
         # Shift_JISとして無効なバイトシーケンスを生成
