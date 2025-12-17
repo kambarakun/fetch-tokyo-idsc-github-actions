@@ -190,7 +190,10 @@ jobs:
           uv run python scripts/migrate_metadata.py --dry-run --target-version "${{ steps.params.outputs.target_version }}" 2>&1 | tee dry_run.log
 
           # マイグレーション対象があるか確認 (空の場合は0をデフォルト)
-          MIGRATED=$(grep "Migrated:" dry_run.log | awk '{print $2}')
+          # ログ形式: "2025-12-17 07:45:46 - INFO - Migrated:       7546"
+          # awk '{print $2}' だと時刻(07:45:46)を取得してしまうため、
+          # sedで "Migrated:" の後の数値を抽出する
+          MIGRATED=$(grep "Migrated:" dry_run.log | sed -E 's/.*Migrated:\s*([0-9]+).*/\1/')
           MIGRATED=${MIGRATED:-0}
           echo "migrated_count=$MIGRATED" >> $GITHUB_OUTPUT
 
