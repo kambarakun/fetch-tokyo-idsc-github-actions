@@ -278,6 +278,9 @@ class StorageManager:
             - 重複データは保存をスキップする(force_overwriteがFalseの場合)
             - 全て0のデータは保存をスキップする(save_all_zeroがFalseの場合)
             - メタデータは.metadataディレクトリに別途保存される
+            - 保存後に自動検証を実行し、結果はmetadata["verification"]に記録
+            - 検証失敗(verification.status=="failed")でもファイルは保存される
+              (検証はデータ品質の記録目的であり、保存の可否は判定しない)
         """
         # data_typeのバリデーション(セキュリティ対策)
         if not self._validate_data_type(data_type):
@@ -354,8 +357,8 @@ class StorageManager:
             # created_at/updated_atの設定
             created_at, updated_at = self._determine_timestamps(existing_metadata, now)
 
-            # 行数のカウント (ストリーム処理)
-            row_count = self._count_rows_streaming(data)
+            # 行数のカウント
+            row_count = self._count_rows(data)
 
             # メタデータ構築
             metadata = self._build_metadata(
@@ -719,18 +722,19 @@ class StorageManager:
             logger.exception("Unexpected error while checking for all-zero data")
             return False
 
-    def _count_rows_streaming(self, data: bytes) -> int | None:
-        """ストリーム処理でCSVの行数をカウントする。
+    def _count_rows(self, data: bytes) -> int | None:
+        """CSVの行数をカウントする。
 
         Args:
             data: CSVデータ(バイト形式)
 
         Returns:
-            行数。デコード失敗時はNone
+            行数 (改行文字の数に基づく)。処理失敗時はNone
 
         Note:
-            メモリ効率を重視したストリーム処理。
-            末尾の空行は除外する。
+            改行文字(\\n)の数をカウントして行数を算出する。
+            末尾が改行でない場合は1を追加。
+            CSVのデータ行数ではなく、物理的な行数を返す。
         """
         try:
             count = data.count(b"\n")
