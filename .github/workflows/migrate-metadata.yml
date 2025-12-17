@@ -1,18 +1,18 @@
-name: Migrate Metadata
+name: 🔄 メタデータマイグレーション
 
 on:
   # 手動実行
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'ドライラン (変更を保存しない)'
+        description: "🧪 ドライラン (変更を保存しない)"
         required: false
-        default: 'false'
+        default: false
         type: boolean
       target_version:
-        description: '目標バージョン (空欄で最新)'
+        description: "🎯 目標バージョン (空欄で最新)"
         required: false
-        default: ''
+        default: ""
         type: string
 
   # METADATA_VERSION が変更されたとき自動実行
@@ -20,7 +20,7 @@ on:
     branches:
       - main
     paths:
-      - 'src/managers/storage_manager.py'
+      - "src/managers/storage_manager.py"
 
 permissions:
   contents: write
@@ -36,8 +36,10 @@ jobs:
     outputs:
       version_changed: ${{ steps.check.outputs.changed }}
       new_version: ${{ steps.check.outputs.new_version }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
@@ -47,7 +49,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: Install Python
+      - name: Setup Python
         run: uv python install 3.11
 
       - name: Check METADATA_VERSION change
@@ -56,7 +58,7 @@ jobs:
           # 手動実行の場合は常にtrue
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "new_version=${{ inputs.target_version }}" >> $GITHUB_OUTPUT
+            echo "new_version=${{ github.event.inputs.target_version }}" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -98,8 +100,10 @@ jobs:
     needs: check-version-change
     if: needs.check-version-change.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -110,35 +114,58 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
-      - name: Install Python
+      - name: Setup Python
         run: uv python install 3.11
 
       - name: Install dependencies
         run: uv sync
 
-      - name: Determine target version
-        id: version
+      - name: Prepare parameters
+        id: params
         run: |
-          if [ -n "${{ inputs.target_version }}" ]; then
-            echo "target=${{ inputs.target_version }}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ needs.check-version-change.outputs.new_version }}" ]; then
-            echo "target=${{ needs.check-version-change.outputs.new_version }}" >> $GITHUB_OUTPUT
+          # イベント種別に応じてパラメータを設定
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DRY_RUN="${{ github.event.inputs.dry_run }}"
+            TARGET_VERSION="${{ github.event.inputs.target_version }}"
           else
-            # Pythonで堅牢にバージョンを抽出
-            VERSION=$(uv run python -c "
+            # push イベントの場合はデフォルト値を使用
+            DRY_RUN="false"
+            TARGET_VERSION=""
+          fi
+
+          # 空の場合はfalseに
+          if [ -z "$DRY_RUN" ]; then
+            DRY_RUN="false"
+          fi
+
+          # 目標バージョンが指定されていない場合は検出されたバージョンを使用
+          if [ -z "$TARGET_VERSION" ]; then
+            if [ -n "${{ needs.check-version-change.outputs.new_version }}" ]; then
+              TARGET_VERSION="${{ needs.check-version-change.outputs.new_version }}"
+            else
+              # Pythonで堅牢にバージョンを抽出
+              TARGET_VERSION=$(uv run python -c "
           import re
           content = open('src/managers/storage_manager.py').read()
           match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
           print(match.group(1) if match else '1.0')
           ")
-            echo "target=$VERSION" >> $GITHUB_OUTPUT
+            fi
           fi
+
+          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+          echo "TARGET_VERSION=$TARGET_VERSION" >> $GITHUB_ENV
+          echo "target=$TARGET_VERSION" >> $GITHUB_OUTPUT
+
+          echo "Parameters:"
+          echo "  Dry run: $DRY_RUN"
+          echo "  Target version: $TARGET_VERSION"
 
       - name: Run migration (dry-run check)
         id: dry_run
         run: |
           echo "=== Dry Run ==="
-          uv run python scripts/migrate_metadata.py --dry-run --target-version "${{ steps.version.outputs.target }}" 2>&1 | tee dry_run.log
+          uv run python scripts/migrate_metadata.py --dry-run --target-version "$TARGET_VERSION" 2>&1 | tee dry_run.log
 
           # マイグレーション対象があるか確認 (空の場合は0をデフォルト)
           MIGRATED=$(grep "Migrated:" dry_run.log | awk '{print $2}')
@@ -146,34 +173,28 @@ jobs:
           echo "migrated_count=$MIGRATED" >> $GITHUB_OUTPUT
 
       - name: Run migration
-        if: inputs.dry_run != 'true' && steps.dry_run.outputs.migrated_count != '0'
+        if: env.DRY_RUN != 'true' && steps.dry_run.outputs.migrated_count != '0'
         run: |
           echo "=== Running Migration ==="
-          uv run python scripts/migrate_metadata.py --target-version "${{ steps.version.outputs.target }}" --verbose
+          uv run python scripts/migrate_metadata.py --target-version "$TARGET_VERSION" --verbose
 
       - name: Configure git
-        if: inputs.dry_run != 'true' && steps.dry_run.outputs.migrated_count != '0'
+        if: env.DRY_RUN != 'true' && steps.dry_run.outputs.migrated_count != '0'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Create commit
-        if: inputs.dry_run != 'true' && steps.dry_run.outputs.migrated_count != '0'
+        if: env.DRY_RUN != 'true' && steps.dry_run.outputs.migrated_count != '0'
         env:
-          TARGET_VERSION: ${{ steps.version.outputs.target }}
           MIGRATED_COUNT: ${{ steps.dry_run.outputs.migrated_count }}
         run: |
           git add data/raw/.metadata/*.json
 
           if ! git diff --staged --quiet; then
-            git commit -m "$(cat <<EOF
-chore(metadata): migrate to version ${TARGET_VERSION}
-
-Migrated ${MIGRATED_COUNT} metadata files to version ${TARGET_VERSION}.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
+            printf -v COMMIT_MSG "chore(metadata): migrate to version %s\n\nMigrated %s metadata files to version %s.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
+              "$TARGET_VERSION" "$MIGRATED_COUNT" "$TARGET_VERSION"
+            git commit -m "$COMMIT_MSG"
             git push
             echo "Migration committed and pushed"
           else
@@ -181,20 +202,21 @@ EOF
           fi
 
       - name: Summary
+        if: always()
         run: |
-          echo "## Migration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔄 メタデータマイグレーションサマリー" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Target Version**: ${{ steps.version.outputs.target }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Files to Migrate**: ${{ steps.dry_run.outputs.migrated_count }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Dry Run**: ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **目標バージョン**: $TARGET_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **マイグレーション対象**: ${{ steps.dry_run.outputs.migrated_count }}ファイル" >> $GITHUB_STEP_SUMMARY
+          echo "- **ドライラン**: $DRY_RUN" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **Dry run mode**: No changes were made." >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **ドライランモード**: 変更は保存されていません。" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ steps.dry_run.outputs.migrated_count }}" = "0" ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ All metadata files are already at the target version." >> $GITHUB_STEP_SUMMARY
+            echo "✅ すべてのメタデータファイルは既に目標バージョンです。" >> $GITHUB_STEP_SUMMARY
           else
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ Migration completed successfully." >> $GITHUB_STEP_SUMMARY
+            echo "✅ マイグレーションが正常に完了しました。" >> $GITHUB_STEP_SUMMARY
           fi
