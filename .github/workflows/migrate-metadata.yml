@@ -208,13 +208,11 @@ jobs:
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
         run: |
           echo "=== Running Verification ==="
-          # 検証を実行（詳細ログを表示）
-          uv run python scripts/verify_metadata.py --only-unverified --verbose
+          # 検証を実行 (--verbose と --output-json を同時使用)
+          # ログはstderr、JSONはstdoutに出力される
+          STATS=$(uv run python scripts/verify_metadata.py --only-unverified --verbose --output-json)
 
-          # JSON統計を取得（2回目の実行だが、検証済みファイルはスキップされる）
-          # jq で堅牢にパース（ログ形式に依存しない）
-          STATS=$(uv run python scripts/verify_metadata.py --only-unverified --output-json 2>/dev/null)
-
+          # jq で堅牢にパース
           VERIFIED=$(echo "$STATS" | jq -r '.verified // 0')
           FAILED=$(echo "$STATS" | jq -r '.failed // 0')
           echo "verified_count=$VERIFIED" >> $GITHUB_OUTPUT

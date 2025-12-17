@@ -18,7 +18,8 @@ Usage:
     uv run python scripts/verify_metadata.py --only-unverified
 
     # JSON形式で統計を出力 (GitHub Actions連携用)
-    uv run python scripts/verify_metadata.py --output-json
+    # --verbose と併用可能 (ログはstderr、JSONはstdout)
+    uv run python scripts/verify_metadata.py --output-json --verbose
 """
 
 from __future__ import annotations
@@ -171,7 +172,15 @@ def run_verification(
                 verbose=verbose,
                 only_unverified=only_unverified,
             )
-            stats[result_type] += 1  # type: ignore[literal-required]
+            # 型安全なカウント更新 (TypedDictのリテラルキー制約に対応)
+            if result_type == "verified":
+                stats["verified"] += 1
+            elif result_type == "failed":
+                stats["failed"] += 1
+            elif result_type == "skipped":
+                stats["skipped"] += 1
+            else:
+                stats["errors"] += 1
 
         except (json.JSONDecodeError, OSError, KeyError):
             stats["errors"] += 1
@@ -220,12 +229,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # ログ設定
+    # ログ設定 (stderrに出力、--output-jsonと併用時もJSONを汚染しない)
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stderr,
     )
 
     if not args.metadata_dir.exists():
