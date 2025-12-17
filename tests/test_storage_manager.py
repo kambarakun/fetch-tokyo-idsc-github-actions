@@ -1285,6 +1285,39 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertEqual(metadata["verification"]["status"], "failed")
         self.assertFalse(metadata["verification"]["checks"]["file_size"])
 
+    def test_validate_file_public_api(self):
+        """validate_file公開APIが正しく動作することを確認."""
+        # 正常なデータを作成 (100バイト以上)
+        csv_data = """"テスト週報データ"
+"","疾病A","疾病B","疾病C","疾病D"
+"地域1","5","10","15","20"
+"地域2","1","2","3","4"
+"地域3","0","0","1","0"
+"""
+        data = csv_data.encode("shift_jis")
+        # base_path配下にファイルを作成 (path_safety検証のため)
+        file_path = self.base_path / "test_validate.csv"
+        file_path.write_bytes(data)
+
+        # 公開APIを使用して検証
+        verification = self.storage.validate_file(file_path, data)
+
+        # 検証結果の構造を確認
+        self.assertIn("status", verification)
+        self.assertIn("verified_at", verification)
+        self.assertIn("method", verification)
+        self.assertIn("checks", verification)
+        self.assertIn("errors", verification)
+        self.assertIn("warnings", verification)
+
+        # 正常データなのでverifiedになる
+        self.assertEqual(verification["status"], "verified")
+        self.assertEqual(verification["method"], "automated")
+        self.assertTrue(verification["checks"]["file_size"])
+        self.assertTrue(verification["checks"]["encoding"])
+        self.assertTrue(verification["checks"]["csv_format"])
+        self.assertTrue(verification["checks"]["path_safety"])
+
     def test_determine_timestamps_preserves_existing(self):
         """_determine_timestampsが既存のcreated_atを保持することを確認"""
         existing = {"created_at": "2025-01-01T00:00:00.000000"}

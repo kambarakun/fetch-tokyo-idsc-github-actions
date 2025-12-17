@@ -170,6 +170,81 @@ class TestMigrationRegistry:
         assert "1.0" in versions
         assert "2.0" in versions
 
+    def test_compare_versions_none_is_oldest(self) -> None:
+        """Noneは最も古いバージョンとして扱われる."""
+        assert MigrationRegistry.compare_versions(None, "1.0") < 0
+        assert MigrationRegistry.compare_versions("1.0", None) > 0
+        assert MigrationRegistry.compare_versions(None, None) == 0
+
+    def test_compare_versions_semantic(self) -> None:
+        """セマンティックバージョニングで比較できる."""
+        assert MigrationRegistry.compare_versions("1.0", "1.0") == 0
+        assert MigrationRegistry.compare_versions("1.0", "2.0") < 0
+        assert MigrationRegistry.compare_versions("2.0", "1.0") > 0
+        assert MigrationRegistry.compare_versions("1.0", "1.1") < 0
+        assert MigrationRegistry.compare_versions("1.10", "1.9") > 0
+
+    def test_compare_versions_boundary_cases(self) -> None:
+        """境界値でのバージョン比較テスト."""
+        # 多桁バージョン (文字列比較では誤る可能性がある)
+        assert MigrationRegistry.compare_versions("1.9", "1.10") < 0
+        assert MigrationRegistry.compare_versions("2.10.1", "2.9.99") > 0
+        assert MigrationRegistry.compare_versions("10.0", "9.99") > 0
+
+        # 3桁以上のセグメント
+        assert MigrationRegistry.compare_versions("1.0.0", "1.0.0") == 0
+        assert MigrationRegistry.compare_versions("1.0.1", "1.0.0") > 0
+        assert MigrationRegistry.compare_versions("1.0.0", "1.0.1") < 0
+        assert MigrationRegistry.compare_versions("1.2.3", "1.2.4") < 0
+
+        # 異なるセグメント数
+        assert MigrationRegistry.compare_versions("1.0", "1.0.0") < 0
+        assert MigrationRegistry.compare_versions("1.0.0", "1.0") > 0
+        assert MigrationRegistry.compare_versions("2.0", "1.9.9") > 0
+
+        # ゼロを含むバージョン
+        assert MigrationRegistry.compare_versions("0.1", "0.0") > 0
+        assert MigrationRegistry.compare_versions("0.0.1", "0.0.0") > 0
+        assert MigrationRegistry.compare_versions("1.0.0", "0.99.99") > 0
+
+    def test_compare_versions_invalid_format(self) -> None:
+        """不正なバージョンフォーマットでValueErrorを発生させる."""
+        # 数値以外を含むバージョン
+        with pytest.raises(ValueError, match=r"Invalid version format: '1\.a\.2'"):
+            MigrationRegistry.compare_versions("1.a.2", "1.0")
+
+        with pytest.raises(ValueError, match=r"Invalid version format: 'abc'"):
+            MigrationRegistry.compare_versions("1.0", "abc")
+
+        # 空文字列
+        with pytest.raises(ValueError, match=r"Invalid version format: ''"):
+            MigrationRegistry.compare_versions("", "1.0")
+
+        # スペースを含む
+        with pytest.raises(ValueError, match=r"Invalid version format: '1 0'"):
+            MigrationRegistry.compare_versions("1 0", "1.0")
+
+    def test_is_downgrade(self) -> None:
+        """ダウングレードを正しく検出する."""
+        registry = MigrationRegistry()
+        assert registry.is_downgrade("1.0", None) is True
+        assert registry.is_downgrade("2.0", "1.0") is True
+        assert registry.is_downgrade("1.0", "2.0") is False
+        assert registry.is_downgrade(None, "1.0") is False
+        assert registry.is_downgrade("1.0", "1.0") is False
+
+    def test_migrate_raises_on_downgrade(self) -> None:
+        """ダウングレード指定時にValueErrorを発生させる."""
+        registry = MigrationRegistry()
+
+        @registry.register(from_version=None, to_version="1.0")
+        def migrate_to_v1(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+            return metadata, []
+
+        metadata = {"metadata_version": "1.0"}
+        with pytest.raises(ValueError, match="Downgrade is not supported"):
+            registry.migrate(metadata, None, target_version=None)
+
 
 class TestGlobalRegistry:
     """グローバルレジストリのテスト."""
@@ -463,6 +538,33 @@ class TestRunMigration:
 
             assert stats["target_version"] == "1.0"
             assert stats["migrated"] == 1
+
+    def test_run_migration_downgrade_error(self) -> None:
+        """ダウングレード指定時にエラーとしてカウントされる."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_dir = Path(tmpdir) / ".metadata"
+            data_dir = Path(tmpdir)
+            metadata_dir.mkdir()
+
+            # 新しいバージョンのメタデータを作成
+            new_metadata = {
+                "metadata_version": "2.0",  # 現在より新しいバージョン
+                "filename": "test.csv",
+                "created_at": "2025-11-01T18:10:03.404770",
+                "updated_at": "2025-11-01T18:10:03.404770",
+            }
+            metadata_path = metadata_dir / "test.json"
+            with metadata_path.open("w") as f:
+                json.dump(new_metadata, f)
+
+            # 古いバージョン (1.0) へのマイグレーションを試行
+            stats = run_migration(
+                metadata_dir, data_dir, target_version="1.0", dry_run=False
+            )
+
+            # ダウングレードはエラーとしてカウントされる
+            assert stats["errors"] == 1
+            assert stats["migrated"] == 0
 
 
 class TestV10RequiredFields:

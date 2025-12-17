@@ -140,9 +140,20 @@ class MigrationRegistry:
 
         Returns:
             (マイグレーション後のメタデータ, 変更内容のリスト)
+
+        Raises:
+            ValueError: ダウングレードが指定された場合
         """
         current_version = metadata.get("metadata_version")
         all_changes: list[str] = []
+
+        # ダウングレードを禁止
+        if self.is_downgrade(current_version, target_version):
+            msg = (
+                f"Downgrade is not supported: {current_version} -> {target_version}. "
+                f"Current version ({current_version}) is newer than target ({target_version})."
+            )
+            raise ValueError(msg)
 
         try:
             path = self.get_migration_path(current_version, target_version)
@@ -167,6 +178,49 @@ class MigrationRegistry:
     def supported_versions(self) -> list[str | None]:
         """サポートされているバージョンのリストを取得する."""
         return sorted(self._versions, key=lambda v: (v is None, v or ""))
+
+    @staticmethod
+    def compare_versions(v1: str | None, v2: str | None) -> int:
+        """バージョンを比較する.
+
+        Args:
+            v1: 比較元バージョン (Noneは旧形式で最も古い)
+            v2: 比較先バージョン
+
+        Returns:
+            v1 < v2 なら負、v1 == v2 なら0、v1 > v2 なら正
+        """
+        # Noneは最も古いバージョン
+        if v1 is None and v2 is None:
+            return 0
+        if v1 is None:
+            return -1
+        if v2 is None:
+            return 1
+
+        # セマンティックバージョニング比較
+        def parse_version(v: str) -> tuple[int, ...]:
+            try:
+                return tuple(int(x) for x in v.split("."))
+            except ValueError as e:
+                msg = f"Invalid version format: '{v}'. Expected format: '1.0' or '1.2.3'"
+                raise ValueError(msg) from e
+
+        return (parse_version(v1) > parse_version(v2)) - (
+            parse_version(v1) < parse_version(v2)
+        )
+
+    def is_downgrade(self, from_version: str | None, to_version: str | None) -> bool:
+        """ダウングレードかどうかを判定する.
+
+        Args:
+            from_version: 現在のバージョン
+            to_version: 目標バージョン
+
+        Returns:
+            ダウングレードの場合True
+        """
+        return self.compare_versions(from_version, to_version) > 0
 
 
 # グローバルレジストリ
