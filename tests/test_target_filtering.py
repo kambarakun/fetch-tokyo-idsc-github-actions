@@ -43,7 +43,7 @@ class TestTargetFiltering(unittest.TestCase):
     @patch("scripts.fetch_data.StorageManager")
     def test_target_weeks_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """対象週フィルタリングのテスト"""
-        # 2025年の第52週を現在週として設定（確実に52週が存在する状態にする）
+        # 2025年の第52週を現在週として設定(確実に52週が存在する状態にする)
         mock_datetime.now.return_value.year = 2025
         mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
 
@@ -68,7 +68,7 @@ class TestTargetFiltering(unittest.TestCase):
         # 1週と52週のみが含まれることを確認
         self.assertIn(1, generated_weeks)
         self.assertIn(52, generated_weeks)
-        # 他の週（例：2週）が含まれないことを確認
+        # 他の週(例:2週)が含まれないことを確認
         self.assertNotIn(2, generated_weeks)
         self.assertNotIn(10, generated_weeks)
         self.assertNotIn(30, generated_weeks)
@@ -78,7 +78,7 @@ class TestTargetFiltering(unittest.TestCase):
     @patch("scripts.fetch_data.StorageManager")
     def test_target_months_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """対象月フィルタリングのテスト"""
-        # 2025年12月を現在月として設定（確実に12月まで存在する状態にする）
+        # 2025年12月を現在月として設定(確実に12月まで存在する状態にする)
         mock_datetime.now.return_value.year = 2025
         mock_datetime.now.return_value.month = 12
 
@@ -103,7 +103,7 @@ class TestTargetFiltering(unittest.TestCase):
         # 1月と12月が含まれることを確認
         self.assertIn(1, generated_months)
         self.assertIn(12, generated_months)
-        # 他の月（例：2月、6月）が含まれないことを確認
+        # 他の月(例:2月、6月)が含まれないことを確認
         self.assertNotIn(2, generated_months)
         self.assertNotIn(6, generated_months)
 
@@ -157,7 +157,7 @@ class TestTargetFiltering(unittest.TestCase):
     @patch("scripts.fetch_data.StorageManager")
     def test_no_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """フィルタリングなしの場合のテスト"""
-        # 2025年の第52週を現在週として設定（確実な状態）
+        # 2025年の第52週を現在週として設定(確実な状態)
         mock_datetime.now.return_value.year = 2025
         mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
         mock_datetime.now.return_value.month = 12
@@ -223,7 +223,7 @@ class TestTargetFiltering(unittest.TestCase):
         ]
         mock_fetcher.get_missing_data.return_value = expected_missing
 
-        # 既存ファイルのモック（週1のファイルが存在）
+        # 既存ファイルのモック(週1のファイルが存在)
         mock_storage = Mock()
         mock_storage_class.return_value = mock_storage
         existing_files = [Path("data/raw/sentinel_weekly_gender_2025_01.csv")]
@@ -262,7 +262,7 @@ class TestTargetFiltering(unittest.TestCase):
             target_months=None,
         )
 
-        # 2020年のデータを生成（53週まであることを確認）
+        # 2020年のデータを生成(53週まであることを確認)
         params = collector._generate_all_params("sentinel_weekly_gender", 2020, 2020, is_monthly=False)
 
         # 生成されたパラメータの週番号を確認
@@ -293,7 +293,7 @@ class TestTargetFiltering(unittest.TestCase):
 
         fetcher = EnhancedEpidemicDataFetcher(Mock())
 
-        # 無効な週番号（0と54）でValueErrorが発生することを確認
+        # 無効な週番号(0と54)でValueErrorが発生することを確認
         with self.assertRaises(ValueError) as cm:
             fetcher.get_missing_data("sentinel_weekly_gender", [], 2025, 2025, [0, 54], None)
 
@@ -315,7 +315,7 @@ class TestTargetFiltering(unittest.TestCase):
 
         fetcher = EnhancedEpidemicDataFetcher(Mock())
 
-        # 無効な月番号（0と13）でValueErrorが発生することを確認
+        # 無効な月番号(0と13)でValueErrorが発生することを確認
         with self.assertRaises(ValueError) as cm:
             fetcher.get_missing_data("sentinel_monthly_age", [], 2025, 2025, None, [0, 13])
 

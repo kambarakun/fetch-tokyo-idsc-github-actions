@@ -48,7 +48,7 @@ class TestContinuityValidator(unittest.TestCase):
         files = [f"sentinel_weekly_gender_2025_{week:02d}.csv" for week in range(1, 11)]
         self._create_test_files(files)
 
-        # 検証実行（第1週から第10週を対象）
+        # 検証実行(第1週から第10週を対象)
         with patch("scripts.validate_continuity.datetime") as mock_datetime:
             # 2025年第10週を現在時刻として設定
             mock_datetime.now.return_value.year = 2025
@@ -64,7 +64,7 @@ class TestContinuityValidator(unittest.TestCase):
 
     def test_validate_data_type_with_missing(self):
         """欠損ありのデータタイプ検証"""
-        # 第1, 2, 4, 5週のファイルを作成（第3週が欠損）
+        # 第1, 2, 4, 5週のファイルを作成(第3週が欠損)
         files = [
             "sentinel_weekly_gender_2025_01.csv",
             "sentinel_weekly_gender_2025_02.csv",
@@ -88,7 +88,7 @@ class TestContinuityValidator(unittest.TestCase):
 
     def test_validate_monthly_data(self):
         """月次データの検証"""
-        # 1月、2月、4月のファイルを作成（3月が欠損）
+        # 1月、2月、4月のファイルを作成(3月が欠損)
         files = [
             "sentinel_monthly_age_2025_01.csv",
             "sentinel_monthly_age_2025_02.csv",
@@ -113,11 +113,11 @@ class TestContinuityValidator(unittest.TestCase):
     def test_validate_week_53(self):
         """53週がある年の検証"""
         # 2020年は53週まである
-        # 第50～53週のファイルを作成
+        # 第50~53週のファイルを作成
         files = [f"sentinel_weekly_gender_2020_{week:02d}.csv" for week in range(50, 54)]
         self._create_test_files(files)
 
-        # 検証実行（第50週から第53週のみを対象）
+        # 検証実行(第50週から第53週のみを対象)
         with patch("scripts.validate_continuity.datetime") as mock_datetime:
             mock_datetime.now.return_value.year = 2021
             mock_datetime.now.return_value.isocalendar.return_value = (2021, 1, 1)
@@ -268,7 +268,7 @@ class TestContinuityValidator(unittest.TestCase):
 
             report = self.validator.validate_data_type("sentinel_weekly_gender", 2025, 2025)
 
-        # 検証（正しい形式の1ファイルのみが認識される）
+        # 検証(正しい形式の1ファイルのみが認識される)
         self.assertEqual(report.actual_count, 1)
 
 

@@ -232,7 +232,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         start_time = time.time()
         retry_count = 0
 
-        # data_typeとreport_typeを分離（メタデータ用）
+        # data_typeとreport_typeを分離(メタデータ用)
         data_type = params.pop("data_type", None)
         report_type = params.pop("report_type", None)
 
@@ -340,9 +340,9 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             data_type: データタイプ
             existing_files: 既存ファイルのリスト
             start_year: 開始年
-            end_year: 終了年（Noneの場合は現在年）
-            target_weeks: 対象週のリスト（Noneの場合は全週）
-            target_months: 対象月のリスト（Noneの場合は全月）
+            end_year: 終了年(Noneの場合は現在年)
+            target_weeks: 対象週のリスト(Noneの場合は全週)
+            target_months: 対象月のリスト(Noneの場合は全月)
 
         Returns:
             欠損しているデータのFetchParamsリスト
@@ -426,7 +426,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         # ファイル名の生成
         filename = f"{data_type}_{date_range}_{timestamp.strftime('%Y%m%d_%H%M%S')}.csv"
 
-        # FetchParamsの作成（必須フィールドがある場合のみ）
+        # FetchParamsの作成(必須フィールドがある場合のみ)
         fetch_params = None
         if params and "data_type" in params and "report_type" in params:
             fetch_params = FetchParams(**params)
@@ -475,14 +475,14 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                 parts = file.stem.split("_")
 
                 try:
-                    # データタイプの要素数を計算（例: sentinel_weekly_gender → 3要素）
+                    # データタイプの要素数を計算(例: sentinel_weekly_gender → 3要素)
                     data_type_parts = len(data_type.split("_"))
 
-                    # 新形式の場合（data_type + year + period）
+                    # 新形式の場合(data_type + year + period)
                     if len(parts) == data_type_parts + 2:
                         year = parts[-2]
                         period = parts[-1].lstrip("0") or "0"  # ゼロパディング除去
-                    # 旧形式の場合（data_type + year + period + timestamp）
+                    # 旧形式の場合(data_type + year + period + timestamp)
                     elif len(parts) >= 5:
                         year = parts[-4]
                         period = parts[-3]
@@ -493,7 +493,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                     if not year.isdigit() or not period.isdigit():
                         continue
 
-                    # 年の範囲チェック（1900-2100年）
+                    # 年の範囲チェック(1900-2100年)
                     year_int = int(year)
                     if year_int < 1900 or year_int > 2100:
                         continue

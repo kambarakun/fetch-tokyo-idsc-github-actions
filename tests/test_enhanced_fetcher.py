@@ -105,11 +105,11 @@ class TestRateLimiter(unittest.TestCase):
         await limiter.wait_if_needed()
         mock_sleep.assert_not_called()
 
-        # 2回目のリクエスト（0.5秒後）
+        # 2回目のリクエスト(0.5秒後)
         await limiter.wait_if_needed()
         mock_sleep.assert_called_once_with(0.5)
 
-        # 3回目のリクエスト（1.5秒後）
+        # 3回目のリクエスト(1.5秒後)
         mock_sleep.reset_mock()
         await limiter.wait_if_needed()
         mock_sleep.assert_not_called()
@@ -131,7 +131,7 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         mock_response.content = b"test,data\n1,2"
         mock_post.return_value = mock_response
 
-        # データ取得（基本フェッチャーのパラメータのみを渡す）
+        # データ取得(基本フェッチャーのパラメータのみを渡す)
         result = self.fetcher.fetch_with_retry(
             self.fetcher.fetch_csv_sentinel_weekly_gender,
             start_year="2025",
@@ -197,7 +197,7 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertIn("2025", metadata.date_range)
 
     def test_get_missing_data(self):
-        """欠損データ特定のテスト（新形式）"""
+        """欠損データ特定のテスト(新形式)"""
         # 新形式の既存ファイルのモック
         existing_files = [
             Path("sentinel_weekly_gender_2025_01.csv"),
@@ -234,14 +234,14 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertEqual(periods, [1, 2, 3])
 
     def test_parse_invalid_filename_formats(self):
-        """無効なファイル名形式のテスト（エッジケース）"""
+        """無効なファイル名形式のテスト(エッジケース)"""
         existing_files = [
             Path("invalid_format.csv"),  # 無効な形式
             Path("sentinel_weekly.csv"),  # 不完全な形式
             Path("sentinel_weekly_gender.csv"),  # 年と期間なし
             Path("sentinel_weekly_gender_2025.csv"),  # 期間なし
             Path("sentinel_weekly_gender_invalid_01.csv"),  # 年が数値でない
-            Path("other_sentinel_weekly_gender_2025_01.csv"),  # 先頭不一致（部分マッチ防止）
+            Path("other_sentinel_weekly_gender_2025_01.csv"),  # 先頭不一致(部分マッチ防止)
         ]
 
         # 無効なファイルは解析されない

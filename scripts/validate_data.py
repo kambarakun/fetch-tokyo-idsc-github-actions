@@ -20,8 +20,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # 検証設定
-MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ（MB）
-MIN_FILE_SIZE_BYTES = 100  # 最小ファイルサイズ（バイト）
+MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ(MB)
+MIN_FILE_SIZE_BYTES = 100  # 最小ファイルサイズ(バイト)
 MAX_LINE_COUNT = 1000000  # 最大行数
 MIN_LINE_COUNT = 1  # 最小行数
 EXPECTED_ENCODING = "shift_jis"  # 期待されるエンコーディング
@@ -44,7 +44,7 @@ class DataValidator:
     def __init__(self, strict_mode: bool = False):
         """
         Args:
-            strict_mode: 厳格モード（警告もエラーとして扱う）
+            strict_mode: 厳格モード(警告もエラーとして扱う)
         """
         self.strict_mode = strict_mode
         self.logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class DataValidator:
 
         except Exception as e:
             self.logger.exception(f"Unexpected error validating {file_path}")
-            result["errors"].append(f"Validation failed: {str(e)}")
+            result["errors"].append(f"Validation failed: {e!s}")
             result["valid"] = False
             self.has_errors = True
 
@@ -141,7 +141,7 @@ class DataValidator:
                 result["warnings"].append(f"File size warning: {size_mb:.2f} MB (80% of maximum)")
 
         except Exception as e:
-            result["errors"].append(f"Failed to check file size: {str(e)}")
+            result["errors"].append(f"Failed to check file size: {e!s}")
             result["valid"] = False
 
         return result
@@ -160,10 +160,10 @@ class DataValidator:
                 result["encoding"] = EXPECTED_ENCODING
 
         except UnicodeDecodeError as e:
-            result["errors"].append(f"Encoding error (expected {EXPECTED_ENCODING}): {str(e)}")
+            result["errors"].append(f"Encoding error (expected {EXPECTED_ENCODING}): {e!s}")
             result["valid"] = False
         except Exception as e:
-            result["errors"].append(f"Failed to check encoding: {str(e)}")
+            result["errors"].append(f"Failed to check encoding: {e!s}")
             result["valid"] = False
 
         return result
@@ -187,7 +187,7 @@ class DataValidator:
                     column_counts.add(column_count)
                     max_columns = max(max_columns, column_count)
 
-                    # 行数チェック（早期終了）
+                    # 行数チェック(早期終了)
                     if line_count > MAX_LINE_COUNT:
                         result["errors"].append(f"Too many lines: >{MAX_LINE_COUNT}")
                         result["valid"] = False
@@ -214,16 +214,16 @@ class DataValidator:
                     result["warnings"].append(f"Inconsistent column count: {column_counts}")
 
         except csv.Error as e:
-            result["errors"].append(f"CSV format error: {str(e)}")
+            result["errors"].append(f"CSV format error: {e!s}")
             result["valid"] = False
         except Exception as e:
-            result["errors"].append(f"Failed to check CSV format: {str(e)}")
+            result["errors"].append(f"Failed to check CSV format: {e!s}")
             result["valid"] = False
 
         return result
 
     def _check_path_safety(self, file_path: Path) -> dict[str, Any]:
-        """パスの安全性をチェック（パストラバーサル攻撃対策）"""
+        """パスの安全性をチェック(パストラバーサル攻撃対策)"""
         result = {"valid": True, "errors": []}
 
         try:
@@ -245,7 +245,7 @@ class DataValidator:
                     result["valid"] = False
 
         except Exception as e:
-            result["errors"].append(f"Failed to check path safety: {str(e)}")
+            result["errors"].append(f"Failed to check path safety: {e!s}")
             result["valid"] = False
 
         return result
@@ -255,7 +255,7 @@ class DataValidator:
 
         Args:
             directory: 検証するディレクトリ
-            pattern: ファイルパターン（glob形式）
+            pattern: ファイルパターン(glob形式)
 
         Returns:
             各ファイルの検証結果のリスト
@@ -306,6 +306,102 @@ class DataValidator:
             "results": self.validation_results,
         }
 
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        """Markdownの特殊文字をエスケープする
+
+        テーブルセル内で問題になる文字をエスケープします。
+        """
+        if not isinstance(text, str):
+            text = str(text)
+        # パイプはテーブルの区切りになるのでエスケープ
+        # バックティックはコードブロックになるのでエスケープ
+        return text.replace("|", "\\|").replace("`", "\\`")
+
+    def generate_markdown_report(self) -> str:
+        """検証レポートをMarkdown形式で生成"""
+        report = self.generate_report()
+        summary = report["summary"]
+        lines: list[str] = []
+
+        # ヘッダー
+        lines.append("# データ検証レポート")
+        lines.append("")
+        lines.append(f"**実行日時**: {report['timestamp']}")
+        lines.append("")
+
+        # サマリー
+        lines.append("## サマリー")
+        lines.append("")
+
+        # ステータスアイコン
+        if summary["has_errors"]:
+            status_icon = "❌"
+            status_text = "エラーあり"
+        elif summary["has_warnings"]:
+            status_icon = "⚠️"
+            status_text = "警告あり"
+        else:
+            status_icon = "✅"
+            status_text = "正常"
+
+        lines.append("| 項目 | 値 |")
+        lines.append("|------|-----|")
+        lines.append(f"| ステータス | {status_icon} {status_text} |")
+        lines.append(f"| 総ファイル数 | {summary['total_files']} |")
+        lines.append(f"| 有効 | {summary['valid_files']} |")
+        lines.append(f"| 無効 | {summary['invalid_files']} |")
+        lines.append(f"| 成功率 | {summary['success_rate']:.1f}% |")
+        lines.append("")
+
+        # エラー/警告の詳細
+        errors_exist = any(r["errors"] for r in report["results"])
+        warnings_exist = any(r["warnings"] for r in report["results"])
+
+        if errors_exist:
+            lines.append("## ❌ エラー")
+            lines.append("")
+            for result in report["results"]:
+                if result["errors"]:
+                    escaped_file = self._escape_markdown(result["file"])
+                    lines.append(f"### `{escaped_file}`")
+                    lines.append("")
+                    for error in result["errors"]:
+                        escaped_error = self._escape_markdown(error)
+                        lines.append(f"- {escaped_error}")
+                    lines.append("")
+
+        if warnings_exist:
+            lines.append("## ⚠️ 警告")
+            lines.append("")
+            for result in report["results"]:
+                if result["warnings"]:
+                    escaped_file = self._escape_markdown(result["file"])
+                    lines.append(f"### `{escaped_file}`")
+                    lines.append("")
+                    for warning in result["warnings"]:
+                        escaped_warning = self._escape_markdown(warning)
+                        lines.append(f"- {escaped_warning}")
+                    lines.append("")
+
+        # 検証済みファイル一覧 (エラー/警告がない場合のみ詳細表示)
+        if not errors_exist and not warnings_exist and report["results"]:
+            lines.append("## 検証済みファイル")
+            lines.append("")
+            lines.append("| ファイル | サイズ | 行数 | ステータス |")
+            lines.append("|----------|--------|------|------------|")
+            for result in report["results"]:
+                file_name = self._escape_markdown(Path(result["file"]).name)
+                size = result.get("checks", {}).get("file_size", {}).get("size_mb", "N/A")
+                if isinstance(size, (int, float)):
+                    size = f"{size:.2f} MB"
+                line_count = result.get("checks", {}).get("csv_format", {}).get("line_count", "N/A")
+                status = "✅" if result["valid"] else "❌"
+                lines.append(f"| {file_name} | {size} | {line_count} | {status} |")
+            lines.append("")
+
+        return "\n".join(lines)
+
 
 def main():
     """メイン関数"""
@@ -321,17 +417,24 @@ def main():
         "--pattern",
         type=str,
         default="*.csv",
-        help="検証するファイルパターン（glob形式）",
+        help="検証するファイルパターン(glob形式)",
     )
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="厳格モード（警告もエラーとして扱う）",
+        help="厳格モード(警告もエラーとして扱う)",
     )
     parser.add_argument(
         "--output",
         type=str,
-        help="検証結果をJSONファイルに出力",
+        help="検証結果をファイルに出力",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        default="json",
+        choices=["json", "markdown"],
+        help="出力形式 (json または markdown)",
     )
     parser.add_argument(
         "--log-level",
@@ -367,7 +470,10 @@ def main():
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as f:
-            json.dump(report, f, ensure_ascii=False, indent=2)
+            if args.format == "markdown":
+                f.write(validator.generate_markdown_report())
+            else:
+                json.dump(report, f, ensure_ascii=False, indent=2)
         logger.info(f"Report saved to: {output_path}")
 
     # サマリー表示

@@ -7,7 +7,7 @@ Usage:
     # 全ファイルを処理
     uv run python scripts/process_data.py --all
 
-    # 特定ファイルを処理（1個）
+    # 特定ファイルを処理(1個)
     uv run python scripts/process_data.py --files data/raw/sentinel_weekly_gender_2025_01.csv
 
     # 複数ファイルを処理
@@ -59,7 +59,7 @@ def save_stats(data_dir: Path, stats_data: dict[str, Any]) -> None:
         logger.warning("処理統計の保存に失敗しましたが、データ処理自体は完了しています")
 
 
-def main() -> None:  # noqa: PLR0912, PLR0915
+def main() -> None:
     """メイン処理"""
     parser = argparse.ArgumentParser(
         description="東京都感染症データの処理スクリプト",
@@ -69,7 +69,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
   # 全ファイルを処理
   %(prog)s --all
 
-  # 特定ファイルを処理（1個）
+  # 特定ファイルを処理(1個)
   %(prog)s --files data/raw/sentinel_weekly_gender_2025_01.csv
 
   # 複数ファイルを処理
@@ -81,16 +81,16 @@ def main() -> None:  # noqa: PLR0912, PLR0915
     )
 
     # 基本オプション
-    parser.add_argument("--data-dir", type=str, default="data", help="dataディレクトリのパス（デフォルト: data）")
+    parser.add_argument("--data-dir", type=str, default="data", help="dataディレクトリのパス(デフォルト: data)")
 
-    parser.add_argument("--dry-run", action="store_true", help="ドライランモード（実際の処理は行わない）")
+    parser.add_argument("--dry-run", action="store_true", help="ドライランモード(実際の処理は行わない)")
 
     parser.add_argument("-v", "--verbose", action="store_true", help="詳細ログを出力")
 
     # 処理モード選択
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument("--all", action="store_true", help="全ファイルを処理")
-    mode_group.add_argument("--files", type=str, nargs="+", help="指定したファイルを処理（1個以上、スペース区切り）")
+    mode_group.add_argument("--files", type=str, nargs="+", help="指定したファイルを処理(1個以上、スペース区切り)")
 
     args = parser.parse_args()
 
@@ -107,7 +107,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
 
     # ドライラン表示
     if args.dry_run:
-        logger.info("🔍 ドライランモード（実際の処理は行いません）")
+        logger.info("🔍 ドライランモード(実際の処理は行いません)")
         # ドライランの場合はここで終了
         logger.info("ドライラン完了")
         return
@@ -140,7 +140,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                 sys.exit(1)
 
         elif args.files:
-            # 指定されたファイルを処理（1個以上）
+            # 指定されたファイルを処理(1個以上)
             file_paths = [Path(f) for f in args.files]
 
             # 存在しないファイルをチェック
@@ -162,7 +162,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
             raw_dir = data_dir / "raw"
 
             for file_path in file_paths:
-                # data/raw/配下のファイルのみ処理（堅牢なチェック）
+                # data/raw/配下のファイルのみ処理(堅牢なチェック)
                 try:
                     file_path.resolve().relative_to(raw_dir.resolve())
                 except ValueError:
@@ -181,7 +181,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                     errors.append({"file": file_path.name, "error": file_result.error})
                     logger.error(f"  ❌ 失敗: {file_result.error}")
 
-            # 処理対象ファイル数（スキップを除く）
+            # 処理対象ファイル数(スキップを除く)
             total = len(file_paths) - skipped
 
             # 処理結果をstats.jsonに保存

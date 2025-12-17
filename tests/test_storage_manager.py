@@ -24,13 +24,13 @@ class TestGitHandler(unittest.TestCase):
 
     @patch("subprocess.run")
     def test_is_git_repo_true(self, mock_run):
-        """Gitリポジトリ判定（True）のテスト"""
+        """Gitリポジトリ判定(True)のテスト"""
         mock_run.return_value.returncode = 0
         self.assertTrue(self.git_handler.is_git_repo())
 
     @patch("subprocess.run")
     def test_is_git_repo_false(self, mock_run):
-        """Gitリポジトリ判定（False）のテスト"""
+        """Gitリポジトリ判定(False)のテスト"""
         mock_run.return_value.returncode = 1
         self.assertFalse(self.git_handler.is_git_repo())
 
@@ -49,7 +49,7 @@ class TestGitHandler(unittest.TestCase):
     @patch("subprocess.run")
     def test_commit_success(self, mock_run):
         """コミット成功のテスト"""
-        # diff --cachedの結果（変更あり）
+        # diff --cachedの結果(変更あり)
         mock_run.side_effect = [
             Mock(returncode=1),  # 変更あり
             Mock(returncode=0, stdout="", stderr=""),  # コミット成功
@@ -65,7 +65,7 @@ class TestGitHandler(unittest.TestCase):
     @patch("subprocess.run")
     def test_commit_no_changes(self, mock_run):
         """変更なしでのコミットのテスト"""
-        # diff --cachedの結果（変更なし）
+        # diff --cachedの結果(変更なし)
         mock_run.return_value.returncode = 0
 
         result = self.git_handler.commit("Test commit")
@@ -97,7 +97,7 @@ class TestStorageManager(unittest.TestCase):
             shutil.rmtree(self.temp_dir)
 
     def test_organize_file_path_weekly(self):
-        """週次データのファイルパス生成テスト（フラット構造）"""
+        """週次データのファイルパス生成テスト(フラット構造)"""
         path = self.storage.organize_file_path("sentinel_weekly_gender", 2025, 10, is_monthly=False)
 
         # パスが存在することを確認
@@ -106,7 +106,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(path, self.base_path)
 
     def test_organize_file_path_monthly(self):
-        """月次データのファイルパス生成テスト（フラット構造）"""
+        """月次データのファイルパス生成テスト(フラット構造)"""
         path = self.storage.organize_file_path("sentinel_monthly_gender", 2025, 3, is_monthly=True)
 
         self.assertTrue(path.exists())
@@ -151,7 +151,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertIsNone(result.file_path)
 
     def test_save_with_invalid_data_type(self):
-        """不正なdata_type（パストラバーサル攻撃）のテスト"""
+        """不正なdata_type(パストラバーサル攻撃)のテスト"""
         data = b"test,data"
 
         # パストラバーサル攻撃を試みる
@@ -175,18 +175,18 @@ class TestStorageManager(unittest.TestCase):
         """重複チェックのテスト"""
         hash_value = "abc123"
 
-        # 初回チェック（重複なし）
+        # 初回チェック(重複なし)
         self.assertFalse(self.storage.check_duplicates(hash_value))
 
         # ハッシュを追加
         self.storage.hash_index[hash_value] = "/path/to/file.csv"
 
-        # 2回目チェック（重複あり）
+        # 2回目チェック(重複あり)
         self.assertTrue(self.storage.check_duplicates(hash_value))
 
     def test_get_existing_files(self):
         """既存ファイル取得のテスト"""
-        # テストファイルを作成（フラット構造）
+        # テストファイルを作成(フラット構造)
         test_file1 = self.base_path / "test_type_weekly_2025_01.csv"
         test_file1.touch()
 
@@ -202,7 +202,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(len(files), 1)
         self.assertIn("test_type", files[0].name)
 
-        # 年でフィルタ（フラット構造ではファイル名から年を抽出）
+        # 年でフィルタ(フラット構造ではファイル名から年を抽出)
         files = self.storage.get_existing_files(year=2025)
         self.assertEqual(len(files), 2)
 
@@ -234,7 +234,7 @@ class TestStorageManager(unittest.TestCase):
 
     def test_get_storage_stats(self):
         """ストレージ統計情報取得のテスト"""
-        # テストファイルを作成（フラット構造）
+        # テストファイルを作成(フラット構造)
         test_file = self.base_path / "sentinel_weekly_2025_01.csv"
         test_file.write_text("test data")
 
@@ -280,7 +280,7 @@ class TestStorageManager(unittest.TestCase):
 
     def test_save_with_force_overwrite(self):
         """force_overwriteパラメータのテスト"""
-        # 初回保存（数値データを含む有効なCSV形式）
+        # 初回保存(数値データを含む有効なCSV形式)
         test_data = b'"header","value"\n"row1","1"'
         result = self.storage.save_with_metadata(
             test_data,
@@ -294,7 +294,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertFalse(result.is_duplicate)
 
-        # 同じデータを再保存（通常は重複として扱われる）
+        # 同じデータを再保存(通常は重複として扱われる)
         result = self.storage.save_with_metadata(
             test_data,
             "test_type",
@@ -335,7 +335,7 @@ class TestStorageManager(unittest.TestCase):
 
     def test_force_overwrite_updates_hash_index(self):
         """force_overwriteでハッシュインデックスが更新されることのテスト"""
-        # 初回保存（数値データを含む有効なCSV形式）
+        # 初回保存(数値データを含む有効なCSV形式)
         initial_data = b'"header","value"\n"row1","10"'
         initial_hash = hashlib.sha256(initial_data).hexdigest()
 
@@ -362,7 +362,7 @@ class TestStorageManager(unittest.TestCase):
 
     def test_force_overwrite_with_same_data(self):
         """同じデータでforce_overwriteした場合のテスト"""
-        # 同じデータで2回保存（数値データを含む有効なCSV形式）
+        # 同じデータで2回保存(数値データを含む有効なCSV形式)
         test_data = b'"header","value"\n"row1","30"'
         data_hash = hashlib.sha256(test_data).hexdigest()
 
@@ -383,7 +383,7 @@ class TestStorageManager(unittest.TestCase):
 
     def test_multiple_files_same_hash(self):
         """同じ内容の複数ファイルを正しく管理できることのテスト"""
-        # 同じ内容のデータ（数値データを含む有効なCSV形式）
+        # 同じ内容のデータ(数値データを含む有効なCSV形式)
         test_data = b'"header","value"\n"row1","40"'
         data_hash = hashlib.sha256(test_data).hexdigest()
 
@@ -392,15 +392,15 @@ class TestStorageManager(unittest.TestCase):
         self.assertTrue(result1.success)
         self.assertFalse(result1.is_duplicate)
 
-        # 2つ目のファイル（同じ内容、異なる期間）
+        # 2つ目のファイル(同じ内容、異なる期間)
         result2 = self.storage.save_with_metadata(test_data, "test_type", 2025, 2, is_monthly=False)
         self.assertTrue(result2.success)
         self.assertTrue(result2.is_duplicate)  # 同じハッシュなので重複として扱われる
 
-        # ハッシュインデックスを確認（単一エントリまたはリスト形式）
+        # ハッシュインデックスを確認(単一エントリまたはリスト形式)
         self.assertIn(data_hash, self.storage.hash_index)
 
-        # 片方を異なるデータで上書き（force_overwrite）
+        # 片方を異なるデータで上書き(force_overwrite)
         new_data = b'"header","value"\n"row1","50"'
         new_hash = hashlib.sha256(new_data).hexdigest()
 
@@ -409,14 +409,14 @@ class TestStorageManager(unittest.TestCase):
         )
         self.assertTrue(result3.success)
 
-        # 新しいハッシュが登録され、古いハッシュも残っている（別ファイルが参照）
+        # 新しいハッシュが登録され、古いハッシュも残っている(別ファイルが参照)
         self.assertIn(new_hash, self.storage.hash_index)
         # もし1つのファイルだけが古いハッシュを参照していれば、まだインデックスに残る
-        # （実装により異なるが、check_duplicatesが正しく動作することが重要）
+        # (実装により異なるが、check_duplicatesが正しく動作することが重要)
 
     def test_hash_index_cleanup_on_overwrite(self):
         """force_overwrite時のハッシュインデックスクリーンアップテスト"""
-        # データを保存（数値データを含む有効なCSV形式）
+        # データを保存(数値データを含む有効なCSV形式)
         data1 = b'"header","value"\n"row1","60"'
         hash1 = hashlib.sha256(data1).hexdigest()
 
@@ -464,13 +464,13 @@ class TestStorageManager(unittest.TestCase):
         """既存ファイル更新時にis_new=Falseが設定されることをテスト"""
         data = b"existing,data\n1,2,3"
 
-        # 最初の保存（新規）
+        # 最初の保存(新規)
         first_result = self.storage.save_with_metadata(
             data=data, data_type="test_existing", year=2025, period=1, is_monthly=False
         )
         self.assertTrue(first_result.is_new)
 
-        # 同じファイルの再保存（force_overwrite=True）
+        # 同じファイルの再保存(force_overwrite=True)
         updated_data = b"updated,data\n4,5,6"
         second_result = self.storage.save_with_metadata(
             data=updated_data, data_type="test_existing", year=2025, period=1, is_monthly=False, force_overwrite=True
@@ -481,7 +481,7 @@ class TestStorageManager(unittest.TestCase):
 
     def test_hash_index_sorting(self):
         """hash_indexがファイル名順に正しくソートされることをテスト"""
-        # 複数のファイルを異なる順序で保存（数値データを含む有効なCSV形式）
+        # 複数のファイルを異なる順序で保存(数値データを含む有効なCSV形式)
         files_data = [
             (b'"header","value"\n"row1","80"', "type_z", 2025, 3),
             (b'"header","value"\n"row1","81"', "type_a", 2025, 1),
@@ -521,7 +521,7 @@ class TestStorageManager(unittest.TestCase):
         # 同じ内容で異なるファイル名のデータを保存
         same_data = b"duplicate,content\n1,2,3"
 
-        # 異なるタイプで同じデータを保存（同一ハッシュになる）
+        # 異なるタイプで同じデータを保存(同一ハッシュになる)
         for dtype in ["dup_z", "dup_a", "dup_m"]:
             self.storage.save_with_metadata(
                 data=same_data,
@@ -801,7 +801,7 @@ class TestStorageManager(unittest.TestCase):
 
     def test_is_all_zero_data_with_comma_in_field(self):
         """フィールド内にカンマが含まれるデータが正しく処理されることを確認"""
-        # フィールド内にカンマが含まれるCSVデータ（RFC 4180準拠）
+        # フィールド内にカンマが含まれるCSVデータ(RFC 4180準拠)
         csv_data = """"定点報告疾患"
 "","疾病A","疾病B"
 "区A,B","0","0"
@@ -881,30 +881,30 @@ class TestStorageManager(unittest.TestCase):
         invalid_data = b"\xff\xfe\x00\x00"
 
         result = self.storage._is_all_zero_data(invalid_data)
-        self.assertTrue(result, "データ行がないためスキップ対象（True）になるべきです")
+        self.assertTrue(result, "データ行がないためスキップ対象(True)になるべきです")
 
     def test_is_all_zero_data_with_malformed_csv(self):
         """不正なCSV形式でもエラーにならないことを確認"""
-        # 不正なCSV（引用符が閉じていない）
+        # 不正なCSV(引用符が閉じていない)
         csv_data = """"定点報告疾患"
 "","疾病A","疾病B
 "地域1","0","0"
 """
         data = csv_data.encode("shift_jis")
 
-        # エラーが発生せず、安全側に倒す（False）ことを確認
+        # エラーが発生せず、安全側に倒す(False)ことを確認
         result = self.storage._is_all_zero_data(data)
         # 不正なCSVでも処理が続行され、結果が返される
-        # （csv.readerは寛容な解析を行う）
+        # (csv.readerは寛容な解析を行う)
         self.assertIsInstance(result, bool, "bool値が返されるべきです")
 
     def test_is_all_zero_data_with_header_only(self):
-        """ヘッダーのみ（データ行なし）のCSVがスキップ対象として検出されることを確認
+        """ヘッダーのみ(データ行なし)のCSVがスキップ対象として検出されることを確認
 
         PR #144の主要なユースケース: 未発表データはヘッダー情報のみで
         データ行が存在しない。このようなファイルはスキップ対象とする。
         """
-        # 実際の未発表データと同じ形式（ヘッダー行のみでデータ行なし）
+        # 実際の未発表データと同じ形式(ヘッダー行のみでデータ行なし)
         csv_data = """"定点報告疾患 週報告分"
 "東京都"
 "集計期間開始週","2025年50週"
@@ -930,10 +930,10 @@ class TestStorageManager(unittest.TestCase):
     def test_save_with_metadata_skips_header_only_data(self):
         """保存時にヘッダーのみのデータがスキップされることを確認
 
-        未発表データ（ヘッダーのみ）が自動的にスキップされ、
+        未発表データ(ヘッダーのみ)が自動的にスキップされ、
         不要なファイルが保存されないことを検証。
         """
-        # ヘッダーのみのCSVデータ（未発表データを模倣）
+        # ヘッダーのみのCSVデータ(未発表データを模倣)
         csv_data = """"定点報告疾患 週報告分"
 "東京都"
 "集計期間開始週","2025年50週"
@@ -964,7 +964,7 @@ class TestStorageManager(unittest.TestCase):
     def test_save_with_metadata_header_only_save_all_zero_saves_data(self):
         """save_all_zero=Trueの場合、ヘッダーのみのデータも保存されることを確認
 
-        特殊用途（データ収集システムのテスト等）でヘッダーのみの
+        特殊用途(データ収集システムのテスト等)でヘッダーのみの
         ファイルも保存したい場合に対応。
         """
         # ヘッダーのみのCSVデータ

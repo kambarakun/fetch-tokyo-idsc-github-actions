@@ -1,5 +1,5 @@
 """
-データ収集機能のテスト（skip_existing, force_update オプション）
+データ収集機能のテスト(skip_existing, force_update オプション)
 """
 
 import sys
@@ -77,10 +77,10 @@ class TestDataCollectorOptions(unittest.TestCase):
             mock_generate.return_value = []  # パラメータなし
             collector._collect_data_type("test_data", 2024, 2024)
 
-            # _generate_all_paramsが呼ばれたことを確認（全データ取得）
+            # _generate_all_paramsが呼ばれたことを確認(全データ取得)
             mock_generate.assert_called_once_with("test_data", 2024, 2024, False)
 
-        # get_existing_filesが呼ばれていないことを確認（スキップしない）
+        # get_existing_filesが呼ばれていないことを確認(スキップしない)
         mock_storage.get_existing_files.assert_not_called()
 
     @patch("scripts.fetch_data.StorageManager")
@@ -194,7 +194,7 @@ class TestDataCollectorIntegration(unittest.TestCase):
     @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("scripts.fetch_data.ConfigurationManager")
     def test_normal_mode_without_options(self, mock_config_manager_class, mock_fetcher_class, mock_storage_class):
-        """オプションなしの通常モード（skip_existing=False優先）"""
+        """オプションなしの通常モード(skip_existing=False優先)"""
         # 設定マネージャーのモック
         mock_config_manager = Mock()
         mock_config_manager_class.return_value = mock_config_manager
@@ -221,14 +221,14 @@ class TestDataCollectorIntegration(unittest.TestCase):
         mock_storage_class.return_value = mock_storage
         mock_storage.get_existing_files.return_value = []
 
-        # オプションなしでコレクター作成（skip_existing=False）
+        # オプションなしでコレクター作成(skip_existing=False)
         collector = DataCollector(mock_config, dry_run=False, skip_existing=False, force_update=False)
 
         # skip_existing=Falseの場合、全期間取得モードになる
         collector._collect_data_type("test_data", 2024, 2024)
 
         # skip_existing=Falseの場合、ワークフローパラメータが優先され全期間取得
-        # get_existing_filesやget_missing_dataは呼ばれない（全期間取得のため）
+        # get_existing_filesやget_missing_dataは呼ばれない(全期間取得のため)
         mock_storage.get_existing_files.assert_not_called()
         mock_fetcher.get_missing_data.assert_not_called()
 

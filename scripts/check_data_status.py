@@ -28,7 +28,7 @@ def main():
     """メイン処理"""
     parser = argparse.ArgumentParser(description="データ処理状況確認スクリプト")
 
-    parser.add_argument("--data-dir", type=str, default="data", help="dataディレクトリのパス（デフォルト: data）")
+    parser.add_argument("--data-dir", type=str, default="data", help="dataディレクトリのパス(デフォルト: data)")
 
     parser.add_argument("-v", "--verbose", action="store_true", help="詳細情報を表示")
 

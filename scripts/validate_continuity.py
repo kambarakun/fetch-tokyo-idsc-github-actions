@@ -44,8 +44,8 @@ class ContinuityValidator:
         """全データタイプの連続性を検証
 
         Args:
-            start_year: 開始年（Noneの場合は最も古いデータから）
-            end_year: 終了年（Noneの場合は現在年まで）
+            start_year: 開始年(Noneの場合は最も古いデータから)
+            end_year: 終了年(Noneの場合は現在年まで)
 
         Returns:
             データタイプごとの検証レポート
@@ -73,7 +73,7 @@ class ContinuityValidator:
 
         return reports
 
-    def validate_data_type(  # noqa: PLR0912
+    def validate_data_type(
         self, data_type: str, start_year: int | None = None, end_year: int | None = None
     ) -> ContinuityReport:
         """特定のデータタイプの連続性を検証
@@ -86,8 +86,8 @@ class ContinuityValidator:
         Returns:
             検証レポート
         """
-        # ファイルのリストを取得（大文字小文字を区別しない）
-        # 注：glob自体は大文字小文字を区別するため、後続処理で対応
+        # ファイルのリストを取得(大文字小文字を区別しない)
+        # 注:glob自体は大文字小文字を区別するため、後続処理で対応
         files = []
         for file_path in self.data_dir.glob("*.csv"):
             if file_path.name.lower().startswith(f"{data_type.lower()}_"):
@@ -221,7 +221,7 @@ class ContinuityValidator:
 
         Args:
             reports: 検証レポートの辞書
-            output_format: 出力形式（json, text, markdown）
+            output_format: 出力形式(json, text, markdown)
 
         Returns:
             フォーマットされたレポート文字列
@@ -267,9 +267,9 @@ class ContinuityValidator:
             lines.append(f"  実際: {report.actual_count}件")
 
             if report.is_valid:
-                lines.append("  状態: ✅ 正常（欠損なし）")
+                lines.append("  状態: ✅ 正常(欠損なし)")
             else:
-                lines.append(f"  状態: ❌ 欠損あり（{len(report.missing_periods)}件）")
+                lines.append(f"  状態: ❌ 欠損あり({len(report.missing_periods)}件)")
                 invalid_types.append(data_type)
                 total_missing += len(report.missing_periods)
 
@@ -361,7 +361,7 @@ def main():
     parser.add_argument(
         "--data-type",
         type=str,
-        help="検証するデータタイプ（指定しない場合は全て）",
+        help="検証するデータタイプ(指定しない場合は全て)",
     )
     parser.add_argument(
         "--format",
@@ -373,7 +373,7 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        help="出力ファイルパス（指定しない場合は標準出力）",
+        help="出力ファイルパス(指定しない場合は標準出力)",
     )
     parser.add_argument(
         "--log-level",
@@ -417,7 +417,7 @@ def main():
     else:
         print(output)
 
-    # 終了コード（欠損がある場合は1）
+    # 終了コード(欠損がある場合は1)
     has_missing = any(not report.is_valid for report in reports.values())
     sys.exit(1 if has_missing else 0)
 

@@ -27,9 +27,9 @@ class SaveResult:
 
     Attributes:
         success: 保存操作が成功したかどうか
-        file_path: 保存されたファイルのパス（成功時のみ）
-        metadata_path: 保存されたメタデータファイルのパス（成功時のみ）
-        error: エラーメッセージ（失敗時のみ）
+        file_path: 保存されたファイルのパス(成功時のみ)
+        metadata_path: 保存されたメタデータファイルのパス(成功時のみ)
+        error: エラーメッセージ(失敗時のみ)
         is_duplicate: 重複ファイルとして検出されたかどうか
         is_new: 新規ファイルとして保存されたかどうか
         is_skipped: 全て0のデータとしてスキップされたかどうか
@@ -50,9 +50,9 @@ class CommitResult:
 
     Attributes:
         success: コミット操作が成功したかどうか
-        commit_hash: 作成されたコミットのハッシュ値（成功時のみ）
+        commit_hash: 作成されたコミットのハッシュ値(成功時のみ)
         message: コミットメッセージまたはステータスメッセージ
-        error: エラーメッセージ（失敗時のみ）
+        error: エラーメッセージ(失敗時のみ)
     """
 
     success: bool
@@ -75,7 +75,7 @@ class GitHandler:
         """GitHandlerを初期化する。
 
         Args:
-            auto_commit: 自動コミット機能を有効にするかどうか（デフォルト: True）
+            auto_commit: 自動コミット機能を有効にするかどうか(デフォルト: True)
         """
         self.auto_commit = auto_commit
 
@@ -86,7 +86,7 @@ class GitHandler:
             Gitリポジトリ内の場合True、それ以外の場合False
 
         Note:
-            エラーが発生した場合はFalseを返す（安全側に倒す）
+            エラーが発生した場合はFalseを返す(安全側に倒す)
         """
         try:
             result = subprocess.run(
@@ -190,7 +190,7 @@ class StorageManager:
         Args:
             base_path: データ保存のベースディレクトリ
             config: ストレージ設定を含む辞書
-                - auto_commit: Git自動コミットを有効にするか（デフォルト: True）
+                - auto_commit: Git自動コミットを有効にするか(デフォルト: True)
                 - commit_message_template: コミットメッセージテンプレート
                 - その他のストレージ関連設定
         """
@@ -213,13 +213,13 @@ class StorageManager:
         """フラットなディレクトリ構造でのファイルパス生成する。
 
         Args:
-            data_type: データタイプ（例: 'sentinel_weekly_age'）
-            year: 年（例: 2025）
-            period: 期間（週番号または月番号）
+            data_type: データタイプ(例: 'sentinel_weekly_age')
+            year: 年(例: 2025)
+            period: 期間(週番号または月番号)
             is_monthly: 月次データの場合True、週次データの場合False
 
         Returns:
-            ファイルを保存するディレクトリパス（常にbase_path）
+            ファイルを保存するディレクトリパス(常にbase_path)
 
         Note:
             現在の実装ではフラット構造のため、すべてのファイルが
@@ -262,7 +262,7 @@ class StorageManager:
             - 全て0のデータは保存をスキップする(save_all_zeroがFalseの場合)
             - メタデータは.metadataディレクトリに別途保存される
         """
-        # data_typeのバリデーション（セキュリティ対策）
+        # data_typeのバリデーション(セキュリティ対策)
         if not self._validate_data_type(data_type):
             error_msg = f"Invalid data_type: {data_type}. Contains invalid characters."
             logger.error(error_msg)
@@ -290,7 +290,7 @@ class StorageManager:
             # ファイルパス生成
             dir_path = self.organize_file_path(data_type, year, period, is_monthly)
 
-            # ファイル名生成（タイムスタンプなし、ゼロパディングあり）
+            # ファイル名生成(タイムスタンプなし、ゼロパディングあり)
             # データタイプ名に既にweekly/monthlyが含まれているため、period_typeは不要
             filename = f"{data_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
@@ -317,7 +317,7 @@ class StorageManager:
                 os.write(temp_fd, data)
                 os.close(temp_fd)
 
-                # 原子的にファイルを置き換え（POSIX準拠）
+                # 原子的にファイルを置き換え(POSIX準拠)
                 # これにより、書き込み中のエラーでもデータロスを防げる
                 Path(temp_path).replace(file_path)
             except Exception:
@@ -347,7 +347,7 @@ class StorageManager:
             if additional_metadata:
                 metadata.update(additional_metadata)
 
-            # メタデータは別ディレクトリに保存（.metadataディレクトリ）
+            # メタデータは別ディレクトリに保存(.metadataディレクトリ)
             metadata_filename = f"{filename.replace('.csv', '.json')}"
             metadata_path = self.metadata_dir / metadata_filename
 
@@ -371,9 +371,9 @@ class StorageManager:
         """Git自動コミットを実行する。
 
         Args:
-            message: コミットメッセージ（省略時は自動生成）
-            data_type: データタイプ（メッセージ生成用）
-            date_range: 日付範囲（メッセージ生成用）
+            message: コミットメッセージ(省略時は自動生成)
+            data_type: データタイプ(メッセージ生成用)
+            date_range: 日付範囲(メッセージ生成用)
 
         Returns:
             コミット操作の結果を含むCommitResultオブジェクト
@@ -421,11 +421,11 @@ class StorageManager:
         """ハッシュインデックスをファイルから読み込む。
 
         Returns:
-            ファイルハッシュとファイルパス（単一または複数）のマッピング辞書
+            ファイルハッシュとファイルパス(単一または複数)のマッピング辞書
 
         Note:
             ファイルが存在しない場合や読み込みエラーの場合は空の辞書を返す
-            後方互換性のため、古い形式（string）と新形式（list）の両方をサポート
+            後方互換性のため、古い形式(string)と新形式(list)の両方をサポート
         """
         if self.hash_index_file.exists():
             try:
@@ -436,7 +436,7 @@ class StorageManager:
         return {}
 
     def _remove_from_hash_index(self, file_hash: str, file_path: str) -> None:
-        """ハッシュインデックスから特定のファイルパスを削除する（ヘルパーメソッド）
+        """ハッシュインデックスから特定のファイルパスを削除する(ヘルパーメソッド)
 
         Args:
             file_hash: 削除対象のファイルハッシュ
@@ -457,7 +457,7 @@ class StorageManager:
             # リストが空になったら、エントリ自体を削除
             if not current_entry:
                 del self.hash_index[file_hash]
-            # 1つだけ残ったら文字列に戻す（サイズ節約）
+            # 1つだけ残ったら文字列に戻す(サイズ節約)
             elif len(current_entry) == 1:
                 self.hash_index[file_hash] = current_entry[0]
 
@@ -507,7 +507,7 @@ class StorageManager:
             for path in paths_list:
                 items_to_sort.append((hash_key, path))
 
-        # ファイルパス（値）でソート
+        # ファイルパス(値)でソート
         items_to_sort.sort(key=lambda x: x[1])
 
         # ソート済みの順序で辞書を再構築
@@ -529,7 +529,7 @@ class StorageManager:
 
         Args:
             file_hash: ファイルのSHA256ハッシュ
-            file_path: ファイルのパス（文字列）
+            file_path: ファイルのパス(文字列)
 
         Note:
             保存に失敗した場合は警告ログを出力するが、処理は継続される
@@ -584,12 +584,12 @@ class StorageManager:
         if not row or all(not cell.strip() for cell in row):
             return True
 
-        # 最初のセルが注釈行（*で始まる）をスキップ
+        # 最初のセルが注釈行(*で始まる)をスキップ
         first_cell = row[0].strip()
         if first_cell.startswith("*"):
             return True
 
-        # 1列以下の行はスキップ（データ行ではない）
+        # 1列以下の行はスキップ(データ行ではない)
         return len(row) <= 1
 
     def _check_numeric_cells(self, cells: list[str]) -> tuple[bool, bool]:
@@ -611,19 +611,19 @@ class StorageManager:
             if not cell_value:
                 continue
 
-            # 数字かどうかチェック（整数または浮動小数点数）
+            # 数字かどうかチェック(整数または浮動小数点数)
             try:
                 numeric_value = float(cell_value)
                 has_numeric = True
 
-                # 0以外の値があれば記録（0.0や-0.0は0として扱う）
+                # 0以外の値があれば記録(0.0や-0.0は0として扱う)
                 if numeric_value != 0.0:
                     has_non_zero = True
                     # 早期リターン: 0以外が見つかったら即座に返す
                     return has_numeric, has_non_zero
 
             except ValueError:
-                # 数値でない場合はスキップ（ヘッダー行や疾病名など）
+                # 数値でない場合はスキップ(ヘッダー行や疾病名など)
                 continue
 
         return has_numeric, has_non_zero
@@ -632,7 +632,7 @@ class StorageManager:
         """データの全ての数値カラムが0かどうかをチェックする。
 
         Args:
-            data: チェックするCSVデータ（Shift_JISエンコーディング）
+            data: チェックするCSVデータ(Shift_JISエンコーディング)
 
         Returns:
             全ての数値カラムが0または空の場合True、それ以外False
@@ -655,19 +655,19 @@ class StorageManager:
                 if self._is_skippable_row(row):
                     continue
 
-                # 最初のカラムは通常、行ラベル（年齢、地域名など）
+                # 最初のカラムは通常、行ラベル(年齢、地域名など)
                 # 2列目以降が数値データ
                 numeric_columns = row[1:]
 
                 # 数値カラムがあるかチェック
                 _, has_non_zero_in_row = self._check_numeric_cells(numeric_columns)
 
-                # 0以外の値があれば即座にFalseを返す（保存対象）
+                # 0以外の値があれば即座にFalseを返す(保存対象)
                 if has_non_zero_in_row:
                     return False
 
-            # 以下の場合はスキップ対象（True）:
-            # 1. ヘッダーのみでデータ行がない（未発表データ）
+            # 以下の場合はスキップ対象(True):
+            # 1. ヘッダーのみでデータ行がない(未発表データ)
             # 2. データ行はあるが全ての数値が0
             return True
 
@@ -688,11 +688,11 @@ class StorageManager:
         """ISO週番号から対応する月を計算する。
 
         Args:
-            year: ISO週暦年（例: 2025年第1週の年は2025）
-            week: ISO週番号（1-53）
+            year: ISO週暦年(例: 2025年第1週の年は2025)
+            week: ISO週番号(1-53)
 
         Returns:
-            その週が属する月（1-12）
+            その週が属する月(1-12)
 
         Note:
             ISO 8601規格に基づいて計算を行う。
@@ -700,13 +700,13 @@ class StorageManager:
             年境界を正しく処理するため、date.fromisocalendar()を使用。
 
         Examples:
-            >>> _get_month_from_week(2025, 1)  # 2025年第1週（2024/12/30-2025/1/5）→ 1月
+            >>> _get_month_from_week(2025, 1)  # 2025年第1週(2024/12/30-2025/1/5)→ 1月
             1
-            >>> _get_month_from_week(2024, 52)  # 2024年第52週（2024/12/23-29）→ 12月
+            >>> _get_month_from_week(2024, 52)  # 2024年第52週(2024/12/23-29)→ 12月
             12
         """
-        # ISO週番号から日付を正確に計算（年境界考慮）
-        # 月曜日（weekday=1）を週の始まりとする
+        # ISO週番号から日付を正確に計算(年境界考慮)
+        # 月曜日(weekday=1)を週の始まりとする
         week_start = date.fromisocalendar(year, week, 1)
         return week_start.month
 
@@ -714,11 +714,11 @@ class StorageManager:
         """既存のCSVファイルを検索して取得する。
 
         Args:
-            data_type: フィルタリングするデータタイプ（オプション）
-            year: フィルタリングする年（オプション）
+            data_type: フィルタリングするデータタイプ(オプション)
+            year: フィルタリングする年(オプション)
 
         Returns:
-            条件に一致するファイルパスのリスト（ソート済み）
+            条件に一致するファイルパスのリスト(ソート済み)
 
         Note:
             フラット構造のため、base_path直下のCSVファイルを検索する。
@@ -770,7 +770,7 @@ class StorageManager:
         """指定日数より古いファイルを削除する。
 
         Args:
-            days_to_keep: 保持する日数（デフォルト: 365日）
+            days_to_keep: 保持する日数(デフォルト: 365日)
 
         Returns:
             削除されたファイル数
@@ -811,8 +811,8 @@ class StorageManager:
         Returns:
             以下のキーを含む統計情報辞書:
                 - total_files: 総ファイル数
-                - total_size_bytes: 総ファイルサイズ（バイト）
-                - total_size_mb: 総ファイルサイズ（MB）
+                - total_size_bytes: 総ファイルサイズ(バイト)
+                - total_size_mb: 総ファイルサイズ(MB)
                 - file_types: データタイプ別の統計
                 - year_stats: 年別の統計
                 - hash_index_size: ハッシュインデックスのエントリ数
@@ -839,7 +839,7 @@ class StorageManager:
                     file_types[data_type]["size"] += file_size
                     break
 
-            # 年別統計（ファイル名から年を抽出）
+            # 年別統計(ファイル名から年を抽出)
             # 例: sentinel_weekly_2025_01.csv から 2025 を抽出
             year_match = re.search(r"_(\d{4})_\d{2}\.csv$", file_path.name)
             if year_match:
