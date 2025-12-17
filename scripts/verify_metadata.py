@@ -16,6 +16,9 @@ Usage:
 
     # verification が None のファイルのみ対象
     uv run python scripts/verify_metadata.py --only-unverified
+
+    # JSON形式で統計を出力 (GitHub Actions連携用)
+    uv run python scripts/verify_metadata.py --output-json
 """
 
 from __future__ import annotations
@@ -25,6 +28,10 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:
+    from typing import Any
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -34,13 +41,95 @@ from src.managers.storage_manager import StorageManager
 logger = logging.getLogger(__name__)
 
 
+class VerificationStats(TypedDict):
+    """検証結果の統計情報."""
+
+    total: int
+    verified: int
+    failed: int
+    skipped: int
+    errors: int
+
+
+def _process_single_file(
+    metadata_path: Path,
+    data_dir: Path,
+    storage_manager: StorageManager,
+    dry_run: bool,
+    verbose: bool,
+    only_unverified: bool,
+) -> tuple[str, str | None]:
+    """単一のメタデータファイルを処理する.
+
+    Args:
+        metadata_path: メタデータファイルのパス
+        data_dir: データファイルディレクトリのパス
+        storage_manager: StorageManagerインスタンス
+        dry_run: Trueの場合、変更を保存しない
+        verbose: Trueの場合、詳細なログを出力
+        only_unverified: Trueの場合、verification が None のファイルのみ対象
+
+    Returns:
+        (結果タイプ, 検証ステータス)
+        結果タイプ: "verified", "failed", "skipped", "error"
+        検証ステータス: "verified", "failed", または None (エラー/スキップ時)
+    """
+    with metadata_path.open() as f:
+        metadata = json.load(f)
+
+    # only_unverified モードの場合、既に検証済みならスキップ
+    if only_unverified and metadata.get("verification") is not None:
+        if verbose:
+            logger.debug(f"Skipped (already verified): {metadata_path.name}")
+        return "skipped", None
+
+    # 対応するCSVファイルのパス (パストラバーサル対策)
+    csv_filename = metadata.get("filename", metadata_path.stem + ".csv")
+    # ファイル名のみを抽出してパストラバーサルを防止
+    csv_filename = Path(csv_filename).name
+    data_file = data_dir / csv_filename
+
+    if not data_file.exists():
+        logger.warning(f"CSV file not found: {data_file}")
+        return "error", None
+
+    # CSVファイルを読み込み
+    data = data_file.read_bytes()
+
+    # 検証を実行 (_validate_saved_file を呼び出し)
+    verification: dict[str, Any] = storage_manager._validate_saved_file(data_file, data)
+    status: str = verification["status"]
+
+    if dry_run:
+        logger.info(f"[DRY-RUN] Would verify: {metadata_path.name} -> {status}")
+        if verbose:
+            for check, passed in verification["checks"].items():
+                logger.info(f"  - {check}: {'PASS' if passed else 'FAIL'}")
+            for error in verification.get("errors", []):
+                logger.info(f"  - ERROR: {error}")
+            for warning in verification.get("warnings", []):
+                logger.info(f"  - WARNING: {warning}")
+    else:
+        # メタデータを更新
+        metadata["verification"] = verification
+        with metadata_path.open("w") as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        if verbose:
+            logger.info(f"Verified: {metadata_path.name} -> {status}")
+
+    # 検証結果に基づいて結果タイプを返す
+    if status == "verified":
+        return "verified", status
+    return "failed", status
+
+
 def run_verification(
     metadata_dir: Path,
     data_dir: Path,
     dry_run: bool = False,
     verbose: bool = False,
     only_unverified: bool = False,
-) -> dict:
+) -> VerificationStats:
     """メタデータの検証を一括実行する.
 
     Args:
@@ -53,7 +142,7 @@ def run_verification(
     Returns:
         検証結果の統計情報
     """
-    stats = {
+    stats: VerificationStats = {
         "total": 0,
         "verified": 0,
         "failed": 0,
@@ -62,7 +151,7 @@ def run_verification(
     }
 
     # StorageManager のインスタンスを作成 (検証ロジックを再利用)
-    config: dict = {"auto_commit": False}
+    config: dict[str, Any] = {"auto_commit": False}
     storage_manager = StorageManager(base_path=data_dir, config=config)
 
     metadata_files = sorted(metadata_dir.glob("*.json"))
@@ -74,61 +163,19 @@ def run_verification(
 
     for metadata_path in metadata_files:
         try:
-            with metadata_path.open() as f:
-                metadata = json.load(f)
+            result_type, _ = _process_single_file(
+                metadata_path=metadata_path,
+                data_dir=data_dir,
+                storage_manager=storage_manager,
+                dry_run=dry_run,
+                verbose=verbose,
+                only_unverified=only_unverified,
+            )
+            stats[result_type] += 1  # type: ignore[literal-required]
 
-            # only_unverified モードの場合、既に検証済みならスキップ
-            if only_unverified and metadata.get("verification") is not None:
-                stats["skipped"] += 1
-                if verbose:
-                    logger.debug(f"Skipped (already verified): {metadata_path.name}")
-                continue
-
-            # 対応するCSVファイルのパス (パストラバーサル対策)
-            csv_filename = metadata.get("filename", metadata_path.stem + ".csv")
-            # ファイル名のみを抽出してパストラバーサルを防止
-            csv_filename = Path(csv_filename).name
-            data_file = data_dir / csv_filename
-
-            if not data_file.exists():
-                stats["errors"] += 1
-                logger.warning(f"CSV file not found: {data_file}")
-                continue
-
-            # CSVファイルを読み込み
-            data = data_file.read_bytes()
-
-            # 検証を実行 (_validate_saved_file を呼び出し)
-            verification = storage_manager._validate_saved_file(data_file, data)
-
-            if dry_run:
-                status = verification["status"]
-                logger.info(f"[DRY-RUN] Would verify: {metadata_path.name} -> {status}")
-                if verbose:
-                    for check, passed in verification["checks"].items():
-                        logger.info(f"  - {check}: {'✓' if passed else '✗'}")
-                    for error in verification.get("errors", []):
-                        logger.info(f"  - ERROR: {error}")
-                    for warning in verification.get("warnings", []):
-                        logger.info(f"  - WARNING: {warning}")
-            else:
-                # メタデータを更新
-                metadata["verification"] = verification
-                with metadata_path.open("w") as f:
-                    json.dump(metadata, f, indent=2, ensure_ascii=False)
-                if verbose:
-                    logger.info(
-                        f"Verified: {metadata_path.name} -> {verification['status']}"
-                    )
-
-            if verification["status"] == "verified":
-                stats["verified"] += 1
-            else:
-                stats["failed"] += 1
-
-        except (json.JSONDecodeError, OSError, KeyError) as e:
+        except (json.JSONDecodeError, OSError, KeyError):
             stats["errors"] += 1
-            logger.exception(f"Error processing {metadata_path.name}: {e}")
+            logger.exception(f"Error processing {metadata_path.name}")
 
     return stats
 
@@ -166,6 +213,11 @@ def main() -> int:
         default=Path("data/raw"),
         help="データファイルディレクトリのパス (default: data/raw)",
     )
+    parser.add_argument(
+        "--output-json",
+        action="store_true",
+        help="JSON形式で統計を出力する (GitHub Actions連携用)",
+    )
     args = parser.parse_args()
 
     # ログ設定
@@ -198,6 +250,11 @@ def main() -> int:
     logger.info(f"Failed:         {stats['failed']}")
     logger.info(f"Skipped:        {stats['skipped']}")
     logger.info(f"Errors:         {stats['errors']}")
+
+    # JSON出力 (GitHub Actions連携用)
+    # 標準出力にJSONを出力し、ワークフローでパース可能にする
+    if args.output_json:
+        print(json.dumps(stats))
 
     if args.dry_run and (stats["verified"] + stats["failed"]) > 0:
         logger.info("\nTo apply changes, run without --dry-run")

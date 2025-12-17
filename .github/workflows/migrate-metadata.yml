@@ -208,15 +208,18 @@ jobs:
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
         run: |
           echo "=== Running Verification ==="
-          uv run python scripts/verify_metadata.py --only-unverified --verbose 2>&1 | tee verify.log
+          # 検証を実行（詳細ログを表示）
+          uv run python scripts/verify_metadata.py --only-unverified --verbose
 
-          # 検証結果を取得
-          VERIFIED=$(grep "Verified:" verify.log | sed -E 's/.*Verified:\s*([0-9]+).*/\1/')
-          VERIFIED=${VERIFIED:-0}
-          FAILED=$(grep "Failed:" verify.log | sed -E 's/.*Failed:\s*([0-9]+).*/\1/')
-          FAILED=${FAILED:-0}
+          # JSON統計を取得（2回目の実行だが、検証済みファイルはスキップされる）
+          # jq で堅牢にパース（ログ形式に依存しない）
+          STATS=$(uv run python scripts/verify_metadata.py --only-unverified --output-json 2>/dev/null)
+
+          VERIFIED=$(echo "$STATS" | jq -r '.verified // 0')
+          FAILED=$(echo "$STATS" | jq -r '.failed // 0')
           echo "verified_count=$VERIFIED" >> $GITHUB_OUTPUT
           echo "failed_count=$FAILED" >> $GITHUB_OUTPUT
+          echo "Verification completed: verified=$VERIFIED, failed=$FAILED"
 
       - name: Configure git
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
