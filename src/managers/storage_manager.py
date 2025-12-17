@@ -18,6 +18,24 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+# メタデータスキーマバージョン
+METADATA_VERSION = "1.0"
+
+# 検証メッセージの制限
+MAX_ERROR_COUNT = 10
+MAX_WARNING_COUNT = 10
+MAX_MESSAGE_LENGTH = 500
+
+# 検証設定
+VALIDATION_MIN_FILE_SIZE = 100  # 最小ファイルサイズ(バイト)
+VALIDATION_MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ(MB)
+VALIDATION_SIZE_WARNING_THRESHOLD = 0.8  # ファイルサイズ警告閾値 (最大サイズの80%)
+VALIDATION_MIN_LINE_COUNT = 1  # 最小行数
+VALIDATION_MAX_LINE_COUNT = 1000000  # 最大行数
+VALIDATION_MIN_COLUMN_COUNT = 2  # 最小カラム数
+VALIDATION_MAX_COLUMN_COUNT = 100  # 最大カラム数
+EXPECTED_ENCODING = "shift_jis"  # 期待されるエンコーディング
+
 logger = logging.getLogger(__name__)
 
 
@@ -260,7 +278,12 @@ class StorageManager:
             - SHA256ハッシュで重複チェックを行う
             - 重複データは保存をスキップする(force_overwriteがFalseの場合)
             - 全て0のデータは保存をスキップする(save_all_zeroがFalseの場合)
+            - パス安全性チェックは保存前に実行され、失敗時は保存を中断
+              (パストラバーサル攻撃等のセキュリティリスクを事前に防止)
             - メタデータは.metadataディレクトリに別途保存される
+            - 保存後にデータ品質検証を実行し、結果はmetadata["verification"]に記録
+            - データ品質検証失敗(encoding, csv_format, file_size)でもファイルは保存される
+              (データ品質検証は記録目的であり、保存の可否は判定しない)
         """
         # data_typeのバリデーション(セキュリティ対策)
         if not self._validate_data_type(data_type):
@@ -295,20 +318,18 @@ class StorageManager:
             filename = f"{data_type}_{year}_{period:02d}.csv"
             file_path = dir_path / filename
 
+            # パス安全性チェック(保存前に実行 - セキュリティクリティカル)
+            # パストラバーサル攻撃等が検出された場合は保存を中断
+            path_safety_error = self._check_path_safety_pre_save(file_path)
+            if path_safety_error:
+                return SaveResult(success=False, error=path_safety_error)
+
             # 新規ファイルかどうかを判定
             is_new_file = not file_path.exists()
 
             # 既存ファイルのチェック (force_overwriteの場合、古いハッシュを削除)
             if file_path.exists() and force_overwrite:
-                # 既存ファイルのハッシュを計算
-                old_data = file_path.read_bytes()
-                old_hash = hashlib.sha256(old_data).hexdigest()
-
-                # ヘルパーメソッドを使用してハッシュインデックスから削除
-                file_path_str = str(file_path)
-                self._remove_from_hash_index(old_hash, file_path_str)
-
-                logger.info(f"Overwriting existing file: {file_path}")
+                self._handle_existing_file_overwrite(file_path)
 
             # CSVファイル保存(Shift_JISのまま) - 原子的書き込みで安全性を確保
             # 一時ファイルを作成して書き込み
@@ -329,23 +350,41 @@ class StorageManager:
 
             # メタデータ生成
             period_type = "monthly" if is_monthly else "weekly"
-            metadata = {
-                "filename": filename,
-                "data_type": data_type,
-                "year": year,
-                "period": period,
-                "period_type": period_type,
-                "timestamp": datetime.now().isoformat(),
-                "file_size": len(data),
-                "sha256_hash": data_hash,
-                "encoding": "shift_jis",
-                "file_path": str(file_path.relative_to(self.base_path)),
-                "force_overwrite": force_overwrite,
-                "save_all_zero": save_all_zero,
-            }
+            now = datetime.now().isoformat()
 
+            # 既存メタデータの取得 (force_overwrite時のcreated_at保持用)
+            existing_metadata = self.get_metadata(file_path) if force_overwrite else None
+
+            # created_at/updated_atの設定
+            created_at, updated_at = self._determine_timestamps(existing_metadata, now)
+
+            # 物理行数のカウント
+            line_count = self._count_lines(data)
+
+            # メタデータ構築
+            metadata = self._build_metadata(
+                filename=filename,
+                data_type=data_type,
+                year=year,
+                period=period,
+                period_type=period_type,
+                created_at=created_at,
+                updated_at=updated_at,
+                file_size=len(data),
+                line_count=line_count,
+                data_hash=data_hash,
+                file_path=file_path,
+                force_overwrite=force_overwrite,
+                save_all_zero=save_all_zero,
+            )
+
+            # source_urlはadditional_metadataから取得
             if additional_metadata:
                 metadata.update(additional_metadata)
+
+            # 検証の実行
+            verification = self._validate_saved_file(file_path, data)
+            metadata["verification"] = verification
 
             # メタデータは別ディレクトリに保存(.metadataディレクトリ)
             metadata_filename = f"{filename.replace('.csv', '.json')}"
@@ -684,6 +723,401 @@ class StorageManager:
             logger.exception("Unexpected error while checking for all-zero data")
             return False
 
+    def _count_lines(self, data: bytes) -> int | None:
+        """CSVの物理行数をカウントする。
+
+        Args:
+            data: CSVデータ(バイト形式)
+
+        Returns:
+            物理行数 (改行文字の数に基づく)。処理失敗時はNone。
+            空データの場合は0を返す。
+
+        Note:
+            改行文字(\\n)の数をカウントして物理行数を算出する。
+            末尾が改行でない場合は1を追加。
+            ヘッダー行を含む全ての行をカウントする (CSVのデータ行数ではない)。
+        """
+        try:
+            # 空データの場合は0を返す
+            if not data:
+                return 0
+            count = data.count(b"\n")
+            # 末尾が改行でない場合は1を追加
+            if not data.endswith(b"\n"):
+                count += 1
+        except (TypeError, AttributeError) as e:
+            logger.warning(f"Failed to count rows: {e}")
+            return None
+        else:
+            return count
+
+    def _determine_timestamps(
+        self, existing_metadata: dict[str, Any] | None, now: str
+    ) -> tuple[str, str]:
+        """created_atとupdated_atを決定する。
+
+        Args:
+            existing_metadata: 既存のメタデータ (force_overwrite時に取得)
+            now: 現在時刻のISO文字列
+
+        Returns:
+            (created_at, updated_at) のタプル
+        """
+        if existing_metadata:
+            # 既存のcreated_atを保持、なければtimestampから復元
+            created_at = existing_metadata.get("created_at") or existing_metadata.get("timestamp") or now
+        else:
+            created_at = now
+        return created_at, now
+
+    def _build_metadata(
+        self,
+        *,
+        filename: str,
+        data_type: str,
+        year: int,
+        period: int,
+        period_type: str,
+        created_at: str,
+        updated_at: str,
+        file_size: int,
+        line_count: int | None,
+        data_hash: str,
+        file_path: Path,
+        force_overwrite: bool,
+        save_all_zero: bool,
+    ) -> dict[str, Any]:
+        """メタデータ辞書を構築する。
+
+        Args:
+            filename: ファイル名
+            data_type: データタイプ
+            year: 年
+            period: 期間
+            period_type: 期間タイプ ("weekly" or "monthly")
+            created_at: 作成日時
+            updated_at: 更新日時
+            file_size: ファイルサイズ
+            line_count: 物理行数 (ヘッダー含む)
+            data_hash: SHA256ハッシュ
+            file_path: ファイルパス
+            force_overwrite: 強制上書きフラグ
+            save_all_zero: 全て0保存フラグ
+
+        Returns:
+            メタデータ辞書
+        """
+        return {
+            "metadata_version": METADATA_VERSION,
+            "filename": filename,
+            "data_type": data_type,
+            "year": year,
+            "period": period,
+            "period_type": period_type,
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "file_size": file_size,
+            "line_count": line_count,
+            "sha256_hash": data_hash,
+            "checksum_algorithm": "sha256",
+            "encoding": "shift_jis",
+            "file_path": str(file_path.relative_to(self.base_path)),
+            "force_overwrite": force_overwrite,
+            "save_all_zero": save_all_zero,
+        }
+
+    def _validate_saved_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
+        """保存されたファイルを検証し、検証結果を返す。
+
+        Args:
+            file_path: 検証するファイルのパス
+            data: ファイルのデータ(バイト形式)
+
+        Returns:
+            検証結果の辞書(verification オブジェクト)
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        checks: dict[str, bool] = {}
+
+        # ファイルサイズチェック
+        size_result = self._check_file_size_validation(data)
+        checks["file_size"] = size_result["valid"]
+        errors.extend(size_result.get("errors", []))
+        warnings.extend(size_result.get("warnings", []))
+
+        # エンコーディングチェック
+        encoding_result = self._check_encoding_validation(data)
+        checks["encoding"] = encoding_result["valid"]
+        errors.extend(encoding_result.get("errors", []))
+
+        # CSVフォーマットチェック
+        # エンコーディング検証で取得したデコード済みコンテンツを再利用 (パフォーマンス最適化)
+        decoded_content = encoding_result.get("decoded_content")
+        csv_result = self._check_csv_format_validation(data, decoded_content)
+        checks["csv_format"] = csv_result["valid"]
+        errors.extend(csv_result.get("errors", []))
+        warnings.extend(csv_result.get("warnings", []))
+
+        # パス安全性チェック
+        path_result = self._check_path_safety_validation(file_path)
+        checks["path_safety"] = path_result["valid"]
+        errors.extend(path_result.get("errors", []))
+
+        # ステータスの決定
+        status = "failed" if errors else "verified"
+
+        # メッセージの制限
+        errors = self._truncate_messages(errors, MAX_ERROR_COUNT)
+        warnings = self._truncate_messages(warnings, MAX_WARNING_COUNT)
+
+        return {
+            "status": status,
+            "verified_at": datetime.now().isoformat(),
+            "method": "automated",
+            "checks": checks,
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+    def _check_file_size_validation(self, data: bytes) -> dict[str, Any]:
+        """ファイルサイズを検証する。
+
+        Args:
+            data: ファイルデータ(バイト形式)
+
+        Returns:
+            検証結果の辞書
+        """
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
+
+        size_bytes = len(data)
+        size_mb = size_bytes / (1024 * 1024)
+
+        if size_bytes < VALIDATION_MIN_FILE_SIZE:
+            result["errors"].append(
+                f"[file_size] File too small: {size_bytes} bytes (minimum: {VALIDATION_MIN_FILE_SIZE})"
+            )
+            result["valid"] = False
+        elif size_mb > VALIDATION_MAX_FILE_SIZE_MB:
+            result["errors"].append(
+                f"[file_size] File too large: {size_mb:.2f} MB (maximum: {VALIDATION_MAX_FILE_SIZE_MB} MB)"
+            )
+            result["valid"] = False
+        elif size_mb > VALIDATION_MAX_FILE_SIZE_MB * VALIDATION_SIZE_WARNING_THRESHOLD:
+            result["warnings"].append(
+                f"[file_size] File size warning: {size_mb:.2f} MB "
+                f"({VALIDATION_SIZE_WARNING_THRESHOLD:.0%} of maximum)"
+            )
+
+        return result
+
+    def _check_encoding_validation(self, data: bytes) -> dict[str, Any]:
+        """エンコーディングを検証する。
+
+        Args:
+            data: ファイルデータ(バイト形式)
+
+        Returns:
+            検証結果の辞書。成功時は "decoded_content" キーにデコード結果を含む。
+            これにより、後続のCSV検証で再デコードを回避できる (パフォーマンス最適化)。
+        """
+        result: dict[str, Any] = {"valid": True, "errors": [], "decoded_content": None}
+
+        try:
+            # Shift_JISでデコードを試みる (デコード成功がエンコーディング検証)
+            decoded = data.decode(EXPECTED_ENCODING)
+            result["decoded_content"] = decoded
+        except UnicodeDecodeError as e:
+            result["errors"].append(
+                f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}"
+            )
+            result["valid"] = False
+        except (OSError, MemoryError, ValueError) as e:
+            result["errors"].append(f"[encoding] Failed to check encoding: {e!s}")
+            result["valid"] = False
+
+        return result
+
+    def _check_csv_format_validation(
+        self, data: bytes, decoded_content: str | None = None
+    ) -> dict[str, Any]:
+        """CSVフォーマットを検証する。
+
+        Args:
+            data: ファイルデータ(バイト形式)
+            decoded_content: 事前にデコードされたコンテンツ (パフォーマンス最適化用)。
+                             指定された場合はこれを使用し、再デコードを回避する。
+
+        Returns:
+            検証結果の辞書
+        """
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
+
+        try:
+            # デコード済みコンテンツがあれば再利用、なければフォールバックでデコード
+            if decoded_content is not None:
+                content = decoded_content
+            else:
+                content = data.decode(EXPECTED_ENCODING, errors="replace")
+            csv_reader = csv.reader(io.StringIO(content))
+
+            line_count = 0
+            column_counts: set[int] = set()
+            max_columns = 0
+
+            for row in csv_reader:
+                line_count += 1
+                column_count = len(row)
+                column_counts.add(column_count)
+                max_columns = max(max_columns, column_count)
+
+                # 行数チェック(早期終了)
+                if line_count > VALIDATION_MAX_LINE_COUNT:
+                    result["errors"].append(
+                        f"[csv_format] Too many lines: >{VALIDATION_MAX_LINE_COUNT}"
+                    )
+                    result["valid"] = False
+                    break
+
+            # 検証
+            if line_count < VALIDATION_MIN_LINE_COUNT:
+                result["errors"].append(
+                    f"[csv_format] Too few lines: {line_count} (minimum: {VALIDATION_MIN_LINE_COUNT})"
+                )
+                result["valid"] = False
+
+            if max_columns > VALIDATION_MAX_COLUMN_COUNT:
+                result["errors"].append(
+                    f"[csv_format] Too many columns: {max_columns} (maximum: {VALIDATION_MAX_COLUMN_COUNT})"
+                )
+                result["valid"] = False
+            elif max_columns < VALIDATION_MIN_COLUMN_COUNT:
+                result["errors"].append(
+                    f"[csv_format] Too few columns: {max_columns} (minimum: {VALIDATION_MIN_COLUMN_COUNT})"
+                )
+                result["valid"] = False
+
+            # カラム数の一貫性チェック
+            if len(column_counts) > 1:
+                result["warnings"].append(
+                    f"[csv_format] Inconsistent column count: {column_counts}"
+                )
+
+        except csv.Error as e:
+            result["errors"].append(f"[csv_format] CSV format error: {e!s}")
+            result["valid"] = False
+        except (OSError, MemoryError) as e:
+            # Note: UnicodeDecodeError is not caught because errors="replace" is used
+            result["errors"].append(f"[csv_format] Failed to check CSV format: {e!s}")
+            result["valid"] = False
+
+        return result
+
+    def _check_path_safety_validation(self, file_path: Path) -> dict[str, Any]:
+        """パスの安全性を検証する(パストラバーサル攻撃対策)。
+
+        Args:
+            file_path: 検証するファイルパス
+
+        Returns:
+            検証結果の辞書
+
+        Note:
+            以下の攻撃を検出:
+            - パストラバーサル攻撃 (../等による親ディレクトリへのアクセス)
+            - シンボリックリンク攻撃 (シンボリックリンクを介した許可外パスへのアクセス)
+            - 危険な文字を含むパス (シェルインジェクション対策)
+        """
+        result: dict[str, Any] = {"valid": True, "errors": []}
+
+        try:
+            # シンボリックリンクチェック (解決前に実施)
+            # シンボリックリンクは許可外のディレクトリへのアクセスに悪用される可能性がある
+            if file_path.is_symlink():
+                result["errors"].append(
+                    "[path_safety] Symbolic links not allowed for security reasons"
+                )
+                result["valid"] = False
+
+            # 絶対パスを解決
+            resolved_path = file_path.resolve()
+
+            # base_path内にあることを確認
+            try:
+                resolved_path.relative_to(self.base_path.resolve())
+            except ValueError:
+                result["errors"].append(
+                    f"[path_safety] Path traversal detected: {resolved_path} not in {self.base_path}"
+                )
+                result["valid"] = False
+
+            # ファイル名の危険な文字チェック
+            # Note: resolve() + relative_to() でパストラバーサルは既に防止されている
+            # ここではファイル名のみをチェックし、親ディレクトリの誤検知を防ぐ
+            dangerous_patterns = ["|", "&", ";", "$", "`", "\x00"]
+            filename = file_path.name
+            for pattern in dangerous_patterns:
+                if pattern in filename:
+                    result["errors"].append(
+                        f"[path_safety] Dangerous pattern in filename: {pattern!r}"
+                    )
+                    result["valid"] = False
+
+        except (OSError, ValueError, RuntimeError) as e:
+            result["errors"].append(f"[path_safety] Failed to check path safety: {e!s}")
+            result["valid"] = False
+
+        return result
+
+    def _check_path_safety_pre_save(self, file_path: Path) -> str | None:
+        """保存前のパス安全性チェック (セキュリティクリティカル)。
+
+        Args:
+            file_path: 検証するファイルパス
+
+        Returns:
+            エラーメッセージ (問題がある場合)、問題がない場合はNone
+        """
+        path_safety_result = self._check_path_safety_validation(file_path)
+        if not path_safety_result["valid"]:
+            error_msg = "; ".join(path_safety_result.get("errors", ["Path safety check failed"]))
+            logger.error(f"Path safety check failed, aborting save: {error_msg}")
+            return error_msg
+        return None
+
+    def _handle_existing_file_overwrite(self, file_path: Path) -> None:
+        """既存ファイルの上書き処理 (ハッシュインデックス更新)。
+
+        Args:
+            file_path: 上書きするファイルパス
+        """
+        old_data = file_path.read_bytes()
+        old_hash = hashlib.sha256(old_data).hexdigest()
+        self._remove_from_hash_index(old_hash, str(file_path))
+        logger.info(f"Overwriting existing file: {file_path}")
+
+    def _truncate_messages(self, messages: list[str], max_count: int) -> list[str]:
+        """メッセージリストを制限する。
+
+        Args:
+            messages: メッセージのリスト
+            max_count: 最大件数
+
+        Returns:
+            制限されたメッセージリスト
+        """
+        truncated: list[str] = []
+        for msg in messages[:max_count]:
+            truncated_msg = msg[: MAX_MESSAGE_LENGTH - 3] + "..." if len(msg) > MAX_MESSAGE_LENGTH else msg
+            truncated.append(truncated_msg)
+
+        if len(messages) > max_count:
+            truncated.append(f"... 他{len(messages) - max_count}件のメッセージ")
+
+        return truncated
+
     def _get_month_from_week(self, year: int, week: int) -> int:
         """ISO週番号から対応する月を計算する。
 
@@ -748,23 +1182,64 @@ class StorageManager:
             file_path: メタデータを取得するファイルのパス
 
         Returns:
-            メタデータ辞書、存在しない場合はNone
+            メタデータ辞書(正規化済み)、存在しない場合はNone
 
         Note:
-            メタデータファイルは.metadataディレクトリから読み込まれる
+            メタデータファイルは.metadataディレクトリから読み込まれる。
+            旧形式のメタデータは自動的に正規化される。
+            TOCTOU脆弱性を回避するため、exists()チェックなしで直接オープンを試みる。
         """
         # メタデータは.metadataディレクトリから取得
         metadata_filename = f"{file_path.stem}.json"
         metadata_path = self.metadata_dir / metadata_filename
 
-        if metadata_path.exists():
-            try:
-                with metadata_path.open() as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Failed to load metadata: {e}")
+        try:
+            with metadata_path.open() as f:
+                metadata = json.load(f)
+            # 旧形式メタデータの正規化
+            return self._normalize_metadata(metadata)
+        except FileNotFoundError:
+            # ファイルが存在しない場合はNoneを返す (通常のケース)
+            return None
+        except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
+            logger.warning(f"Failed to load metadata: {e}")
+            return None
 
-        return None
+    def _normalize_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        """旧形式メタデータを新形式に正規化する。
+
+        Args:
+            metadata: 正規化するメタデータ辞書
+
+        Returns:
+            正規化されたメタデータ辞書
+
+        Note:
+            旧形式(timestampのみ)から新形式(created_at/updated_at)への移行を行う。
+            row_count → line_count の移行も行う。
+            欠損フィールドにはデフォルト値またはNoneを設定する。
+        """
+        # timestamp → created_at/updated_at の移行
+        if "created_at" not in metadata:
+            metadata["created_at"] = metadata.get("timestamp")
+        if "updated_at" not in metadata:
+            metadata["updated_at"] = metadata.get("timestamp")
+
+        # row_count → line_count の移行 (後方互換性)
+        if "line_count" not in metadata and "row_count" in metadata:
+            metadata["line_count"] = metadata.pop("row_count")
+
+        # checksum_algorithm のデフォルト
+        if "checksum_algorithm" not in metadata:
+            metadata["checksum_algorithm"] = "sha256"
+
+        # 欠損フィールドは明示的にNone
+        metadata.setdefault("metadata_version", None)
+        metadata.setdefault("source_url", None)
+        metadata.setdefault("line_count", None)
+        metadata.setdefault("verification", None)
+
+        return metadata
 
     def cleanup_old_files(self, days_to_keep: int = 365) -> int:
         """指定日数より古いファイルを削除する。
