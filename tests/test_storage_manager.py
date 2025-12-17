@@ -1347,14 +1347,15 @@ class TestMetadataEnhancements(unittest.TestCase):
 
     def test_path_safety_validation_traversal_detection(self):
         """パストラバーサルが検出されることを確認"""
-        # base_path外のパスを指定
-        outside_path = Path("/tmp/outside.csv")
+        # base_path外のパスを指定 (別の一時ディレクトリを使用)
+        with tempfile.TemporaryDirectory() as outside_dir:
+            outside_path = Path(outside_dir) / "outside.csv"
 
-        result = self.storage._check_path_safety_validation(outside_path)
-        self.assertFalse(result["valid"])
-        self.assertTrue(
-            any("Path traversal detected" in err for err in result["errors"])
-        )
+            result = self.storage._check_path_safety_validation(outside_path)
+            self.assertFalse(result["valid"])
+            self.assertTrue(
+                any("Path traversal detected" in err for err in result["errors"])
+            )
 
     def test_path_safety_validation_dangerous_pattern_detection(self):
         """危険なパターンが検出されることを確認"""
