@@ -881,6 +881,27 @@ class StorageManager:
             "warnings": warnings,
         }
 
+    def validate_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
+        """ファイルを検証し、検証結果を返す (公開API).
+
+        外部スクリプト (verify_metadata.py など) からファイル検証を
+        実行するための公開インターフェース。
+
+        Args:
+            file_path: 検証するファイルのパス
+            data: ファイルのデータ (バイト形式)
+
+        Returns:
+            検証結果の辞書。以下のキーを含む:
+            - status: "verified" または "failed"
+            - verified_at: 検証日時 (ISO形式)
+            - method: 検証方法 ("automated")
+            - checks: 各検証項目の結果 (file_size, encoding, csv_format, path_safety)
+            - errors: エラーメッセージのリスト
+            - warnings: 警告メッセージのリスト
+        """
+        return self._validate_saved_file(file_path, data)
+
     def _check_file_size_validation(self, data: bytes) -> dict[str, Any]:
         """ファイルサイズを検証する。
 

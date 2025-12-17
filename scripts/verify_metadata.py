@@ -97,8 +97,8 @@ def _process_single_file(
     # CSVファイルを読み込み
     data = data_file.read_bytes()
 
-    # 検証を実行 (_validate_saved_file を呼び出し)
-    verification: dict[str, Any] = storage_manager._validate_saved_file(data_file, data)
+    # 検証を実行 (公開API validate_file を使用)
+    verification: dict[str, Any] = storage_manager.validate_file(data_file, data)
     status: str = verification["status"]
 
     if dry_run:
