@@ -3,6 +3,7 @@ validate_data.py のテスト
 """
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,10 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.data_dir = Path(self.temp_dir) / "data"
         self.data_dir.mkdir(parents=True)
+
+    def tearDown(self):
+        """テスト後処理: 一時ディレクトリをクリーンアップ"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_generate_markdown_report_empty(self):
         """ファイルがない場合のMarkdownレポート生成"""
@@ -125,21 +130,25 @@ class TestMarkdownEscaping(unittest.TestCase):
 class TestDataValidatorFormatOption(unittest.TestCase):
     """--formatオプションのテスト"""
 
+    def setUp(self):
+        """テスト準備"""
+        self.project_root = Path(__file__).parent.parent
+        self.temp_dir = tempfile.mkdtemp()
+        self.data_dir = self.project_root / "data" / "raw"
+
+    def tearDown(self):
+        """テスト後処理: 一時ディレクトリをクリーンアップ"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
     def test_format_option_json(self):
         """JSON形式出力のテスト"""
-        # プロジェクトルートを取得
-        project_root = Path(__file__).parent.parent
-        temp_dir = tempfile.mkdtemp()
-        output_file = Path(temp_dir) / "report.json"
-
-        # data/rawディレクトリを使用 (パス安全性チェックを通すため)
-        data_dir = project_root / "data" / "raw"
+        output_file = Path(self.temp_dir) / "report.json"
 
         result = subprocess.run(
             [
                 sys.executable,
                 "scripts/validate_data.py",
-                str(data_dir),
+                str(self.data_dir),
                 "--pattern",
                 "sentinel_weekly_gender_2025_48.csv",
                 "--format",
@@ -151,7 +160,7 @@ class TestDataValidatorFormatOption(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
-            cwd=project_root,
+            cwd=self.project_root,
             check=False,
         )
 
@@ -168,18 +177,13 @@ class TestDataValidatorFormatOption(unittest.TestCase):
 
     def test_format_option_markdown(self):
         """Markdown形式出力のテスト"""
-        project_root = Path(__file__).parent.parent
-        temp_dir = tempfile.mkdtemp()
-        output_file = Path(temp_dir) / "report.md"
-
-        # data/rawディレクトリを使用
-        data_dir = project_root / "data" / "raw"
+        output_file = Path(self.temp_dir) / "report.md"
 
         result = subprocess.run(
             [
                 sys.executable,
                 "scripts/validate_data.py",
-                str(data_dir),
+                str(self.data_dir),
                 "--pattern",
                 "sentinel_weekly_gender_2025_48.csv",
                 "--format",
@@ -191,7 +195,7 @@ class TestDataValidatorFormatOption(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
-            cwd=project_root,
+            cwd=self.project_root,
             check=False,
         )
 
