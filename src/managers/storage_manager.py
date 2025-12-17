@@ -18,6 +18,23 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+# メタデータスキーマバージョン
+METADATA_VERSION = "1.0"
+
+# 検証メッセージの制限
+MAX_ERROR_COUNT = 10
+MAX_WARNING_COUNT = 10
+MAX_MESSAGE_LENGTH = 500
+
+# 検証設定
+VALIDATION_MIN_FILE_SIZE = 100  # 最小ファイルサイズ(バイト)
+VALIDATION_MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ(MB)
+VALIDATION_MIN_LINE_COUNT = 1  # 最小行数
+VALIDATION_MAX_LINE_COUNT = 1000000  # 最大行数
+VALIDATION_MIN_COLUMN_COUNT = 2  # 最小カラム数
+VALIDATION_MAX_COLUMN_COUNT = 100  # 最大カラム数
+EXPECTED_ENCODING = "shift_jis"  # 期待されるエンコーディング
+
 logger = logging.getLogger(__name__)
 
 
@@ -329,23 +346,50 @@ class StorageManager:
 
             # メタデータ生成
             period_type = "monthly" if is_monthly else "weekly"
+            now = datetime.now().isoformat()
+
+            # 既存メタデータの取得（force_overwrite時のcreated_at保持用）
+            existing_metadata = None
+            if force_overwrite:
+                existing_metadata = self.get_metadata(file_path)
+
+            # created_at/updated_atの設定
+            if existing_metadata:
+                # 既存のcreated_atを保持、なければtimestampから復元
+                created_at = existing_metadata.get("created_at") or existing_metadata.get("timestamp") or now
+            else:
+                created_at = now
+            updated_at = now
+
+            # 行数のカウント（ストリーム処理）
+            row_count = self._count_rows_streaming(data)
+
             metadata = {
+                "metadata_version": METADATA_VERSION,
                 "filename": filename,
                 "data_type": data_type,
                 "year": year,
                 "period": period,
                 "period_type": period_type,
-                "timestamp": datetime.now().isoformat(),
+                "created_at": created_at,
+                "updated_at": updated_at,
                 "file_size": len(data),
+                "row_count": row_count,
                 "sha256_hash": data_hash,
+                "checksum_algorithm": "sha256",
                 "encoding": "shift_jis",
                 "file_path": str(file_path.relative_to(self.base_path)),
                 "force_overwrite": force_overwrite,
                 "save_all_zero": save_all_zero,
             }
 
+            # source_urlはadditional_metadataから取得
             if additional_metadata:
                 metadata.update(additional_metadata)
+
+            # 検証の実行
+            verification = self._validate_saved_file(file_path, data)
+            metadata["verification"] = verification
 
             # メタデータは別ディレクトリに保存(.metadataディレクトリ)
             metadata_filename = f"{filename.replace('.csv', '.json')}"
@@ -684,6 +728,271 @@ class StorageManager:
             logger.exception("Unexpected error while checking for all-zero data")
             return False
 
+    def _count_rows_streaming(self, data: bytes) -> int | None:
+        """ストリーム処理でCSVの行数をカウントする。
+
+        Args:
+            data: CSVデータ(バイト形式)
+
+        Returns:
+            行数。デコード失敗時はNone
+
+        Note:
+            メモリ効率を重視したストリーム処理。
+            末尾の空行は除外する。
+        """
+        try:
+            count = data.count(b"\n")
+            # 末尾が改行でない場合は1を追加
+            if data and not data.endswith(b"\n"):
+                count += 1
+            return count if count > 0 else None
+        except Exception:
+            logger.exception("Failed to count rows")
+            return None
+
+    def _validate_saved_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
+        """保存されたファイルを検証し、検証結果を返す。
+
+        Args:
+            file_path: 検証するファイルのパス
+            data: ファイルのデータ(バイト形式)
+
+        Returns:
+            検証結果の辞書(verification オブジェクト)
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+        checks: dict[str, bool] = {}
+
+        # ファイルサイズチェック
+        size_result = self._check_file_size_validation(data)
+        checks["file_size"] = size_result["valid"]
+        errors.extend(size_result.get("errors", []))
+        warnings.extend(size_result.get("warnings", []))
+
+        # エンコーディングチェック
+        encoding_result = self._check_encoding_validation(data)
+        checks["encoding"] = encoding_result["valid"]
+        errors.extend(encoding_result.get("errors", []))
+
+        # CSVフォーマットチェック
+        csv_result = self._check_csv_format_validation(data)
+        checks["csv_format"] = csv_result["valid"]
+        errors.extend(csv_result.get("errors", []))
+        warnings.extend(csv_result.get("warnings", []))
+
+        # パス安全性チェック
+        path_result = self._check_path_safety_validation(file_path)
+        checks["path_safety"] = path_result["valid"]
+        errors.extend(path_result.get("errors", []))
+
+        # ステータスの決定
+        if errors:
+            status = "failed"
+        else:
+            status = "verified"
+
+        # メッセージの制限
+        errors = self._truncate_messages(errors, MAX_ERROR_COUNT)
+        warnings = self._truncate_messages(warnings, MAX_WARNING_COUNT)
+
+        return {
+            "status": status,
+            "verified_at": datetime.now().isoformat(),
+            "method": "automated",
+            "checks": checks,
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+    def _check_file_size_validation(self, data: bytes) -> dict[str, Any]:
+        """ファイルサイズを検証する。
+
+        Args:
+            data: ファイルデータ(バイト形式)
+
+        Returns:
+            検証結果の辞書
+        """
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
+
+        size_bytes = len(data)
+        size_mb = size_bytes / (1024 * 1024)
+
+        if size_bytes < VALIDATION_MIN_FILE_SIZE:
+            result["errors"].append(
+                f"[file_size] File too small: {size_bytes} bytes (minimum: {VALIDATION_MIN_FILE_SIZE})"
+            )
+            result["valid"] = False
+        elif size_mb > VALIDATION_MAX_FILE_SIZE_MB:
+            result["errors"].append(
+                f"[file_size] File too large: {size_mb:.2f} MB (maximum: {VALIDATION_MAX_FILE_SIZE_MB} MB)"
+            )
+            result["valid"] = False
+        elif size_mb > VALIDATION_MAX_FILE_SIZE_MB * 0.8:
+            result["warnings"].append(
+                f"[file_size] File size warning: {size_mb:.2f} MB (80% of maximum)"
+            )
+
+        return result
+
+    def _check_encoding_validation(self, data: bytes) -> dict[str, Any]:
+        """エンコーディングを検証する。
+
+        Args:
+            data: ファイルデータ(バイト形式)
+
+        Returns:
+            検証結果の辞書
+        """
+        result: dict[str, Any] = {"valid": True, "errors": []}
+
+        try:
+            # Shift_JISでデコードを試みる
+            content = data.decode(EXPECTED_ENCODING)
+            # 最初の数行を読んで確認
+            lines = content.split("\n")[:10]
+            for _ in lines:
+                pass  # デコードできれば OK
+        except UnicodeDecodeError as e:
+            result["errors"].append(
+                f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}"
+            )
+            result["valid"] = False
+        except Exception as e:
+            result["errors"].append(f"[encoding] Failed to check encoding: {e!s}")
+            result["valid"] = False
+
+        return result
+
+    def _check_csv_format_validation(self, data: bytes) -> dict[str, Any]:
+        """CSVフォーマットを検証する。
+
+        Args:
+            data: ファイルデータ(バイト形式)
+
+        Returns:
+            検証結果の辞書
+        """
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
+
+        try:
+            content = data.decode(EXPECTED_ENCODING, errors="replace")
+            csv_reader = csv.reader(io.StringIO(content))
+
+            line_count = 0
+            column_counts: set[int] = set()
+            max_columns = 0
+
+            for row in csv_reader:
+                line_count += 1
+                column_count = len(row)
+                column_counts.add(column_count)
+                max_columns = max(max_columns, column_count)
+
+                # 行数チェック(早期終了)
+                if line_count > VALIDATION_MAX_LINE_COUNT:
+                    result["errors"].append(
+                        f"[csv_format] Too many lines: >{VALIDATION_MAX_LINE_COUNT}"
+                    )
+                    result["valid"] = False
+                    break
+
+            # 検証
+            if line_count < VALIDATION_MIN_LINE_COUNT:
+                result["errors"].append(
+                    f"[csv_format] Too few lines: {line_count} (minimum: {VALIDATION_MIN_LINE_COUNT})"
+                )
+                result["valid"] = False
+
+            if max_columns > VALIDATION_MAX_COLUMN_COUNT:
+                result["errors"].append(
+                    f"[csv_format] Too many columns: {max_columns} (maximum: {VALIDATION_MAX_COLUMN_COUNT})"
+                )
+                result["valid"] = False
+            elif max_columns < VALIDATION_MIN_COLUMN_COUNT:
+                result["errors"].append(
+                    f"[csv_format] Too few columns: {max_columns} (minimum: {VALIDATION_MIN_COLUMN_COUNT})"
+                )
+                result["valid"] = False
+
+            # カラム数の一貫性チェック
+            if len(column_counts) > 1:
+                result["warnings"].append(
+                    f"[csv_format] Inconsistent column count: {column_counts}"
+                )
+
+        except csv.Error as e:
+            result["errors"].append(f"[csv_format] CSV format error: {e!s}")
+            result["valid"] = False
+        except Exception as e:
+            result["errors"].append(f"[csv_format] Failed to check CSV format: {e!s}")
+            result["valid"] = False
+
+        return result
+
+    def _check_path_safety_validation(self, file_path: Path) -> dict[str, Any]:
+        """パスの安全性を検証する(パストラバーサル攻撃対策)。
+
+        Args:
+            file_path: 検証するファイルパス
+
+        Returns:
+            検証結果の辞書
+        """
+        result: dict[str, Any] = {"valid": True, "errors": []}
+
+        try:
+            # 絶対パスを解決
+            resolved_path = file_path.resolve()
+
+            # base_path内にあることを確認
+            try:
+                resolved_path.relative_to(self.base_path.resolve())
+            except ValueError:
+                result["errors"].append(
+                    f"[path_safety] Path traversal detected: {resolved_path} not in {self.base_path}"
+                )
+                result["valid"] = False
+
+            # 危険な文字のチェック
+            dangerous_patterns = ["../", "..\\", "~", "|", "&", ";", "$", "`"]
+            path_str = str(file_path)
+            for pattern in dangerous_patterns:
+                if pattern in path_str:
+                    result["errors"].append(
+                        f"[path_safety] Dangerous pattern in path: {pattern}"
+                    )
+                    result["valid"] = False
+
+        except Exception as e:
+            result["errors"].append(f"[path_safety] Failed to check path safety: {e!s}")
+            result["valid"] = False
+
+        return result
+
+    def _truncate_messages(self, messages: list[str], max_count: int) -> list[str]:
+        """メッセージリストを制限する。
+
+        Args:
+            messages: メッセージのリスト
+            max_count: 最大件数
+
+        Returns:
+            制限されたメッセージリスト
+        """
+        truncated: list[str] = []
+        for msg in messages[:max_count]:
+            if len(msg) > MAX_MESSAGE_LENGTH:
+                msg = msg[: MAX_MESSAGE_LENGTH - 3] + "..."
+            truncated.append(msg)
+
+        if len(messages) > max_count:
+            truncated.append(f"... 他{len(messages) - max_count}件のメッセージ")
+
+        return truncated
+
     def _get_month_from_week(self, year: int, week: int) -> int:
         """ISO週番号から対応する月を計算する。
 
@@ -748,10 +1057,11 @@ class StorageManager:
             file_path: メタデータを取得するファイルのパス
 
         Returns:
-            メタデータ辞書、存在しない場合はNone
+            メタデータ辞書(正規化済み)、存在しない場合はNone
 
         Note:
-            メタデータファイルは.metadataディレクトリから読み込まれる
+            メタデータファイルは.metadataディレクトリから読み込まれる。
+            旧形式のメタデータは自動的に正規化される。
         """
         # メタデータは.metadataディレクトリから取得
         metadata_filename = f"{file_path.stem}.json"
@@ -760,11 +1070,44 @@ class StorageManager:
         if metadata_path.exists():
             try:
                 with metadata_path.open() as f:
-                    return json.load(f)
+                    metadata = json.load(f)
+                # 旧形式メタデータの正規化
+                return self._normalize_metadata(metadata)
             except Exception as e:
                 logger.warning(f"Failed to load metadata: {e}")
 
         return None
+
+    def _normalize_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        """旧形式メタデータを新形式に正規化する。
+
+        Args:
+            metadata: 正規化するメタデータ辞書
+
+        Returns:
+            正規化されたメタデータ辞書
+
+        Note:
+            旧形式(timestampのみ)から新形式(created_at/updated_at)への移行を行う。
+            欠損フィールドにはデフォルト値またはNoneを設定する。
+        """
+        # timestamp → created_at/updated_at の移行
+        if "created_at" not in metadata:
+            metadata["created_at"] = metadata.get("timestamp")
+        if "updated_at" not in metadata:
+            metadata["updated_at"] = metadata.get("timestamp")
+
+        # checksum_algorithm のデフォルト
+        if "checksum_algorithm" not in metadata:
+            metadata["checksum_algorithm"] = "sha256"
+
+        # 欠損フィールドは明示的にNone
+        metadata.setdefault("metadata_version", None)
+        metadata.setdefault("source_url", None)
+        metadata.setdefault("row_count", None)
+        metadata.setdefault("verification", None)
+
+        return metadata
 
     def cleanup_old_files(self, days_to_keep: int = 365) -> int:
         """指定日数より古いファイルを削除する。

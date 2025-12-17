@@ -994,5 +994,261 @@ class TestStorageManager(unittest.TestCase):
         self.assertTrue(expected_file.exists(), "ファイルが存在すべきです")
 
 
+class TestMetadataEnhancements(unittest.TestCase):
+    """メタデータ拡張機能のテスト"""
+
+    def setUp(self):
+        """テストの前処理"""
+        self.test_dir = tempfile.mkdtemp()
+        self.base_path = Path(self.test_dir) / "data" / "raw"
+        self.config = {"auto_commit": False}
+        self.storage = StorageManager(self.base_path, self.config)
+
+    def tearDown(self):
+        """テストの後処理"""
+        import shutil
+
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_metadata_version_is_set(self):
+        """メタデータにversionが設定されることを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=1,
+            is_monthly=False,
+        )
+
+        self.assertTrue(result.success)
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata.get("metadata_version"), "1.0")
+
+    def test_created_at_and_updated_at_set_on_new_file(self):
+        """新規ファイル作成時にcreated_atとupdated_atが設定されることを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=2,
+            is_monthly=False,
+        )
+
+        self.assertTrue(result.success)
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+        self.assertIn("created_at", metadata)
+        self.assertIn("updated_at", metadata)
+        self.assertIsNotNone(metadata["created_at"])
+        self.assertIsNotNone(metadata["updated_at"])
+        # 新規作成時はcreated_at == updated_at
+        self.assertEqual(metadata["created_at"], metadata["updated_at"])
+
+    def test_created_at_preserved_on_force_overwrite(self):
+        """force_overwrite時にcreated_atが保持されることを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+
+        # 初回保存
+        result1 = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=3,
+            is_monthly=False,
+        )
+        self.assertTrue(result1.success)
+        metadata1 = self.storage.get_metadata(result1.file_path)
+        original_created_at = metadata1["created_at"]
+
+        # 少し待機（タイムスタンプが異なることを確認するため）
+        import time
+
+        time.sleep(0.01)
+
+        # force_overwriteで再保存
+        updated_data = csv_data.replace("5", "10").encode("shift_jis")
+        result2 = self.storage.save_with_metadata(
+            data=updated_data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=3,
+            is_monthly=False,
+            force_overwrite=True,
+        )
+        self.assertTrue(result2.success)
+        metadata2 = self.storage.get_metadata(result2.file_path)
+
+        # created_atは変更されていないことを確認
+        self.assertEqual(metadata2["created_at"], original_created_at)
+        # updated_atは更新されていることを確認
+        self.assertNotEqual(metadata2["updated_at"], original_created_at)
+
+    def test_row_count_is_calculated(self):
+        """行数が正しく計算されることを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"地域2","10"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=4,
+            is_monthly=False,
+        )
+
+        self.assertTrue(result.success)
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+        self.assertIn("row_count", metadata)
+        self.assertEqual(metadata["row_count"], 4)  # 4行（末尾の空行は含まない）
+
+    def test_checksum_algorithm_is_set(self):
+        """checksum_algorithmが設定されることを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=5,
+            is_monthly=False,
+        )
+
+        self.assertTrue(result.success)
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata.get("checksum_algorithm"), "sha256")
+
+    def test_verification_status_verified_on_valid_data(self):
+        """正常データの検証ステータスがverifiedになることを確認"""
+        # 最小ファイルサイズ(100バイト)を超えるデータを作成
+        csv_data = """"テスト週報データ"
+"","疾病A","疾病B","疾病C","疾病D"
+"地域1","5","10","15","20"
+"地域2","1","2","3","4"
+"地域3","0","0","1","0"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=6,
+            is_monthly=False,
+        )
+
+        self.assertTrue(result.success)
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+        self.assertIn("verification", metadata)
+        self.assertEqual(metadata["verification"]["status"], "verified")
+        self.assertTrue(metadata["verification"]["checks"]["file_size"])
+        self.assertTrue(metadata["verification"]["checks"]["encoding"])
+        self.assertTrue(metadata["verification"]["checks"]["csv_format"])
+        self.assertTrue(metadata["verification"]["checks"]["path_safety"])
+        self.assertEqual(metadata["verification"]["errors"], [])
+
+    def test_source_url_saved_in_metadata(self):
+        """source_urlがメタデータに保存されることを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=7,
+            is_monthly=False,
+            additional_metadata={"source_url": "https://example.com/data.csv"},
+        )
+
+        self.assertTrue(result.success)
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata.get("source_url"), "https://example.com/data.csv")
+
+    def test_legacy_metadata_normalization(self):
+        """旧形式メタデータの正規化を確認"""
+        # 旧形式のメタデータを直接作成
+        legacy_metadata = {
+            "filename": "test_2025_01.csv",
+            "data_type": "sentinel_weekly_test",
+            "year": 2025,
+            "period": 8,
+            "period_type": "weekly",
+            "timestamp": "2025-01-01T00:00:00.000000",
+            "file_size": 100,
+            "sha256_hash": "abc123",
+            "encoding": "shift_jis",
+            "file_path": "test_2025_01.csv",
+        }
+
+        # メタデータファイルを直接書き込み
+        metadata_path = self.storage.metadata_dir / "sentinel_weekly_test_2025_08.json"
+        with metadata_path.open("w", encoding="utf-8") as f:
+            json.dump(legacy_metadata, f, ensure_ascii=False, indent=2)
+
+        # get_metadataで読み込む（正規化される）
+        test_file = self.base_path / "sentinel_weekly_test_2025_08.csv"
+        normalized = self.storage.get_metadata(test_file)
+
+        # 正規化されたフィールドを確認
+        self.assertIsNotNone(normalized)
+        self.assertEqual(normalized["created_at"], "2025-01-01T00:00:00.000000")
+        self.assertEqual(normalized["updated_at"], "2025-01-01T00:00:00.000000")
+        self.assertEqual(normalized["checksum_algorithm"], "sha256")
+        self.assertIsNone(normalized["metadata_version"])  # 旧形式はNone
+        self.assertIsNone(normalized["source_url"])  # 旧形式はNone
+        self.assertIsNone(normalized["row_count"])  # 旧形式はNone
+        self.assertIsNone(normalized["verification"])  # 旧形式はNone
+
+    def test_truncate_messages_limits_count(self):
+        """_truncate_messagesが件数を制限することを確認"""
+        messages = [f"error {i}" for i in range(15)]
+        truncated = self.storage._truncate_messages(messages, 10)
+
+        self.assertEqual(len(truncated), 11)  # 10件 + "他N件"
+        self.assertIn("他5件のメッセージ", truncated[-1])
+
+    def test_truncate_messages_limits_length(self):
+        """_truncate_messagesがメッセージ長を制限することを確認"""
+        long_message = "a" * 600  # 500文字超
+        messages = [long_message]
+        truncated = self.storage._truncate_messages(messages, 10)
+
+        self.assertEqual(len(truncated), 1)
+        self.assertTrue(len(truncated[0]) <= 500)
+        self.assertTrue(truncated[0].endswith("..."))
+
+
 if __name__ == "__main__":
     unittest.main()

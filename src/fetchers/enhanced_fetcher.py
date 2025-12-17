@@ -61,6 +61,7 @@ class FetchResult:
     error: Exception | None = None
     retry_count: int = 0
     fetch_time: float | None = None
+    source_url: str | None = None  # データ取得元URL(リダイレクト後の最終URL)
 
 
 @dataclass
@@ -255,8 +256,16 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             # メタデータの生成
             metadata = self._create_metadata(data, metadata_params)
 
+            # source_urlの生成
+            source_url = self._get_source_url(data_type)
+
             return FetchResult(
-                success=True, data=data, metadata=metadata, retry_count=retry_count, fetch_time=time.time() - start_time
+                success=True,
+                data=data,
+                metadata=metadata,
+                retry_count=retry_count,
+                fetch_time=time.time() - start_time,
+                source_url=source_url,
             )
 
         except (HTTPError, Timeout, ConnectionError, ValueError, OSError) as e:
@@ -459,6 +468,27 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             "notifiable_weekly": "20",
         }
         return report_type_map.get(data_type, "0")
+
+    def _get_source_url(self, data_type: str | None) -> str | None:
+        """データタイプからソースURLを構成する
+
+        Args:
+            data_type: データタイプ
+
+        Returns:
+            ソースURL(data_typeがNoneの場合はNone)
+        """
+        if data_type is None:
+            return None
+
+        # report_typeからエンドポイントを取得
+        report_type = self._get_report_type(data_type)
+        endpoint = self.fetcher.ENDPOINT_MAP.get(report_type)
+
+        if endpoint is None:
+            return None
+
+        return f"{self.fetcher.BASE_URL}/{endpoint}"
 
     def _parse_existing_files(self, files: list[Path], data_type: str) -> list[FetchParams]:
         """既存ファイルからパラメータを解析

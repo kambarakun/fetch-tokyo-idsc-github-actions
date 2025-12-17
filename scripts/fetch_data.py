@@ -197,6 +197,11 @@ class DataCollector:
             if result.success:
                 # データ保存
                 if not self.dry_run:
+                    # 追加メタデータの準備
+                    additional_metadata: dict[str, Any] = {"fetch_time": result.fetch_time}
+                    if result.source_url:
+                        additional_metadata["source_url"] = result.source_url
+
                     # 強制更新モードの場合、既存ファイルも上書き
                     save_result = self.storage.save_with_metadata(
                         result.data,
@@ -204,7 +209,7 @@ class DataCollector:
                         int(params.start_year),
                         int(params.start_sub_period),
                         is_monthly,
-                        {"fetch_time": result.fetch_time},
+                        additional_metadata,
                         force_overwrite=self.force_update,  # 強制更新フラグを渡す
                         save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
