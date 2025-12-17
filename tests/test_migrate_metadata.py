@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from scripts.migrate_metadata import (
-    MigrationRegistry,
     V1_0_REQUIRED_FIELDS,
+    MigrationRegistry,
     count_lines,
     migrate_metadata,
     migrate_none_to_v1_0,
@@ -249,6 +249,9 @@ class TestMigrateNoneToV10:
         assert migrated["source_url"] is None
         assert migrated["verification"] is None
         assert migrated["line_count"] is None
+        # timestamp フィールドは削除される
+        assert "timestamp" not in migrated
+        assert any("timestamp" in c and "removed" in c for c in changes)
         assert len(changes) > 0
 
     def test_migrate_with_row_count(self) -> None:
@@ -276,7 +279,7 @@ class TestMigrateNoneToV10:
                 "filename": temp_path.name,
                 "timestamp": "2025-11-01T18:10:03.404770",
             }
-            migrated, changes = migrate_none_to_v1_0(old_metadata, temp_path)
+            migrated, _ = migrate_none_to_v1_0(old_metadata, temp_path)
             assert migrated["line_count"] == 3
         finally:
             temp_path.unlink()
@@ -476,4 +479,60 @@ class TestV10RequiredFields:
             "verification",
             "line_count",
         }
-        assert V1_0_REQUIRED_FIELDS == expected
+        assert expected == V1_0_REQUIRED_FIELDS
+
+
+class TestSecurityMeasures:
+    """セキュリティ対策のテスト."""
+
+    def test_path_traversal_prevention(self) -> None:
+        """パストラバーサル攻撃が防止される."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_dir = Path(tmpdir) / ".metadata"
+            data_dir = Path(tmpdir)
+            metadata_dir.mkdir()
+
+            # 悪意のあるファイル名を持つメタデータを作成
+            malicious_metadata = {
+                "filename": "../../../etc/passwd",
+                "timestamp": "2025-11-01T18:10:03.404770",
+            }
+            metadata_path = metadata_dir / "test.json"
+            with metadata_path.open("w") as f:
+                json.dump(malicious_metadata, f)
+
+            # CSVファイルを作成 (安全なパスに)
+            csv_path = data_dir / "passwd"
+            csv_path.write_bytes(b"safe content\n")
+
+            # マイグレーション実行
+            stats = run_migration(metadata_dir, data_dir, dry_run=False)
+
+            # エラーなく完了すること (パストラバーサルが防止された)
+            assert stats["errors"] == 0
+            assert stats["migrated"] == 1
+
+    def test_timestamp_field_removed(self) -> None:
+        """マイグレーション後にtimestampフィールドが削除される."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            metadata_dir = Path(tmpdir) / ".metadata"
+            data_dir = Path(tmpdir)
+            metadata_dir.mkdir()
+
+            old_metadata = {
+                "filename": "test.csv",
+                "timestamp": "2025-11-01T18:10:03.404770",
+            }
+            metadata_path = metadata_dir / "test.json"
+            with metadata_path.open("w") as f:
+                json.dump(old_metadata, f)
+
+            # マイグレーション実行
+            run_migration(metadata_dir, data_dir, dry_run=False)
+
+            # ファイルを読み込んでtimestampが削除されていることを確認
+            with metadata_path.open() as f:
+                migrated = json.load(f)
+            assert "timestamp" not in migrated
+            assert migrated["created_at"] == "2025-11-01T18:10:03.404770"
+            assert migrated["updated_at"] == "2025-11-01T18:10:03.404770"

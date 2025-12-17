@@ -41,6 +41,15 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python
+        run: uv python install 3.11
+
       - name: Check METADATA_VERSION change
         id: check
         run: |
@@ -51,9 +60,41 @@ jobs:
             exit 0
           fi
 
-          # 前のコミットと現在のMETADATA_VERSIONを比較
-          OLD_VERSION=$(git show HEAD^:src/managers/storage_manager.py 2>/dev/null | grep -E '^METADATA_VERSION\s*=' | grep -oE '"[^"]+"' | tr -d '"' || echo "")
-          NEW_VERSION=$(grep -E '^METADATA_VERSION\s*=' src/managers/storage_manager.py | grep -oE '"[^"]+"' | tr -d '"')
+          # Pythonで堅牢にバージョンを抽出
+          extract_version() {
+            uv run python -c "
+          import re
+          import sys
+          try:
+              content = open('$1').read()
+              match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
+              print(match.group(1) if match else '')
+          except Exception:
+              print('')
+          "
+          }
+
+          # 前のコミットのファイルを一時的に取得
+          git show HEAD^:src/managers/storage_manager.py > /tmp/old_storage_manager.py 2>/dev/null || echo "" > /tmp/old_storage_manager.py
+
+          OLD_VERSION=$(uv run python -c "
+          import re
+          try:
+              content = open('/tmp/old_storage_manager.py').read()
+              match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
+              print(match.group(1) if match else '')
+          except Exception:
+              print('')
+          ")
+          NEW_VERSION=$(uv run python -c "
+          import re
+          try:
+              content = open('src/managers/storage_manager.py').read()
+              match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
+              print(match.group(1) if match else '')
+          except Exception:
+              print('')
+          ")
 
           echo "Old version: $OLD_VERSION"
           echo "New version: $NEW_VERSION"
@@ -97,8 +138,13 @@ jobs:
           elif [ -n "${{ needs.check-version-change.outputs.new_version }}" ]; then
             echo "target=${{ needs.check-version-change.outputs.new_version }}" >> $GITHUB_OUTPUT
           else
-            # デフォルトは最新バージョン
-            VERSION=$(grep -E '^METADATA_VERSION\s*=' src/managers/storage_manager.py | grep -oE '"[^"]+"' | tr -d '"')
+            # Pythonで堅牢にバージョンを抽出
+            VERSION=$(uv run python -c "
+          import re
+          content = open('src/managers/storage_manager.py').read()
+          match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
+          print(match.group(1) if match else '1.0')
+          ")
             echo "target=$VERSION" >> $GITHUB_OUTPUT
           fi
 
@@ -108,8 +154,9 @@ jobs:
           echo "=== Dry Run ==="
           uv run python scripts/migrate_metadata.py --dry-run --target-version "${{ steps.version.outputs.target }}" 2>&1 | tee dry_run.log
 
-          # マイグレーション対象があるか確認
+          # マイグレーション対象があるか確認 (空の場合は0をデフォルト)
           MIGRATED=$(grep "Migrated:" dry_run.log | awk '{print $2}')
+          MIGRATED=${MIGRATED:-0}
           echo "migrated_count=$MIGRATED" >> $GITHUB_OUTPUT
 
       - name: Run migration
@@ -126,18 +173,18 @@ jobs:
 
       - name: Create commit
         if: inputs.dry_run != 'true' && steps.dry_run.outputs.migrated_count != '0'
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.target }}
+          MIGRATED_COUNT: ${{ steps.dry_run.outputs.migrated_count }}
         run: |
           git add data/raw/.metadata/*.json
 
           if ! git diff --staged --quiet; then
-            git commit -m "$(cat <<'EOF'
-          chore(metadata): migrate to version ${{ steps.version.outputs.target }}
+            git commit -m "chore(metadata): migrate to version ${TARGET_VERSION}
 
-          Migrated ${{ steps.dry_run.outputs.migrated_count }} metadata files to version ${{ steps.version.outputs.target }}.
+          Migrated ${MIGRATED_COUNT} metadata files to version ${TARGET_VERSION}.
 
-          🤖 Generated with [Claude Code](https://claude.com/claude-code)
-          EOF
-          )"
+          🤖 Generated with [Claude Code](https://claude.com/claude-code)"
             git push
             echo "Migration committed and pushed"
           else

@@ -24,8 +24,10 @@ import argparse
 import json
 import logging
 import sys
+from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import TypeAlias
@@ -99,8 +101,6 @@ class MigrationRegistry:
             return []
 
         # BFSでパスを探索
-        from collections import deque
-
         queue: deque[list[tuple[str | None, str]]] = deque()
         visited: set[str | None] = {from_version}
 
@@ -181,6 +181,9 @@ migration_registry = MigrationRegistry()
 def count_lines(data_file: Path) -> int | None:
     """CSVファイルの行数をカウントする.
 
+    バッファリングを使用してメモリ効率を最適化。
+    大きなファイルでもメモリを消費しない。
+
     Args:
         data_file: カウント対象のCSVファイルパス
 
@@ -190,11 +193,18 @@ def count_lines(data_file: Path) -> int | None:
     if not data_file.exists():
         return None
     try:
-        content = data_file.read_bytes()
-        if not content:
-            return 0
-        line_count = content.count(b"\n")
-        if not content.endswith(b"\n"):
+        line_count = 0
+        last_char = b""
+        buffer_size = 65536  # 64KB バッファ
+        with data_file.open("rb") as f:
+            while True:
+                buffer = f.read(buffer_size)
+                if not buffer:
+                    break
+                line_count += buffer.count(b"\n")
+                last_char = buffer[-1:]
+        # 最後の行が改行で終わっていない場合は+1
+        if last_char and last_char != b"\n":
             line_count += 1
         return line_count
     except OSError:
@@ -228,16 +238,20 @@ def migrate_none_to_v1_0(
     migrated["metadata_version"] = "1.0"
     changes.append("metadata_version: None -> 1.0")
 
-    # timestamp -> created_at / updated_at
+    # timestamp -> created_at / updated_at (timestampは削除)
+    timestamp = migrated.get("timestamp")
     if "created_at" not in migrated:
-        timestamp = migrated.get("timestamp")
         migrated["created_at"] = timestamp
         changes.append(f"created_at: None -> {timestamp}")
 
     if "updated_at" not in migrated:
-        timestamp = migrated.get("timestamp")
         migrated["updated_at"] = timestamp
         changes.append(f"updated_at: None -> {timestamp}")
+
+    # 旧形式の timestamp フィールドを削除
+    if "timestamp" in migrated:
+        migrated.pop("timestamp")
+        changes.append(f"timestamp: {timestamp} -> removed")
 
     # row_count -> line_count
     if "line_count" not in migrated:
@@ -403,8 +417,10 @@ def run_migration(
                     logger.debug(f"Skipped (already at target): {metadata_path.name}")
                 continue
 
-            # 対応するCSVファイルのパス
+            # 対応するCSVファイルのパス (パストラバーサル対策)
             csv_filename = metadata.get("filename", metadata_path.stem + ".csv")
+            # ファイル名のみを抽出してパストラバーサルを防止
+            csv_filename = Path(csv_filename).name
             data_file = data_dir / csv_filename
 
             migrated, changes = migrate_metadata(metadata, data_file, target_version)
