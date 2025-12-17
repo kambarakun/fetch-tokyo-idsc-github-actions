@@ -12,7 +12,7 @@ set -e
 #   scripts/create_pr.sh <workflow_name> <workflow_display_name>
 #
 # 引数:
-#   $1 workflow_name         - ワークフロー識別子 (fetch-data-daily|fetch-data-weekly|fetch-data|process-data)
+#   $1 workflow_name         - ワークフロー識別子 (fetch-data-daily|fetch-data-weekly|fetch-data|process-data|migrate-metadata)
 #   $2 workflow_display_name - PR本文に表示するワークフロー名
 #
 # 必須環境変数:
@@ -39,6 +39,9 @@ set -e
 #     - VERIFY_OUTPUT (true|false)
 #     - VALIDATION_PASSED (true|false)
 #     - NEW_FILES, MODIFIED_FILES, CHANGED_FILES (処理済みファイルカウント用)
+#   migrate-metadata:
+#     - TARGET_VERSION (マイグレーション目標バージョン)
+#     - MIGRATED_COUNT (マイグレーション対象ファイル数)
 #
 # GitHub環境変数（デフォルト値あり）:
 #   - GITHUB_SERVER_URL : GitHubサーバーURL (デフォルト: https://github.com)
@@ -114,6 +117,9 @@ case "$WORKFLOW_NAME" in
     ;;
   process-data)
     BRANCH_NAME="data-process-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
+    ;;
+  migrate-metadata)
+    BRANCH_NAME="chore/migrate-metadata-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
     ;;
   *)
     BRANCH_NAME="data-update-${WORKFLOW_NAME}-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
@@ -267,6 +273,10 @@ PR_BODY_FILE="/tmp/pr_body.md"
         echo "- **検証**: 出力データの品質チェックを実施"
       fi
       ;;
+    migrate-metadata)
+      [ -n "${TARGET_VERSION:-}" ] && echo "- **目標バージョン**: ${TARGET_VERSION}"
+      [ -n "${MIGRATED_COUNT:-}" ] && echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル"
+      ;;
   esac
 
   echo ""
@@ -344,6 +354,11 @@ PR_BODY_FILE="/tmp/pr_body.md"
         fi
       fi
       ;;
+    migrate-metadata)
+      echo "- [x] メタデータファイルのバージョン確認"
+      echo "- [x] マイグレーション実行"
+      echo "- [x] バージョン更新完了"
+      ;;
     *)
       echo "- [x] データ取得完了"
       echo "- [x] ファイル検証済み"
@@ -385,6 +400,10 @@ PR_BODY_FILE="/tmp/pr_body.md"
         echo "- data/raw/ 内の全CSVファイルが処理対象です"
       fi
       ;;
+    migrate-metadata)
+      echo "- メタデータファイルのスキーマバージョンを更新しました"
+      echo "- メタデータは data/raw/.metadata/ ディレクトリに保存されています"
+      ;;
   esac
 
   echo ""
@@ -412,6 +431,10 @@ case "$WORKFLOW_NAME" in
   process-data)
     gh label create "data-processing" --description "Data processing (raw to processed)" --color "D876E3" 2>/dev/null || true
     SPECIFIC_LABEL="data-processing"
+    ;;
+  migrate-metadata)
+    gh label create "metadata-migration" --description "Metadata schema migration" --color "FBCA04" 2>/dev/null || true
+    SPECIFIC_LABEL="metadata-migration"
     ;;
   *)
     SPECIFIC_LABEL=""
