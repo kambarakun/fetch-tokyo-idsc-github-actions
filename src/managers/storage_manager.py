@@ -917,10 +917,8 @@ class StorageManager:
         result: dict[str, Any] = {"valid": True, "errors": []}
 
         try:
-            # Shift_JISでデコードを試みる
-            content = data.decode(EXPECTED_ENCODING)
-            # 最初の数行を読んで確認 (デコード成功の検証)
-            _ = content.split("\n")[:10]
+            # Shift_JISでデコードを試みる (デコード成功がエンコーディング検証)
+            data.decode(EXPECTED_ENCODING)
         except UnicodeDecodeError as e:
             result["errors"].append(
                 f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}"
