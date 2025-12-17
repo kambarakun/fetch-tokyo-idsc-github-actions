@@ -325,7 +325,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return results
 
-    def get_missing_data(  # noqa: PLR0912
+    def get_missing_data(
         self,
         data_type: str,
         existing_files: list[Path],

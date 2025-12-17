@@ -577,7 +577,7 @@ class DataProcessor:
             整数値(空文字列の場合は0)
 
         Raises:
-            ValueError: 数値に変換できない場合（検証スキップ用）
+            ValueError: 数値に変換できない場合 (検証スキップ用)
         """
         stripped = value.strip()
         if not stripped:
@@ -585,11 +585,11 @@ class DataProcessor:
         try:
             return int(stripped)
         except ValueError:
-            # '*'など数値でない値は警告を出してValueErrorを再送出（検証スキップ）
+            # '*'など数値でない値は警告を出してValueErrorを再送出 (検証スキップ)
             logger.warning(f"数値変換失敗: '{value}' - 検証スキップ")
             raise
 
-    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:  # noqa: PLR0912
+    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:
         """元データのtotalが male + female と一致するか検証
 
         Args:
