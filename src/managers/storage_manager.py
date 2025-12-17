@@ -29,6 +29,7 @@ MAX_MESSAGE_LENGTH = 500
 # 検証設定
 VALIDATION_MIN_FILE_SIZE = 100  # 最小ファイルサイズ(バイト)
 VALIDATION_MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ(MB)
+VALIDATION_SIZE_WARNING_THRESHOLD = 0.8  # ファイルサイズ警告閾値 (最大サイズの80%)
 VALIDATION_MIN_LINE_COUNT = 1  # 最小行数
 VALIDATION_MAX_LINE_COUNT = 1000000  # 最大行数
 VALIDATION_MIN_COLUMN_COUNT = 2  # 最小カラム数
@@ -852,7 +853,9 @@ class StorageManager:
         errors.extend(encoding_result.get("errors", []))
 
         # CSVフォーマットチェック
-        csv_result = self._check_csv_format_validation(data)
+        # エンコーディング検証で取得したデコード済みコンテンツを再利用 (パフォーマンス最適化)
+        decoded_content = encoding_result.get("decoded_content")
+        csv_result = self._check_csv_format_validation(data, decoded_content)
         checks["csv_format"] = csv_result["valid"]
         errors.extend(csv_result.get("errors", []))
         warnings.extend(csv_result.get("warnings", []))
@@ -902,9 +905,10 @@ class StorageManager:
                 f"[file_size] File too large: {size_mb:.2f} MB (maximum: {VALIDATION_MAX_FILE_SIZE_MB} MB)"
             )
             result["valid"] = False
-        elif size_mb > VALIDATION_MAX_FILE_SIZE_MB * 0.8:
+        elif size_mb > VALIDATION_MAX_FILE_SIZE_MB * VALIDATION_SIZE_WARNING_THRESHOLD:
             result["warnings"].append(
-                f"[file_size] File size warning: {size_mb:.2f} MB (80% of maximum)"
+                f"[file_size] File size warning: {size_mb:.2f} MB "
+                f"({VALIDATION_SIZE_WARNING_THRESHOLD:.0%} of maximum)"
             )
 
         return result
@@ -916,13 +920,15 @@ class StorageManager:
             data: ファイルデータ(バイト形式)
 
         Returns:
-            検証結果の辞書
+            検証結果の辞書。成功時は "decoded_content" キーにデコード結果を含む。
+            これにより、後続のCSV検証で再デコードを回避できる (パフォーマンス最適化)。
         """
-        result: dict[str, Any] = {"valid": True, "errors": []}
+        result: dict[str, Any] = {"valid": True, "errors": [], "decoded_content": None}
 
         try:
             # Shift_JISでデコードを試みる (デコード成功がエンコーディング検証)
-            data.decode(EXPECTED_ENCODING)
+            decoded = data.decode(EXPECTED_ENCODING)
+            result["decoded_content"] = decoded
         except UnicodeDecodeError as e:
             result["errors"].append(
                 f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}"
@@ -934,11 +940,15 @@ class StorageManager:
 
         return result
 
-    def _check_csv_format_validation(self, data: bytes) -> dict[str, Any]:
+    def _check_csv_format_validation(
+        self, data: bytes, decoded_content: str | None = None
+    ) -> dict[str, Any]:
         """CSVフォーマットを検証する。
 
         Args:
             data: ファイルデータ(バイト形式)
+            decoded_content: 事前にデコードされたコンテンツ (パフォーマンス最適化用)。
+                             指定された場合はこれを使用し、再デコードを回避する。
 
         Returns:
             検証結果の辞書
@@ -946,7 +956,11 @@ class StorageManager:
         result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         try:
-            content = data.decode(EXPECTED_ENCODING, errors="replace")
+            # デコード済みコンテンツがあれば再利用、なければフォールバックでデコード
+            if decoded_content is not None:
+                content = decoded_content
+            else:
+                content = data.decode(EXPECTED_ENCODING, errors="replace")
             csv_reader = csv.reader(io.StringIO(content))
 
             line_count = 0
@@ -994,7 +1008,8 @@ class StorageManager:
         except csv.Error as e:
             result["errors"].append(f"[csv_format] CSV format error: {e!s}")
             result["valid"] = False
-        except (UnicodeDecodeError, OSError, MemoryError) as e:
+        except (OSError, MemoryError) as e:
+            # Note: UnicodeDecodeError is not caught because errors="replace" is used
             result["errors"].append(f"[csv_format] Failed to check CSV format: {e!s}")
             result["valid"] = False
 
@@ -1143,21 +1158,23 @@ class StorageManager:
         Note:
             メタデータファイルは.metadataディレクトリから読み込まれる。
             旧形式のメタデータは自動的に正規化される。
+            TOCTOU脆弱性を回避するため、exists()チェックなしで直接オープンを試みる。
         """
         # メタデータは.metadataディレクトリから取得
         metadata_filename = f"{file_path.stem}.json"
         metadata_path = self.metadata_dir / metadata_filename
 
-        if metadata_path.exists():
-            try:
-                with metadata_path.open() as f:
-                    metadata = json.load(f)
-                # 旧形式メタデータの正規化
-                return self._normalize_metadata(metadata)
-            except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
-                logger.warning(f"Failed to load metadata: {e}")
-
-        return None
+        try:
+            with metadata_path.open() as f:
+                metadata = json.load(f)
+            # 旧形式メタデータの正規化
+            return self._normalize_metadata(metadata)
+        except FileNotFoundError:
+            # ファイルが存在しない場合はNoneを返す (通常のケース)
+            return None
+        except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
+            logger.warning(f"Failed to load metadata: {e}")
+            return None
 
     def _normalize_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """旧形式メタデータを新形式に正規化する。
