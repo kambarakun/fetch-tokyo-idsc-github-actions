@@ -177,6 +177,20 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
         self.assertEqual(self.fetcher._get_report_type("notifiable_weekly"), "20")
         self.assertEqual(self.fetcher._get_report_type("unknown"), "0")
 
+    def test_get_source_url(self):
+        """ソースURL取得のテスト"""
+        # 正常ケース
+        url = self.fetcher._get_source_url("sentinel_weekly_gender")
+        self.assertIsNotNone(url)
+        self.assertIn("https://survey.tmiph.metro.tokyo.lg.jp/epidinfo", url)
+
+        # data_typeがNoneの場合
+        self.assertIsNone(self.fetcher._get_source_url(None))
+
+        # 不明なdata_type (report_type "0"でENDPOINT_MAPにマッピングあり)
+        url = self.fetcher._get_source_url("unknown")
+        self.assertIsNotNone(url)
+
     def test_create_metadata(self):
         """メタデータ生成のテスト"""
         data = b"test data"

@@ -348,40 +348,31 @@ class StorageManager:
             period_type = "monthly" if is_monthly else "weekly"
             now = datetime.now().isoformat()
 
-            # 既存メタデータの取得（force_overwrite時のcreated_at保持用）
-            existing_metadata = None
-            if force_overwrite:
-                existing_metadata = self.get_metadata(file_path)
+            # 既存メタデータの取得 (force_overwrite時のcreated_at保持用)
+            existing_metadata = self.get_metadata(file_path) if force_overwrite else None
 
             # created_at/updated_atの設定
-            if existing_metadata:
-                # 既存のcreated_atを保持、なければtimestampから復元
-                created_at = existing_metadata.get("created_at") or existing_metadata.get("timestamp") or now
-            else:
-                created_at = now
-            updated_at = now
+            created_at, updated_at = self._determine_timestamps(existing_metadata, now)
 
-            # 行数のカウント（ストリーム処理）
+            # 行数のカウント (ストリーム処理)
             row_count = self._count_rows_streaming(data)
 
-            metadata = {
-                "metadata_version": METADATA_VERSION,
-                "filename": filename,
-                "data_type": data_type,
-                "year": year,
-                "period": period,
-                "period_type": period_type,
-                "created_at": created_at,
-                "updated_at": updated_at,
-                "file_size": len(data),
-                "row_count": row_count,
-                "sha256_hash": data_hash,
-                "checksum_algorithm": "sha256",
-                "encoding": "shift_jis",
-                "file_path": str(file_path.relative_to(self.base_path)),
-                "force_overwrite": force_overwrite,
-                "save_all_zero": save_all_zero,
-            }
+            # メタデータ構築
+            metadata = self._build_metadata(
+                filename=filename,
+                data_type=data_type,
+                year=year,
+                period=period,
+                period_type=period_type,
+                created_at=created_at,
+                updated_at=updated_at,
+                file_size=len(data),
+                row_count=row_count,
+                data_hash=data_hash,
+                file_path=file_path,
+                force_overwrite=force_overwrite,
+                save_all_zero=save_all_zero,
+            )
 
             # source_urlはadditional_metadataから取得
             if additional_metadata:
@@ -746,10 +737,86 @@ class StorageManager:
             # 末尾が改行でない場合は1を追加
             if data and not data.endswith(b"\n"):
                 count += 1
-            return count if count > 0 else None
-        except Exception:
-            logger.exception("Failed to count rows")
+        except (TypeError, AttributeError) as e:
+            logger.warning(f"Failed to count rows: {e}")
             return None
+        else:
+            return count if count > 0 else None
+
+    def _determine_timestamps(
+        self, existing_metadata: dict[str, Any] | None, now: str
+    ) -> tuple[str, str]:
+        """created_atとupdated_atを決定する。
+
+        Args:
+            existing_metadata: 既存のメタデータ (force_overwrite時に取得)
+            now: 現在時刻のISO文字列
+
+        Returns:
+            (created_at, updated_at) のタプル
+        """
+        if existing_metadata:
+            # 既存のcreated_atを保持、なければtimestampから復元
+            created_at = existing_metadata.get("created_at") or existing_metadata.get("timestamp") or now
+        else:
+            created_at = now
+        return created_at, now
+
+    def _build_metadata(
+        self,
+        *,
+        filename: str,
+        data_type: str,
+        year: int,
+        period: int,
+        period_type: str,
+        created_at: str,
+        updated_at: str,
+        file_size: int,
+        row_count: int | None,
+        data_hash: str,
+        file_path: Path,
+        force_overwrite: bool,
+        save_all_zero: bool,
+    ) -> dict[str, Any]:
+        """メタデータ辞書を構築する。
+
+        Args:
+            filename: ファイル名
+            data_type: データタイプ
+            year: 年
+            period: 期間
+            period_type: 期間タイプ ("weekly" or "monthly")
+            created_at: 作成日時
+            updated_at: 更新日時
+            file_size: ファイルサイズ
+            row_count: 行数
+            data_hash: SHA256ハッシュ
+            file_path: ファイルパス
+            force_overwrite: 強制上書きフラグ
+            save_all_zero: 全て0保存フラグ
+
+        Returns:
+            メタデータ辞書
+        """
+        return {
+            "metadata_version": METADATA_VERSION,
+            "filename": filename,
+            "data_type": data_type,
+            "year": year,
+            "period": period,
+            "period_type": period_type,
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "file_size": file_size,
+            "row_count": row_count,
+            "sha256_hash": data_hash,
+            "checksum_algorithm": "sha256",
+            "encoding": "shift_jis",
+            "file_path": str(file_path.relative_to(self.base_path)),
+            "force_overwrite": force_overwrite,
+            "save_all_zero": save_all_zero,
+        }
 
     def _validate_saved_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
         """保存されたファイルを検証し、検証結果を返す。
@@ -788,10 +855,7 @@ class StorageManager:
         errors.extend(path_result.get("errors", []))
 
         # ステータスの決定
-        if errors:
-            status = "failed"
-        else:
-            status = "verified"
+        status = "failed" if errors else "verified"
 
         # メッセージの制限
         errors = self._truncate_messages(errors, MAX_ERROR_COUNT)
@@ -860,7 +924,7 @@ class StorageManager:
                 f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}"
             )
             result["valid"] = False
-        except Exception as e:
+        except (OSError, MemoryError, ValueError) as e:
             result["errors"].append(f"[encoding] Failed to check encoding: {e!s}")
             result["valid"] = False
 
@@ -926,7 +990,7 @@ class StorageManager:
         except csv.Error as e:
             result["errors"].append(f"[csv_format] CSV format error: {e!s}")
             result["valid"] = False
-        except Exception as e:
+        except (UnicodeDecodeError, OSError, MemoryError) as e:
             result["errors"].append(f"[csv_format] Failed to check CSV format: {e!s}")
             result["valid"] = False
 
@@ -966,7 +1030,7 @@ class StorageManager:
                     )
                     result["valid"] = False
 
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             result["errors"].append(f"[path_safety] Failed to check path safety: {e!s}")
             result["valid"] = False
 
@@ -984,9 +1048,8 @@ class StorageManager:
         """
         truncated: list[str] = []
         for msg in messages[:max_count]:
-            if len(msg) > MAX_MESSAGE_LENGTH:
-                msg = msg[: MAX_MESSAGE_LENGTH - 3] + "..."
-            truncated.append(msg)
+            truncated_msg = msg[: MAX_MESSAGE_LENGTH - 3] + "..." if len(msg) > MAX_MESSAGE_LENGTH else msg
+            truncated.append(truncated_msg)
 
         if len(messages) > max_count:
             truncated.append(f"... 他{len(messages) - max_count}件のメッセージ")
@@ -1073,7 +1136,7 @@ class StorageManager:
                     metadata = json.load(f)
                 # 旧形式メタデータの正規化
                 return self._normalize_metadata(metadata)
-            except Exception as e:
+            except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
                 logger.warning(f"Failed to load metadata: {e}")
 
         return None

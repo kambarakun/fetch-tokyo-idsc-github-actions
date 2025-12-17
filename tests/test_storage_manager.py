@@ -7,6 +7,7 @@ import json
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -1006,8 +1007,6 @@ class TestMetadataEnhancements(unittest.TestCase):
 
     def tearDown(self):
         """テストの後処理"""
-        import shutil
-
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_metadata_version_is_set(self):
@@ -1077,9 +1076,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         metadata1 = self.storage.get_metadata(result1.file_path)
         original_created_at = metadata1["created_at"]
 
-        # 少し待機（タイムスタンプが異なることを確認するため）
-        import time
-
+        # 少し待機 (タイムスタンプが異なることを確認するため)
         time.sleep(0.01)
 
         # force_overwriteで再保存
@@ -1121,7 +1118,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         metadata = self.storage.get_metadata(result.file_path)
         self.assertIsNotNone(metadata)
         self.assertIn("row_count", metadata)
-        self.assertEqual(metadata["row_count"], 4)  # 4行（末尾の空行は含まない）
+        self.assertEqual(metadata["row_count"], 4)  # 4行 (末尾の空行は含まない)
 
     def test_checksum_algorithm_is_set(self):
         """checksum_algorithmが設定されることを確認"""
@@ -1217,7 +1214,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         with metadata_path.open("w", encoding="utf-8") as f:
             json.dump(legacy_metadata, f, ensure_ascii=False, indent=2)
 
-        # get_metadataで読み込む（正規化される）
+        # get_metadataで読み込む (正規化される)
         test_file = self.base_path / "sentinel_weekly_test_2025_08.csv"
         normalized = self.storage.get_metadata(test_file)
 
@@ -1248,6 +1245,59 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertEqual(len(truncated), 1)
         self.assertTrue(len(truncated[0]) <= 500)
         self.assertTrue(truncated[0].endswith("..."))
+
+    def test_verification_status_failed_on_small_file(self):
+        """小さいファイルの検証ステータスがfailedになることを確認"""
+        # 最小ファイルサイズ(100バイト)未満のデータ
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")  # 約35バイト
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=9,
+            is_monthly=False,
+        )
+
+        self.assertTrue(result.success)
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+        self.assertIn("verification", metadata)
+        self.assertEqual(metadata["verification"]["status"], "failed")
+        self.assertFalse(metadata["verification"]["checks"]["file_size"])
+
+    def test_determine_timestamps_preserves_existing(self):
+        """_determine_timestampsが既存のcreated_atを保持することを確認"""
+        existing = {"created_at": "2025-01-01T00:00:00.000000"}
+        now = "2025-12-17T12:00:00.000000"
+
+        created_at, updated_at = self.storage._determine_timestamps(existing, now)
+
+        self.assertEqual(created_at, "2025-01-01T00:00:00.000000")
+        self.assertEqual(updated_at, now)
+
+    def test_determine_timestamps_falls_back_to_timestamp(self):
+        """_determine_timestampsが旧形式のtimestampにフォールバックすることを確認"""
+        existing = {"timestamp": "2025-01-01T00:00:00.000000"}
+        now = "2025-12-17T12:00:00.000000"
+
+        created_at, updated_at = self.storage._determine_timestamps(existing, now)
+
+        self.assertEqual(created_at, "2025-01-01T00:00:00.000000")
+        self.assertEqual(updated_at, now)
+
+    def test_determine_timestamps_new_file(self):
+        """_determine_timestampsが新規ファイルで現在時刻を使用することを確認"""
+        now = "2025-12-17T12:00:00.000000"
+
+        created_at, updated_at = self.storage._determine_timestamps(None, now)
+
+        self.assertEqual(created_at, now)
+        self.assertEqual(updated_at, now)
 
 
 if __name__ == "__main__":

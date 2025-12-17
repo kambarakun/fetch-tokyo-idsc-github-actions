@@ -483,12 +483,12 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         # report_typeからエンドポイントを取得
         report_type = self._get_report_type(data_type)
-        endpoint = self.fetcher.ENDPOINT_MAP.get(report_type)
+        endpoint = self.ENDPOINT_MAP.get(report_type)
 
         if endpoint is None:
             return None
 
-        return f"{self.fetcher.BASE_URL}/{endpoint}"
+        return f"{self.BASE_URL}/{endpoint}"
 
     def _parse_existing_files(self, files: list[Path], data_type: str) -> list[FetchParams]:
         """既存ファイルからパラメータを解析
