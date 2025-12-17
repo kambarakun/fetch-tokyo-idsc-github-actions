@@ -134,7 +134,9 @@ class TestStorageManager(unittest.TestCase):
         # メタデータファイルの確認
         self.assertTrue(result.metadata_path.exists())
         metadata = json.loads(result.metadata_path.read_text())
-        self.assertEqual(metadata["sha256_hash"], data_hash)
+        # v1.1形式: hashはネストされたオブジェクト
+        self.assertEqual(metadata["hash"]["value"], data_hash)
+        self.assertEqual(metadata["hash"]["algorithm"], "sha256")
 
     def test_save_with_metadata_duplicate(self):
         """重複データの保存テスト"""
@@ -331,8 +333,10 @@ class TestStorageManager(unittest.TestCase):
         metadata_file = self.storage.metadata_dir / "test_type_2025_01.json"
         self.assertTrue(metadata_file.exists())
         metadata = json.loads(metadata_file.read_text())
-        self.assertEqual(metadata["force_overwrite"], True)
-        self.assertEqual(metadata["test"], "updated")
+        # v1.1形式: force_overwriteは_fetch内にネストされる
+        self.assertEqual(metadata["_fetch"]["force_overwrite"], True)
+        # メタデータバージョンを確認
+        self.assertEqual(metadata["metadata_version"], "1.1.0")
 
     def test_force_overwrite_updates_hash_index(self):
         """force_overwriteでハッシュインデックスが更新されることのテスト"""
@@ -1028,7 +1032,8 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertTrue(result.success)
         metadata = self.storage.get_metadata(result.file_path)
         self.assertIsNotNone(metadata)
-        self.assertEqual(metadata.get("metadata_version"), "1.0")
+        # v1.1.0形式
+        self.assertEqual(metadata.get("metadata_version"), "1.1.0")
 
     def test_created_at_and_updated_at_set_on_new_file(self):
         """新規ファイル作成時にcreated_atとupdated_atが設定されることを確認"""

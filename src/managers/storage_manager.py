@@ -14,12 +14,21 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-# メタデータスキーマバージョン
-METADATA_VERSION = "1.0"
+from src.models.metadata import (
+    METADATA_VERSION,
+    FetchInfo,
+    HashInfo,
+    Metadata,
+    TemporalInfo,
+    Verification,
+)
+
+# 旧バージョンとの互換性のためのエイリアス
+LEGACY_METADATA_VERSION = "1.0"
 
 # 検証メッセージの制限
 MAX_ERROR_COUNT = 10
@@ -361,7 +370,14 @@ class StorageManager:
             # 物理行数のカウント
             line_count = self._count_lines(data)
 
-            # メタデータ構築
+            # additional_metadataからフェッチ関連情報を抽出
+            source_url = None
+            fetch_time = 0.0
+            if additional_metadata:
+                source_url = additional_metadata.get("source_url")
+                fetch_time = additional_metadata.get("fetch_time", 0.0)
+
+            # メタデータ構築 (v1.1形式)
             metadata = self._build_metadata(
                 filename=filename,
                 data_type=data_type,
@@ -376,11 +392,9 @@ class StorageManager:
                 file_path=file_path,
                 force_overwrite=force_overwrite,
                 save_all_zero=save_all_zero,
+                source_url=source_url,
+                fetch_time=fetch_time,
             )
-
-            # source_urlはadditional_metadataから取得
-            if additional_metadata:
-                metadata.update(additional_metadata)
 
             # 検証の実行
             verification = self._validate_saved_file(file_path, data)
@@ -763,10 +777,18 @@ class StorageManager:
 
         Returns:
             (created_at, updated_at) のタプル
+
+        Note:
+            v1.0形式(created_at/timestamp)とv1.1形式(created)の両方に対応。
         """
         if existing_metadata:
-            # 既存のcreated_atを保持、なければtimestampから復元
-            created_at = existing_metadata.get("created_at") or existing_metadata.get("timestamp") or now
+            # 既存のcreated_at/createdを保持、なければtimestampから復元
+            created_at = (
+                existing_metadata.get("created_at")
+                or existing_metadata.get("created")
+                or existing_metadata.get("timestamp")
+                or now
+            )
         else:
             created_at = now
         return created_at, now
@@ -787,8 +809,10 @@ class StorageManager:
         file_path: Path,
         force_overwrite: bool,
         save_all_zero: bool,
+        source_url: str | None = None,
+        fetch_time: float = 0.0,
     ) -> dict[str, Any]:
-        """メタデータ辞書を構築する。
+        """メタデータ辞書を構築する (v1.1形式)。
 
         Args:
             filename: ファイル名
@@ -804,28 +828,73 @@ class StorageManager:
             file_path: ファイルパス
             force_overwrite: 強制上書きフラグ
             save_all_zero: 全て0保存フラグ
+            source_url: 取得元URL
+            fetch_time: 取得時間 (秒)
 
         Returns:
-            メタデータ辞書
+            メタデータ辞書 (v1.1形式)
         """
+        # 名前を生成 (ファイル名から拡張子を除く)
+        name = filename.replace(".csv", "")
+
+        # ISO 8601形式に正規化 (タイムゾーン付き)
+        created_iso = self._normalize_timestamp(created_at)
+        modified_iso = self._normalize_timestamp(updated_at)
+
+        # ソース情報
+        sources = []
+        if source_url:
+            sources.append({"title": "Tokyo IDSC", "path": source_url})
+
         return {
             "metadata_version": METADATA_VERSION,
+            "name": name,
             "filename": filename,
+            "path": str(file_path.relative_to(self.base_path)),
+            "profile": "tokyo-idsc-raw",
             "data_type": data_type,
-            "year": year,
-            "period": period,
-            "period_type": period_type,
-            "created_at": created_at,
-            "updated_at": updated_at,
-            "file_size": file_size,
-            "line_count": line_count,
-            "sha256_hash": data_hash,
-            "checksum_algorithm": "sha256",
+            "temporal": {
+                "year": year,
+                "period": period,
+                "period_type": period_type,
+            },
+            "bytes": file_size,
+            "lines": line_count,
+            "hash": {
+                "algorithm": "sha256",
+                "value": data_hash,
+            },
             "encoding": "shift_jis",
-            "file_path": str(file_path.relative_to(self.base_path)),
-            "force_overwrite": force_overwrite,
-            "save_all_zero": save_all_zero,
+            "created": created_iso,
+            "modified": modified_iso,
+            "sources": sources,
+            "_fetch": {
+                "source_url": source_url,
+                "fetch_time_seconds": fetch_time,
+                "force_overwrite": force_overwrite,
+                "save_all_zero": save_all_zero,
+            },
         }
+
+    def _normalize_timestamp(self, timestamp: str) -> str:
+        """タイムスタンプをISO 8601形式に正規化する。
+
+        Args:
+            timestamp: 入力タイムスタンプ
+
+        Returns:
+            ISO 8601形式のタイムスタンプ (UTC)
+        """
+        try:
+            # 既にISO形式の場合はパースを試みる
+            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            # タイムゾーンがない場合はローカルタイムとして扱いUTCに変換
+            if dt.tzinfo is None:
+                dt = dt.astimezone(timezone.utc)
+            return dt.isoformat()
+        except (ValueError, AttributeError):
+            # パース失敗時は現在時刻を返す
+            return datetime.now(timezone.utc).isoformat()
 
     def _validate_saved_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
         """保存されたファイルを検証し、検証結果を返す。
@@ -1227,37 +1296,84 @@ class StorageManager:
             return None
 
     def _normalize_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
-        """旧形式メタデータを新形式に正規化する。
+        """メタデータを正規化し、新旧両形式の互換フィールドを提供する。
 
         Args:
             metadata: 正規化するメタデータ辞書
 
         Returns:
-            正規化されたメタデータ辞書
+            正規化されたメタデータ辞書 (新旧両形式のアクセサを提供)
 
         Note:
-            旧形式(timestampのみ)から新形式(created_at/updated_at)への移行を行う。
-            row_count → line_count の移行も行う。
-            欠損フィールドにはデフォルト値またはNoneを設定する。
+            v1.0形式とv1.1形式の両方を正規化して統一的にアクセスできるようにする。
+            旧形式のフィールドは後方互換性のため維持される。
         """
-        # timestamp → created_at/updated_at の移行
-        if "created_at" not in metadata:
-            metadata["created_at"] = metadata.get("timestamp")
-        if "updated_at" not in metadata:
-            metadata["updated_at"] = metadata.get("timestamp")
+        # v1.1形式かどうかを判定 (temporalオブジェクトがあるかで判断)
+        is_v1_1 = "temporal" in metadata
 
-        # row_count → line_count の移行 (後方互換性)
-        if "line_count" not in metadata and "row_count" in metadata:
-            metadata["line_count"] = metadata.pop("row_count")
+        if is_v1_1:
+            # v1.1形式 → 旧形式の互換フィールドを追加
+            temporal = metadata.get("temporal", {})
+            metadata.setdefault("year", temporal.get("year"))
+            metadata.setdefault("period", temporal.get("period"))
+            metadata.setdefault("period_type", temporal.get("period_type"))
 
-        # checksum_algorithm のデフォルト
-        if "checksum_algorithm" not in metadata:
-            metadata["checksum_algorithm"] = "sha256"
+            metadata.setdefault("file_size", metadata.get("bytes"))
+            metadata.setdefault("line_count", metadata.get("lines"))
+
+            hash_info = metadata.get("hash", {})
+            metadata.setdefault("sha256_hash", hash_info.get("value"))
+            metadata.setdefault("checksum_algorithm", hash_info.get("algorithm", "sha256"))
+
+            # created/modified → created_at/updated_at
+            metadata.setdefault("created_at", metadata.get("created"))
+            metadata.setdefault("updated_at", metadata.get("modified"))
+
+            # _fetch から source_url を取得
+            fetch_info = metadata.get("_fetch", {})
+            metadata.setdefault("source_url", fetch_info.get("source_url"))
+            metadata.setdefault("fetch_time", fetch_info.get("fetch_time_seconds"))
+            metadata.setdefault("force_overwrite", fetch_info.get("force_overwrite", False))
+            metadata.setdefault("save_all_zero", fetch_info.get("save_all_zero", False))
+
+        else:
+            # v1.0形式 → 旧形式の正規化
+            # timestamp → created_at/updated_at の移行
+            if "created_at" not in metadata:
+                metadata["created_at"] = metadata.get("timestamp")
+            if "updated_at" not in metadata:
+                metadata["updated_at"] = metadata.get("timestamp")
+
+            # row_count → line_count の移行 (後方互換性)
+            if "line_count" not in metadata and "row_count" in metadata:
+                metadata["line_count"] = metadata.pop("row_count")
+
+            # checksum_algorithm のデフォルト
+            if "checksum_algorithm" not in metadata:
+                metadata["checksum_algorithm"] = "sha256"
+
+            # v1.1形式の互換フィールドを追加
+            metadata.setdefault("bytes", metadata.get("file_size"))
+            metadata.setdefault("lines", metadata.get("line_count"))
+            if "temporal" not in metadata:
+                metadata["temporal"] = {
+                    "year": metadata.get("year"),
+                    "period": metadata.get("period"),
+                    "period_type": metadata.get("period_type"),
+                }
+            if "hash" not in metadata:
+                metadata["hash"] = {
+                    "algorithm": metadata.get("checksum_algorithm", "sha256"),
+                    "value": metadata.get("sha256_hash", ""),
+                }
+            metadata.setdefault("created", metadata.get("created_at"))
+            metadata.setdefault("modified", metadata.get("updated_at"))
 
         # 欠損フィールドは明示的にNone
         metadata.setdefault("metadata_version", None)
         metadata.setdefault("source_url", None)
         metadata.setdefault("line_count", None)
+        metadata.setdefault("lines", None)
         metadata.setdefault("verification", None)
 
         return metadata

@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/your-org/fetch-tokyo-idsc/schemas/metadata-v1.1.schema.json",
+  "title": "Tokyo IDSC Metadata Schema",
+  "description": "Common metadata schema for Tokyo Infectious Disease Surveillance Center data files",
+  "type": "object",
+  "required": [
+    "metadata_version",
+    "name",
+    "filename",
+    "path",
+    "profile",
+    "data_type",
+    "temporal",
+    "bytes",
+    "hash",
+    "encoding",
+    "created",
+    "modified"
+  ],
+  "properties": {
+    "metadata_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the metadata schema"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "URL-safe identifier (lowercase, alphanumeric, underscore only)"
+    },
+    "filename": {
+      "type": "string",
+      "description": "Original filename with extension"
+    },
+    "path": {
+      "type": "string",
+      "description": "Relative path from data directory"
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["tokyo-idsc-raw", "tokyo-idsc-processed"],
+      "description": "Metadata profile type"
+    },
+    "data_type": {
+      "type": "string",
+      "description": "Data type identifier (e.g., sentinel_weekly_age, notifiable_weekly)"
+    },
+    "temporal": {
+      "type": "object",
+      "required": ["year", "period", "period_type"],
+      "properties": {
+        "year": {
+          "type": "integer",
+          "minimum": 2000,
+          "maximum": 2100,
+          "description": "Year of the data"
+        },
+        "period": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 53,
+          "description": "Period number (week 1-53 or month 1-12)"
+        },
+        "period_type": {
+          "type": "string",
+          "enum": ["weekly", "monthly"],
+          "description": "Type of period"
+        }
+      },
+      "additionalProperties": false
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "File size in bytes"
+    },
+    "lines": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Number of lines in the file"
+    },
+    "hash": {
+      "type": "object",
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["sha256", "sha512", "md5"],
+          "description": "Hash algorithm used"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[a-f0-9]+$",
+          "description": "Hexadecimal hash value"
+        }
+      },
+      "additionalProperties": false
+    },
+    "encoding": {
+      "type": "string",
+      "enum": ["shift_jis", "utf-8"],
+      "description": "Character encoding of the file"
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Creation timestamp in ISO 8601 format with timezone"
+    },
+    "modified": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last modification timestamp in ISO 8601 format with timezone"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Source title or name"
+          },
+          "path": {
+            "type": "string",
+            "format": "uri",
+            "description": "Source URL or path"
+          }
+        }
+      },
+      "description": "Data provenance information"
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["verified", "failed", "pending"],
+          "description": "Verification status"
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Verification timestamp"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["automated", "manual"],
+          "description": "Verification method"
+        },
+        "checks": {
+          "type": "object",
+          "properties": {
+            "file_size": { "type": "boolean" },
+            "encoding": { "type": "boolean" },
+            "csv_format": { "type": "boolean" },
+            "path_safety": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "errors": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of error messages"
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of warning messages"
+        }
+      },
+      "additionalProperties": false
+    },
+    "_fetch": {
+      "type": "object",
+      "description": "Private properties for fetched (raw) data",
+      "properties": {
+        "source_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "URL from which data was fetched"
+        },
+        "fetch_time_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Time taken to fetch the data in seconds"
+        },
+        "force_overwrite": {
+          "type": "boolean",
+          "description": "Whether force overwrite was enabled"
+        },
+        "save_all_zero": {
+          "type": "boolean",
+          "description": "Whether all-zero data saving was enabled"
+        }
+      },
+      "additionalProperties": false
+    },
+    "_process": {
+      "type": "object",
+      "description": "Private properties for processed data",
+      "properties": {
+        "source_name": {
+          "type": "string",
+          "description": "Name of the source raw file (without extension)"
+        },
+        "source_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]+$",
+          "description": "Hash of the source file for traceability"
+        },
+        "processing_time_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Time taken to process the data in seconds"
+        },
+        "gender": {
+          "type": ["string", "null"],
+          "enum": ["male", "female", "total", null],
+          "description": "Gender category for sentinel data (null if not applicable)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "profile": { "const": "tokyo-idsc-raw" } }
+      },
+      "then": {
+        "required": ["_fetch"],
+        "properties": {
+          "_process": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "profile": { "const": "tokyo-idsc-processed" } }
+      },
+      "then": {
+        "required": ["_process"],
+        "properties": {
+          "_fetch": false
+        }
+      }
+    }
+  ],
+  "additionalProperties": false
+}

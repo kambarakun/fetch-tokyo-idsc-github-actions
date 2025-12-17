@@ -331,8 +331,8 @@ class TestDataProcessor(unittest.TestCase):
         self.assertEqual(self.processor._get_gender_suffix("男女合計"), "total")
         self.assertEqual(self.processor._get_gender_suffix("不明"), "unknown")
 
-    def test_processing_log(self):
-        """処理ログのテスト"""
+    def test_processing_metadata(self):
+        """処理メタデータのテスト (v1.1形式)"""
         # テストファイルを作成して処理
         test_file = self.raw_dir / "notifiable_weekly_2025_01.csv"
         test_content = "疾病名,報告数\nインフルエンザ,100"
@@ -341,17 +341,29 @@ class TestDataProcessor(unittest.TestCase):
         result = self.processor.process_file(test_file)
         self.assertTrue(result.success)
 
-        # ログファイルの確認
-        log_file = self.data_dir / "processed" / ".metadata" / "processing_log.json"
-        self.assertTrue(log_file.exists())
+        # 出力ファイルの確認
+        output_file = self.data_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv"
+        self.assertTrue(output_file.exists())
 
-        # ログ内容の確認
-        with log_file.open("r", encoding="utf-8") as f:
-            logs = json.load(f)
+        # 個別メタデータファイルの確認
+        metadata_file = self.data_dir / "processed" / ".metadata" / "normalized_notifiable_weekly_2025_01.json"
+        self.assertTrue(metadata_file.exists())
 
-        self.assertIn("processing", logs)
-        self.assertEqual(len(logs["processing"]), 1)
-        self.assertEqual(logs["processing"][0]["success"], True)
+        # メタデータ内容の確認
+        with metadata_file.open("r", encoding="utf-8") as f:
+            meta = json.load(f)
+
+        # v1.1形式の検証
+        self.assertEqual(meta["metadata_version"], "1.1.0")
+        self.assertEqual(meta["profile"], "tokyo-idsc-processed")
+        self.assertEqual(meta["filename"], "normalized_notifiable_weekly_2025_01.csv")
+        self.assertEqual(meta["encoding"], "utf-8")
+        self.assertIn("hash", meta)
+        self.assertEqual(meta["hash"]["algorithm"], "sha256")
+        self.assertIn("_process", meta)
+        self.assertEqual(meta["_process"]["source_name"], "notifiable_weekly_2025_01")
+        self.assertIn("source_hash", meta["_process"])
+        self.assertIn("processing_time_seconds", meta["_process"])
 
     def test_parse_int_helper(self):
         """_parse_int ヘルパーメソッドのテスト"""
