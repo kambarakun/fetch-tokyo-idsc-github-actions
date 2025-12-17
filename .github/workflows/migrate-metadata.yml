@@ -1,0 +1,200 @@
+name: Migrate Metadata
+
+on:
+  # 手動実行
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'ドライラン (変更を保存しない)'
+        required: false
+        default: 'false'
+        type: boolean
+      target_version:
+        description: '目標バージョン (空欄で最新)'
+        required: false
+        default: ''
+        type: string
+
+  # METADATA_VERSION が変更されたとき自動実行
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/managers/storage_manager.py'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: migrate-metadata
+  cancel-in-progress: false
+
+jobs:
+  check-version-change:
+    runs-on: ubuntu-latest
+    outputs:
+      version_changed: ${{ steps.check.outputs.changed }}
+      new_version: ${{ steps.check.outputs.new_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python
+        run: uv python install 3.11
+
+      - name: Check METADATA_VERSION change
+        id: check
+        run: |
+          # 手動実行の場合は常にtrue
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "new_version=${{ inputs.target_version }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # 前のコミットのファイルを一時的に取得
+          git show HEAD^:src/managers/storage_manager.py > /tmp/old_storage_manager.py 2>/dev/null || echo "" > /tmp/old_storage_manager.py
+
+          OLD_VERSION=$(uv run python -c "
+          import re
+          try:
+              content = open('/tmp/old_storage_manager.py').read()
+              match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
+              print(match.group(1) if match else '')
+          except Exception:
+              print('')
+          ")
+          NEW_VERSION=$(uv run python -c "
+          import re
+          try:
+              content = open('src/managers/storage_manager.py').read()
+              match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
+              print(match.group(1) if match else '')
+          except Exception:
+              print('')
+          ")
+
+          echo "Old version: $OLD_VERSION"
+          echo "New version: $NEW_VERSION"
+
+          if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
+            echo "METADATA_VERSION changed from $OLD_VERSION to $NEW_VERSION"
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "METADATA_VERSION unchanged"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  migrate:
+    needs: check-version-change
+    if: needs.check-version-change.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Determine target version
+        id: version
+        run: |
+          if [ -n "${{ inputs.target_version }}" ]; then
+            echo "target=${{ inputs.target_version }}" >> $GITHUB_OUTPUT
+          elif [ -n "${{ needs.check-version-change.outputs.new_version }}" ]; then
+            echo "target=${{ needs.check-version-change.outputs.new_version }}" >> $GITHUB_OUTPUT
+          else
+            # Pythonで堅牢にバージョンを抽出
+            VERSION=$(uv run python -c "
+          import re
+          content = open('src/managers/storage_manager.py').read()
+          match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
+          print(match.group(1) if match else '1.0')
+          ")
+            echo "target=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run migration (dry-run check)
+        id: dry_run
+        run: |
+          echo "=== Dry Run ==="
+          uv run python scripts/migrate_metadata.py --dry-run --target-version "${{ steps.version.outputs.target }}" 2>&1 | tee dry_run.log
+
+          # マイグレーション対象があるか確認 (空の場合は0をデフォルト)
+          MIGRATED=$(grep "Migrated:" dry_run.log | awk '{print $2}')
+          MIGRATED=${MIGRATED:-0}
+          echo "migrated_count=$MIGRATED" >> $GITHUB_OUTPUT
+
+      - name: Run migration
+        if: inputs.dry_run != 'true' && steps.dry_run.outputs.migrated_count != '0'
+        run: |
+          echo "=== Running Migration ==="
+          uv run python scripts/migrate_metadata.py --target-version "${{ steps.version.outputs.target }}" --verbose
+
+      - name: Configure git
+        if: inputs.dry_run != 'true' && steps.dry_run.outputs.migrated_count != '0'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create commit
+        if: inputs.dry_run != 'true' && steps.dry_run.outputs.migrated_count != '0'
+        env:
+          TARGET_VERSION: ${{ steps.version.outputs.target }}
+          MIGRATED_COUNT: ${{ steps.dry_run.outputs.migrated_count }}
+        run: |
+          git add data/raw/.metadata/*.json
+
+          if ! git diff --staged --quiet; then
+            git commit -m "$(cat <<EOF
+chore(metadata): migrate to version ${TARGET_VERSION}
+
+Migrated ${MIGRATED_COUNT} metadata files to version ${TARGET_VERSION}.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+            git push
+            echo "Migration committed and pushed"
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Summary
+        run: |
+          echo "## Migration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Version**: ${{ steps.version.outputs.target }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Files to Migrate**: ${{ steps.dry_run.outputs.migrated_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Dry run mode**: No changes were made." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.dry_run.outputs.migrated_count }}" = "0" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All metadata files are already at the target version." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Migration completed successfully." >> $GITHUB_STEP_SUMMARY
+          fi
