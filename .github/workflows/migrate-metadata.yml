@@ -206,17 +206,27 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create commit
+      - name: Set environment variables
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
+        run: |
+          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          TARGET_VERSION: ${{ steps.params.outputs.target_version }}
+          MIGRATED_COUNT: ${{ steps.dry_run.outputs.migrated_count }}
         run: |
           git add data/raw/.metadata/*.json
 
           if ! git diff --staged --quiet; then
-            printf -v COMMIT_MSG "chore(metadata): migrate to version %s\n\nMigrated %s metadata files to version %s.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)" \
-              "${{ steps.params.outputs.target_version }}" "${{ steps.dry_run.outputs.migrated_count }}" "${{ steps.params.outputs.target_version }}"
-            git commit -m "$COMMIT_MSG"
-            git push
-            echo "Migration committed and pushed"
+            # 共通スクリプトを呼び出し
+            bash scripts/create_pr.sh "migrate-metadata" "メタデータマイグレーション"
           else
             echo "No changes to commit"
           fi

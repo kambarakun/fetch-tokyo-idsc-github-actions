@@ -12,7 +12,7 @@ set -e
 #   scripts/create_pr.sh <workflow_name> <workflow_display_name>
 #
 # 引数:
-#   $1 workflow_name         - ワークフロー識別子 (fetch-data-daily|fetch-data-weekly|fetch-data|process-data)
+#   $1 workflow_name         - ワークフロー識別子 (fetch-data-daily|fetch-data-weekly|fetch-data|process-data|migrate-metadata)
 #   $2 workflow_display_name - PR本文に表示するワークフロー名
 #
 # 必須環境変数:
@@ -39,6 +39,9 @@ set -e
 #     - VERIFY_OUTPUT (true|false)
 #     - VALIDATION_PASSED (true|false)
 #     - NEW_FILES, MODIFIED_FILES, CHANGED_FILES (処理済みファイルカウント用)
+#   migrate-metadata:
+#     - TARGET_VERSION (マイグレーション目標バージョン)
+#     - MIGRATED_COUNT (マイグレーション対象ファイル数)
 #
 # GitHub環境変数（デフォルト値あり）:
 #   - GITHUB_SERVER_URL : GitHubサーバーURL (デフォルト: https://github.com)
@@ -78,6 +81,20 @@ for var in $REQUIRED_VARS; do
   fi
 done
 
+# ワークフロー固有の必須環境変数チェック
+case "$WORKFLOW_NAME" in
+  migrate-metadata)
+    if [ -z "${TARGET_VERSION:-}" ]; then
+      echo "Error: TARGET_VERSION is required for migrate-metadata workflow" >&2
+      exit 1
+    fi
+    if [ -z "${MIGRATED_COUNT:-}" ]; then
+      echo "Error: MIGRATED_COUNT is required for migrate-metadata workflow" >&2
+      exit 1
+    fi
+    ;;
+esac
+
 # 入力のサニタイズ（シェルインジェクション対策）
 # CURRENT_DATEの形式検証（YYYY-MM-DD形式のみ許可）
 if ! echo "$CURRENT_DATE" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
@@ -115,6 +132,9 @@ case "$WORKFLOW_NAME" in
   process-data)
     BRANCH_NAME="data-process-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
     ;;
+  migrate-metadata)
+    BRANCH_NAME="metadata-migration-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
+    ;;
   *)
     BRANCH_NAME="data-update-${WORKFLOW_NAME}-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
     ;;
@@ -129,8 +149,7 @@ if ! git checkout -b "$BRANCH_NAME"; then
 fi
 
 # 変更内訳の取得
-# 常にgit diffの結果を使用（実際のCSVファイル変更数のみをカウント）
-# stats.jsonはデータ取得操作の回数をカウントするが、実際の変更数とは異なるため使用しない
+# ワークフローに応じて適切なファイルをカウント
 
 # デフォルト値の初期化（防御的プログラミング）
 NEW_FILES="${NEW_FILES:-}"
@@ -142,15 +161,31 @@ if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
   echo "Calculating file counts from git diff..." >&2
   # 一度のgit diffで全ての変更情報を取得（パフォーマンス最適化）
   GIT_STATUS=$(git diff --cached --name-status)
-  if [ -z "$NEW_FILES" ]; then
-    # data/raw/直下のCSVファイルのみをカウント
-    # [^/]+でサブディレクトリ（.metadata/等）を除外、JSONやログファイルも除外
-    NEW_FILES=$(echo "$GIT_STATUS" | grep -E '^A\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
-  fi
-  if [ -z "$MODIFIED_FILES" ]; then
-    # data/raw/直下のCSVファイルのみをカウント（修正時も同様）
-    MODIFIED_FILES=$(echo "$GIT_STATUS" | grep -E '^M\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
-  fi
+
+  # ワークフローに応じて異なるファイルパターンをカウント
+  case "$WORKFLOW_NAME" in
+    migrate-metadata)
+      # メタデータマイグレーションはJSONファイルをカウント
+      if [ -z "$NEW_FILES" ]; then
+        NEW_FILES=$(echo "$GIT_STATUS" | grep -E '^A\s+data/raw/\.metadata/.*\.json$' 2>/dev/null | wc -l | xargs)
+      fi
+      if [ -z "$MODIFIED_FILES" ]; then
+        MODIFIED_FILES=$(echo "$GIT_STATUS" | grep -E '^M\s+data/raw/\.metadata/.*\.json$' 2>/dev/null | wc -l | xargs)
+      fi
+      ;;
+    *)
+      # その他のワークフローはCSVファイルをカウント
+      if [ -z "$NEW_FILES" ]; then
+        # data/raw/直下のCSVファイルのみをカウント
+        # [^/]+でサブディレクトリ（.metadata/等）を除外、JSONやログファイルも除外
+        NEW_FILES=$(echo "$GIT_STATUS" | grep -E '^A\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
+      fi
+      if [ -z "$MODIFIED_FILES" ]; then
+        # data/raw/直下のCSVファイルのみをカウント（修正時も同様）
+        MODIFIED_FILES=$(echo "$GIT_STATUS" | grep -E '^M\s+data/raw/[^/]+\.csv$' 2>/dev/null | wc -l | xargs)
+      fi
+      ;;
+  esac
   echo "✓ Using git diff data: new=$NEW_FILES, updated=$MODIFIED_FILES (source: git diff)" >&2
 else
   echo "✓ Using environment variables: new=$NEW_FILES, updated=$MODIFIED_FILES (source: environment)" >&2
@@ -174,17 +209,26 @@ CHANGED_FILES=$((NEW_FILES + MODIFIED_FILES))
 
 echo "Final counts: new=$NEW_FILES, updated=$MODIFIED_FILES, total=$CHANGED_FILES" >&2
 
-# コミットメッセージの作成（統一形式）
-# 常に「X件 (新規Y件/更新Z件)」の形式で表示
-# 0件の場合も明示的に表示することで一貫性を保つ
-#
-# フォーマット: "データ更新: YYYY-MM-DD - X件 (新規Y件/更新Z件)"
-# 例:
-#   - データ更新: 2025-12-02 - 2件 (新規2件/更新0件)
-#   - データ更新: 2025-12-02 - 3件 (新規1件/更新2件)
-#   - データ更新: 2025-12-02 - 0件 (新規0件/更新0件)
-
-COMMIT_MSG="データ更新: $CURRENT_DATE - ${CHANGED_FILES}件 (新規${NEW_FILES}件/更新${MODIFIED_FILES}件)"
+# コミットメッセージの作成（ワークフロー別）
+case "$WORKFLOW_NAME" in
+  migrate-metadata)
+    # メタデータマイグレーション専用フォーマット
+    # フォーマット: "メタデータ更新: バージョンX.X.Xへマイグレーション (Nファイル)"
+    COMMIT_MSG="メタデータ更新: バージョン${TARGET_VERSION}へマイグレーション (${MIGRATED_COUNT}ファイル)"
+    ;;
+  *)
+    # データ更新ワークフロー用の統一形式
+    # 常に「X件 (新規Y件/更新Z件)」の形式で表示
+    # 0件の場合も明示的に表示することで一貫性を保つ
+    #
+    # フォーマット: "データ更新: YYYY-MM-DD - X件 (新規Y件/更新Z件)"
+    # 例:
+    #   - データ更新: 2025-12-02 - 2件 (新規2件/更新0件)
+    #   - データ更新: 2025-12-02 - 3件 (新規1件/更新2件)
+    #   - データ更新: 2025-12-02 - 0件 (新規0件/更新0件)
+    COMMIT_MSG="データ更新: $CURRENT_DATE - ${CHANGED_FILES}件 (新規${NEW_FILES}件/更新${MODIFIED_FILES}件)"
+    ;;
+esac
 
 # コミット実行
 if ! git commit -m "$COMMIT_MSG"; then
@@ -267,40 +311,57 @@ PR_BODY_FILE="/tmp/pr_body.md"
         echo "- **検証**: 出力データの品質チェックを実施"
       fi
       ;;
+    migrate-metadata)
+      # チェック範囲: マイグレーション対象の定義
+      [ -n "${TARGET_VERSION:-}" ] && echo "- **目標バージョン**: ${TARGET_VERSION}"
+      echo "- **対象ディレクトリ**: data/raw/.metadata/"
+      ;;
   esac
 
   echo ""
   echo "### 📈 更新統計"
-  # stats.jsonから正常に読み込まれた場合、または実際に変更がある場合は詳細を表示
-  # コミットメッセージと同じパターンで条件を記述（可読性・保守性向上）
-  if [ "$CHANGED_FILES" -gt 0 ] || [ "$STATS_READ_SUCCESS" = true ]; then
-    echo "#### 生データ（data/raw/）"
-    echo "- **新規ファイル**: ${NEW_FILES:-0}件"
-    echo "- **更新ファイル**: ${MODIFIED_FILES:-0}件"
 
-    # 処理済みファイル数の表示（環境変数が設定されている場合のみ）
-    if [ -n "${NEW_PROCESSED_FILES:-}" ] && [ "${NEW_PROCESSED_FILES}" -gt 0 ]; then
+  # ワークフロー別の統計表示
+  case "$WORKFLOW_NAME" in
+    migrate-metadata)
+      # メタデータマイグレーション専用の統計表示
+      echo "#### メタデータファイル"
+      echo "- **マイグレーション完了**: ${MIGRATED_COUNT}ファイル"
       echo ""
-      echo "#### 処理済みデータ（data/processed/）"
-      echo "- **処理済みファイル**: ${NEW_PROCESSED_FILES}件"
+      ;;
+    *)
+      # stats.jsonから正常に読み込まれた場合、または実際に変更がある場合は詳細を表示
+      # コミットメッセージと同じパターンで条件を記述（可読性・保守性向上）
+      if [ "$CHANGED_FILES" -gt 0 ] || [ "$STATS_READ_SUCCESS" = true ]; then
+        echo "#### 生データ（data/raw/）"
+        echo "- **新規ファイル**: ${NEW_FILES:-0}件"
+        echo "- **更新ファイル**: ${MODIFIED_FILES:-0}件"
 
-      # 処理統計の表示（stats.jsonから取得した場合）
-      if [ -n "${STATS_TOTAL:-}" ]; then
-        echo ""
-        echo "#### 📊 データ処理統計"
-        echo "- **処理対象**: ${STATS_TOTAL}件"
-        echo "- **成功**: ${STATS_SUCCEEDED:-0}件"
-        if [ "${STATS_FAILED:-0}" -gt 0 ]; then
-          echo "- **失敗**: ${STATS_FAILED}件 ⚠️"
-        else
-          echo "- **失敗**: 0件 ✅"
+        # 処理済みファイル数の表示（環境変数が設定されている場合のみ）
+        if [ -n "${NEW_PROCESSED_FILES:-}" ] && [ "${NEW_PROCESSED_FILES}" -gt 0 ]; then
+          echo ""
+          echo "#### 処理済みデータ（data/processed/）"
+          echo "- **処理済みファイル**: ${NEW_PROCESSED_FILES}件"
+
+          # 処理統計の表示（stats.jsonから取得した場合）
+          if [ -n "${STATS_TOTAL:-}" ]; then
+            echo ""
+            echo "#### 📊 データ処理統計"
+            echo "- **処理対象**: ${STATS_TOTAL}件"
+            echo "- **成功**: ${STATS_SUCCEEDED:-0}件"
+            if [ "${STATS_FAILED:-0}" -gt 0 ]; then
+              echo "- **失敗**: ${STATS_FAILED}件 ⚠️"
+            else
+              echo "- **失敗**: 0件 ✅"
+            fi
+          fi
         fi
+        echo ""
       fi
-    fi
-    echo ""
-  fi
-  echo "- **合計変更**: ${CHANGED_FILES}件"
-  echo ""
+      echo "- **合計変更**: ${CHANGED_FILES}件"
+      echo ""
+      ;;
+  esac
 
   # ワークフロー固有のチェック項目
   echo "### ✅ チェック項目"
@@ -344,6 +405,11 @@ PR_BODY_FILE="/tmp/pr_body.md"
         fi
       fi
       ;;
+    migrate-metadata)
+      echo "- [x] メタデータファイルのバージョン確認"
+      echo "- [x] マイグレーション実行"
+      echo "- [x] バージョン更新完了"
+      ;;
     *)
       echo "- [x] データ取得完了"
       echo "- [x] ファイル検証済み"
@@ -385,6 +451,10 @@ PR_BODY_FILE="/tmp/pr_body.md"
         echo "- data/raw/ 内の全CSVファイルが処理対象です"
       fi
       ;;
+    migrate-metadata)
+      echo "- メタデータファイルのスキーマバージョンを更新しました"
+      echo "- メタデータは data/raw/.metadata/ ディレクトリに保存されています"
+      ;;
   esac
 
   echo ""
@@ -412,6 +482,10 @@ case "$WORKFLOW_NAME" in
   process-data)
     gh label create "data-processing" --description "Data processing (raw to processed)" --color "D876E3" 2>/dev/null || true
     SPECIFIC_LABEL="data-processing"
+    ;;
+  migrate-metadata)
+    gh label create "metadata-migration" --description "Metadata schema migration" --color "FBCA04" 2>/dev/null || true
+    SPECIFIC_LABEL="metadata-migration"
     ;;
   *)
     SPECIFIC_LABEL=""
