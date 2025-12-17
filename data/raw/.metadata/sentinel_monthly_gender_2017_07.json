@@ -4,10 +4,16 @@
   "year": 2017,
   "period": 7,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T17:45:14.756301",
   "file_size": 540,
   "sha256_hash": "c8f9b189f869eb098a31d6d6e13d11462b198fb7d80573f0f902e17b9bf3ff43",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_gender_2017_07.csv",
-  "fetch_time": 0.637948751449585
+  "fetch_time": 0.637948751449585,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T17:45:14.756301",
+  "updated_at": "2025-11-01T17:45:14.756301",
+  "line_count": 15,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

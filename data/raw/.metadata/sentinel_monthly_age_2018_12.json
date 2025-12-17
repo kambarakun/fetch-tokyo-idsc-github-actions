@@ -4,10 +4,16 @@
   "year": 2018,
   "period": 12,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T17:53:10.568361",
   "file_size": 3556,
   "sha256_hash": "949649677573db640476d2456d6ef34873d6226e4fdaf40c7aa278b1756a34dd",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_age_2018_12.csv",
-  "fetch_time": 0.48677754402160645
+  "fetch_time": 0.48677754402160645,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T17:53:10.568361",
+  "updated_at": "2025-11-01T17:53:10.568361",
+  "line_count": 79,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

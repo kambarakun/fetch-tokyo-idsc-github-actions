@@ -4,10 +4,16 @@
   "year": 2008,
   "period": 25,
   "period_type": "weekly",
-  "timestamp": "2025-11-01T18:21:07.237476",
   "file_size": 1712,
   "sha256_hash": "afbc448d68aa2836e706a85f83d363dc0f3a1ff93dc6b943a65489a91088accd",
   "encoding": "shift_jis",
   "file_path": "notifiable_weekly_2008_25.csv",
-  "fetch_time": 0.35639357566833496
+  "fetch_time": 0.35639357566833496,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T18:21:07.237476",
+  "updated_at": "2025-11-01T18:21:07.237476",
+  "line_count": 81,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

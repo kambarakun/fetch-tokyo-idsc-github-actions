@@ -4,10 +4,16 @@
   "year": 2007,
   "period": 51,
   "period_type": "weekly",
-  "timestamp": "2025-11-01T16:11:58.400358",
   "file_size": 9105,
   "sha256_hash": "961e525523dc7d1a1f2d1c17a4c87b1379794ffd11c25bea8c18b980cb6d404a",
   "encoding": "shift_jis",
   "file_path": "sentinel_weekly_age_2007_51.csv",
-  "fetch_time": 0.3557400703430176
+  "fetch_time": 0.3557400703430176,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T16:11:58.400358",
+  "updated_at": "2025-11-01T16:11:58.400358",
+  "line_count": 99,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

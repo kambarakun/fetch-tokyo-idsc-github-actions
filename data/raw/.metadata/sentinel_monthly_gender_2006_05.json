@@ -4,10 +4,16 @@
   "year": 2006,
   "period": 5,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T17:41:53.485791",
   "file_size": 541,
   "sha256_hash": "ead3d44483a842cd30eb3a8769b835f2d8577a424ee82fbcc45316c970a52a24",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_gender_2006_05.csv",
-  "fetch_time": 0.35115790367126465
+  "fetch_time": 0.35115790367126465,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T17:41:53.485791",
+  "updated_at": "2025-11-01T17:41:53.485791",
+  "line_count": 15,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

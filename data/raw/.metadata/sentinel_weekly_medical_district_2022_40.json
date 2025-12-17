@@ -4,10 +4,16 @@
   "year": 2022,
   "period": 40,
   "period_type": "weekly",
-  "timestamp": "2025-11-01T17:37:03.780876",
   "file_size": 6807,
   "sha256_hash": "948cad23c3aa9ca641e0fde645fda74e039473f6fde2bdaa9231b8eec6e3f630",
   "encoding": "shift_jis",
   "file_path": "sentinel_weekly_medical_district_2022_40.csv",
-  "fetch_time": 0.3521547317504883
+  "fetch_time": 0.3521547317504883,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T17:37:03.780876",
+  "updated_at": "2025-11-01T17:37:03.780876",
+  "line_count": 69,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

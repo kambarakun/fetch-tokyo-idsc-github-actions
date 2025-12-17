@@ -4,10 +4,16 @@
   "year": 2015,
   "period": 34,
   "period_type": "weekly",
-  "timestamp": "2025-11-01T15:49:17.727556",
   "file_size": 995,
   "sha256_hash": "6eff3782e3b49ba72a484d605bbc319e267fa6700cdbdd615016eb941f93b163",
   "encoding": "shift_jis",
   "file_path": "sentinel_weekly_gender_2015_34.csv",
-  "fetch_time": 0.3722188472747803
+  "fetch_time": 0.3722188472747803,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T15:49:17.727556",
+  "updated_at": "2025-11-01T15:49:17.727556",
+  "line_count": 28,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }
