@@ -1097,7 +1097,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         # updated_atは更新されていることを確認
         self.assertNotEqual(metadata2["updated_at"], original_created_at)
 
-    def test_row_count_is_calculated(self):
+    def test_line_count_is_calculated(self):
         """行数が正しく計算されることを確認"""
         csv_data = """"テスト"
 "","疾病A"
@@ -1117,8 +1117,8 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertTrue(result.success)
         metadata = self.storage.get_metadata(result.file_path)
         self.assertIsNotNone(metadata)
-        self.assertIn("row_count", metadata)
-        self.assertEqual(metadata["row_count"], 4)  # 4行 (末尾の空行は含まない)
+        self.assertIn("line_count", metadata)
+        self.assertEqual(metadata["line_count"], 4)  # 4行 (末尾の空行は含まない)
 
     def test_checksum_algorithm_is_set(self):
         """checksum_algorithmが設定されることを確認"""
@@ -1225,8 +1225,23 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertEqual(normalized["checksum_algorithm"], "sha256")
         self.assertIsNone(normalized["metadata_version"])  # 旧形式はNone
         self.assertIsNone(normalized["source_url"])  # 旧形式はNone
-        self.assertIsNone(normalized["row_count"])  # 旧形式はNone
+        self.assertIsNone(normalized["line_count"])  # 旧形式はNone
         self.assertIsNone(normalized["verification"])  # 旧形式はNone
+
+    def test_row_count_to_line_count_migration(self):
+        """旧形式のrow_countがline_countに移行されることを確認"""
+        # 旧形式メタデータ (row_countを持つ)
+        legacy_metadata = {
+            "filename": "test.csv",
+            "timestamp": "2025-01-01T00:00:00.000000",
+            "row_count": 42,
+        }
+
+        normalized = self.storage._normalize_metadata(legacy_metadata)
+
+        # row_countがline_countに移行されていることを確認
+        self.assertEqual(normalized["line_count"], 42)
+        self.assertNotIn("row_count", normalized)
 
     def test_truncate_messages_limits_count(self):
         """_truncate_messagesが件数を制限することを確認"""
@@ -1299,18 +1314,18 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertEqual(created_at, now)
         self.assertEqual(updated_at, now)
 
-    def test_count_rows_empty_data(self):
-        """_count_rowsが空データで0を返すことを確認"""
-        self.assertEqual(self.storage._count_rows(b""), 0)
+    def test_count_lines_empty_data(self):
+        """_count_linesが空データで0を返すことを確認"""
+        self.assertEqual(self.storage._count_lines(b""), 0)
 
-    def test_count_rows_single_line_no_newline(self):
-        """_count_rowsが改行なしの1行データで1を返すことを確認"""
-        self.assertEqual(self.storage._count_rows(b"header"), 1)
+    def test_count_lines_single_line_no_newline(self):
+        """_count_linesが改行なしの1行データで1を返すことを確認"""
+        self.assertEqual(self.storage._count_lines(b"header"), 1)
 
-    def test_count_rows_multiple_lines(self):
-        """_count_rowsが複数行データで正しい行数を返すことを確認"""
+    def test_count_lines_multiple_lines(self):
+        """_count_linesが複数行データで正しい行数を返すことを確認"""
         data = b"header\nrow1\nrow2\n"
-        self.assertEqual(self.storage._count_rows(data), 3)
+        self.assertEqual(self.storage._count_lines(data), 3)
 
     def test_path_safety_validation_symlink_detection(self):
         """シンボリックリンクが検出されることを確認"""

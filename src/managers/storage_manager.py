@@ -358,8 +358,8 @@ class StorageManager:
             # created_at/updated_atの設定
             created_at, updated_at = self._determine_timestamps(existing_metadata, now)
 
-            # 行数のカウント
-            row_count = self._count_rows(data)
+            # 物理行数のカウント
+            line_count = self._count_lines(data)
 
             # メタデータ構築
             metadata = self._build_metadata(
@@ -371,7 +371,7 @@ class StorageManager:
                 created_at=created_at,
                 updated_at=updated_at,
                 file_size=len(data),
-                row_count=row_count,
+                line_count=line_count,
                 data_hash=data_hash,
                 file_path=file_path,
                 force_overwrite=force_overwrite,
@@ -723,20 +723,20 @@ class StorageManager:
             logger.exception("Unexpected error while checking for all-zero data")
             return False
 
-    def _count_rows(self, data: bytes) -> int | None:
-        """CSVの行数をカウントする。
+    def _count_lines(self, data: bytes) -> int | None:
+        """CSVの物理行数をカウントする。
 
         Args:
             data: CSVデータ(バイト形式)
 
         Returns:
-            行数 (改行文字の数に基づく)。処理失敗時はNone。
+            物理行数 (改行文字の数に基づく)。処理失敗時はNone。
             空データの場合は0を返す。
 
         Note:
-            改行文字(\\n)の数をカウントして行数を算出する。
+            改行文字(\\n)の数をカウントして物理行数を算出する。
             末尾が改行でない場合は1を追加。
-            CSVのデータ行数ではなく、物理的な行数を返す。
+            ヘッダー行を含む全ての行をカウントする (CSVのデータ行数ではない)。
         """
         try:
             # 空データの場合は0を返す
@@ -782,7 +782,7 @@ class StorageManager:
         created_at: str,
         updated_at: str,
         file_size: int,
-        row_count: int | None,
+        line_count: int | None,
         data_hash: str,
         file_path: Path,
         force_overwrite: bool,
@@ -799,7 +799,7 @@ class StorageManager:
             created_at: 作成日時
             updated_at: 更新日時
             file_size: ファイルサイズ
-            row_count: 行数
+            line_count: 物理行数 (ヘッダー含む)
             data_hash: SHA256ハッシュ
             file_path: ファイルパス
             force_overwrite: 強制上書きフラグ
@@ -818,7 +818,7 @@ class StorageManager:
             "created_at": created_at,
             "updated_at": updated_at,
             "file_size": file_size,
-            "row_count": row_count,
+            "line_count": line_count,
             "sha256_hash": data_hash,
             "checksum_algorithm": "sha256",
             "encoding": "shift_jis",
@@ -1053,13 +1053,15 @@ class StorageManager:
                 )
                 result["valid"] = False
 
-            # 危険な文字のチェック
-            dangerous_patterns = ["../", "..\\", "~", "|", "&", ";", "$", "`"]
-            path_str = str(file_path)
+            # ファイル名の危険な文字チェック
+            # Note: resolve() + relative_to() でパストラバーサルは既に防止されている
+            # ここではファイル名のみをチェックし、親ディレクトリの誤検知を防ぐ
+            dangerous_patterns = ["|", "&", ";", "$", "`", "\x00"]
+            filename = file_path.name
             for pattern in dangerous_patterns:
-                if pattern in path_str:
+                if pattern in filename:
                     result["errors"].append(
-                        f"[path_safety] Dangerous pattern in path: {pattern}"
+                        f"[path_safety] Dangerous pattern in filename: {pattern!r}"
                     )
                     result["valid"] = False
 
@@ -1187,6 +1189,7 @@ class StorageManager:
 
         Note:
             旧形式(timestampのみ)から新形式(created_at/updated_at)への移行を行う。
+            row_count → line_count の移行も行う。
             欠損フィールドにはデフォルト値またはNoneを設定する。
         """
         # timestamp → created_at/updated_at の移行
@@ -1195,6 +1198,10 @@ class StorageManager:
         if "updated_at" not in metadata:
             metadata["updated_at"] = metadata.get("timestamp")
 
+        # row_count → line_count の移行 (後方互換性)
+        if "line_count" not in metadata and "row_count" in metadata:
+            metadata["line_count"] = metadata.pop("row_count")
+
         # checksum_algorithm のデフォルト
         if "checksum_algorithm" not in metadata:
             metadata["checksum_algorithm"] = "sha256"
@@ -1202,7 +1209,7 @@ class StorageManager:
         # 欠損フィールドは明示的にNone
         metadata.setdefault("metadata_version", None)
         metadata.setdefault("source_url", None)
-        metadata.setdefault("row_count", None)
+        metadata.setdefault("line_count", None)
         metadata.setdefault("verification", None)
 
         return metadata
