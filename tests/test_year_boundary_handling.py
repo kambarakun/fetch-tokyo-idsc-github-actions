@@ -2,10 +2,10 @@
 年境界での週番号計算とデータ取得の検証テスト
 
 このテストモジュールは、ISO週番号の年境界での正確性を検証します。
-特に以下のケースをカバーします：
-- 年末の週が翌年に属する場合（例: 2024年12月30日は2025年第1週）
-- 年始の週が前年に属する場合（例: 2025年1月1日は2024年第52/53週）
-- 2週前のデータ取得が年をまたぐ場合（例: 2025年第1週の2週前は2024年第51週）
+特に以下のケースをカバーします:
+- 年末の週が翌年に属する場合(例: 2024年12月30日は2025年第1週)
+- 年始の週が前年に属する場合(例: 2025年1月1日は2024年第52/53週)
+- 2週前のデータ取得が年をまたぐ場合(例: 2025年第1週の2週前は2024年第51週)
 """
 
 import tempfile
@@ -23,7 +23,7 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
 
     def test_year_end_week_belongs_to_next_year(self):
         """年末の週が翌年の第1週に属するケース"""
-        # 2024年12月30日（月曜日）は2025年第1週
+        # 2024年12月30日(月曜日)は2025年第1週
         test_date = date(2024, 12, 30)
         iso_year, iso_week, _ = test_date.isocalendar()
 
@@ -32,7 +32,7 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
 
     def test_year_start_week_belongs_to_previous_year(self):
         """年始の週が前年の最終週に属するケース"""
-        # 2023年1月1日（日曜日）は2022年第52週
+        # 2023年1月1日(日曜日)は2022年第52週
         test_date = date(2023, 1, 1)
         iso_year, iso_week, _ = test_date.isocalendar()
 
@@ -41,7 +41,7 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
 
     def test_two_weeks_ago_crosses_year_boundary(self):
         """2週前の計算が年をまたぐケース"""
-        # 2025年1月6日（月曜日、第2週）の2週前は2024年第52週
+        # 2025年1月6日(月曜日、第2週)の2週前は2024年第52週
         current_date = date(2025, 1, 6)
         two_weeks_ago = current_date - timedelta(weeks=2)
 
@@ -67,17 +67,17 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             manager = StorageManager(base_path=Path(tmpdir), config=config)
 
-            # 2025年第1週（2024年12月30日-2025年1月5日）の開始日は12月
+            # 2025年第1週(2024年12月30日-2025年1月5日)の開始日は12月
             # ISO週は月曜日始まりなので、週の開始日の月を返す
             month_week1 = manager._get_month_from_week(2025, 1)
-            self.assertEqual(month_week1, 12, "2025年第1週の開始日（月曜日）は12月")
+            self.assertEqual(month_week1, 12, "2025年第1週の開始日(月曜日)は12月")
 
-            # 2024年第52週（2024年12月23日-29日）は12月
+            # 2024年第52週(2024年12月23日-29日)は12月
             month_week52 = manager._get_month_from_week(2024, 52)
             self.assertEqual(month_week52, 12, "2024年第52週は12月")
 
-            # 通常の週（年境界をまたがない）
-            # 2025年第2週（2025年1月6日-12日）は1月
+            # 通常の週(年境界をまたがない)
+            # 2025年第2週(2025年1月6日-12日)は1月
             month_week2 = manager._get_month_from_week(2025, 2)
             self.assertEqual(month_week2, 1, "2025年第2週は1月")
 
@@ -111,7 +111,7 @@ class TestYearBoundaryDataFetching(unittest.TestCase):
 
     def test_get_weeks_in_year_accuracy(self):
         """年ごとの週数取得の正確性"""
-        # 通常年（52週）
+        # 通常年(52週)
         weeks_2023 = self.fetcher._get_weeks_in_year(2023)
         self.assertEqual(weeks_2023, 52, "2023年は52週")
 
@@ -128,8 +128,8 @@ class TestWorkflowYearBoundaryScenarios(unittest.TestCase):
     """GitHub Actionsワークフローでの年境界シナリオ検証"""
 
     def test_monday_morning_execution_across_year(self):
-        """月曜朝実行時の年境界処理（2025年1月6日のケース）"""
-        # 2025年1月6日（月曜日）の実行を想定
+        """月曜朝実行時の年境界処理(2025年1月6日のケース)"""
+        # 2025年1月6日(月曜日)の実行を想定
         execution_date = date(2025, 1, 6)
 
         current_week = execution_date.isocalendar().week
@@ -153,8 +153,8 @@ class TestWorkflowYearBoundaryScenarios(unittest.TestCase):
         self.assertEqual(target_weeks, "52,1,2", "正しい週番号のカンマ区切り形式")
 
     def test_december_execution_normal_case(self):
-        """12月の通常実行（年境界をまたがないケース）"""
-        # 2024年12月16日（月曜日）の実行を想定
+        """12月の通常実行(年境界をまたがないケース)"""
+        # 2024年12月16日(月曜日)の実行を想定
         execution_date = date(2024, 12, 16)
 
         current_week = execution_date.isocalendar().week

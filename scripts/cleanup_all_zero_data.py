@@ -2,7 +2,7 @@
 """
 全て0のデータファイルを削除するクリーンアップスクリプト
 
-未発表の週や月のデータ（全てのカウントが0）を検出して削除します。
+未発表の週や月のデータ(全てのカウントが0)を検出して削除します。
 対応するメタデータファイルも同時に削除されます。
 """
 
@@ -106,7 +106,7 @@ def main():
         "--data-dir",
         type=Path,
         default=Path("data/raw"),
-        help="データディレクトリのパス（デフォルト: data/raw）",
+        help="データディレクトリのパス(デフォルト: data/raw)",
     )
     parser.add_argument("--dry-run", action="store_true", help="削除せずに対象ファイルのみ表示")
     parser.add_argument("-v", "--verbose", action="store_true", help="詳細ログを出力")
@@ -154,7 +154,7 @@ def main():
 
     # 確認プロンプト
     if not args.yes:
-        logger.warning(f"\n{len(all_zero_files)} 件のファイル（とメタデータ）を削除しますか？")
+        logger.warning(f"\n{len(all_zero_files)} 件のファイル(とメタデータ)を削除しますか？")
         response = input("削除を実行しますか？ (yes/no): ").strip().lower()
         if response not in ["yes", "y"]:
             logger.info("削除をキャンセルしました。")

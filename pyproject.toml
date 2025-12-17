@@ -99,11 +99,8 @@ ignore = [
     "PLR0912", # Too many branches (複雑な検証ロジックで許容)
     "PLR0913", # Too many arguments to function call
     "PLR2004", # Magic value used in comparison
-    # 日本語プロジェクトのため、コメント/docstring内の全角括弧は許容
-    # 新規コードでは半角括弧を推奨 (CLAUDE.md参照)
     "RUF001", # String contains ambiguous unicode character (日本語文字列を許容)
-    "RUF002", # Docstring contains ambiguous unicode character (日本語docstringを許容)
-    "RUF003", # Comment contains ambiguous unicode character (日本語コメントを許容)
+    # RUF002/RUF003: 全角括弧などの曖昧な文字をコミット前に検出
 ]
 exclude = [
     ".git",

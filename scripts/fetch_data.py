@@ -126,14 +126,14 @@ class DataCollector:
         # 強制更新モードの場合、すべてのデータを再取得
         if self.force_update:
             self.logger.info(f"強制更新モード: {data_type}の全データを再取得")
-            # 全パラメータを生成（target_weeks/monthsも考慮）
+            # 全パラメータを生成(target_weeks/monthsも考慮)
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-        # skip_existingが明示的にFalseの場合は全期間取得（ワークフローパラメータを優先）
+        # skip_existingが明示的にFalseの場合は全期間取得(ワークフローパラメータを優先)
         elif not self.skip_existing:
-            # 全期間のパラメータ生成（既存ファイルも再取得して更新チェック）
+            # 全期間のパラメータ生成(既存ファイルも再取得して更新チェック)
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
             self.logger.info(
-                f"全期間取得モード: {data_type}の{len(missing_params)}件のデータを取得（既存も更新チェック）"
+                f"全期間取得モード: {data_type}の{len(missing_params)}件のデータを取得(既存も更新チェック)"
             )
         # skip_existingがTrueまたはconfig.incremental_modeがTrueの場合は増分取得
         elif self.skip_existing or self.config.collection.incremental_mode:
@@ -150,11 +150,11 @@ class DataCollector:
             if self.skip_existing:
                 self.logger.info(f"増分取得モード: {data_type}の欠損データ {len(missing_params)}件のみ取得")
             else:
-                self.logger.info(f"増分収集モード（config設定）: {data_type}の欠損データ {len(missing_params)}件")
+                self.logger.info(f"増分収集モード(config設定): {data_type}の欠損データ {len(missing_params)}件")
         else:
-            # フォールバック：全期間のパラメータ生成
+            # フォールバック:全期間のパラメータ生成
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-            self.logger.info(f"全期間取得モード（フォールバック）: {data_type}の{len(missing_params)}件")
+            self.logger.info(f"全期間取得モード(フォールバック): {data_type}の{len(missing_params)}件")
 
         # バッチ処理
         batch_size = self.config.collection.batch_size
@@ -237,7 +237,7 @@ class DataCollector:
                 self.stats["errors"].append(str(result.error))
                 self.logger.error(f"データ取得失敗: {result.error}")
 
-            # レート制限（ジッター付きでサーバー負荷を分散）
+            # レート制限(ジッター付きでサーバー負荷を分散)
             base_delay = 0.5
             jitter = random.uniform(0, 0.3)
             time.sleep(base_delay + jitter)
@@ -351,7 +351,7 @@ class DataCollector:
         self.logger.info(f"    - 更新: {self.stats['updated_files']}")
         self.logger.info(f"  失敗: {self.stats['failed']}")
         self.logger.info(f"  重複: {self.stats['duplicates']}")
-        self.logger.info(f"  スキップ（全て0）: {self.stats['skipped']}")
+        self.logger.info(f"  スキップ(全て0): {self.stats['skipped']}")
 
         if self.stats["errors"]:
             self.logger.info(f"  エラー数: {len(self.stats['errors'])}")
@@ -372,13 +372,13 @@ def save_stats_to_file(stats: dict[str, Any], logger: logging.Logger) -> None:
     # これによりGitHub Actionsワークフローと統計ファイル名が一致する
     fetch_timestamp = os.environ.get("FETCH_TIMESTAMP")
 
-    # FETCH_TIMESTAMPの検証（YYYYMMDD_HHMMSS形式）
+    # FETCH_TIMESTAMPの検証(YYYYMMDD_HHMMSS形式)
     if fetch_timestamp:
         # 正規表現でタイムスタンプ形式を検証
         timestamp_pattern = re.compile(r"^\d{8}_\d{6}$")
         if not timestamp_pattern.match(fetch_timestamp):
             logger.warning(
-                f"FETCH_TIMESTAMPの形式が不正です（期待: YYYYMMDD_HHMMSS、実際: {fetch_timestamp}）。"
+                f"FETCH_TIMESTAMPの形式が不正です(期待: YYYYMMDD_HHMMSS、実際: {fetch_timestamp})。"
                 "現在時刻を使用します。"
             )
             fetch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -394,13 +394,13 @@ def save_stats_to_file(stats: dict[str, Any], logger: logging.Logger) -> None:
     # datetimeオブジェクトを文字列に変換
     stats_json = {k: v.isoformat() if isinstance(v, datetime) else v for k, v in stats.items()}
 
-    # エンコーディングを明示的にUTF-8に指定（プラットフォーム依存を回避）
+    # エンコーディングを明示的にUTF-8に指定(プラットフォーム依存を回避)
     with stats_file.open("w", encoding="utf-8") as f:
         json.dump(stats_json, f, indent=2, ensure_ascii=False)
     logger.info(f"統計情報を保存しました: {stats_file}")
 
 
-def main():  # noqa: PLR0915
+def main():
     """メイン関数"""
     parser = argparse.ArgumentParser(description="東京都感染症発生動向データの自動取得")
 
@@ -420,7 +420,7 @@ def main():  # noqa: PLR0915
 
     parser.add_argument("--skip-existing", action="store_true", help="既存ファイルをスキップし、新規ファイルのみ取得")
 
-    parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得（更新チェック）")
+    parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得(更新チェック)")
 
     parser.add_argument(
         "--save-all-zero",
