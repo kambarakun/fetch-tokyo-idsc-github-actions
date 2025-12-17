@@ -574,7 +574,10 @@ class DataProcessor:
             value: パースする文字列
 
         Returns:
-            整数値(空文字列の場合は0、変換失敗時も0)
+            整数値(空文字列の場合は0)
+
+        Raises:
+            ValueError: 数値に変換できない場合 (検証スキップ用)
         """
         stripped = value.strip()
         if not stripped:
@@ -582,10 +585,11 @@ class DataProcessor:
         try:
             return int(stripped)
         except ValueError:
-            logger.warning(f"数値変換失敗: '{value}' -> 0として処理")
-            return 0
+            # '*'など数値でない値は警告を出してValueErrorを再送出 (検証スキップ)
+            logger.warning(f"数値変換失敗: '{value}' - 検証スキップ")
+            raise
 
-    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:  # noqa: PLR0912
+    def _verify_total_calculation(self, male_file: Path, female_file: Path, total_file: Path) -> None:
         """元データのtotalが male + female と一致するか検証
 
         Args:
@@ -606,13 +610,15 @@ class DataProcessor:
                 )
                 return
 
-            # ヘッダー行から「定点」を含む列を特定(検証対象外)
+            # ヘッダー行から検証対象外の列を特定
             skip_columns = set()
             if len(total_data) > 0:
                 header = total_data[0]
                 for j, col_name in enumerate(header):
                     # 「定点」を含む列は、定点医療機関数などのメタデータなので検証スキップ
-                    if "定点" in col_name or "入院" in col_name:
+                    # 「急性呼吸器感染症」(ARI)は年齢グループ化されており、
+                    # 一部の年齢帯で'*'(非該当)が入る既知の仕様のため検証スキップ
+                    if "定点" in col_name or "入院" in col_name or "急性呼吸器感染症" in col_name:
                         skip_columns.add(j)
 
             mismatches = []

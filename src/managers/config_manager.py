@@ -140,7 +140,7 @@ class ConfigurationManager:
             return self.config
 
         try:
-            with open(config_path, encoding="utf-8") as f:
+            with config_path.open(encoding="utf-8") as f:
                 config_dict = yaml.safe_load(f) or {}
 
             self.config = self._parse_config(config_dict)
@@ -333,7 +333,7 @@ class ConfigurationManager:
 
         config_dict = self._config_to_dict(config)
 
-        with open(path, "w", encoding="utf-8") as f:
+        with path.open("w", encoding="utf-8") as f:
             yaml.dump(config_dict, f, default_flow_style=False, allow_unicode=True)
 
         logger.info(f"Configuration saved to {path}")

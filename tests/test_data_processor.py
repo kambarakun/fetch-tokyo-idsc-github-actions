@@ -366,6 +366,33 @@ class TestDataProcessor(unittest.TestCase):
         # 負の数
         self.assertEqual(self.processor._parse_int("-5"), -5)
 
+    def test_parse_int_with_asterisk_raises_value_error(self):
+        """'*'などの非数値でValueErrorが発生することを確認
+
+        東京都データでは'*'は「非該当」を意味する既知の仕様。
+        _parse_intはValueErrorを投げ、呼び出し側で検証をスキップする。
+        """
+        # '*'(非該当)でValueErrorが発生
+        with self.assertRaises(ValueError):
+            self.processor._parse_int("*")
+
+        # 警告ログも出力されることを確認
+        with self.assertLogs("src.processors.data_processor", level="WARNING") as log_context:
+            with self.assertRaises(ValueError):
+                self.processor._parse_int("*")
+
+        self.assertTrue(
+            any("数値変換失敗" in log.message for log in log_context.records),
+            f"警告ログが見つかりません: {[log.message for log in log_context.records]}",
+        )
+
+        # 他の非数値パターンもValueErrorになることを確認
+        with self.assertRaises(ValueError):
+            self.processor._parse_int("N/A")
+
+        with self.assertRaises(ValueError):
+            self.processor._parse_int("abc")
+
     def test_is_empty_data_file(self):
         """_is_empty_data_file のテスト"""
         # ヘッダーのみのファイル
@@ -399,6 +426,84 @@ class TestDataProcessor(unittest.TestCase):
         self.processor._verify_total_calculation(male_file, female_file, total_file)
 
         # エラーにはならず、警告のみ
+
+    def test_verify_total_skips_ari_column(self):
+        """ARIカラム(急性呼吸器感染症)の検証がスキップされることを確認
+
+        東京都データでは、ARIは年齢グループ化されており、
+        一部の年齢帯で'*'(非該当)が入る既知の仕様。
+        このカラムは検証対象外としてスキップする。
+        """
+        male_file = self.data_dir / "processed" / "verify_ari_male.csv"
+        female_file = self.data_dir / "processed" / "verify_ari_female.csv"
+        total_file = self.data_dir / "processed" / "verify_ari_total.csv"
+
+        male_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # ARIカラムに'*'を含むデータを作成
+        # インフルエンザは正しいデータ(male + female = total)
+        # ARIは'*'が含まれるため検証スキップされる
+        male_file.write_text(
+            "年齢区分,急性呼吸器感染症,インフルエンザ\n0歳,*,10\n1-4歳,100,20\n",
+            encoding="utf-8",
+        )
+        female_file.write_text(
+            "年齢区分,急性呼吸器感染症,インフルエンザ\n0歳,*,5\n1-4歳,90,15\n",
+            encoding="utf-8",
+        )
+        total_file.write_text(
+            "年齢区分,急性呼吸器感染症,インフルエンザ\n0歳,*,15\n1-4歳,190,35\n",
+            encoding="utf-8",
+        )
+
+        # ARIカラムはスキップされるため、ValueErrorは発生せず正常終了
+        # (インフルエンザカラムのみ検証される)
+        with self.assertLogs("src.processors.data_processor", level="INFO") as log_context:
+            self.processor._verify_total_calculation(male_file, female_file, total_file)
+
+        # 検証OKのログが出力されることを確認
+        info_logs = [log.message for log in log_context.records if log.levelname == "INFO"]
+        self.assertTrue(
+            any("total検証OK" in log for log in info_logs),
+            f"検証OKログが見つかりません: {info_logs}",
+        )
+
+    def test_verify_total_skips_ari_column_with_inconsistent_data(self):
+        """ARIカラムの不整合データが無視されることを確認
+
+        ARIカラムは検証スキップされるため、
+        male + female != total でもエラーにならない。
+        """
+        male_file = self.data_dir / "processed" / "verify_ari_skip_male.csv"
+        female_file = self.data_dir / "processed" / "verify_ari_skip_female.csv"
+        total_file = self.data_dir / "processed" / "verify_ari_skip_total.csv"
+
+        male_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # ARIカラムは意図的に不整合(100 + 90 != 999)だが、スキップされるので問題なし
+        # インフルエンザは正しいデータ
+        male_file.write_text(
+            "年齢区分,急性呼吸器感染症,インフルエンザ\n0歳,100,10\n",
+            encoding="utf-8",
+        )
+        female_file.write_text(
+            "年齢区分,急性呼吸器感染症,インフルエンザ\n0歳,90,5\n",
+            encoding="utf-8",
+        )
+        total_file.write_text(
+            "年齢区分,急性呼吸器感染症,インフルエンザ\n0歳,999,15\n",  # ARIは不整合
+            encoding="utf-8",
+        )
+
+        # ARIカラムはスキップされるため、不整合があっても検証OKとなる
+        with self.assertLogs("src.processors.data_processor", level="INFO") as log_context:
+            self.processor._verify_total_calculation(male_file, female_file, total_file)
+
+        info_logs = [log.message for log in log_context.records if log.levelname == "INFO"]
+        self.assertTrue(
+            any("total検証OK" in log for log in info_logs),
+            f"検証OKログが見つかりません(ARIカラムはスキップされるべき): {info_logs}",
+        )
 
     def test_process_file_with_encoding_error(self):
         """エンコーディングエラー時の処理テスト"""

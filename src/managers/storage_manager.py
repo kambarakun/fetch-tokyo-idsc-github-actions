@@ -113,7 +113,7 @@ class GitHandler:
             if not file_paths:
                 return True
 
-            subprocess.run(["git", "add"] + file_paths, capture_output=True, text=True, check=True)
+            subprocess.run(["git", "add", *file_paths], capture_output=True, text=True, check=True)
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to add files to git: {e.stderr}")
