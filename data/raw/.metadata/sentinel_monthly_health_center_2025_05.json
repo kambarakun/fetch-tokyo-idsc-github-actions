@@ -1,15 +1,34 @@
 {
+  "metadata_version": "1.0",
   "filename": "sentinel_monthly_health_center_2025_05.csv",
   "data_type": "sentinel_monthly_health_center",
   "year": 2025,
   "period": 5,
   "period_type": "monthly",
-  "timestamp": "2025-12-17T02:59:46.244123",
+  "created_at": "2025-12-17T02:59:46.244123",
+  "updated_at": "2025-12-17T06:04:50.506757",
   "file_size": 6154,
+  "line_count": 123,
   "sha256_hash": "b109aeb8308ab8a44ef65ee5abd8f84e6abdf8adb7f528e56cc734b9414e01ed",
+  "checksum_algorithm": "sha256",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_health_center_2025_05.csv",
   "force_overwrite": true,
   "save_all_zero": false,
-  "fetch_time": 1.0078675746917725
+  "fetch_time": 0.7577939033508301,
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-17T06:04:50.507150",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2, 12}"
+    ]
+  }
 }
