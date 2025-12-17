@@ -4,10 +4,16 @@
   "year": 2000,
   "period": 7,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T17:55:09.162787",
   "file_size": 8051,
   "sha256_hash": "178f5f5360dd02b245216953a1dd78c532337912622086c4d73bdfd559ba5c0c",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_health_center_2000_07.csv",
-  "fetch_time": 0.49858689308166504
+  "fetch_time": 0.49858689308166504,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T17:55:09.162787",
+  "updated_at": "2025-11-01T17:55:09.162787",
+  "line_count": 159,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

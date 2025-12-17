@@ -4,10 +4,16 @@
   "year": 2021,
   "period": 1,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T18:08:50.190194",
   "file_size": 3392,
   "sha256_hash": "1f12e05aa8ef47272b5b81e6f6df9c49492d42c47e33ec6665b8058b5a99499b",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_medical_district_2021_01.csv",
-  "fetch_time": 0.34559082984924316
+  "fetch_time": 0.34559082984924316,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T18:08:50.190194",
+  "updated_at": "2025-11-01T18:08:50.190194",
+  "line_count": 69,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

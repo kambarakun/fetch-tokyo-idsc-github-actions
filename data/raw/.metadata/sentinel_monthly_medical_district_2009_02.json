@@ -4,10 +4,16 @@
   "year": 2009,
   "period": 2,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T18:05:13.990476",
   "file_size": 3401,
   "sha256_hash": "7de1084987d67b1da2ad313aaae4256e784ceab094c2598444286fdce6de77a3",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_medical_district_2009_02.csv",
-  "fetch_time": 0.6271786689758301
+  "fetch_time": 0.6271786689758301,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T18:05:13.990476",
+  "updated_at": "2025-11-01T18:05:13.990476",
+  "line_count": 69,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }

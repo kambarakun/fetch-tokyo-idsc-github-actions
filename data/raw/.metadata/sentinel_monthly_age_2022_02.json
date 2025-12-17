@@ -4,10 +4,16 @@
   "year": 2022,
   "period": 2,
   "period_type": "monthly",
-  "timestamp": "2025-11-01T17:54:07.462511",
   "file_size": 3526,
   "sha256_hash": "d0c6b9ccc28ee60aff138f0a802614c047b1fc235baa95dfbe60433607a4b11f",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_age_2022_02.csv",
-  "fetch_time": 0.3466176986694336
+  "fetch_time": 0.3466176986694336,
+  "metadata_version": "1.0",
+  "created_at": "2025-11-01T17:54:07.462511",
+  "updated_at": "2025-11-01T17:54:07.462511",
+  "line_count": 79,
+  "checksum_algorithm": "sha256",
+  "source_url": null,
+  "verification": null
 }
