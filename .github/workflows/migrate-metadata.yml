@@ -60,20 +60,6 @@ jobs:
             exit 0
           fi
 
-          # Pythonで堅牢にバージョンを抽出
-          extract_version() {
-            uv run python -c "
-          import re
-          import sys
-          try:
-              content = open('$1').read()
-              match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
-              print(match.group(1) if match else '')
-          except Exception:
-              print('')
-          "
-          }
-
           # 前のコミットのファイルを一時的に取得
           git show HEAD^:src/managers/storage_manager.py > /tmp/old_storage_manager.py 2>/dev/null || echo "" > /tmp/old_storage_manager.py
 
@@ -180,11 +166,14 @@ jobs:
           git add data/raw/.metadata/*.json
 
           if ! git diff --staged --quiet; then
-            git commit -m "chore(metadata): migrate to version ${TARGET_VERSION}
+            git commit -m "$(cat <<EOF
+chore(metadata): migrate to version ${TARGET_VERSION}
 
-          Migrated ${MIGRATED_COUNT} metadata files to version ${TARGET_VERSION}.
+Migrated ${MIGRATED_COUNT} metadata files to version ${TARGET_VERSION}.
 
-          🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
             git push
             echo "Migration committed and pushed"
           else

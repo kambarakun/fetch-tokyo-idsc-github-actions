@@ -206,9 +206,10 @@ def count_lines(data_file: Path) -> int | None:
         # 最後の行が改行で終わっていない場合は+1
         if last_char and last_char != b"\n":
             line_count += 1
-        return line_count
     except OSError:
         return None
+    else:
+        return line_count
 
 
 # =============================================================================
@@ -439,9 +440,9 @@ def run_migration(
 
             stats["migrated"] += 1
 
-        except (json.JSONDecodeError, OSError, KeyError, ValueError) as e:
+        except (json.JSONDecodeError, OSError, KeyError, ValueError):
             stats["errors"] += 1
-            logger.error(f"Error processing {metadata_path.name}: {e}")
+            logger.exception(f"Error processing {metadata_path.name}")
 
     return stats
 
