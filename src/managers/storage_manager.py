@@ -729,7 +729,8 @@ class StorageManager:
             data: CSVデータ(バイト形式)
 
         Returns:
-            行数 (改行文字の数に基づく)。処理失敗時はNone
+            行数 (改行文字の数に基づく)。処理失敗時はNone。
+            空データの場合は0を返す。
 
         Note:
             改行文字(\\n)の数をカウントして行数を算出する。
@@ -737,15 +738,18 @@ class StorageManager:
             CSVのデータ行数ではなく、物理的な行数を返す。
         """
         try:
+            # 空データの場合は0を返す
+            if not data:
+                return 0
             count = data.count(b"\n")
             # 末尾が改行でない場合は1を追加
-            if data and not data.endswith(b"\n"):
+            if not data.endswith(b"\n"):
                 count += 1
         except (TypeError, AttributeError) as e:
             logger.warning(f"Failed to count rows: {e}")
             return None
         else:
-            return count if count > 0 else None
+            return count
 
     def _determine_timestamps(
         self, existing_metadata: dict[str, Any] | None, now: str
@@ -1004,10 +1008,24 @@ class StorageManager:
 
         Returns:
             検証結果の辞書
+
+        Note:
+            以下の攻撃を検出:
+            - パストラバーサル攻撃 (../等による親ディレクトリへのアクセス)
+            - シンボリックリンク攻撃 (シンボリックリンクを介した許可外パスへのアクセス)
+            - 危険な文字を含むパス (シェルインジェクション対策)
         """
         result: dict[str, Any] = {"valid": True, "errors": []}
 
         try:
+            # シンボリックリンクチェック (解決前に実施)
+            # シンボリックリンクは許可外のディレクトリへのアクセスに悪用される可能性がある
+            if file_path.is_symlink():
+                result["errors"].append(
+                    "[path_safety] Symbolic links not allowed for security reasons"
+                )
+                result["valid"] = False
+
             # 絶対パスを解決
             resolved_path = file_path.resolve()
 

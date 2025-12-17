@@ -1299,6 +1299,84 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertEqual(created_at, now)
         self.assertEqual(updated_at, now)
 
+    def test_count_rows_empty_data(self):
+        """_count_rowsが空データで0を返すことを確認"""
+        self.assertEqual(self.storage._count_rows(b""), 0)
+
+    def test_count_rows_single_line_no_newline(self):
+        """_count_rowsが改行なしの1行データで1を返すことを確認"""
+        self.assertEqual(self.storage._count_rows(b"header"), 1)
+
+    def test_count_rows_multiple_lines(self):
+        """_count_rowsが複数行データで正しい行数を返すことを確認"""
+        data = b"header\nrow1\nrow2\n"
+        self.assertEqual(self.storage._count_rows(data), 3)
+
+    def test_path_safety_validation_symlink_detection(self):
+        """シンボリックリンクが検出されることを確認"""
+        # シンボリックリンクを作成
+        target_file = self.base_path / "target.csv"
+        target_file.write_bytes(b"test")
+        symlink_path = self.base_path / "symlink.csv"
+        symlink_path.symlink_to(target_file)
+
+        try:
+            result = self.storage._check_path_safety_validation(symlink_path)
+            self.assertFalse(result["valid"])
+            self.assertTrue(
+                any("Symbolic links not allowed" in err for err in result["errors"])
+            )
+        finally:
+            symlink_path.unlink()
+            target_file.unlink()
+
+    def test_path_safety_validation_traversal_detection(self):
+        """パストラバーサルが検出されることを確認"""
+        # base_path外のパスを指定
+        outside_path = Path("/tmp/outside.csv")
+
+        result = self.storage._check_path_safety_validation(outside_path)
+        self.assertFalse(result["valid"])
+        self.assertTrue(
+            any("Path traversal detected" in err for err in result["errors"])
+        )
+
+    def test_path_safety_validation_dangerous_pattern_detection(self):
+        """危険なパターンが検出されることを確認"""
+        dangerous_path = self.base_path / "test;rm -rf.csv"
+
+        result = self.storage._check_path_safety_validation(dangerous_path)
+        self.assertFalse(result["valid"])
+        self.assertTrue(
+            any("Dangerous pattern" in err for err in result["errors"])
+        )
+
+    def test_encoding_validation_with_invalid_bytes(self):
+        """_check_encoding_validationが無効なバイトシーケンスを検出することを確認"""
+        # Shift_JISとして無効なバイトシーケンスを生成
+        # 0x80-0x9F, 0xE0-0xFC の範囲外で不正なバイト
+        invalid_data = b"\xff\xfe\x00\x01\x02"  # 無効なバイトシーケンス
+
+        result = self.storage._check_encoding_validation(invalid_data)
+
+        # 無効なエンコーディングで検証が失敗することを確認
+        self.assertFalse(result["valid"])
+        self.assertTrue(len(result["errors"]) > 0)
+        self.assertTrue(
+            any("encoding" in err.lower() for err in result["errors"])
+        )
+
+    def test_csv_format_validation_with_inconsistent_columns(self):
+        """_check_csv_format_validationが不整合なカラム数を検出することを確認"""
+        # カラム数が一致しないCSVデータ
+        csv_data = "col1,col2,col3\nval1,val2\nval1,val2,val3,val4\n"
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage._check_csv_format_validation(data)
+
+        # カラム数の不整合がwarningsに含まれることを確認
+        self.assertTrue(len(result["warnings"]) > 0)
+
 
 if __name__ == "__main__":
     unittest.main()
