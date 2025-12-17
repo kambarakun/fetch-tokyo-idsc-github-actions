@@ -2,6 +2,8 @@
 validate_data.py のテスト
 """
 
+import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -63,15 +65,68 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         self.assertIn("エラーあり", report)
         self.assertIn("## ❌ エラー", report)
 
+    def test_generate_markdown_report_with_warnings(self):
+        """警告がある場合のMarkdownレポート生成"""
+        validator = DataValidator()
+        validator.validation_results.append({
+            "file": "/test/file.csv",
+            "valid": True,
+            "errors": [],
+            "warnings": ["Inconsistent column count"],
+        })
+        validator.has_warnings = True
+        report = validator.generate_markdown_report()
+
+        self.assertIn("警告あり", report)
+        self.assertIn("## ⚠️ 警告", report)
+        self.assertIn("Inconsistent column count", report)
+
+
+class TestMarkdownEscaping(unittest.TestCase):
+    """Markdown特殊文字のエスケープテスト"""
+
+    def test_escape_markdown_pipe(self):
+        """パイプ文字のエスケープ"""
+        result = DataValidator._escape_markdown("test|value")
+        self.assertEqual(result, "test\\|value")
+
+    def test_escape_markdown_backtick(self):
+        """バックティックのエスケープ"""
+        result = DataValidator._escape_markdown("test`code`value")
+        self.assertEqual(result, "test\\`code\\`value")
+
+    def test_escape_markdown_combined(self):
+        """複合的な特殊文字のエスケープ"""
+        result = DataValidator._escape_markdown("file|name`test`.csv")
+        self.assertEqual(result, "file\\|name\\`test\\`.csv")
+
+    def test_escape_markdown_non_string(self):
+        """非文字列入力の処理"""
+        result = DataValidator._escape_markdown(123)
+        self.assertEqual(result, "123")
+
+    def test_markdown_report_with_special_chars_in_error(self):
+        """エラーメッセージに特殊文字が含まれる場合"""
+        validator = DataValidator()
+        validator.validation_results.append({
+            "file": "/test/file|special.csv",
+            "valid": False,
+            "errors": ["Error with | pipe and ` backtick"],
+            "warnings": [],
+        })
+        validator.has_errors = True
+        report = validator.generate_markdown_report()
+
+        # パイプとバックティックがエスケープされていることを確認
+        self.assertIn("\\|", report)
+        self.assertIn("\\`", report)
+
 
 class TestDataValidatorFormatOption(unittest.TestCase):
     """--formatオプションのテスト"""
 
     def test_format_option_json(self):
         """JSON形式出力のテスト"""
-        import json
-        import os
-
         # プロジェクトルートを取得
         project_root = Path(__file__).parent.parent
         temp_dir = tempfile.mkdtemp()
@@ -79,8 +134,6 @@ class TestDataValidatorFormatOption(unittest.TestCase):
 
         # data/rawディレクトリを使用 (パス安全性チェックを通すため)
         data_dir = project_root / "data" / "raw"
-
-        import subprocess
 
         result = subprocess.run(
             [
@@ -99,9 +152,13 @@ class TestDataValidatorFormatOption(unittest.TestCase):
             capture_output=True,
             text=True,
             cwd=project_root,
+            check=False,
         )
 
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+        self.assertEqual(
+            result.returncode, 0,
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
         self.assertTrue(output_file.exists())
 
         # JSONとして読み込めることを確認
@@ -117,8 +174,6 @@ class TestDataValidatorFormatOption(unittest.TestCase):
 
         # data/rawディレクトリを使用
         data_dir = project_root / "data" / "raw"
-
-        import subprocess
 
         result = subprocess.run(
             [
@@ -137,9 +192,13 @@ class TestDataValidatorFormatOption(unittest.TestCase):
             capture_output=True,
             text=True,
             cwd=project_root,
+            check=False,
         )
 
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+        self.assertEqual(
+            result.returncode, 0,
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
         self.assertTrue(output_file.exists())
 
         # Markdownの内容を確認

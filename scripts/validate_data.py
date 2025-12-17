@@ -306,6 +306,18 @@ class DataValidator:
             "results": self.validation_results,
         }
 
+    @staticmethod
+    def _escape_markdown(text: str) -> str:
+        """Markdownの特殊文字をエスケープする
+
+        テーブルセル内で問題になる文字をエスケープします。
+        """
+        if not isinstance(text, str):
+            text = str(text)
+        # パイプはテーブルの区切りになるのでエスケープ
+        # バックティックはコードブロックになるのでエスケープ
+        return text.replace("|", "\\|").replace("`", "\\`")
+
     def generate_markdown_report(self) -> str:
         """検証レポートをMarkdown形式で生成"""
         report = self.generate_report()
@@ -333,8 +345,8 @@ class DataValidator:
             status_icon = "✅"
             status_text = "正常"
 
-        lines.append(f"| 項目 | 値 |")
-        lines.append(f"|------|-----|")
+        lines.append("| 項目 | 値 |")
+        lines.append("|------|-----|")
         lines.append(f"| ステータス | {status_icon} {status_text} |")
         lines.append(f"| 総ファイル数 | {summary['total_files']} |")
         lines.append(f"| 有効 | {summary['valid_files']} |")
@@ -351,10 +363,12 @@ class DataValidator:
             lines.append("")
             for result in report["results"]:
                 if result["errors"]:
-                    lines.append(f"### `{result['file']}`")
+                    escaped_file = self._escape_markdown(result["file"])
+                    lines.append(f"### `{escaped_file}`")
                     lines.append("")
                     for error in result["errors"]:
-                        lines.append(f"- {error}")
+                        escaped_error = self._escape_markdown(error)
+                        lines.append(f"- {escaped_error}")
                     lines.append("")
 
         if warnings_exist:
@@ -362,10 +376,12 @@ class DataValidator:
             lines.append("")
             for result in report["results"]:
                 if result["warnings"]:
-                    lines.append(f"### `{result['file']}`")
+                    escaped_file = self._escape_markdown(result["file"])
+                    lines.append(f"### `{escaped_file}`")
                     lines.append("")
                     for warning in result["warnings"]:
-                        lines.append(f"- {warning}")
+                        escaped_warning = self._escape_markdown(warning)
+                        lines.append(f"- {escaped_warning}")
                     lines.append("")
 
         # 検証済みファイル一覧 (エラー/警告がない場合のみ詳細表示)
@@ -375,7 +391,7 @@ class DataValidator:
             lines.append("| ファイル | サイズ | 行数 | ステータス |")
             lines.append("|----------|--------|------|------------|")
             for result in report["results"]:
-                file_name = Path(result["file"]).name
+                file_name = self._escape_markdown(Path(result["file"]).name)
                 size = result.get("checks", {}).get("file_size", {}).get("size_mb", "N/A")
                 if isinstance(size, (int, float)):
                     size = f"{size:.2f} MB"
