@@ -15,5 +15,19 @@
   "line_count": 27,
   "checksum_algorithm": "sha256",
   "source_url": null,
-  "verification": null
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-17T09:53:51.691491",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2, 5}"
+    ]
+  }
 }
