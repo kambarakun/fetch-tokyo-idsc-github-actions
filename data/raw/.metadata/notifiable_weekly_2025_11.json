@@ -1,15 +1,34 @@
 {
+  "metadata_version": "1.0",
   "filename": "notifiable_weekly_2025_11.csv",
   "data_type": "notifiable_weekly",
   "year": 2025,
   "period": 11,
   "period_type": "weekly",
-  "timestamp": "2025-12-17T03:00:31.251775",
+  "created_at": "2025-12-17T03:00:31.251775",
+  "updated_at": "2025-12-17T06:05:36.095629",
   "file_size": 2128,
+  "line_count": 94,
   "sha256_hash": "c5a5b7ee65b542b5126d988caf9812f8ebfb27c8666c8f18232f58dd17862f21",
+  "checksum_algorithm": "sha256",
   "encoding": "shift_jis",
   "file_path": "notifiable_weekly_2025_11.csv",
   "force_overwrite": true,
   "save_all_zero": false,
-  "fetch_time": 0.9222462177276611
+  "fetch_time": 0.8452270030975342,
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-17T06:05:36.095884",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2}"
+    ]
+  }
 }

@@ -1,15 +1,34 @@
 {
+  "metadata_version": "1.0",
   "filename": "sentinel_weekly_medical_district_2025_16.csv",
   "data_type": "sentinel_weekly_medical_district",
   "year": 2025,
   "period": 16,
   "period_type": "weekly",
-  "timestamp": "2025-12-17T02:58:08.030782",
+  "created_at": "2025-12-17T02:58:08.030782",
+  "updated_at": "2025-12-17T06:03:14.238308",
   "file_size": 8021,
+  "line_count": 69,
   "sha256_hash": "ffeb5e6e7d6bd65784e8b760a6463a96503f82bebac13bbe1beb51b60dab4a88",
+  "checksum_algorithm": "sha256",
   "encoding": "shift_jis",
   "file_path": "sentinel_weekly_medical_district_2025_16.csv",
   "force_overwrite": true,
   "save_all_zero": false,
-  "fetch_time": 0.7133259773254395
+  "fetch_time": 0.20075416564941406,
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-17T06:03:14.238671",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2, 32}"
+    ]
+  }
 }

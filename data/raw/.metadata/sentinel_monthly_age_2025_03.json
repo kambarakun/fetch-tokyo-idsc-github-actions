@@ -1,15 +1,34 @@
 {
+  "metadata_version": "1.0",
   "filename": "sentinel_monthly_age_2025_03.csv",
   "data_type": "sentinel_monthly_age",
   "year": 2025,
   "period": 3,
   "period_type": "monthly",
-  "timestamp": "2025-12-17T02:59:25.088039",
+  "created_at": "2025-12-17T02:59:25.088039",
+  "updated_at": "2025-12-17T06:04:29.431874",
   "file_size": 3522,
+  "line_count": 79,
   "sha256_hash": "dd248b768ad576f17607ac954825cab19b8cc53d5bdf9f786cdc79cd0310cefa",
+  "checksum_algorithm": "sha256",
   "encoding": "shift_jis",
   "file_path": "sentinel_monthly_age_2025_03.csv",
   "force_overwrite": true,
   "save_all_zero": false,
-  "fetch_time": 0.7832131385803223
+  "fetch_time": 1.0634338855743408,
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-17T06:04:29.432125",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2, 10}"
+    ]
+  }
 }

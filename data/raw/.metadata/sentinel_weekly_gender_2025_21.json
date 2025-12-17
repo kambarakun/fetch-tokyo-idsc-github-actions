@@ -1,15 +1,34 @@
 {
+  "metadata_version": "1.0",
   "filename": "sentinel_weekly_gender_2025_21.csv",
   "data_type": "sentinel_weekly_gender",
   "year": 2025,
   "period": 21,
   "period_type": "weekly",
-  "timestamp": "2025-12-17T02:54:25.808803",
+  "created_at": "2025-12-17T02:54:25.808803",
+  "updated_at": "2025-12-17T05:59:25.411078",
   "file_size": 1117,
+  "line_count": 30,
   "sha256_hash": "412f7ba5e7383c8e58b2aff8a1c41cc2d9a0ae379c68d94c080064a20b07ffd1",
+  "checksum_algorithm": "sha256",
   "encoding": "shift_jis",
   "file_path": "sentinel_weekly_gender_2025_21.csv",
   "force_overwrite": true,
   "save_all_zero": false,
-  "fetch_time": 1.2083988189697266
+  "fetch_time": 0.6970188617706299,
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-17T05:59:25.411388",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2, 5}"
+    ]
+  }
 }
