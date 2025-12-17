@@ -79,10 +79,12 @@ def _process_single_file(
         metadata = json.load(f)
 
     # only_unverified モードの場合、既に検証済みならスキップ
+    # ただし既存の検証ステータスは返す (統計や再集計に使用可能)
     if only_unverified and metadata.get("verification") is not None:
+        existing_status = metadata["verification"].get("status")
         if verbose:
-            logger.debug(f"Skipped (already verified): {metadata_path.name}")
-        return "skipped", None
+            logger.debug(f"Skipped (already {existing_status}): {metadata_path.name}")
+        return "skipped", existing_status
 
     # 対応するCSVファイルのパス (パストラバーサル対策)
     csv_filename = metadata.get("filename", metadata_path.stem + ".csv")
@@ -164,7 +166,10 @@ def run_verification(
 
     for metadata_path in metadata_files:
         try:
-            result_type, _ = _process_single_file(
+            # status: 検証ステータス ("verified", "failed", None)
+            # - 新規検証時: 検証結果のステータス
+            # - スキップ時: 既存の検証ステータス (将来の統計拡張用に保持)
+            result_type, status = _process_single_file(
                 metadata_path=metadata_path,
                 data_dir=data_dir,
                 storage_manager=storage_manager,
@@ -179,6 +184,9 @@ def run_verification(
                 stats["failed"] += 1
             elif result_type == "skipped":
                 stats["skipped"] += 1
+                # 注: status には既存の検証ステータスが入っている
+                # 将来的に skipped_verified/skipped_failed の統計が必要な場合に使用
+                _ = status  # 現在は未使用だが意図的に保持
             else:
                 stats["errors"] += 1
 
