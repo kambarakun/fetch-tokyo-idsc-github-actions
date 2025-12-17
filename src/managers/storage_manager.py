@@ -915,10 +915,8 @@ class StorageManager:
         try:
             # Shift_JISでデコードを試みる
             content = data.decode(EXPECTED_ENCODING)
-            # 最初の数行を読んで確認
-            lines = content.split("\n")[:10]
-            for _ in lines:
-                pass  # デコードできれば OK
+            # 最初の数行を読んで確認 (デコード成功の検証)
+            _ = content.split("\n")[:10]
         except UnicodeDecodeError as e:
             result["errors"].append(
                 f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}"
