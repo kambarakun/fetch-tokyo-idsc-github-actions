@@ -59,7 +59,7 @@ def save_stats(data_dir: Path, stats_data: dict[str, Any]) -> None:
         logger.warning("処理統計の保存に失敗しましたが、データ処理自体は完了しています")
 
 
-def main() -> None:  # noqa: PLR0915
+def main() -> None:
     """メイン処理"""
     parser = argparse.ArgumentParser(
         description="東京都感染症データの処理スクリプト",
