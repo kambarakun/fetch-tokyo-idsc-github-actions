@@ -207,6 +207,23 @@ class TestMigrationRegistry:
         assert MigrationRegistry.compare_versions("0.0.1", "0.0.0") > 0
         assert MigrationRegistry.compare_versions("1.0.0", "0.99.99") > 0
 
+    def test_compare_versions_invalid_format(self) -> None:
+        """不正なバージョンフォーマットでValueErrorを発生させる."""
+        # 数値以外を含むバージョン
+        with pytest.raises(ValueError, match=r"Invalid version format: '1\.a\.2'"):
+            MigrationRegistry.compare_versions("1.a.2", "1.0")
+
+        with pytest.raises(ValueError, match=r"Invalid version format: 'abc'"):
+            MigrationRegistry.compare_versions("1.0", "abc")
+
+        # 空文字列
+        with pytest.raises(ValueError, match=r"Invalid version format: ''"):
+            MigrationRegistry.compare_versions("", "1.0")
+
+        # スペースを含む
+        with pytest.raises(ValueError, match=r"Invalid version format: '1 0'"):
+            MigrationRegistry.compare_versions("1 0", "1.0")
+
     def test_is_downgrade(self) -> None:
         """ダウングレードを正しく検出する."""
         registry = MigrationRegistry()

@@ -200,7 +200,11 @@ class MigrationRegistry:
 
         # セマンティックバージョニング比較
         def parse_version(v: str) -> tuple[int, ...]:
-            return tuple(int(x) for x in v.split("."))
+            try:
+                return tuple(int(x) for x in v.split("."))
+            except ValueError as e:
+                msg = f"Invalid version format: '{v}'. Expected format: '1.0' or '1.2.3'"
+                raise ValueError(msg) from e
 
         return (parse_version(v1) > parse_version(v2)) - (
             parse_version(v1) < parse_version(v2)
