@@ -133,7 +133,7 @@ case "$WORKFLOW_NAME" in
     BRANCH_NAME="data-process-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
     ;;
   migrate-metadata)
-    BRANCH_NAME="chore/migrate-metadata-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
+    BRANCH_NAME="metadata-migration-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
     ;;
   *)
     BRANCH_NAME="data-update-${WORKFLOW_NAME}-${FETCH_TIMESTAMP}-${GITHUB_RUN_ID}"
@@ -213,8 +213,8 @@ echo "Final counts: new=$NEW_FILES, updated=$MODIFIED_FILES, total=$CHANGED_FILE
 case "$WORKFLOW_NAME" in
   migrate-metadata)
     # メタデータマイグレーション専用フォーマット
-    # フォーマット: "chore(metadata): migrate to version X.X.X (Nファイル)"
-    COMMIT_MSG="chore(metadata): migrate to version ${TARGET_VERSION} (${MIGRATED_COUNT}ファイル)"
+    # フォーマット: "メタデータ更新: バージョンX.X.Xへマイグレーション (Nファイル)"
+    COMMIT_MSG="メタデータ更新: バージョン${TARGET_VERSION}へマイグレーション (${MIGRATED_COUNT}ファイル)"
     ;;
   *)
     # データ更新ワークフロー用の統一形式
@@ -312,8 +312,9 @@ PR_BODY_FILE="/tmp/pr_body.md"
       fi
       ;;
     migrate-metadata)
+      # チェック範囲: マイグレーション対象の定義
       [ -n "${TARGET_VERSION:-}" ] && echo "- **目標バージョン**: ${TARGET_VERSION}"
-      [ -n "${MIGRATED_COUNT:-}" ] && echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル"
+      echo "- **対象ディレクトリ**: data/raw/.metadata/"
       ;;
   esac
 
@@ -324,9 +325,8 @@ PR_BODY_FILE="/tmp/pr_body.md"
   case "$WORKFLOW_NAME" in
     migrate-metadata)
       # メタデータマイグレーション専用の統計表示
-      echo "#### メタデータマイグレーション"
-      echo "- **目標バージョン**: ${TARGET_VERSION}"
-      echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル"
+      echo "#### メタデータファイル"
+      echo "- **マイグレーション完了**: ${MIGRATED_COUNT}ファイル"
       echo ""
       ;;
     *)
