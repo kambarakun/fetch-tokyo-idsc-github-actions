@@ -203,6 +203,21 @@ jobs:
           echo "=== Running Migration ==="
           uv run python scripts/migrate_metadata.py --target-version "${{ steps.params.outputs.target_version }}" --verbose
 
+      - name: Run verification
+        id: verify
+        if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
+        run: |
+          echo "=== Running Verification ==="
+          uv run python scripts/verify_metadata.py --only-unverified --verbose 2>&1 | tee verify.log
+
+          # 検証結果を取得
+          VERIFIED=$(grep "Verified:" verify.log | sed -E 's/.*Verified:\s*([0-9]+).*/\1/')
+          VERIFIED=${VERIFIED:-0}
+          FAILED=$(grep "Failed:" verify.log | sed -E 's/.*Failed:\s*([0-9]+).*/\1/')
+          FAILED=${FAILED:-0}
+          echo "verified_count=$VERIFIED" >> $GITHUB_OUTPUT
+          echo "failed_count=$FAILED" >> $GITHUB_OUTPUT
+
       - name: Configure git
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
         run: |
@@ -247,6 +262,11 @@ jobs:
           MIGRATED_COUNT="${{ steps.dry_run.outputs.migrated_count }}"
           MIGRATED_COUNT="${MIGRATED_COUNT:-0}"
 
+          VERIFIED_COUNT="${{ steps.verify.outputs.verified_count }}"
+          VERIFIED_COUNT="${VERIFIED_COUNT:-0}"
+          FAILED_COUNT="${{ steps.verify.outputs.failed_count }}"
+          FAILED_COUNT="${FAILED_COUNT:-0}"
+
           echo "## 🔄 メタデータマイグレーションサマリー" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **目標バージョン**: $TARGET_VERSION" >> $GITHUB_STEP_SUMMARY
@@ -262,4 +282,8 @@ jobs:
           else
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "✅ マイグレーションが正常に完了しました。" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 検証結果" >> $GITHUB_STEP_SUMMARY
+            echo "- **検証成功**: ${VERIFIED_COUNT}ファイル" >> $GITHUB_STEP_SUMMARY
+            echo "- **検証失敗**: ${FAILED_COUNT}ファイル" >> $GITHUB_STEP_SUMMARY
           fi
