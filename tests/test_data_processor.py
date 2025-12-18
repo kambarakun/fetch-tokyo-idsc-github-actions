@@ -677,6 +677,134 @@ class TestDataProcessor(unittest.TestCase):
 
         self.assertIsNone(total_row)
 
+    def test_log_processing_with_missing_output_file(self):
+        """出力ファイルが存在しない場合のメタデータ処理テスト"""
+        # Arrange: テストファイルを作成
+        source = self.raw_dir / "test_source.csv"
+        source.write_text("test,data\n1,2\n", encoding="shift_jis")
+
+        # 存在しない出力ファイルを指定
+        non_existent_output = self.processor.processed_dir / "non_existent.csv"
+
+        metadata = {
+            "category": "sentinel",
+            "aggregation": "gender",
+            "frequency": "weekly",
+            "year": 2025,
+            "period": 1,
+        }
+
+        # Act & Assert: 警告ログが出力され、例外が発生しないことを確認
+        with self.assertLogs("src.processors.data_processor", level="WARNING") as log_context:
+            # メタデータ処理は例外を発生させずに完了すべき
+            self.processor._log_processing(
+                source=source,
+                outputs=[non_existent_output],
+                metadata=metadata,
+                processing_time=1.0,
+                gender_info=None,
+            )
+
+        # 警告ログが出力されたことを確認
+        self.assertTrue(
+            any("出力ファイルが存在しません" in message for message in log_context.output),
+            "Missing file warning should be logged",
+        )
+
+    def test_log_processing_with_metadata_write_error(self):
+        """メタデータ書き込み失敗時の処理テスト"""
+        # Arrange: ソースファイルと出力ファイルを作成
+        source = self.raw_dir / "test_source.csv"
+        source.write_text("test,data\n1,2\n", encoding="shift_jis")
+
+        output = self.processor.processed_dir / "test_output.csv"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("result,data\n3,4\n", encoding="utf-8")
+
+        metadata = {
+            "category": "sentinel",
+            "aggregation": "gender",
+            "frequency": "weekly",
+            "year": 2025,
+            "period": 1,
+        }
+
+        # メタデータディレクトリを読み取り専用にして書き込みエラーを発生させる
+        metadata_dir = self.processor.processed_dir / ".metadata"
+        metadata_dir.mkdir(parents=True, exist_ok=True)
+
+        import os
+        import stat
+
+        # ディレクトリを読み取り専用に設定
+        original_mode = metadata_dir.stat().st_mode
+        try:
+            os.chmod(metadata_dir, stat.S_IRUSR | stat.S_IXUSR)
+
+            # Act & Assert: 警告ログが出力され、例外が発生しないことを確認
+            with self.assertLogs("src.processors.data_processor", level="WARNING") as log_context:
+                # メタデータ書き込み失敗でも処理は完了すべき
+                self.processor._log_processing(
+                    source=source,
+                    outputs=[output],
+                    metadata=metadata,
+                    processing_time=1.0,
+                    gender_info=None,
+                )
+
+            # 警告ログが出力されたことを確認
+            self.assertTrue(
+                any("メタデータ保存失敗" in message for message in log_context.output),
+                "Metadata write error should be logged as warning",
+            )
+        finally:
+            # パーミッションを元に戻す
+            os.chmod(metadata_dir, original_mode)
+
+    def test_log_processing_creates_metadata_directory(self):
+        """メタデータディレクトリが自動作成されることを確認"""
+        # Arrange: ソースファイルと出力ファイルを作成
+        source = self.raw_dir / "test_source.csv"
+        source.write_text("test,data\n1,2\n", encoding="shift_jis")
+
+        output = self.processor.processed_dir / "test_output.csv"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("result,data\n3,4\n", encoding="utf-8")
+
+        metadata = {
+            "category": "sentinel",
+            "aggregation": "gender",
+            "frequency": "weekly",
+            "year": 2025,
+            "period": 1,
+        }
+
+        # メタデータディレクトリが存在しないことを確認
+        metadata_dir = self.processor.processed_dir / ".metadata"
+        if metadata_dir.exists():
+            import shutil
+
+            shutil.rmtree(metadata_dir)
+
+        self.assertFalse(metadata_dir.exists())
+
+        # Act: メタデータ処理を実行
+        self.processor._log_processing(
+            source=source,
+            outputs=[output],
+            metadata=metadata,
+            processing_time=1.0,
+            gender_info=None,
+        )
+
+        # Assert: メタデータディレクトリが作成されたことを確認
+        self.assertTrue(metadata_dir.exists())
+        self.assertTrue(metadata_dir.is_dir())
+
+        # メタデータファイルが作成されたことを確認
+        metadata_file = metadata_dir / f"{output.stem}.json"
+        self.assertTrue(metadata_file.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
