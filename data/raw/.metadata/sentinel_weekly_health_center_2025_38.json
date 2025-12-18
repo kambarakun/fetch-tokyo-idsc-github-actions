@@ -1,21 +1,25 @@
 {
-  "metadata_version": "1.0",
+  "metadata_version": "1.1.0",
+  "name": "sentinel_weekly_health_center_2025_38",
   "filename": "sentinel_weekly_health_center_2025_38.csv",
+  "path": "raw/sentinel_weekly_health_center_2025_38.csv",
+  "profile": "tokyo-idsc-raw",
   "data_type": "sentinel_weekly_health_center",
-  "year": 2025,
-  "period": 38,
-  "period_type": "weekly",
-  "created_at": "2025-12-17T02:57:24.630018",
-  "updated_at": "2025-12-17T06:02:30.606263",
-  "file_size": 15130,
-  "line_count": 123,
-  "sha256_hash": "384c3e9e9192ff8d50d8e18a371f930a5703c9596d898303c4848efaf62fb3b7",
-  "checksum_algorithm": "sha256",
+  "temporal": {
+    "year": 2025,
+    "period": 38,
+    "period_type": "weekly"
+  },
+  "bytes": 15130,
+  "lines": 123,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "384c3e9e9192ff8d50d8e18a371f930a5703c9596d898303c4848efaf62fb3b7"
+  },
   "encoding": "shift_jis",
-  "file_path": "sentinel_weekly_health_center_2025_38.csv",
-  "force_overwrite": true,
-  "save_all_zero": false,
-  "fetch_time": 1.0379924774169922,
+  "created": "2025-12-17T02:57:24.630018",
+  "modified": "2025-12-17T06:02:30.606263",
+  "sources": [],
   "verification": {
     "status": "verified",
     "verified_at": "2025-12-17T06:02:30.606735",
@@ -30,5 +34,10 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2, 32}"
     ]
+  },
+  "_fetch": {
+    "fetch_time_seconds": 1.0379924774169922,
+    "force_overwrite": true,
+    "save_all_zero": false
   }
 }

@@ -1,20 +1,25 @@
 {
+  "metadata_version": "1.1.0",
+  "name": "notifiable_weekly_2017_19",
   "filename": "notifiable_weekly_2017_19.csv",
+  "path": "raw/notifiable_weekly_2017_19.csv",
+  "profile": "tokyo-idsc-raw",
   "data_type": "notifiable_weekly",
-  "year": 2017,
-  "period": 19,
-  "period_type": "weekly",
-  "file_size": 2069,
-  "sha256_hash": "315a2e85592382759234a90c2ea7abeac75565b4eb8a72f8890bb323173eb832",
+  "temporal": {
+    "year": 2017,
+    "period": 19,
+    "period_type": "weekly"
+  },
+  "bytes": 2069,
+  "lines": 92,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "315a2e85592382759234a90c2ea7abeac75565b4eb8a72f8890bb323173eb832"
+  },
   "encoding": "shift_jis",
-  "file_path": "notifiable_weekly_2017_19.csv",
-  "fetch_time": 0.5333499908447266,
-  "metadata_version": "1.0",
-  "created_at": "2025-11-01T18:32:43.844833",
-  "updated_at": "2025-11-01T18:32:43.844833",
-  "line_count": 92,
-  "checksum_algorithm": "sha256",
-  "source_url": null,
+  "created": "2025-11-01T18:32:43.844833",
+  "modified": "2025-11-01T18:32:43.844833",
+  "sources": [],
   "verification": {
     "status": "verified",
     "verified_at": "2025-12-17T09:53:49.822929",
@@ -29,5 +34,10 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2}"
     ]
+  },
+  "_fetch": {
+    "fetch_time_seconds": 0.5333499908447266,
+    "force_overwrite": false,
+    "save_all_zero": false
   }
 }

@@ -1,20 +1,25 @@
 {
+  "metadata_version": "1.1.0",
+  "name": "sentinel_weekly_age_2005_27",
   "filename": "sentinel_weekly_age_2005_27.csv",
+  "path": "raw/sentinel_weekly_age_2005_27.csv",
+  "profile": "tokyo-idsc-raw",
   "data_type": "sentinel_weekly_age",
-  "year": 2005,
-  "period": 27,
-  "period_type": "weekly",
-  "file_size": 9056,
-  "sha256_hash": "adf6a35daf21062c1f4d4924c24e41ce08431d3292096b51913026a0ef5bdf69",
+  "temporal": {
+    "year": 2005,
+    "period": 27,
+    "period_type": "weekly"
+  },
+  "bytes": 9056,
+  "lines": 99,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "adf6a35daf21062c1f4d4924c24e41ce08431d3292096b51913026a0ef5bdf69"
+  },
   "encoding": "shift_jis",
-  "file_path": "sentinel_weekly_age_2005_27.csv",
-  "fetch_time": 0.36237645149230957,
-  "metadata_version": "1.0",
-  "created_at": "2025-11-01T16:08:46.293931",
-  "updated_at": "2025-11-01T16:08:46.293931",
-  "line_count": 99,
-  "checksum_algorithm": "sha256",
-  "source_url": null,
+  "created": "2025-11-01T16:08:46.293931",
+  "modified": "2025-11-01T16:08:46.293931",
+  "sources": [],
   "verification": {
     "status": "verified",
     "verified_at": "2025-12-17T09:53:50.677497",
@@ -29,5 +34,10 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2, 24}"
     ]
+  },
+  "_fetch": {
+    "fetch_time_seconds": 0.36237645149230957,
+    "force_overwrite": false,
+    "save_all_zero": false
   }
 }

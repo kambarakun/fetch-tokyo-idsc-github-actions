@@ -1,20 +1,25 @@
 {
+  "metadata_version": "1.1.0",
+  "name": "sentinel_weekly_gender_2001_33",
   "filename": "sentinel_weekly_gender_2001_33.csv",
+  "path": "raw/sentinel_weekly_gender_2001_33.csv",
+  "profile": "tokyo-idsc-raw",
   "data_type": "sentinel_weekly_gender",
-  "year": 2001,
-  "period": 33,
-  "period_type": "weekly",
-  "file_size": 1023,
-  "sha256_hash": "abb40f3eeab60c5744c49a88462da9aa0b9dc0e86277eef7a0c9d19772577bed",
+  "temporal": {
+    "year": 2001,
+    "period": 33,
+    "period_type": "weekly"
+  },
+  "bytes": 1023,
+  "lines": 30,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "abb40f3eeab60c5744c49a88462da9aa0b9dc0e86277eef7a0c9d19772577bed"
+  },
   "encoding": "shift_jis",
-  "file_path": "sentinel_weekly_gender_2001_33.csv",
-  "fetch_time": 0.44611239433288574,
-  "metadata_version": "1.0",
-  "created_at": "2025-11-01T15:30:59.031735",
-  "updated_at": "2025-11-01T15:30:59.031735",
-  "line_count": 30,
-  "checksum_algorithm": "sha256",
-  "source_url": null,
+  "created": "2025-11-01T15:30:59.031735",
+  "modified": "2025-11-01T15:30:59.031735",
+  "sources": [],
   "verification": {
     "status": "verified",
     "verified_at": "2025-12-17T09:53:51.317716",
@@ -29,5 +34,10 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2, 5}"
     ]
+  },
+  "_fetch": {
+    "fetch_time_seconds": 0.44611239433288574,
+    "force_overwrite": false,
+    "save_all_zero": false
   }
 }

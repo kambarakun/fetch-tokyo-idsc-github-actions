@@ -1,20 +1,25 @@
 {
+  "metadata_version": "1.1.0",
+  "name": "sentinel_monthly_medical_district_2008_07",
   "filename": "sentinel_monthly_medical_district_2008_07.csv",
+  "path": "raw/sentinel_monthly_medical_district_2008_07.csv",
+  "profile": "tokyo-idsc-raw",
   "data_type": "sentinel_monthly_medical_district",
-  "year": 2008,
-  "period": 7,
-  "period_type": "monthly",
-  "file_size": 3417,
-  "sha256_hash": "63b85d75d827ecf13c9489cb06f182fcc288e8218566357e1f9ca2600a0ad1db",
+  "temporal": {
+    "year": 2008,
+    "period": 7,
+    "period_type": "monthly"
+  },
+  "bytes": 3417,
+  "lines": 69,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "63b85d75d827ecf13c9489cb06f182fcc288e8218566357e1f9ca2600a0ad1db"
+  },
   "encoding": "shift_jis",
-  "file_path": "sentinel_monthly_medical_district_2008_07.csv",
-  "fetch_time": 0.7551295757293701,
-  "metadata_version": "1.0",
-  "created_at": "2025-11-01T18:05:03.611380",
-  "updated_at": "2025-11-01T18:05:03.611380",
-  "line_count": 69,
-  "checksum_algorithm": "sha256",
-  "source_url": null,
+  "created": "2025-11-01T18:05:03.611380",
+  "modified": "2025-11-01T18:05:03.611380",
+  "sources": [],
   "verification": {
     "status": "verified",
     "verified_at": "2025-12-17T09:53:50.440165",
@@ -29,5 +34,10 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2, 12}"
     ]
+  },
+  "_fetch": {
+    "fetch_time_seconds": 0.7551295757293701,
+    "force_overwrite": false,
+    "save_all_zero": false
   }
 }
