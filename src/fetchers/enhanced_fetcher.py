@@ -9,7 +9,7 @@ import random
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -375,14 +375,14 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                 )
 
         if end_year is None:
-            end_year = datetime.now().year
+            end_year = datetime.now(UTC).year
 
         existing_params = self._parse_existing_files(existing_files, data_type)
         missing_params = []
 
         for year in range(start_year, end_year + 1):
             if "monthly" in data_type:
-                max_period = 12 if year < datetime.now().year else datetime.now().month
+                max_period = 12 if year < datetime.now(UTC).year else datetime.now(UTC).month
                 for month in range(1, max_period + 1):
                     # 対象月が指定されている場合はフィルタリング
                     if target_months is not None and month not in target_months:
@@ -399,8 +399,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         missing_params.append(params)
             else:  # weekly
                 max_period = self._get_weeks_in_year(year)
-                if year == datetime.now().year:
-                    max_period = min(max_period, datetime.now().isocalendar()[1])
+                if year == datetime.now(UTC).year:
+                    max_period = min(max_period, datetime.now(UTC).isocalendar()[1])
 
                 for week in range(1, max_period + 1):
                     # 対象週が指定されている場合はフィルタリング
@@ -421,7 +421,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
     def _create_metadata(self, data: bytes, params: dict[str, Any]) -> FileMetadata:
         """メタデータの生成"""
-        timestamp = datetime.now()
+        timestamp = datetime.now(UTC)
         data_hash = hashlib.sha256(data).hexdigest()
 
         # データタイプの推定

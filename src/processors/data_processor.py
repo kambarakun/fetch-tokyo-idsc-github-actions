@@ -4,12 +4,16 @@ UTF-8変換・CSV分割・正規化機能を提供するモジュール。
 """
 
 import csv
+import hashlib
 import json
 import logging
+import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
+
+from src.models.metadata import METADATA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +156,7 @@ class DataProcessor:
         Returns:
             正規化結果
         """
+        start_time = time.time()
         try:
             # ファイル名: normalized_{type}_{frequency}_{year}_{period}.csv
             # 例: normalized_notifiable_weekly_2000_01.csv
@@ -175,10 +180,11 @@ class DataProcessor:
             with output_file.open("w", encoding="utf-8") as f:
                 f.writelines(data_lines)
 
+            processing_time = time.time() - start_time
             logger.info(f"全数報告処理成功: {source_file.name} → {output_filename}")
 
-            # ログ記録
-            self._log_processing(source_file, [output_file], metadata)
+            # メタデータ記録
+            self._log_processing(source_file, [output_file], metadata, processing_time)
 
             return NormalizationResult(success=True, source_path=source_file, output_files=[output_file])
 
@@ -218,7 +224,7 @@ class DataProcessor:
 
     def _process_gender_sections(
         self, lines: list[str], gender_sections: list[dict[str, Any]], metadata: dict[str, Any]
-    ) -> tuple[list[Path], Path | None, Path | None, Path | None]:
+    ) -> tuple[list[Path], Path | None, Path | None, Path | None, dict[Path, str]]:
         """性別セクションを処理してファイルを生成
 
         Args:
@@ -227,12 +233,14 @@ class DataProcessor:
             metadata: ファイルメタデータ
 
         Returns:
-            (output_files, male_file, female_file, total_file)のタプル
+            (output_files, male_file, female_file, total_file, gender_info)のタプル
+            gender_info: {output_path: gender_suffix} の辞書
         """
         output_files: list[Path] = []
         male_file: Path | None = None
         female_file: Path | None = None
         total_file: Path | None = None
+        gender_info: dict[Path, str] = {}
 
         for section in gender_sections:
             # medical_districtのtotalセクションはスキップ(元データに含まれない仕様)
@@ -246,6 +254,8 @@ class DataProcessor:
             if output_file:
                 output_files.append(output_file)
                 gender = section.get("gender")
+                gender_suffix = self._get_gender_suffix(gender)
+                gender_info[output_file] = gender_suffix
                 if gender == self.GENDER_MALE:
                     male_file = output_file
                 elif gender == self.GENDER_FEMALE:
@@ -253,7 +263,7 @@ class DataProcessor:
                 elif gender == self.GENDER_TOTAL:
                     total_file = output_file
 
-        return output_files, male_file, female_file, total_file
+        return output_files, male_file, female_file, total_file, gender_info
 
     def _validate_total_file(self, total_file: Path | None, male_file: Path | None, female_file: Path | None) -> None:
         """totalファイルの妥当性検証
@@ -294,6 +304,7 @@ class DataProcessor:
         Returns:
             正規化結果
         """
+        start_time = time.time()
         try:
             # 性別セクションを検出
             gender_sections = self._detect_gender_sections(lines)
@@ -309,7 +320,7 @@ class DataProcessor:
                 return validation_error
 
             # 各性別セクションを処理
-            output_files, male_file, female_file, total_file = self._process_gender_sections(
+            output_files, male_file, female_file, total_file, gender_info = self._process_gender_sections(
                 lines, gender_sections, metadata
             )
 
@@ -319,10 +330,11 @@ class DataProcessor:
             # totalファイルの妥当性検証
             self._validate_total_file(total_file, male_file, female_file)
 
+            processing_time = time.time() - start_time
             logger.info(f"定点監視処理成功: {source_file.name} → {len(output_files)}ファイル")
 
-            # ログ記録
-            self._log_processing(source_file, output_files, metadata)
+            # メタデータ記録
+            self._log_processing(source_file, output_files, metadata, processing_time, gender_info)
 
             return NormalizationResult(success=True, source_path=source_file, output_files=output_files)
 
@@ -345,6 +357,7 @@ class DataProcessor:
         Returns:
             正規化結果
         """
+        start_time = time.time()
         try:
             # ファイル名: normalized_{type}_{frequency}_{aggregation}_{year}_{period}.csv
             # 例: normalized_sentinel_weekly_gender_2000_01.csv
@@ -366,10 +379,11 @@ class DataProcessor:
             with output_file.open("w", encoding="utf-8") as f:
                 f.writelines(data_lines)
 
+            processing_time = time.time() - start_time
             logger.info(f"定点監視処理成功(単純): {source_file.name} → {output_filename}")
 
-            # ログ記録
-            self._log_processing(source_file, [output_file], metadata)
+            # メタデータ記録
+            self._log_processing(source_file, [output_file], metadata, processing_time)
 
             return NormalizationResult(success=True, source_path=source_file, output_files=[output_file])
 
@@ -675,45 +689,123 @@ class DataProcessor:
         except (OSError, csv.Error, ValueError, IndexError):
             logger.exception(f"total検証失敗: {total_file.name}")
 
-    def _log_processing(self, source: Path, outputs: list[Path], metadata: dict[str, Any]) -> None:
-        """処理ログを記録
+    def _log_processing(
+        self,
+        source: Path,
+        outputs: list[Path],
+        metadata: dict[str, Any],
+        processing_time: float = 0.0,
+        gender_info: dict[Path, str] | None = None,
+    ) -> None:
+        """処理メタデータを各出力ファイルごとに記録
 
         Args:
             source: 変換元パス
             outputs: 出力ファイルパスのリスト
-            metadata: メタデータ
+            metadata: ファイルメタデータ
+            processing_time: 処理時間(秒)
+            gender_info: 出力ファイルごとの性別情報 {output_path: gender}
         """
-        log_file = self.processed_dir / ".metadata" / "processing_log.json"
+        # ソースファイルのハッシュを計算
+        source_hash = self._calculate_hash(source)
+        source_name = source.stem  # 拡張子なしのファイル名
 
-        output_info = []
         for output in outputs:
-            output_info.append(
-                {
-                    "path": str(output.relative_to(self.base_dir)),
-                    "size_bytes": output.stat().st_size if output.exists() else 0,
+            if not output.exists():
+                logger.warning(f"出力ファイルが存在しません(メタデータ生成スキップ): {output}")
+                continue
+
+            try:
+                # 出力ファイルの情報を取得
+                output_content = output.read_bytes()
+                output_hash = hashlib.sha256(output_content).hexdigest()
+                output_size = len(output_content)
+                line_count = output_content.count(b"\n")
+                if output_content and not output_content.endswith(b"\n"):
+                    line_count += 1
+
+                # 性別情報を取得
+                gender = None
+                if gender_info and output in gender_info:
+                    gender = gender_info[output]
+
+                # タイムスタンプ (UTC)
+                timestamp_iso = datetime.now(UTC).isoformat()
+
+                # 期間情報を構築
+                period_type = metadata.get("frequency", "weekly")
+                temporal = {
+                    "year": int(metadata.get("year", 0)),
+                    "period": int(metadata.get("period", 0)),
+                    "period_type": period_type,
                 }
-            )
 
-        log_entry = {
-            "timestamp": datetime.now().isoformat(),
-            "source": str(source.relative_to(self.base_dir)),
-            "outputs": output_info,
-            "metadata": metadata,
-            "success": True,
-        }
+                # データタイプを構築
+                category = metadata.get("category", "")
+                aggregation = metadata.get("aggregation", "")
+                data_type = f"{category}_{period_type}_{aggregation}" if aggregation else f"{category}_{period_type}"
 
-        # 既存ログを読み込み
-        if log_file.exists():
-            with log_file.open("r", encoding="utf-8") as f:
-                logs = json.load(f)
-        else:
-            logs = {"processing": []}
+                # v1.1メタデータを構築
+                meta = {
+                    "metadata_version": METADATA_VERSION,
+                    "name": output.stem,
+                    "filename": output.name,
+                    "path": str(output.relative_to(self.base_dir)),
+                    "profile": "tokyo-idsc-processed",
+                    "data_type": data_type,
+                    "temporal": temporal,
+                    "bytes": output_size,
+                    "lines": line_count,
+                    "hash": {
+                        "algorithm": "sha256",
+                        "value": output_hash,
+                    },
+                    "encoding": "utf-8",
+                    "created": timestamp_iso,
+                    "modified": timestamp_iso,
+                    "sources": [
+                        {
+                            "title": source.name,
+                            "path": str(source.relative_to(self.base_dir)),
+                        }
+                    ],
+                    "_process": {
+                        "source_name": source_name,
+                        "source_hash": source_hash,
+                        "processing_time_seconds": processing_time,
+                        "gender": gender,
+                    },
+                }
 
-        logs["processing"].append(log_entry)
+                # メタデータディレクトリを作成 (存在しない場合)
+                metadata_dir = self.processed_dir / ".metadata"
+                metadata_dir.mkdir(parents=True, exist_ok=True)
 
-        # ログを保存
-        with log_file.open("w", encoding="utf-8") as f:
-            json.dump(logs, f, ensure_ascii=False, indent=2)
+                # メタデータファイルを保存
+                metadata_file = metadata_dir / f"{output.stem}.json"
+                with metadata_file.open("w", encoding="utf-8") as f:
+                    json.dump(meta, f, ensure_ascii=False, indent=2)
+
+                logger.debug(f"メタデータ保存: {metadata_file.name}")
+            except (OSError, ValueError, TypeError) as e:
+                # メタデータ書き込み失敗はデータ処理の成功に影響させない
+                logger.warning(f"メタデータ保存失敗: {output.name} - {e}")
+                logger.debug("メタデータ保存エラーの詳細:", exc_info=True)
+
+    def _calculate_hash(self, file_path: Path) -> str:
+        """ファイルのSHA256ハッシュを計算
+
+        Args:
+            file_path: ハッシュ計算対象のファイルパス
+
+        Returns:
+            SHA256ハッシュ文字列
+        """
+        sha256 = hashlib.sha256()
+        with file_path.open("rb") as f:
+            while chunk := f.read(65536):
+                sha256.update(chunk)
+        return sha256.hexdigest()
 
     def _verify_cross_dataset_consistency(self) -> None:
         """異なる集計軸 (age/health_center) のtotal値が一致するか検証

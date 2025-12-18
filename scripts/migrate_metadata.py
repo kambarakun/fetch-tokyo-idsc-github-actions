@@ -21,23 +21,36 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
     from typing import TypeAlias
 
+
+class MigrationStats(TypedDict):
+    """マイグレーション統計情報の型定義."""
+
+    total: int
+    migrated: int
+    skipped: int
+    errors: int
+    target_version: str
+
+
+if TYPE_CHECKING:
     MigrationFunc: TypeAlias = Callable[[dict, Path | None], tuple[dict, list[str]]]
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.managers.storage_manager import METADATA_VERSION
+from src.managers.storage_manager import METADATA_VERSION  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +74,7 @@ class MigrationRegistry:
         self._migrations: dict[tuple[str | None, str], MigrationFunc] = {}
         self._versions: set[str | None] = set()
 
-    def register(
-        self, from_version: str | None, to_version: str
-    ) -> Callable[[MigrationFunc], MigrationFunc]:
+    def register(self, from_version: str | None, to_version: str) -> Callable[[MigrationFunc], MigrationFunc]:
         """マイグレーション関数を登録するデコレータ.
 
         Args:
@@ -82,9 +93,7 @@ class MigrationRegistry:
 
         return decorator
 
-    def get_migration_path(
-        self, from_version: str | None, to_version: str
-    ) -> list[tuple[str | None, str]]:
+    def get_migration_path(self, from_version: str | None, to_version: str) -> list[tuple[str | None, str]]:
         """マイグレーションパスを取得する.
 
         Args:
@@ -206,9 +215,13 @@ class MigrationRegistry:
                 msg = f"Invalid version format: '{v}'. Expected format: '1.0' or '1.2.3'"
                 raise ValueError(msg) from e
 
-        return (parse_version(v1) > parse_version(v2)) - (
-            parse_version(v1) < parse_version(v2)
-        )
+        v1_tuple = parse_version(v1)
+        v2_tuple = parse_version(v2)
+        if v1_tuple < v2_tuple:
+            return -1
+        if v1_tuple > v2_tuple:
+            return 1
+        return 0
 
     def is_downgrade(self, from_version: str | None, to_version: str | None) -> bool:
         """ダウングレードかどうかを判定する.
@@ -272,9 +285,7 @@ def count_lines(data_file: Path) -> int | None:
 
 
 @migration_registry.register(from_version=None, to_version="1.0")
-def migrate_none_to_v1_0(
-    metadata: dict, data_file: Path | None
-) -> tuple[dict, list[str]]:
+def migrate_none_to_v1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
     """旧形式 (バージョンなし) から v1.0 へのマイグレーション.
 
     変換内容:
@@ -339,33 +350,199 @@ def migrate_none_to_v1_0(
     return migrated, changes
 
 
-# =============================================================================
-# 将来のバージョン追加例 (コメントアウト)
-# =============================================================================
-#
-# @migration_registry.register(from_version="1.0", to_version="1.1")
-# def migrate_v1_0_to_v1_1(
-#     metadata: dict, data_file: Path | None
-# ) -> tuple[dict, list[str]]:
-#     """v1.0 から v1.1 へのマイグレーション.
-#
-#     変換内容:
-#     - 新しいフィールドの追加
-#     - フィールド名の変更
-#     - など
-#     """
-#     changes: list[str] = []
-#     migrated = metadata.copy()
-#
-#     migrated["metadata_version"] = "1.1"
-#     changes.append("metadata_version: 1.0 -> 1.1")
-#
-#     # 新しいフィールドの追加例
-#     # if "new_field" not in migrated:
-#     #     migrated["new_field"] = "default_value"
-#     #     changes.append("new_field: None -> default_value")
-#
-#     return migrated, changes
+@migration_registry.register(from_version="1.0", to_version="1.1.0")
+def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+    """v1.0 から v1.1.0 へのマイグレーション.
+
+    変換内容:
+    - metadata_version: "1.0" -> "1.1.0"
+    - name: ファイル名から生成 (URL-safe identifier)
+    - path: 相対パスを追加
+    - profile: "tokyo-idsc-raw" を追加
+    - data_type: ファイル名から抽出
+    - temporal: year/period/period_type を構造化
+    - bytes: file_size から名前変更
+    - hash: sha256_hash + checksum_algorithm を構造化
+    - created: created_at から名前変更
+    - modified: updated_at から名前変更
+    - _fetch: source_url, verification などを構造化
+    """
+    changes: list[str] = []
+    migrated: dict = {}
+
+    # metadata_version
+    migrated["metadata_version"] = "1.1.0"
+    changes.append("metadata_version: 1.0 -> 1.1.0")
+
+    # filename から情報を抽出
+    filename = metadata.get("filename", "")
+    stem = Path(filename).stem if filename else ""
+
+    # 空のfilenameに対する防御的処理
+    if not stem:
+        # data_fileから推測するか、エラーにする
+        if data_file and data_file.exists():
+            stem = data_file.stem
+            filename = data_file.name
+            logger.warning(f"Empty filename in metadata, reconstructed from data_file: {filename}")
+            changes.append(f"filename: reconstructed from data_file -> {filename}")
+        else:
+            # フォールバック: メタデータの他の情報から推測を試みる
+            data_type = metadata.get("data_type", "unknown")
+            year = metadata.get("year", 0)
+            period = metadata.get("period", 0)
+            if data_type and year and period:
+                stem = f"{data_type}_{year}_{period:02d}"
+                filename = f"{stem}.csv"
+                logger.warning(f"Empty filename in metadata, reconstructed from temporal data: {filename}")
+                changes.append(f"filename: reconstructed from temporal -> {filename}")
+            else:
+                # 完全なフォールバック
+                stem = "unknown"
+                filename = "unknown.csv"
+                logger.error("Empty filename in metadata with insufficient data to reconstruct")
+                changes.append("WARNING: filename was empty, set to 'unknown.csv'")
+
+    # name (URL-safe identifier)
+    migrated["name"] = stem
+    changes.append(f"name: added -> {stem}")
+
+    # filename
+    migrated["filename"] = filename
+
+    # path (raw/xxx.csv 形式)
+    migrated["path"] = f"raw/{filename}"
+    changes.append(f"path: added -> {migrated['path']}")
+
+    # profile
+    migrated["profile"] = "tokyo-idsc-raw"
+    changes.append("profile: added -> tokyo-idsc-raw")
+
+    # data_type と temporal をファイル名から抽出
+    data_type, temporal = _extract_data_type_and_temporal(stem)
+    migrated["data_type"] = data_type
+    migrated["temporal"] = temporal
+    changes.append(f"data_type: added -> {data_type}")
+    changes.append(f"temporal: added -> {temporal}")
+
+    # bytes (file_size から名前変更)
+    file_size = metadata.get("file_size", 0)
+    migrated["bytes"] = file_size
+    changes.append(f"bytes: file_size -> {file_size}")
+
+    # lines (line_count から移行)
+    line_count = metadata.get("line_count")
+    migrated["lines"] = line_count
+
+    # hash (sha256_hash + checksum_algorithm を構造化)
+    sha256_hash = metadata.get("sha256_hash", "")
+    algorithm = metadata.get("checksum_algorithm", "sha256")
+
+    # ハッシュ値が空の場合の処理
+    if not sha256_hash:
+        # data_fileが提供されている場合はハッシュを再計算
+        if data_file and data_file.exists():
+            sha256_hash = hashlib.sha256(data_file.read_bytes()).hexdigest()
+            changes.append(f"hash: recalculated from file -> {sha256_hash[:16]}...")
+        else:
+            # ハッシュ値が空のまま (警告)
+            changes.append("WARNING: hash value is empty (file not available for recalculation)")
+
+    migrated["hash"] = {
+        "algorithm": algorithm,
+        "value": sha256_hash,
+    }
+    if sha256_hash and "recalculated" not in changes[-1]:
+        changes.append("hash: sha256_hash/checksum_algorithm -> structured")
+
+    # encoding
+    encoding = metadata.get("encoding", "shift_jis")
+    migrated["encoding"] = encoding
+
+    # created (created_at から名前変更)
+    created_at = metadata.get("created_at", metadata.get("timestamp", ""))
+    migrated["created"] = created_at
+    changes.append(f"created: created_at -> {created_at[:20]}...")
+
+    # modified (updated_at から名前変更)
+    updated_at = metadata.get("updated_at", created_at)
+    migrated["modified"] = updated_at
+    changes.append(f"modified: updated_at -> {updated_at[:20]}...")
+
+    # sources (新規追加)
+    source_url = metadata.get("source_url")
+    if source_url:
+        migrated["sources"] = [{"title": "Tokyo IDSC", "path": source_url}]
+        changes.append("sources: added from source_url")
+    else:
+        migrated["sources"] = []
+
+    # verification (既存を移行)
+    verification = metadata.get("verification")
+    if verification:
+        migrated["verification"] = verification
+
+    # _fetch (source_url や fetch_time などを構造化)
+    fetch_info: dict = {
+        "source_url": source_url,
+        "fetch_time_seconds": metadata.get("fetch_time"),
+        "force_overwrite": metadata.get("force_overwrite", False),
+        "save_all_zero": metadata.get("save_all_zero", False),
+    }
+    # Noneの項目を削除
+    fetch_info = {k: v for k, v in fetch_info.items() if v is not None}
+    if not fetch_info:
+        fetch_info = {"source_url": None}
+    migrated["_fetch"] = fetch_info
+    changes.append("_fetch: structured from fetch fields")
+
+    return migrated, changes
+
+
+def _extract_data_type_and_temporal(stem: str) -> tuple[str, dict]:
+    """ファイル名(stem)から data_type と temporal を抽出する.
+
+    Args:
+        stem: 拡張子なしのファイル名
+
+    Returns:
+        (data_type, temporal) のタプル
+    """
+    parts = stem.split("_")
+
+    # デフォルト値 (v1.1スキーマ準拠: year >= 2000, period >= 1)
+    data_type = stem
+    temporal = {"year": 2000, "period": 1, "period_type": "weekly"}
+
+    try:
+        if len(parts) >= 4:
+            # sentinel_weekly_gender_2025_01 形式
+            # notifiable_weekly_2025_01 形式
+            year = int(parts[-2])
+            period = int(parts[-1])
+
+            # period_type を判定
+            if "weekly" in stem:
+                period_type = "weekly"
+            elif "monthly" in stem:
+                period_type = "monthly"
+            else:
+                period_type = "weekly"
+
+            temporal = {
+                "year": year,
+                "period": period,
+                "period_type": period_type,
+            }
+
+            # data_type は year_period 部分を除いた残り
+            # sentinel_weekly_gender_2025_01 -> sentinel_weekly_gender
+            data_type = "_".join(parts[:-2])
+
+    except (ValueError, IndexError):
+        pass
+
+    return data_type, temporal
 
 
 # =============================================================================
@@ -381,6 +558,22 @@ V1_0_REQUIRED_FIELDS = {
     "source_url",
     "verification",
     "line_count",
+}
+
+# v1.1 で必須となるフィールド
+V1_1_REQUIRED_FIELDS = {
+    "metadata_version",
+    "name",
+    "filename",
+    "path",
+    "profile",
+    "data_type",
+    "temporal",
+    "bytes",
+    "hash",
+    "encoding",
+    "created",
+    "modified",
 }
 
 
@@ -403,6 +596,11 @@ def needs_migration(metadata: dict, target_version: str = METADATA_VERSION) -> b
     # バージョンが同じでも、必須フィールドが欠けている場合は必要
     if target_version == "1.0":
         missing = V1_0_REQUIRED_FIELDS - set(metadata.keys())
+        return len(missing) > 0
+
+    # v1.1.x 形式のチェック
+    if target_version.startswith("1.1"):
+        missing = V1_1_REQUIRED_FIELDS - set(metadata.keys())
         return len(missing) > 0
 
     return False
@@ -432,7 +630,7 @@ def run_migration(
     target_version: str = METADATA_VERSION,
     dry_run: bool = False,
     verbose: bool = False,
-) -> dict:
+) -> MigrationStats:
     """メタデータの一括マイグレーションを実行する.
 
     Args:
@@ -445,7 +643,7 @@ def run_migration(
     Returns:
         マイグレーション結果の統計情報
     """
-    stats = {
+    stats: MigrationStats = {
         "total": 0,
         "migrated": 0,
         "skipped": 0,
@@ -503,9 +701,7 @@ def run_migration(
 
 def main() -> int:
     """メイン関数."""
-    parser = argparse.ArgumentParser(
-        description="メタデータファイルをマイグレーションする (バージョン対応)"
-    )
+    parser = argparse.ArgumentParser(description="メタデータファイルをマイグレーションする (バージョン対応)")
     parser.add_argument(
         "--dry-run",
         action="store_true",
