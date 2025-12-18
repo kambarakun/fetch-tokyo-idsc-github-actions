@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.managers.storage_manager import METADATA_VERSION
+from src.managers.storage_manager import METADATA_VERSION  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -376,6 +376,31 @@ def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict
     # filename から情報を抽出
     filename = metadata.get("filename", "")
     stem = Path(filename).stem if filename else ""
+
+    # 空のfilenameに対する防御的処理
+    if not stem:
+        # data_fileから推測するか、エラーにする
+        if data_file and data_file.exists():
+            stem = data_file.stem
+            filename = data_file.name
+            logger.warning(f"Empty filename in metadata, reconstructed from data_file: {filename}")
+            changes.append(f"filename: reconstructed from data_file -> {filename}")
+        else:
+            # フォールバック: メタデータの他の情報から推測を試みる
+            data_type = metadata.get("data_type", "unknown")
+            year = metadata.get("year", 0)
+            period = metadata.get("period", 0)
+            if data_type and year and period:
+                stem = f"{data_type}_{year}_{period:02d}"
+                filename = f"{stem}.csv"
+                logger.warning(f"Empty filename in metadata, reconstructed from temporal data: {filename}")
+                changes.append(f"filename: reconstructed from temporal -> {filename}")
+            else:
+                # 完全なフォールバック
+                stem = "unknown"
+                filename = "unknown.csv"
+                logger.error("Empty filename in metadata with insufficient data to reconstruct")
+                changes.append("WARNING: filename was empty, set to 'unknown.csv'")
 
     # name (URL-safe identifier)
     migrated["name"] = stem
