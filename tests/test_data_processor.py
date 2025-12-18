@@ -3,6 +3,7 @@
 import csv
 import json
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
@@ -389,9 +390,11 @@ class TestDataProcessor(unittest.TestCase):
             self.processor._parse_int("*")
 
         # 警告ログも出力されることを確認
-        with self.assertLogs("src.processors.data_processor", level="WARNING") as log_context:
-            with self.assertRaises(ValueError):
-                self.processor._parse_int("*")
+        with (
+            self.assertLogs("src.processors.data_processor", level="WARNING") as log_context,
+            self.assertRaises(ValueError),
+        ):
+            self.processor._parse_int("*")
 
         self.assertTrue(
             any("数値変換失敗" in log.message for log in log_context.records),
@@ -733,13 +736,10 @@ class TestDataProcessor(unittest.TestCase):
         metadata_dir = self.processor.processed_dir / ".metadata"
         metadata_dir.mkdir(parents=True, exist_ok=True)
 
-        import os
-        import stat
-
         # ディレクトリを読み取り専用に設定
         original_mode = metadata_dir.stat().st_mode
         try:
-            os.chmod(metadata_dir, stat.S_IRUSR | stat.S_IXUSR)
+            metadata_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)
 
             # Act & Assert: 警告ログが出力され、例外が発生しないことを確認
             with self.assertLogs("src.processors.data_processor", level="WARNING") as log_context:
@@ -759,7 +759,7 @@ class TestDataProcessor(unittest.TestCase):
             )
         finally:
             # パーミッションを元に戻す
-            os.chmod(metadata_dir, original_mode)
+            metadata_dir.chmod(original_mode)
 
     def test_log_processing_creates_metadata_directory(self):
         """メタデータディレクトリが自動作成されることを確認"""
@@ -782,8 +782,6 @@ class TestDataProcessor(unittest.TestCase):
         # メタデータディレクトリが存在しないことを確認
         metadata_dir = self.processor.processed_dir / ".metadata"
         if metadata_dir.exists():
-            import shutil
-
             shutil.rmtree(metadata_dir)
 
         self.assertFalse(metadata_dir.exists())
