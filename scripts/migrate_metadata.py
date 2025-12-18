@@ -27,11 +27,23 @@ import sys
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
     from typing import TypeAlias
 
+
+class MigrationStats(TypedDict):
+    """マイグレーション統計情報の型定義."""
+
+    total: int
+    migrated: int
+    skipped: int
+    errors: int
+    target_version: str
+
+
+if TYPE_CHECKING:
     MigrationFunc: TypeAlias = Callable[[dict, Path | None], tuple[dict, list[str]]]
 
 # プロジェクトルートをパスに追加
@@ -399,11 +411,25 @@ def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict
     # hash (sha256_hash + checksum_algorithm を構造化)
     sha256_hash = metadata.get("sha256_hash", "")
     algorithm = metadata.get("checksum_algorithm", "sha256")
+
+    # ハッシュ値が空の場合の処理
+    if not sha256_hash:
+        # data_fileが提供されている場合はハッシュを再計算
+        if data_file and data_file.exists():
+            import hashlib
+
+            sha256_hash = hashlib.sha256(data_file.read_bytes()).hexdigest()
+            changes.append(f"hash: recalculated from file -> {sha256_hash[:16]}...")
+        else:
+            # ハッシュ値が空のまま (警告)
+            changes.append("WARNING: hash value is empty (file not available for recalculation)")
+
     migrated["hash"] = {
         "algorithm": algorithm,
         "value": sha256_hash,
     }
-    changes.append("hash: sha256_hash/checksum_algorithm -> structured")
+    if sha256_hash and "recalculated" not in changes[-1]:
+        changes.append("hash: sha256_hash/checksum_algorithm -> structured")
 
     # encoding
     encoding = metadata.get("encoding", "shift_jis")
@@ -580,7 +606,7 @@ def run_migration(
     target_version: str = METADATA_VERSION,
     dry_run: bool = False,
     verbose: bool = False,
-) -> dict:
+) -> MigrationStats:
     """メタデータの一括マイグレーションを実行する.
 
     Args:
@@ -593,7 +619,7 @@ def run_migration(
     Returns:
         マイグレーション結果の統計情報
     """
-    stats = {
+    stats: MigrationStats = {
         "total": 0,
         "migrated": 0,
         "skipped": 0,

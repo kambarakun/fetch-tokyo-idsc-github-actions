@@ -883,8 +883,9 @@ class StorageManager:
             if dt.tzinfo is None:
                 dt = dt.astimezone(UTC)
             return dt.isoformat()
-        except (ValueError, AttributeError):
-            # パース失敗時は現在時刻を返す
+        except (ValueError, AttributeError) as e:
+            # パース失敗時は警告を出力して現在時刻を返す
+            logger.warning(f"Failed to parse timestamp '{timestamp}': {e}. Using current time as fallback.")
             return datetime.now(UTC).isoformat()
 
     def _validate_saved_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
@@ -1111,9 +1112,14 @@ class StorageManager:
             if file_path.is_symlink():
                 result["errors"].append("[path_safety] Symbolic links not allowed for security reasons")
                 result["valid"] = False
+                return result  # 早期リターンでresolve()をスキップ
 
-            # 絶対パスを解決
-            resolved_path = file_path.resolve()
+            # 絶対パスを解決 (strict=Trueでファイルが存在しない場合はFileNotFoundError)
+            try:
+                resolved_path = file_path.resolve(strict=True)
+            except FileNotFoundError:
+                # ファイルが存在しない場合はstrict=Falseで解決
+                resolved_path = file_path.resolve(strict=False)
 
             # base_path内にあることを確認
             try:
