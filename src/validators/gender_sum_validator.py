@@ -4,6 +4,7 @@ Validates that male + female = total in gender-disaggregated data.
 """
 
 import csv
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,8 @@ class GenderSumValidator:
             raw_data_dir: Path to raw data directory
         """
         self.raw_data_dir = Path(raw_data_dir)
+        # Instance-level cache to avoid memory leaks with lru_cache
+        self._file_cache: dict[Path, str | None] = {}
 
     def validate(self, source_filename: str, data_type: str) -> dict | None:
         """Validate gender sum consistency for a source file.
@@ -34,18 +37,26 @@ class GenderSumValidator:
         if not source_path.exists():
             return None
 
-        # データタイプによって検証方法を選択
-        if "medical_district" in data_type:
-            return self._validate_medical_district(source_path, source_filename)
-        if "health_center" in data_type:
-            return self._validate_health_center(source_path, source_filename)
-        if "age" in data_type:
-            return self._validate_age(source_path, source_filename)
+        # データタイプによって検証適用可否を判断
         # gender データなど、性別分割されていないデータは検証不要
+        if "medical_district" in data_type or "health_center" in data_type or "age" in data_type:
+            return self._validate_gender_sum(source_path, source_filename)
+
         return None
 
-    def _validate_medical_district(self, source_path: Path, source_filename: str) -> dict:
-        """Validate medical district data."""
+    def _validate_gender_sum(self, source_path: Path, source_filename: str) -> dict:
+        """Validate gender sum consistency for any gender-disaggregated data.
+
+        This is a generic validation method that works for all data types
+        (medical_district, health_center, age) without code duplication.
+
+        Args:
+            source_path: Path to source CSV file
+            source_filename: Name of the source file
+
+        Returns:
+            Validation result dict conforming to v1.2.0 schema
+        """
         sections = self._extract_gender_sections(source_path)
 
         if not all(sections.values()):
@@ -55,16 +66,17 @@ class GenderSumValidator:
         total_rows = 0
         failed_rows = 0
 
-        # 各医療圏でmale + female = totalを検証
+        # 各行でmale + female = totalを検証
         for i, (male_row, female_row, total_row) in enumerate(
             zip(sections["male"], sections["female"], sections["total"], strict=False)
         ):
             total_rows += 1
+            # 最初の列はlocation識別子 (医療圏名、保健所名、年齢群など)
             location = male_row[0] if male_row else f"row_{i}"
 
-            # 数値列をチェック (最初の列は医療圏名なので1から)
+            # 数値列をチェック (最初の列は識別子なので1から)
             for col_idx in range(1, min(len(male_row), len(female_row), len(total_row))):
-                # 空文字列の列はスキップ (定点数など)
+                # 空文字列の列はスキップ (定点数など、非数値データ)
                 if not male_row[col_idx] or not female_row[col_idx]:
                     continue
 
@@ -75,8 +87,9 @@ class GenderSumValidator:
 
                     expected = male_val + female_val
 
+                    # 許容誤差 0.01 で検証
                     if abs(expected - total_val) > 0.01:
-                        # エラーを記録 (最初の不一致のみ、行ごとに1つ)
+                        # エラーを記録 (行ごとに最初の不一致のみ)
                         if not any(e["location"] == location for e in errors):
                             # ヘッダーからカラム名を取得
                             header = self._get_header(source_path, "total")
@@ -96,114 +109,42 @@ class GenderSumValidator:
                             failed_rows += 1
                         break
                 except ValueError:
+                    # 数値変換エラーは無視 (非数値データの場合)
                     continue
 
         return self._build_result(source_filename, total_rows, failed_rows, errors, "record(s)")
 
-    def _validate_health_center(self, source_path: Path, source_filename: str) -> dict:
-        """Validate health center data."""
-        sections = self._extract_gender_sections(source_path)
+    def _read_source_file(self, source_path: Path) -> str | None:
+        """Read and convert source file from Shift_JIS to UTF-8 with caching.
 
-        if not all(sections.values()):
-            return self._no_validation_result(source_filename)
+        This method caches the conversion result to avoid redundant iconv calls.
+        Uses instance-level cache to prevent memory leaks.
 
-        errors: list[dict[str, Any]] = []
-        total_rows = 0
-        failed_rows = 0
+        Args:
+            source_path: Path to source CSV file
 
-        for i, (male_row, female_row, total_row) in enumerate(
-            zip(sections["male"], sections["female"], sections["total"], strict=False)
-        ):
-            total_rows += 1
-            location = male_row[0] if male_row else f"row_{i}"
+        Returns:
+            UTF-8 converted file content or None if conversion failed
+        """
+        # Return cached result if available
+        if source_path in self._file_cache:
+            return self._file_cache[source_path]
 
-            # 数値列をチェック
-            for col_idx in range(1, min(len(male_row), len(female_row), len(total_row))):
-                # 空文字列の列はスキップ
-                if not male_row[col_idx] or not female_row[col_idx]:
-                    continue
+        # Perform conversion
+        result = subprocess.run(
+            ["iconv", "-f", "SHIFT_JIS", "-t", "UTF-8", str(source_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-                try:
-                    male_val = float(male_row[col_idx])
-                    female_val = float(female_row[col_idx])
-                    total_val = float(total_row[col_idx]) if total_row[col_idx] else 0
+        # Cache and return result
+        if result.returncode != 0:
+            self._file_cache[source_path] = None
+            return None
 
-                    expected = male_val + female_val
-
-                    if abs(expected - total_val) > 0.01:
-                        if not any(e["location"] == location for e in errors):
-                            header = self._get_header(source_path, "total")
-                            col_name = header[col_idx] if col_idx < len(header) else f"col_{col_idx}"
-
-                            errors.append(
-                                {
-                                    "location": location,
-                                    "column": col_name,
-                                    "row_index": i + 3,
-                                    "male": int(male_val),
-                                    "female": int(female_val),
-                                    "total": int(total_val),
-                                    "expected": int(expected),
-                                }
-                            )
-                            failed_rows += 1
-                        break
-                except ValueError:
-                    continue
-
-        return self._build_result(source_filename, total_rows, failed_rows, errors, "record(s)")
-
-    def _validate_age(self, source_path: Path, source_filename: str) -> dict:
-        """Validate age group data."""
-        sections = self._extract_gender_sections(source_path)
-
-        if not all(sections.values()):
-            return self._no_validation_result(source_filename)
-
-        errors: list[dict[str, Any]] = []
-        total_rows = 0
-        failed_rows = 0
-
-        for i, (male_row, female_row, total_row) in enumerate(
-            zip(sections["male"], sections["female"], sections["total"], strict=False)
-        ):
-            total_rows += 1
-            age_group = male_row[0] if male_row else f"row_{i}"
-
-            # 数値列をチェック
-            for col_idx in range(1, min(len(male_row), len(female_row), len(total_row))):
-                if not male_row[col_idx] or not female_row[col_idx]:
-                    continue
-
-                try:
-                    male_val = float(male_row[col_idx])
-                    female_val = float(female_row[col_idx])
-                    total_val = float(total_row[col_idx]) if total_row[col_idx] else 0
-
-                    expected = male_val + female_val
-
-                    if abs(expected - total_val) > 0.01:
-                        if not any(e["location"] == age_group for e in errors):
-                            header = self._get_header(source_path, "total")
-                            col_name = header[col_idx] if col_idx < len(header) else f"col_{col_idx}"
-
-                            errors.append(
-                                {
-                                    "location": age_group,
-                                    "column": col_name,
-                                    "row_index": i + 3,
-                                    "male": int(male_val),
-                                    "female": int(female_val),
-                                    "total": int(total_val),
-                                    "expected": int(expected),
-                                }
-                            )
-                            failed_rows += 1
-                        break
-                except ValueError:
-                    continue
-
-        return self._build_result(source_filename, total_rows, failed_rows, errors, "record(s)")
+        self._file_cache[source_path] = result.stdout
+        return result.stdout
 
     def _extract_gender_sections(self, source_path: Path) -> dict[str, list[list[str]]]:
         """Extract male, female, and total sections from source file.
@@ -214,20 +155,11 @@ class GenderSumValidator:
         Returns:
             Dict with 'male', 'female', 'total' keys containing data rows
         """
-        import subprocess
-
-        # Shift_JIS から UTF-8 に変換
-        result = subprocess.run(
-            ["iconv", "-f", "SHIFT_JIS", "-t", "UTF-8", str(source_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        if result.returncode != 0:
+        content = self._read_source_file(source_path)
+        if content is None:
             return {"male": [], "female": [], "total": []}
 
-        lines = result.stdout.split("\n")
+        lines = content.split("\n")
         reader = csv.reader(lines)
         rows = list(reader)
 
@@ -285,19 +217,11 @@ class GenderSumValidator:
         Returns:
             List of column names
         """
-        import subprocess
-
-        result = subprocess.run(
-            ["iconv", "-f", "SHIFT_JIS", "-t", "UTF-8", str(source_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        if result.returncode != 0:
+        content = self._read_source_file(source_path)
+        if content is None:
             return []
 
-        lines = result.stdout.split("\n")
+        lines = content.split("\n")
 
         # セクションの開始位置を見つける
         section_map = {"male": "男性", "female": "女性", "total": "男女合計"}

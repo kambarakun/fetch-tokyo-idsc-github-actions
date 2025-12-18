@@ -196,8 +196,8 @@ v1.2.0 では、元データの品質問題を記録し、データ利用者に�
   // ... 既存フィールド ...
   "quality": {
     "validation_timestamp": "2025-12-18T...",
-    "checks": [...],
-    "overall_status": "passed"
+    "validation_status": "completed",
+    "issues": []
   }
 }
 ```
