@@ -351,7 +351,7 @@ def migrate_none_to_v1_0(metadata: dict, data_file: Path | None) -> tuple[dict, 
 
 
 @migration_registry.register(from_version="1.0", to_version="1.1.0")
-def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:  # noqa: PLR0915
     """v1.0 から v1.1.0 へのマイグレーション.
 
     変換内容:
@@ -576,6 +576,9 @@ V1_1_REQUIRED_FIELDS = {
     "modified",
 }
 
+# v1.2 で必須となるフィールド (v1.1と同じ、qualityは任意)
+V1_2_REQUIRED_FIELDS = V1_1_REQUIRED_FIELDS.copy()
+
 
 def needs_migration(metadata: dict, target_version: str = METADATA_VERSION) -> bool:
     """メタデータがマイグレーションを必要とするかチェックする.
@@ -601,6 +604,11 @@ def needs_migration(metadata: dict, target_version: str = METADATA_VERSION) -> b
     # v1.1.x 形式のチェック
     if target_version.startswith("1.1"):
         missing = V1_1_REQUIRED_FIELDS - set(metadata.keys())
+        return len(missing) > 0
+
+    # v1.2.x 形式のチェック
+    if target_version.startswith("1.2"):
+        missing = V1_2_REQUIRED_FIELDS - set(metadata.keys())
         return len(missing) > 0
 
     return False
