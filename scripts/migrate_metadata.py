@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import sys
@@ -441,8 +442,6 @@ def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict
     if not sha256_hash:
         # data_fileが提供されている場合はハッシュを再計算
         if data_file and data_file.exists():
-            import hashlib
-
             sha256_hash = hashlib.sha256(data_file.read_bytes()).hexdigest()
             changes.append(f"hash: recalculated from file -> {sha256_hash[:16]}...")
         else:
