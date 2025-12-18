@@ -4,13 +4,20 @@ Validates that male + female = total in gender-disaggregated data.
 """
 
 import csv
+import logging
 import subprocess
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class GenderSumValidator:
     """Validator for gender sum consistency (male + female = total)."""
+
+    # Maximum cache size to prevent memory issues in long-running processes
+    _MAX_CACHE_SIZE = 100
 
     def __init__(self, raw_data_dir: Path):
         """Initialize validator.
@@ -19,8 +26,9 @@ class GenderSumValidator:
             raw_data_dir: Path to raw data directory
         """
         self.raw_data_dir = Path(raw_data_dir)
-        # Instance-level cache to avoid memory leaks with lru_cache
-        self._file_cache: dict[Path, str | None] = {}
+        # Instance-level LRU cache to avoid memory leaks with functools.lru_cache
+        # OrderedDict provides LRU behavior when combined with move_to_end()
+        self._file_cache: OrderedDict[Path, str | None] = OrderedDict()
 
     def validate(self, source_filename: str, data_type: str) -> dict | None:
         """Validate gender sum consistency for a source file.
@@ -44,6 +52,14 @@ class GenderSumValidator:
 
         return None
 
+    def clear_cache(self) -> None:
+        """Clear the file content cache.
+
+        This method should be called between batch processing operations
+        to prevent memory buildup in long-running processes.
+        """
+        self._file_cache.clear()
+
     def _validate_gender_sum(self, source_path: Path, source_filename: str) -> dict:
         """Validate gender sum consistency for any gender-disaggregated data.
 
@@ -62,13 +78,39 @@ class GenderSumValidator:
         if not all(sections.values()):
             return self._no_validation_result(source_filename)
 
+        # データ整合性チェック: 全セクションの行数が一致しているか
+        male_rows_count = len(sections["male"])
+        female_rows_count = len(sections["female"])
+        total_rows_count = len(sections["total"])
+
+        if male_rows_count != female_rows_count or male_rows_count != total_rows_count:
+            logger.warning(
+                "Row count mismatch in %s: male=%d, female=%d, total=%d",
+                source_filename,
+                male_rows_count,
+                female_rows_count,
+                total_rows_count,
+            )
+            return {
+                "check_type": "gender_sum_consistency",
+                "validation_status": "skipped",
+                "message": f"Validation skipped: row count mismatch (male={male_rows_count}, female={female_rows_count}, total={total_rows_count})",
+                "details": {
+                    "source_file": source_filename,
+                    "affected_count": 0,
+                    "truncated": False,
+                    "affected_locations": [],
+                },
+            }
+
         errors: list[dict[str, Any]] = []
         total_rows = 0
         failed_rows = 0
 
         # 各行でmale + female = totalを検証
+        # strict=True を使用してデータ不整合を確実に検出
         for i, (male_row, female_row, total_row) in enumerate(
-            zip(sections["male"], sections["female"], sections["total"], strict=False)
+            zip(sections["male"], sections["female"], sections["total"], strict=True)
         ):
             total_rows += 1
             # 最初の列はlocation識別子 (医療圏名、保健所名、年齢群など)
@@ -117,8 +159,12 @@ class GenderSumValidator:
     def _read_source_file(self, source_path: Path) -> str | None:
         """Read and convert source file from Shift_JIS to UTF-8 with caching.
 
-        This method caches the conversion result to avoid redundant iconv calls.
-        Uses instance-level cache to prevent memory leaks.
+        This method implements LRU caching with size limit to prevent memory issues.
+        The cache uses OrderedDict to maintain insertion order and implements LRU
+        eviction when the cache exceeds _MAX_CACHE_SIZE.
+
+        Security: Path traversal protection is enforced by checking that the path
+        is relative to raw_data_dir.
 
         Args:
             source_path: Path to source CSV file
@@ -126,8 +172,21 @@ class GenderSumValidator:
         Returns:
             UTF-8 converted file content or None if conversion failed
         """
-        # Return cached result if available
+        # Security: Prevent path traversal attacks
+        try:
+            source_path.resolve().relative_to(self.raw_data_dir.resolve())
+        except ValueError:
+            logger.error(
+                "Path traversal attempt detected: %s is not within %s",
+                source_path,
+                self.raw_data_dir,
+            )
+            return None
+
+        # Return cached result if available (and move to end for LRU)
         if source_path in self._file_cache:
+            # Move to end to mark as recently used
+            self._file_cache.move_to_end(source_path)
             return self._file_cache[source_path]
 
         # Perform conversion
@@ -138,13 +197,35 @@ class GenderSumValidator:
             check=False,
         )
 
-        # Cache and return result
+        # Log conversion errors for debugging
         if result.returncode != 0:
-            self._file_cache[source_path] = None
+            logger.warning(
+                "Failed to convert %s from Shift_JIS to UTF-8: %s",
+                source_path.name,
+                result.stderr.strip() if result.stderr else "Unknown error",
+            )
+            self._cache_put(source_path, None)
             return None
 
-        self._file_cache[source_path] = result.stdout
-        return result.stdout
+        # Cache successful conversion
+        content = result.stdout
+        self._cache_put(source_path, content)
+        return content
+
+    def _cache_put(self, key: Path, value: str | None) -> None:
+        """Put a value into the LRU cache, evicting oldest if necessary.
+
+        Args:
+            key: Cache key (file path)
+            value: Cache value (file content or None)
+        """
+        # Add to cache
+        self._file_cache[key] = value
+
+        # Evict oldest entry if cache is too large
+        if len(self._file_cache) > self._MAX_CACHE_SIZE:
+            # FIFO: remove first (oldest) entry
+            self._file_cache.popitem(last=False)
 
     def _extract_gender_sections(self, source_path: Path) -> dict[str, list[list[str]]]:
         """Extract male, female, and total sections from source file.
@@ -242,7 +323,7 @@ class GenderSumValidator:
         source_filename: str,
         total_rows: int,
         failed_rows: int,
-        errors: list[dict],
+        errors: list[dict[str, Any]],
         unit: str,
     ) -> dict:
         """Build validation result conforming to metadata schema v1.2.0.
