@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from src.models.metadata import METADATA_VERSION
+from src.validators.quality_validator import QualityValidator
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,9 @@ class DataProcessor:
 
         # メタデータディレクトリ
         (self.processed_dir / ".metadata").mkdir(parents=True, exist_ok=True)
+
+        # データ品質バリデーター
+        self.quality_validator = QualityValidator(self.raw_dir)
 
     def process_file(self, source_file: Path) -> NormalizationResult:
         """ファイルを処理(UTF-8変換 + 正規化を一度に実行)
@@ -745,7 +749,16 @@ class DataProcessor:
                 aggregation = metadata.get("aggregation", "")
                 data_type = f"{category}_{period_type}_{aggregation}" if aggregation else f"{category}_{period_type}"
 
-                # v1.1メタデータを構築
+                # v1.2.0メタデータを構築
+                # データ品質検証を実行
+                processing_meta = {
+                    "source_name": source_name,
+                    "source_hash": source_hash,
+                    "processing_time_seconds": processing_time,
+                    "gender": gender,
+                }
+                quality = self.quality_validator.validate(source.name, data_type, processing_meta)
+
                 meta = {
                     "metadata_version": METADATA_VERSION,
                     "name": output.stem,
@@ -769,12 +782,8 @@ class DataProcessor:
                             "path": str(source.relative_to(self.base_dir)),
                         }
                     ],
-                    "_process": {
-                        "source_name": source_name,
-                        "source_hash": source_hash,
-                        "processing_time_seconds": processing_time,
-                        "gender": gender,
-                    },
+                    "_process": processing_meta,
+                    "quality": quality,
                 }
 
                 # メタデータディレクトリを作成 (存在しない場合)

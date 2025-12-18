@@ -354,8 +354,8 @@ class TestDataProcessor(unittest.TestCase):
         with metadata_file.open("r", encoding="utf-8") as f:
             meta = json.load(f)
 
-        # v1.1形式の検証
-        self.assertEqual(meta["metadata_version"], "1.1.0")
+        # v1.2.0形式の検証
+        self.assertEqual(meta["metadata_version"], "1.2.0")
         self.assertEqual(meta["profile"], "tokyo-idsc-processed")
         self.assertEqual(meta["filename"], "normalized_notifiable_weekly_2025_01.csv")
         self.assertEqual(meta["encoding"], "utf-8")
@@ -365,6 +365,13 @@ class TestDataProcessor(unittest.TestCase):
         self.assertEqual(meta["_process"]["source_name"], "notifiable_weekly_2025_01")
         self.assertIn("source_hash", meta["_process"])
         self.assertIn("processing_time_seconds", meta["_process"])
+
+        # v1.2.0で追加されたqualityフィールドの検証
+        self.assertIn("quality", meta)
+        self.assertIn("validation_timestamp", meta["quality"])
+        self.assertIn("validation_status", meta["quality"])
+        self.assertIn("issues", meta["quality"])
+        self.assertIsInstance(meta["quality"]["issues"], list)
 
     def test_parse_int_helper(self):
         """_parse_int ヘルパーメソッドのテスト"""
