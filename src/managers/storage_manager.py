@@ -14,18 +14,11 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from src.models.metadata import (
-    METADATA_VERSION,
-    FetchInfo,
-    HashInfo,
-    Metadata,
-    TemporalInfo,
-    Verification,
-)
+from src.models.metadata import METADATA_VERSION
 
 # 旧バージョンとの互換性のためのエイリアス
 LEGACY_METADATA_VERSION = "1.0"
@@ -359,7 +352,7 @@ class StorageManager:
 
             # メタデータ生成
             period_type = "monthly" if is_monthly else "weekly"
-            now = datetime.now().isoformat()
+            now = datetime.now(UTC).isoformat()
 
             # 既存メタデータの取得 (force_overwrite時のcreated_at保持用)
             existing_metadata = self.get_metadata(file_path) if force_overwrite else None
@@ -450,7 +443,7 @@ class StorageManager:
                 template = self.config.get("commit_message_template", "データ更新: {data_type} - {date_range}")
                 message = template.format(data_type=data_type, date_range=date_range)
             else:
-                message = f"データ更新: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                message = f"データ更新: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}"
 
         # ファイル追加
         files_to_add = [self.base_path, self.metadata_dir]
@@ -766,9 +759,7 @@ class StorageManager:
         else:
             return count
 
-    def _determine_timestamps(
-        self, existing_metadata: dict[str, Any] | None, now: str
-    ) -> tuple[str, str]:
+    def _determine_timestamps(self, existing_metadata: dict[str, Any] | None, now: str) -> tuple[str, str]:
         """created_atとupdated_atを決定する。
 
         Args:
@@ -890,11 +881,11 @@ class StorageManager:
             dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             # タイムゾーンがない場合はローカルタイムとして扱いUTCに変換
             if dt.tzinfo is None:
-                dt = dt.astimezone(timezone.utc)
+                dt = dt.astimezone(UTC)
             return dt.isoformat()
         except (ValueError, AttributeError):
             # パース失敗時は現在時刻を返す
-            return datetime.now(timezone.utc).isoformat()
+            return datetime.now(UTC).isoformat()
 
     def _validate_saved_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
         """保存されたファイルを検証し、検証結果を返す。
@@ -943,7 +934,7 @@ class StorageManager:
 
         return {
             "status": status,
-            "verified_at": datetime.now().isoformat(),
+            "verified_at": datetime.now(UTC).isoformat(),
             "method": "automated",
             "checks": checks,
             "errors": errors,
@@ -1020,9 +1011,7 @@ class StorageManager:
             decoded = data.decode(EXPECTED_ENCODING)
             result["decoded_content"] = decoded
         except UnicodeDecodeError as e:
-            result["errors"].append(
-                f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}"
-            )
+            result["errors"].append(f"[encoding] Decoding error (expected {EXPECTED_ENCODING}): {e!s}")
             result["valid"] = False
         except (OSError, MemoryError, ValueError) as e:
             result["errors"].append(f"[encoding] Failed to check encoding: {e!s}")
@@ -1030,9 +1019,7 @@ class StorageManager:
 
         return result
 
-    def _check_csv_format_validation(
-        self, data: bytes, decoded_content: str | None = None
-    ) -> dict[str, Any]:
+    def _check_csv_format_validation(self, data: bytes, decoded_content: str | None = None) -> dict[str, Any]:
         """CSVフォーマットを検証する。
 
         Args:
@@ -1065,9 +1052,7 @@ class StorageManager:
 
                 # 行数チェック(早期終了)
                 if line_count > VALIDATION_MAX_LINE_COUNT:
-                    result["errors"].append(
-                        f"[csv_format] Too many lines: >{VALIDATION_MAX_LINE_COUNT}"
-                    )
+                    result["errors"].append(f"[csv_format] Too many lines: >{VALIDATION_MAX_LINE_COUNT}")
                     result["valid"] = False
                     break
 
@@ -1091,9 +1076,7 @@ class StorageManager:
 
             # カラム数の一貫性チェック
             if len(column_counts) > 1:
-                result["warnings"].append(
-                    f"[csv_format] Inconsistent column count: {column_counts}"
-                )
+                result["warnings"].append(f"[csv_format] Inconsistent column count: {column_counts}")
 
         except csv.Error as e:
             result["errors"].append(f"[csv_format] CSV format error: {e!s}")
@@ -1126,9 +1109,7 @@ class StorageManager:
             # シンボリックリンクチェック (解決前に実施)
             # シンボリックリンクは許可外のディレクトリへのアクセスに悪用される可能性がある
             if file_path.is_symlink():
-                result["errors"].append(
-                    "[path_safety] Symbolic links not allowed for security reasons"
-                )
+                result["errors"].append("[path_safety] Symbolic links not allowed for security reasons")
                 result["valid"] = False
 
             # 絶対パスを解決
@@ -1150,9 +1131,7 @@ class StorageManager:
             filename = file_path.name
             for pattern in dangerous_patterns:
                 if pattern in filename:
-                    result["errors"].append(
-                        f"[path_safety] Dangerous pattern in filename: {pattern!r}"
-                    )
+                    result["errors"].append(f"[path_safety] Dangerous pattern in filename: {pattern!r}")
                     result["valid"] = False
 
         except (OSError, ValueError, RuntimeError) as e:
@@ -1391,7 +1370,7 @@ class StorageManager:
             メタデータのタイムスタンプを基準に判定を行う。
             対応するメタデータファイルも一緒に削除される。
         """
-        cutoff_date = datetime.now() - timedelta(days=days_to_keep)
+        cutoff_date = datetime.now(UTC) - timedelta(days=days_to_keep)
         deleted_count = 0
 
         for file_path in self.base_path.glob("*.csv"):

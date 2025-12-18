@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/your-org/fetch-tokyo-idsc/schemas/metadata-v1.1.schema.json",
+  "$id": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/schemas/metadata-v1.1.schema.json",
   "title": "Tokyo IDSC Metadata Schema",
   "description": "Common metadata schema for Tokyo Infectious Disease Surveillance Center data files",
   "type": "object",
@@ -116,6 +116,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "required": ["title", "path"],
         "properties": {
           "title": {
             "type": "string",
@@ -126,7 +127,8 @@
             "format": "uri",
             "description": "Source URL or path"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "description": "Data provenance information"
     },

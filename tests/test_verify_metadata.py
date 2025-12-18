@@ -4,8 +4,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from scripts.verify_metadata import run_verification
 
 
@@ -125,9 +123,7 @@ class TestRunVerification:
             (data_dir / "unverified.csv").write_bytes(csv_content.encode("shift_jis"))
 
             # only_unverified モードで実行
-            stats = run_verification(
-                metadata_dir, data_dir, dry_run=False, only_unverified=True
-            )
+            stats = run_verification(metadata_dir, data_dir, dry_run=False, only_unverified=True)
 
             assert stats["total"] == 2
             assert stats["skipped"] == 1  # verified.csv はスキップ
@@ -191,7 +187,7 @@ class TestRunVerification:
 
             # UTF-8でエンコード (Shift_JISで読めない文字を含む)
             csv_path = data_dir / "invalid.csv"
-            csv_path.write_bytes("col1,col2\n日本語,テスト\n".encode("utf-8"))
+            csv_path.write_bytes("col1,col2\n日本語,テスト\n".encode())
 
             stats = run_verification(metadata_dir, data_dir, dry_run=False)
 

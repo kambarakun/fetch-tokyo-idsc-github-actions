@@ -727,9 +727,8 @@ class DataProcessor:
             if gender_info and output in gender_info:
                 gender = gender_info[output]
 
-            # タイムスタンプ
-            now = datetime.now(UTC).astimezone()
-            timestamp_iso = now.isoformat()
+            # タイムスタンプ (UTC)
+            timestamp_iso = datetime.now(UTC).isoformat()
 
             # 期間情報を構築
             period_type = metadata.get("frequency", "weekly")
@@ -742,11 +741,7 @@ class DataProcessor:
             # データタイプを構築
             category = metadata.get("category", "")
             aggregation = metadata.get("aggregation", "")
-            data_type = (
-                f"{category}_{period_type}_{aggregation}"
-                if aggregation
-                else f"{category}_{period_type}"
-            )
+            data_type = f"{category}_{period_type}_{aggregation}" if aggregation else f"{category}_{period_type}"
 
             # v1.1メタデータを構築
             meta = {

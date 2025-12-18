@@ -4,7 +4,7 @@
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -181,7 +181,7 @@ class ConfigurationManager:
             result.add_warning("Start year is before 2000, data may not be available")
 
         if config.collection.end_year:
-            current_year = datetime.now().year
+            current_year = datetime.now(UTC).year
             if config.collection.end_year > current_year:
                 result.add_warning(f"End year {config.collection.end_year} is in the future")
 

@@ -61,9 +61,7 @@ class MigrationRegistry:
         self._migrations: dict[tuple[str | None, str], MigrationFunc] = {}
         self._versions: set[str | None] = set()
 
-    def register(
-        self, from_version: str | None, to_version: str
-    ) -> Callable[[MigrationFunc], MigrationFunc]:
+    def register(self, from_version: str | None, to_version: str) -> Callable[[MigrationFunc], MigrationFunc]:
         """マイグレーション関数を登録するデコレータ.
 
         Args:
@@ -82,9 +80,7 @@ class MigrationRegistry:
 
         return decorator
 
-    def get_migration_path(
-        self, from_version: str | None, to_version: str
-    ) -> list[tuple[str | None, str]]:
+    def get_migration_path(self, from_version: str | None, to_version: str) -> list[tuple[str | None, str]]:
         """マイグレーションパスを取得する.
 
         Args:
@@ -206,9 +202,7 @@ class MigrationRegistry:
                 msg = f"Invalid version format: '{v}'. Expected format: '1.0' or '1.2.3'"
                 raise ValueError(msg) from e
 
-        return (parse_version(v1) > parse_version(v2)) - (
-            parse_version(v1) < parse_version(v2)
-        )
+        return (parse_version(v1) > parse_version(v2)) - (parse_version(v1) < parse_version(v2))
 
     def is_downgrade(self, from_version: str | None, to_version: str | None) -> bool:
         """ダウングレードかどうかを判定する.
@@ -272,9 +266,7 @@ def count_lines(data_file: Path) -> int | None:
 
 
 @migration_registry.register(from_version=None, to_version="1.0")
-def migrate_none_to_v1_0(
-    metadata: dict, data_file: Path | None
-) -> tuple[dict, list[str]]:
+def migrate_none_to_v1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
     """旧形式 (バージョンなし) から v1.0 へのマイグレーション.
 
     変換内容:
@@ -340,9 +332,7 @@ def migrate_none_to_v1_0(
 
 
 @migration_registry.register(from_version="1.0", to_version="1.1.0")
-def migrate_v1_0_to_v1_1_0(  # noqa: PLR0915
-    metadata: dict, data_file: Path | None
-) -> tuple[dict, list[str]]:
+def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
     """v1.0 から v1.1.0 へのマイグレーション.
 
     変換内容:
@@ -664,9 +654,7 @@ def run_migration(
 
 def main() -> int:
     """メイン関数."""
-    parser = argparse.ArgumentParser(
-        description="メタデータファイルをマイグレーションする (バージョン対応)"
-    )
+    parser = argparse.ArgumentParser(description="メタデータファイルをマイグレーションする (バージョン対応)")
     parser.add_argument(
         "--dry-run",
         action="store_true",
