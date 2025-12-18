@@ -20,7 +20,7 @@ on:
     branches:
       - main
     paths:
-      - "src/managers/storage_manager.py"
+      - "src/models/metadata.py"
 
 permissions:
   contents: write
@@ -64,12 +64,12 @@ jobs:
           fi
 
           # 前のコミットのファイルを一時的に取得
-          git show HEAD^:src/managers/storage_manager.py > /tmp/old_storage_manager.py 2>/dev/null || echo "" > /tmp/old_storage_manager.py
+          git show HEAD^:src/models/metadata.py > /tmp/old_metadata.py 2>/dev/null || echo "" > /tmp/old_metadata.py
 
           OLD_VERSION=$(uv run python -c "
           import re
           try:
-              content = open('/tmp/old_storage_manager.py').read()
+              content = open('/tmp/old_metadata.py').read()
               match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
               print(match.group(1) if match else '')
           except Exception:
@@ -78,7 +78,7 @@ jobs:
           NEW_VERSION=$(uv run python -c "
           import re
           try:
-              content = open('src/managers/storage_manager.py').read()
+              content = open('src/models/metadata.py').read()
               match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
               print(match.group(1) if match else '')
           except Exception:
@@ -155,7 +155,7 @@ jobs:
           import re
           import sys
           try:
-              content = open('src/managers/storage_manager.py').read()
+              content = open('src/models/metadata.py').read()
               match = re.search(r'^METADATA_VERSION\s*=\s*[\"\\']([^\"\\']*)[\"\\']', content, re.MULTILINE)
               if match:
                   print(match.group(1))
@@ -169,7 +169,7 @@ jobs:
 
               # バージョン抽出に失敗した場合はワークフローを停止
               if [ $? -ne 0 ] || [ -z "$TARGET_VERSION" ]; then
-                echo "::error::METADATA_VERSION の抽出に失敗しました。storage_manager.py を確認してください。"
+                echo "::error::METADATA_VERSION の抽出に失敗しました。metadata.py を確認してください。"
                 exit 1
               fi
             fi
