@@ -580,6 +580,45 @@ V1_1_REQUIRED_FIELDS = {
 V1_2_REQUIRED_FIELDS = V1_1_REQUIRED_FIELDS.copy()
 
 
+@migration_registry.register(from_version="1.1.0", to_version="1.2.0")
+def migrate_v1_1_0_to_v1_2_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+    """v1.1.0 から v1.2.0 へのマイグレーション.
+
+    変換内容:
+    - metadata_version: "1.1.0" -> "1.2.0"
+    - quality: 新規追加 (既存データでは検証スキップ)
+
+    Args:
+        metadata: マイグレーション対象のメタデータ辞書
+        data_file: 対応するCSVファイルのパス (未使用)
+
+    Returns:
+        (マイグレーション後のメタデータ, 変更リスト)
+    """
+    from datetime import UTC, datetime
+
+    migrated = metadata.copy()
+    changes = []
+
+    # バージョン更新
+    if migrated.get("metadata_version") != "1.2.0":
+        migrated["metadata_version"] = "1.2.0"
+        changes.append("metadata_version: 1.1.0 -> 1.2.0")
+
+    # quality フィールドの追加
+    # 既存データは実際の検証を行わず、skippedとして記録
+    if "quality" not in migrated:
+        validation_timestamp = datetime.now(UTC).isoformat()
+        migrated["quality"] = {
+            "validation_timestamp": validation_timestamp,
+            "validation_status": "skipped",
+            "issues": [],
+        }
+        changes.append("quality: added (validation_status=skipped)")
+
+    return migrated, changes
+
+
 def needs_migration(metadata: dict, target_version: str = METADATA_VERSION) -> bool:
     """メタデータがマイグレーションを必要とするかチェックする.
 

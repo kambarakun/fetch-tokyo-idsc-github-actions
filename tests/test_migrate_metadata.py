@@ -348,9 +348,7 @@ class TestMigrateNoneToV10:
 
     def test_migrate_calculates_line_count(self) -> None:
         """CSVファイルから行数を計算する."""
-        with tempfile.NamedTemporaryFile(
-            mode="wb", delete=False, suffix=".csv"
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".csv") as f:
             f.write(b"header\nrow1\nrow2\n")
             temp_path = Path(f.name)
         try:
@@ -479,6 +477,127 @@ class TestMigrateV10ToV110:
         migrated, _ = migrate_v1_0_to_v1_1_0(v1_metadata, None)
 
         assert migrated["_fetch"]["fetch_time_seconds"] == 1.5
+
+
+class TestMigrateV110ToV120:
+    """migrate_v1_1_0_to_v1_2_0関数のテスト."""
+
+    def test_migrate_v1_1_0_basic(self) -> None:
+        """v1.1.0からv1.2.0への基本変換."""
+        from scripts.migrate_metadata import migrate_v1_1_0_to_v1_2_0
+
+        v1_1_metadata = {
+            "metadata_version": "1.1.0",
+            "name": "normalized_sentinel_weekly_age_male_2024_01",
+            "filename": "normalized_sentinel_weekly_age_male_2024_01.csv",
+            "path": "processed/normalized_sentinel_weekly_age_male_2024_01.csv",
+            "profile": "tokyo-idsc-processed",
+            "data_type": "sentinel_weekly_age",
+            "temporal": {"year": 2024, "period": 1, "period_type": "weekly"},
+            "bytes": 2796,
+            "lines": 22,
+            "hash": {"algorithm": "sha256", "value": "abc123..."},
+            "encoding": "utf-8",
+            "created": "2025-12-18T07:33:02.713186+00:00",
+            "modified": "2025-12-18T07:33:02.713186+00:00",
+            "sources": [
+                {
+                    "title": "sentinel_weekly_age_2024_01.csv",
+                    "path": "raw/sentinel_weekly_age_2024_01.csv",
+                }
+            ],
+            "_process": {
+                "source_name": "sentinel_weekly_age_2024_01",
+                "source_hash": "def456...",
+                "processing_time_seconds": 0.001,
+                "gender": "male",
+            },
+        }
+        migrated, changes = migrate_v1_1_0_to_v1_2_0(v1_1_metadata, None)
+
+        # v1.2形式の検証
+        assert migrated["metadata_version"] == "1.2.0"
+        # 全てのv1.1フィールドが保持されている
+        assert migrated["name"] == "normalized_sentinel_weekly_age_male_2024_01"
+        assert migrated["profile"] == "tokyo-idsc-processed"
+        assert migrated["data_type"] == "sentinel_weekly_age"
+        # quality フィールドが追加されている
+        assert "quality" in migrated
+        assert migrated["quality"]["validation_status"] == "skipped"
+        assert migrated["quality"]["issues"] == []
+        assert "validation_timestamp" in migrated["quality"]
+        # 変更が記録されている
+        assert len(changes) == 2
+        assert any("metadata_version" in c for c in changes)
+        assert any("quality" in c for c in changes)
+
+    def test_migrate_v1_1_0_preserves_all_fields(self) -> None:
+        """v1.1.0の全フィールドが保持される."""
+        from scripts.migrate_metadata import migrate_v1_1_0_to_v1_2_0
+
+        v1_1_metadata = {
+            "metadata_version": "1.1.0",
+            "name": "test",
+            "filename": "test.csv",
+            "path": "raw/test.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_gender",
+            "temporal": {"year": 2025, "period": 1, "period_type": "weekly"},
+            "bytes": 1000,
+            "lines": 50,
+            "hash": {"algorithm": "sha256", "value": "hash123"},
+            "encoding": "shift_jis",
+            "created": "2025-01-01T00:00:00+00:00",
+            "modified": "2025-01-01T00:00:00+00:00",
+            "sources": [{"title": "Test", "path": "http://example.com"}],
+            "_fetch": {
+                "source_url": "http://example.com",
+                "fetch_time_seconds": 1.0,
+                "force_overwrite": False,
+                "save_all_zero": False,
+            },
+        }
+        migrated, _ = migrate_v1_1_0_to_v1_2_0(v1_1_metadata, None)
+
+        # 全てのフィールドが保持されている
+        for key in v1_1_metadata:
+            if key != "metadata_version":
+                assert migrated[key] == v1_1_metadata[key]
+
+        # quality が追加されている
+        assert "quality" in migrated
+
+    def test_migrate_v1_1_0_idempotent(self) -> None:
+        """既にqualityフィールドがある場合は上書きしない."""
+        from scripts.migrate_metadata import migrate_v1_1_0_to_v1_2_0
+
+        v1_1_metadata = {
+            "metadata_version": "1.1.0",
+            "name": "test",
+            "filename": "test.csv",
+            "path": "raw/test.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_gender",
+            "temporal": {"year": 2025, "period": 1, "period_type": "weekly"},
+            "bytes": 1000,
+            "lines": 50,
+            "hash": {"algorithm": "sha256", "value": "hash123"},
+            "encoding": "shift_jis",
+            "created": "2025-01-01T00:00:00+00:00",
+            "modified": "2025-01-01T00:00:00+00:00",
+            "quality": {
+                "validation_timestamp": "2025-01-01T00:00:00+00:00",
+                "validation_status": "completed",
+                "issues": [{"check_type": "test", "message": "test"}],
+            },
+        }
+        original_quality = v1_1_metadata["quality"]
+        migrated, changes = migrate_v1_1_0_to_v1_2_0(v1_1_metadata, None)
+
+        # quality が保持されている
+        assert migrated["quality"] == original_quality
+        # qualityの追加は記録されない
+        assert not any("quality" in c for c in changes)
 
 
 class TestMigrateMetadata:
@@ -654,9 +773,7 @@ class TestRunMigration:
             with metadata_path.open("w") as f:
                 json.dump(old_metadata, f)
 
-            stats = run_migration(
-                metadata_dir, data_dir, target_version="1.0", dry_run=False
-            )
+            stats = run_migration(metadata_dir, data_dir, target_version="1.0", dry_run=False)
 
             assert stats["target_version"] == "1.0"
             assert stats["migrated"] == 1
@@ -680,9 +797,7 @@ class TestRunMigration:
                 json.dump(new_metadata, f)
 
             # 古いバージョン (1.0) へのマイグレーションを試行
-            stats = run_migration(
-                metadata_dir, data_dir, target_version="1.0", dry_run=False
-            )
+            stats = run_migration(metadata_dir, data_dir, target_version="1.0", dry_run=False)
 
             # ダウングレードはエラーとしてカウントされる
             assert stats["errors"] == 1
