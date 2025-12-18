@@ -1,0 +1,44 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "sentinel_weekly_gender_2025_50",
+  "filename": "sentinel_weekly_gender_2025_50.csv",
+  "path": "sentinel_weekly_gender_2025_50.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_weekly_gender",
+  "temporal": {
+    "year": 2025,
+    "period": 50,
+    "period_type": "weekly"
+  },
+  "bytes": 1116,
+  "lines": 30,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "3f430786b0e87ccd4d904a0c699958ebbf3e6d950c6393cf3a27adef2647dc2f"
+  },
+  "encoding": "shift_jis",
+  "created": "2025-12-18T08:09:58.200156+00:00",
+  "modified": "2025-12-18T08:09:58.200156+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.7097482681274414,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-18T08:09:58.200304+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2, 5}"
+    ]
+  }
+}
