@@ -712,75 +712,85 @@ class DataProcessor:
 
         for output in outputs:
             if not output.exists():
+                logger.warning(f"出力ファイルが存在しません(メタデータ生成スキップ): {output}")
                 continue
 
-            # 出力ファイルの情報を取得
-            output_content = output.read_bytes()
-            output_hash = hashlib.sha256(output_content).hexdigest()
-            output_size = len(output_content)
-            line_count = output_content.count(b"\n")
-            if output_content and not output_content.endswith(b"\n"):
-                line_count += 1
+            try:
+                # 出力ファイルの情報を取得
+                output_content = output.read_bytes()
+                output_hash = hashlib.sha256(output_content).hexdigest()
+                output_size = len(output_content)
+                line_count = output_content.count(b"\n")
+                if output_content and not output_content.endswith(b"\n"):
+                    line_count += 1
 
-            # 性別情報を取得
-            gender = None
-            if gender_info and output in gender_info:
-                gender = gender_info[output]
+                # 性別情報を取得
+                gender = None
+                if gender_info and output in gender_info:
+                    gender = gender_info[output]
 
-            # タイムスタンプ (UTC)
-            timestamp_iso = datetime.now(UTC).isoformat()
+                # タイムスタンプ (UTC)
+                timestamp_iso = datetime.now(UTC).isoformat()
 
-            # 期間情報を構築
-            period_type = metadata.get("frequency", "weekly")
-            temporal = {
-                "year": int(metadata.get("year", 0)),
-                "period": int(metadata.get("period", 0)),
-                "period_type": period_type,
-            }
+                # 期間情報を構築
+                period_type = metadata.get("frequency", "weekly")
+                temporal = {
+                    "year": int(metadata.get("year", 0)),
+                    "period": int(metadata.get("period", 0)),
+                    "period_type": period_type,
+                }
 
-            # データタイプを構築
-            category = metadata.get("category", "")
-            aggregation = metadata.get("aggregation", "")
-            data_type = f"{category}_{period_type}_{aggregation}" if aggregation else f"{category}_{period_type}"
+                # データタイプを構築
+                category = metadata.get("category", "")
+                aggregation = metadata.get("aggregation", "")
+                data_type = f"{category}_{period_type}_{aggregation}" if aggregation else f"{category}_{period_type}"
 
-            # v1.1メタデータを構築
-            meta = {
-                "metadata_version": METADATA_VERSION,
-                "name": output.stem,
-                "filename": output.name,
-                "path": str(output.relative_to(self.base_dir)),
-                "profile": "tokyo-idsc-processed",
-                "data_type": data_type,
-                "temporal": temporal,
-                "bytes": output_size,
-                "lines": line_count,
-                "hash": {
-                    "algorithm": "sha256",
-                    "value": output_hash,
-                },
-                "encoding": "utf-8",
-                "created": timestamp_iso,
-                "modified": timestamp_iso,
-                "sources": [
-                    {
-                        "title": source.name,
-                        "path": str(source.relative_to(self.base_dir)),
-                    }
-                ],
-                "_process": {
-                    "source_name": source_name,
-                    "source_hash": source_hash,
-                    "processing_time_seconds": processing_time,
-                    "gender": gender,
-                },
-            }
+                # v1.1メタデータを構築
+                meta = {
+                    "metadata_version": METADATA_VERSION,
+                    "name": output.stem,
+                    "filename": output.name,
+                    "path": str(output.relative_to(self.base_dir)),
+                    "profile": "tokyo-idsc-processed",
+                    "data_type": data_type,
+                    "temporal": temporal,
+                    "bytes": output_size,
+                    "lines": line_count,
+                    "hash": {
+                        "algorithm": "sha256",
+                        "value": output_hash,
+                    },
+                    "encoding": "utf-8",
+                    "created": timestamp_iso,
+                    "modified": timestamp_iso,
+                    "sources": [
+                        {
+                            "title": source.name,
+                            "path": str(source.relative_to(self.base_dir)),
+                        }
+                    ],
+                    "_process": {
+                        "source_name": source_name,
+                        "source_hash": source_hash,
+                        "processing_time_seconds": processing_time,
+                        "gender": gender,
+                    },
+                }
 
-            # メタデータファイルを保存
-            metadata_file = self.processed_dir / ".metadata" / f"{output.stem}.json"
-            with metadata_file.open("w", encoding="utf-8") as f:
-                json.dump(meta, f, ensure_ascii=False, indent=2)
+                # メタデータディレクトリを作成 (存在しない場合)
+                metadata_dir = self.processed_dir / ".metadata"
+                metadata_dir.mkdir(parents=True, exist_ok=True)
 
-            logger.debug(f"メタデータ保存: {metadata_file.name}")
+                # メタデータファイルを保存
+                metadata_file = metadata_dir / f"{output.stem}.json"
+                with metadata_file.open("w", encoding="utf-8") as f:
+                    json.dump(meta, f, ensure_ascii=False, indent=2)
+
+                logger.debug(f"メタデータ保存: {metadata_file.name}")
+            except (OSError, ValueError, TypeError) as e:
+                # メタデータ書き込み失敗はデータ処理の成功に影響させない
+                logger.warning(f"メタデータ保存失敗: {output.name} - {e}")
+                logger.debug("メタデータ保存エラーの詳細:", exc_info=True)
 
     def _calculate_hash(self, file_path: Path) -> str:
         """ファイルのSHA256ハッシュを計算

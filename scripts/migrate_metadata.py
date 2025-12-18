@@ -463,9 +463,9 @@ def _extract_data_type_and_temporal(stem: str) -> tuple[str, dict]:
     """
     parts = stem.split("_")
 
-    # デフォルト値
+    # デフォルト値 (v1.1スキーマ準拠: year >= 2000, period >= 1)
     data_type = stem
-    temporal = {"year": 0, "period": 0, "period_type": "weekly"}
+    temporal = {"year": 2000, "period": 1, "period_type": "weekly"}
 
     try:
         if len(parts) >= 4:
