@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_age_male_2005_30",
+  "filename": "normalized_sentinel_weekly_age_male_2005_30.csv",
+  "path": "processed/normalized_sentinel_weekly_age_male_2005_30.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_age",
+  "temporal": {
+    "year": 2005,
+    "period": 30,
+    "period_type": "weekly"
+  },
+  "bytes": 2717,
+  "lines": 22,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "f41e2c2de3a1a2056cd4a13873db6d575a83a17f770e6f1c0c0151085f171bd1"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:58.197233+00:00",
+  "modified": "2025-12-18T07:32:58.197233+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_age_2005_30.csv",
+      "path": "raw/sentinel_weekly_age_2005_30.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_age_2005_30",
+    "source_hash": "bc208114ffe99293e61ba6a4392d8ef903c7a5dfbcef7362eba1b9f4a33514fc",
+    "processing_time_seconds": 0.0008447170257568359,
+    "gender": "male"
+  }
+}

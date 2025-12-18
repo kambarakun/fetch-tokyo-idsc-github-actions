@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_monthly_health_center_female_2005_12",
+  "filename": "normalized_sentinel_monthly_health_center_female_2005_12.csv",
+  "path": "processed/normalized_sentinel_monthly_health_center_female_2005_12.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_health_center",
+  "temporal": {
+    "year": 2005,
+    "period": 12,
+    "period_type": "monthly"
+  },
+  "bytes": 2058,
+  "lines": 33,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "bccfdb3b152edbc998ee4e11e93efdf6272062371aaeb6f24874a4af7b38be3c"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:59.963322+00:00",
+  "modified": "2025-12-18T07:32:59.963322+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_health_center_2005_12.csv",
+      "path": "raw/sentinel_monthly_health_center_2005_12.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_health_center_2005_12",
+    "source_hash": "2605239e58306193c86811f1350217399f371dd81975e74583a99c8fb921a488",
+    "processing_time_seconds": 0.0006947517395019531,
+    "gender": "female"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_notifiable_weekly_2006_48",
+  "filename": "normalized_notifiable_weekly_2006_48.csv",
+  "path": "processed/normalized_notifiable_weekly_2006_48.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "notifiable_weekly",
+  "temporal": {
+    "year": 2006,
+    "period": 48,
+    "period_type": "weekly"
+  },
+  "bytes": 1600,
+  "lines": 60,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "ba53085ae7b1b087b5319cbf8be117081f1383346daea56df7f88b792fa64646"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:33:00.308128+00:00",
+  "modified": "2025-12-18T07:33:00.308128+00:00",
+  "sources": [
+    {
+      "title": "notifiable_weekly_2006_48.csv",
+      "path": "raw/notifiable_weekly_2006_48.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "notifiable_weekly_2006_48",
+    "source_hash": "fa662f75aa53cd105af1b8a80828bdf3f4c0f356a71a99e987f8392f1a7457b4",
+    "processing_time_seconds": 0.00010228157043457031,
+    "gender": null
+  }
+}

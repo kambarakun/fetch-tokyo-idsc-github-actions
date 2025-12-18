@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_age_total_2020_03",
+  "filename": "normalized_sentinel_weekly_age_total_2020_03.csv",
+  "path": "processed/normalized_sentinel_weekly_age_total_2020_03.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_age",
+  "temporal": {
+    "year": 2020,
+    "period": 3,
+    "period_type": "weekly"
+  },
+  "bytes": 3573,
+  "lines": 22,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "fe59d9c733de859c497e9f0830cccca651f23a101bfed68ba1c4dafa90a25f0b"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:57.866174+00:00",
+  "modified": "2025-12-18T07:32:57.866174+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_age_2020_03.csv",
+      "path": "raw/sentinel_weekly_age_2020_03.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_age_2020_03",
+    "source_hash": "7cacfe2ef2a5b869112194e2dffb0448941138f67466d38d4ebf4f8eb75b92c7",
+    "processing_time_seconds": 0.0007915496826171875,
+    "gender": "total"
+  }
+}

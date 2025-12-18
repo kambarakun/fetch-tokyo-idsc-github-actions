@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_health_center_total_2000_24",
+  "filename": "normalized_sentinel_weekly_health_center_total_2000_24.csv",
+  "path": "processed/normalized_sentinel_weekly_health_center_total_2000_24.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_health_center",
+  "temporal": {
+    "year": 2000,
+    "period": 24,
+    "period_type": "weekly"
+  },
+  "bytes": 6554,
+  "lines": 45,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "5cb0b2ab7143e905e6bd87c8ea7efd2a4c92d2b76fc84e3f3868142b613685ef"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:33:02.763362+00:00",
+  "modified": "2025-12-18T07:33:02.763362+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_health_center_2000_24.csv",
+      "path": "raw/sentinel_weekly_health_center_2000_24.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_health_center_2000_24",
+    "source_hash": "52d019d532eb2bb348a1a1cfa8d4f8312d9bcf213b97dfd989e219e6a5b07ad0",
+    "processing_time_seconds": 0.001354217529296875,
+    "gender": "total"
+  }
+}

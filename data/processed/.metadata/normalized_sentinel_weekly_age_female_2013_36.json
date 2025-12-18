@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_age_female_2013_36",
+  "filename": "normalized_sentinel_weekly_age_female_2013_36.csv",
+  "path": "processed/normalized_sentinel_weekly_age_female_2013_36.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_age",
+  "temporal": {
+    "year": 2013,
+    "period": 36,
+    "period_type": "weekly"
+  },
+  "bytes": 3491,
+  "lines": 22,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "9daad90a9baca41b83abb3507cd83fd34b4a79e6d45c454f0af198cd70339fdb"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:59.727929+00:00",
+  "modified": "2025-12-18T07:32:59.727929+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_age_2013_36.csv",
+      "path": "raw/sentinel_weekly_age_2013_36.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_age_2013_36",
+    "source_hash": "f18fa2ade5028ee3433a9cabf7d40e7e1e8ff2c0da9b58ed60b15f01a4ce7a4c",
+    "processing_time_seconds": 0.0007996559143066406,
+    "gender": "female"
+  }
+}

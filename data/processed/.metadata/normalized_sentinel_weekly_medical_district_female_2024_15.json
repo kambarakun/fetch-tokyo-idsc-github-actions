@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_medical_district_female_2024_15",
+  "filename": "normalized_sentinel_weekly_medical_district_female_2024_15.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_female_2024_15.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2024,
+    "period": 15,
+    "period_type": "weekly"
+  },
+  "bytes": 2537,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "a2304e831bcd4ef9e47fedfaa9d3a2f5b37d04b3b5b1b7305799667f94fa31a5"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:57.660662+00:00",
+  "modified": "2025-12-18T07:32:57.660662+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2024_15.csv",
+      "path": "raw/sentinel_weekly_medical_district_2024_15.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2024_15",
+    "source_hash": "df7139c6deaccf83d779a8e71fd1f0d610d717def37108645c8d09385773ab63",
+    "processing_time_seconds": 0.0002567768096923828,
+    "gender": "female"
+  }
+}

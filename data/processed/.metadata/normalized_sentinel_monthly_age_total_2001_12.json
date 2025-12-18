@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_monthly_age_total_2001_12",
+  "filename": "normalized_sentinel_monthly_age_total_2001_12.csv",
+  "path": "processed/normalized_sentinel_monthly_age_total_2001_12.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_age",
+  "temporal": {
+    "year": 2001,
+    "period": 12,
+    "period_type": "monthly"
+  },
+  "bytes": 1150,
+  "lines": 18,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "0499af9b88801a2c3c8888668ede9c0838827de85bc641cdea619e239ec6bc43"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:56.651926+00:00",
+  "modified": "2025-12-18T07:32:56.651926+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_age_2001_12.csv",
+      "path": "raw/sentinel_monthly_age_2001_12.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_age_2001_12",
+    "source_hash": "e7f931688b85dfba56cf911f0f03bf285972821d3617e6457aa9b086d004158b",
+    "processing_time_seconds": 0.0005762577056884766,
+    "gender": "total"
+  }
+}
