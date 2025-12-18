@@ -1,0 +1,44 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "sentinel_weekly_medical_district_2025_50",
+  "filename": "sentinel_weekly_medical_district_2025_50.csv",
+  "path": "sentinel_weekly_medical_district_2025_50.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2025,
+    "period": 50,
+    "period_type": "weekly"
+  },
+  "bytes": 8038,
+  "lines": 69,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "a34138c54f3a8055af0376a847ee4339c07fda954c1bf8dc29bc328901dd0806"
+  },
+  "encoding": "shift_jis",
+  "created": "2025-12-18T08:10:06.654481+00:00",
+  "modified": "2025-12-18T08:10:06.654481+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.9196374416351318,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-18T08:10:06.654763+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count: {0, 1, 2, 32}"
+    ]
+  }
+}
