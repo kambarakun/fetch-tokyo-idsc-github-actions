@@ -11,7 +11,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,10 @@ class HashInfo:
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> HashInfo:
         """辞書から作成"""
-        return cls(algorithm=data["algorithm"], value=data["value"])
+        return cls(
+            algorithm=cast(Literal["sha256", "sha512", "md5"], data["algorithm"]),
+            value=data["value"],
+        )
 
 
 @dataclass
@@ -355,13 +358,13 @@ class Metadata:
             name=name,
             filename=filename,
             path=legacy.get("file_path", filename),
-            profile=PROFILE_RAW,
+            profile=cast(Literal["tokyo-idsc-raw", "tokyo-idsc-processed"], PROFILE_RAW),
             data_type=legacy.get("data_type", ""),
             temporal=temporal,
             bytes=legacy.get("file_size", 0),
             lines=legacy.get("line_count"),
             hash=hash_info,
-            encoding=legacy.get("encoding", "shift_jis"),
+            encoding=cast(Literal["shift_jis", "utf-8"], legacy.get("encoding", "shift_jis")),
             created=created,
             modified=modified,
             sources=sources,
@@ -400,7 +403,7 @@ class Metadata:
         source_hash = source_metadata.hash.value if source_metadata else ""
 
         # 処理情報
-        gender = None
+        gender: Literal["male", "female", "total"] | None = None
         if "_male_" in filename:
             gender = "male"
         elif "_female_" in filename:
@@ -425,13 +428,15 @@ class Metadata:
             name=name,
             filename=filename,
             path=output_path,
-            profile=PROFILE_PROCESSED,
-            data_type=f"{meta.get('category', '')}_{meta.get('frequency', '')}_{meta.get('aggregation', '')}".strip("_"),
+            profile=cast(Literal["tokyo-idsc-raw", "tokyo-idsc-processed"], PROFILE_PROCESSED),
+            data_type=f"{meta.get('category', '')}_{meta.get('frequency', '')}_{meta.get('aggregation', '')}".strip(
+                "_"
+            ),
             temporal=temporal,
             bytes=output.get("size_bytes", 0),
             lines=None,
             hash=hash_info,
-            encoding="utf-8",
+            encoding=cast(Literal["shift_jis", "utf-8"], "utf-8"),
             created=timestamp,
             modified=timestamp,
             sources=[],
@@ -491,13 +496,13 @@ class Metadata:
             name=name,
             filename=filename,
             path=filename,
-            profile=PROFILE_RAW,
+            profile=cast(Literal["tokyo-idsc-raw", "tokyo-idsc-processed"], PROFILE_RAW),
             data_type=data_type,
             temporal=TemporalInfo(year=year, period=period, period_type=period_type),
             bytes=file_size,
             lines=line_count,
             hash=HashInfo(algorithm="sha256", value=sha256_hash),
-            encoding="shift_jis",
+            encoding=cast(Literal["shift_jis", "utf-8"], "shift_jis"),
             created=created_at or now,
             modified=now,
             sources=sources,
@@ -556,13 +561,13 @@ class Metadata:
             name=name,
             filename=filename,
             path=f"processed/{filename}",
-            profile=PROFILE_PROCESSED,
+            profile=cast(Literal["tokyo-idsc-raw", "tokyo-idsc-processed"], PROFILE_PROCESSED),
             data_type=data_type,
             temporal=TemporalInfo(year=year, period=period, period_type=period_type),
             bytes=file_size,
             lines=line_count,
             hash=HashInfo(algorithm="sha256", value=sha256_hash),
-            encoding="utf-8",
+            encoding=cast(Literal["shift_jis", "utf-8"], "utf-8"),
             created=now,
             modified=now,
             sources=[],
