@@ -396,7 +396,7 @@
 
 ### プロジェクト構造
 
-```
+```text
 data/
 ├── raw/                           # 生データ (Shift_JIS)
 │   ├── .metadata/
@@ -411,7 +411,7 @@ data/
 
 ### データフロー
 
-```
+```text
 1. 東京都サイトからデータ取得 (Shift_JIS CSV)
 2. raw/ に保存
 3. 処理: Shift_JIS → UTF-8 変換、性別分割

@@ -245,7 +245,7 @@ v1.2.0 では、元データの品質問題を記録し、データ利用者に�
 
 - `src/validators/quality_validator.py`: 品質検証ロジック
 - `src/validators/gender_sum_validator.py`: 性別合計整合性検証
-- `scripts/migrate_metadata_v1.2.py`: マイグレーションスクリプト
+- `scripts/migrate_metadata_v1_2_0.py`: マイグレーションスクリプト
 - `scripts/validate_data_quality.py`: 既存データの検証スクリプト
 
 ## サンプル
