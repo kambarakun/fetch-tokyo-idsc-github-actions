@@ -247,6 +247,24 @@
           "_fetch": false
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "temporal": {
+            "properties": { "period_type": { "const": "monthly" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "temporal": {
+            "properties": {
+              "period": { "maximum": 12 }
+            }
+          }
+        }
+      }
     }
   ],
   "additionalProperties": false

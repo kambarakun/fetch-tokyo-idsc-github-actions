@@ -202,7 +202,13 @@ class MigrationRegistry:
                 msg = f"Invalid version format: '{v}'. Expected format: '1.0' or '1.2.3'"
                 raise ValueError(msg) from e
 
-        return (parse_version(v1) > parse_version(v2)) - (parse_version(v1) < parse_version(v2))
+        v1_tuple = parse_version(v1)
+        v2_tuple = parse_version(v2)
+        if v1_tuple < v2_tuple:
+            return -1
+        if v1_tuple > v2_tuple:
+            return 1
+        return 0
 
     def is_downgrade(self, from_version: str | None, to_version: str | None) -> bool:
         """ダウングレードかどうかを判定する.
@@ -366,17 +372,8 @@ def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict
     # filename
     migrated["filename"] = filename
 
-    # path
-    if data_file:
-        # data_file から相対パスを構築
-        try:
-            # data_file は data/raw/xxx.csv の形式を想定
-            # raw/xxx.csv 形式でパスを設定
-            migrated["path"] = f"raw/{filename}"
-        except (ValueError, AttributeError):
-            migrated["path"] = f"raw/{filename}"
-    else:
-        migrated["path"] = f"raw/{filename}"
+    # path (raw/xxx.csv 形式)
+    migrated["path"] = f"raw/{filename}"
     changes.append(f"path: added -> {migrated['path']}")
 
     # profile
