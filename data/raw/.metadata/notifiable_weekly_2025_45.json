@@ -2,7 +2,7 @@
   "metadata_version": "1.1.0",
   "name": "notifiable_weekly_2025_45",
   "filename": "notifiable_weekly_2025_45.csv",
-  "path": "raw/notifiable_weekly_2025_45.csv",
+  "path": "notifiable_weekly_2025_45.csv",
   "profile": "tokyo-idsc-raw",
   "data_type": "notifiable_weekly",
   "temporal": {
@@ -17,12 +17,18 @@
     "value": "bf5047defa6714aefdff0adbaa1dee2d8ce6c56d2ce795872ecd4dff2e8db0bb"
   },
   "encoding": "shift_jis",
-  "created": "2025-12-17T03:01:22.884673",
-  "modified": "2025-12-17T06:06:27.135638",
+  "created": "2025-12-17T03:01:22.884673+00:00",
+  "modified": "2025-12-18T08:51:46.060466+00:00",
   "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.7139899730682373,
+    "force_overwrite": true,
+    "save_all_zero": false
+  },
   "verification": {
     "status": "verified",
-    "verified_at": "2025-12-17T06:06:27.135864",
+    "verified_at": "2025-12-18T08:51:46.060724+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -34,10 +40,5 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2}"
     ]
-  },
-  "_fetch": {
-    "fetch_time_seconds": 0.9833190441131592,
-    "force_overwrite": true,
-    "save_all_zero": false
   }
 }

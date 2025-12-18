@@ -2,7 +2,7 @@
   "metadata_version": "1.1.0",
   "name": "sentinel_weekly_health_center_2025_40",
   "filename": "sentinel_weekly_health_center_2025_40.csv",
-  "path": "raw/sentinel_weekly_health_center_2025_40.csv",
+  "path": "sentinel_weekly_health_center_2025_40.csv",
   "profile": "tokyo-idsc-raw",
   "data_type": "sentinel_weekly_health_center",
   "temporal": {
@@ -17,12 +17,18 @@
     "value": "9a03f0c2fcdbcbd96c9459307ad643a0e95504eac88c45d784c92b2722e11e2a"
   },
   "encoding": "shift_jis",
-  "created": "2025-12-17T02:57:27.644237",
-  "modified": "2025-12-17T06:02:33.311350",
+  "created": "2025-12-17T02:57:27.644237+00:00",
+  "modified": "2025-12-18T08:47:49.852032+00:00",
   "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.6393752098083496,
+    "force_overwrite": true,
+    "save_all_zero": false
+  },
   "verification": {
     "status": "verified",
-    "verified_at": "2025-12-17T06:02:33.311817",
+    "verified_at": "2025-12-18T08:47:49.852563+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -34,10 +40,5 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2, 32}"
     ]
-  },
-  "_fetch": {
-    "fetch_time_seconds": 0.5160119533538818,
-    "force_overwrite": true,
-    "save_all_zero": false
   }
 }

@@ -18,17 +18,17 @@
   },
   "encoding": "shift_jis",
   "created": "2025-12-18T08:10:06.654481+00:00",
-  "modified": "2025-12-18T08:10:06.654481+00:00",
+  "modified": "2025-12-18T08:49:21.559590+00:00",
   "sources": [],
   "_fetch": {
     "source_url": null,
-    "fetch_time_seconds": 0.9196374416351318,
-    "force_overwrite": false,
+    "fetch_time_seconds": 1.078615665435791,
+    "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2025-12-18T08:10:06.654763+00:00",
+    "verified_at": "2025-12-18T08:49:21.559905+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
