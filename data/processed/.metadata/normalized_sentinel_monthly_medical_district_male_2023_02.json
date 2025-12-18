@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_monthly_medical_district_male_2023_02",
+  "filename": "normalized_sentinel_monthly_medical_district_male_2023_02.csv",
+  "path": "processed/normalized_sentinel_monthly_medical_district_male_2023_02.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_medical_district",
+  "temporal": {
+    "year": 2023,
+    "period": 2,
+    "period_type": "monthly"
+  },
+  "bytes": 1133,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "343261b9e965b2719e474dbb9fa52e2ef1025ddb5fdcb063c4fd47520f84374b"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:33:02.090679+00:00",
+  "modified": "2025-12-18T07:33:02.090679+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_medical_district_2023_02.csv",
+      "path": "raw/sentinel_monthly_medical_district_2023_02.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_medical_district_2023_02",
+    "source_hash": "6b6b27fe4003e779a58d8b23e0a1b9a5df9769f0b6b965418f2aa762cb8a86d3",
+    "processing_time_seconds": 0.00028443336486816406,
+    "gender": "male"
+  }
+}

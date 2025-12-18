@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_gender_2005_06",
+  "filename": "normalized_sentinel_weekly_gender_2005_06.csv",
+  "path": "processed/normalized_sentinel_weekly_gender_2005_06.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_gender",
+  "temporal": {
+    "year": 2005,
+    "period": 6,
+    "period_type": "weekly"
+  },
+  "bytes": 1025,
+  "lines": 24,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "df422baf69ca9a288b6698bea5d434ff5dadf4b5f4cbb06de23fa652f93a8be3"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:33:00.246554+00:00",
+  "modified": "2025-12-18T07:33:00.246554+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_gender_2005_06.csv",
+      "path": "raw/sentinel_weekly_gender_2005_06.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_gender_2005_06",
+    "source_hash": "bea7aedc739f7432b5637503d43d0f0e7fe5465329715c05c73a683dede43e95",
+    "processing_time_seconds": 9.417533874511719e-05,
+    "gender": null
+  }
+}

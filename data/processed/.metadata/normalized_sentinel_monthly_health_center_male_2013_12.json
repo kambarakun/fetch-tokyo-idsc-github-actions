@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_monthly_health_center_male_2013_12",
+  "filename": "normalized_sentinel_monthly_health_center_male_2013_12.csv",
+  "path": "processed/normalized_sentinel_monthly_health_center_male_2013_12.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_health_center",
+  "temporal": {
+    "year": 2013,
+    "period": 12,
+    "period_type": "monthly"
+  },
+  "bytes": 2242,
+  "lines": 33,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "745cdac47a2eb0f606a6ccd9c3e6aa4a32da51713be3eed5b96c24c0213cd6d3"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:57.313720+00:00",
+  "modified": "2025-12-18T07:32:57.313720+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_health_center_2013_12.csv",
+      "path": "raw/sentinel_monthly_health_center_2013_12.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_health_center_2013_12",
+    "source_hash": "9d9e4cf6df4dc166b04ab400a21cf8a3eb65156e3b8999f70a1792be8429c3bd",
+    "processing_time_seconds": 0.000713348388671875,
+    "gender": "male"
+  }
+}

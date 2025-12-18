@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_medical_district_male_2014_04",
+  "filename": "normalized_sentinel_weekly_medical_district_male_2014_04.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_male_2014_04.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2014,
+    "period": 4,
+    "period_type": "weekly"
+  },
+  "bytes": 2437,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "92eed84d660ee163d5ece848dbc6fec8e5d6b01ad72a32cca40fbade1d4fd47d"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:56.889938+00:00",
+  "modified": "2025-12-18T07:32:56.889938+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2014_04.csv",
+      "path": "raw/sentinel_weekly_medical_district_2014_04.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2014_04",
+    "source_hash": "ab8645f8f877b4cf1170051da212f7777b4907e9f83acab9e361fe75c8a88605",
+    "processing_time_seconds": 0.0002536773681640625,
+    "gender": "male"
+  }
+}

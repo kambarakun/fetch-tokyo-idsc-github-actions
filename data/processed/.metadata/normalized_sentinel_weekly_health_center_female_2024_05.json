@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_health_center_female_2024_05",
+  "filename": "normalized_sentinel_weekly_health_center_female_2024_05.csv",
+  "path": "processed/normalized_sentinel_weekly_health_center_female_2024_05.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_health_center",
+  "temporal": {
+    "year": 2024,
+    "period": 5,
+    "period_type": "weekly"
+  },
+  "bytes": 4775,
+  "lines": 33,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "fecbe33ad8a228b1eb2a83f91e86a220f82a4e1c2a4b50e34c50f2e230f0f11a"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:58.669106+00:00",
+  "modified": "2025-12-18T07:32:58.669106+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_health_center_2024_05.csv",
+      "path": "raw/sentinel_weekly_health_center_2024_05.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_health_center_2024_05",
+    "source_hash": "cc2073ce3ae817be1ff005b05e4963ea2c5beec02a15efa6a59062e9e17dd05c",
+    "processing_time_seconds": 0.0010077953338623047,
+    "gender": "female"
+  }
+}

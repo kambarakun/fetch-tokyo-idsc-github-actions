@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_age_total_2022_44",
+  "filename": "normalized_sentinel_weekly_age_total_2022_44.csv",
+  "path": "processed/normalized_sentinel_weekly_age_total_2022_44.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_age",
+  "temporal": {
+    "year": 2022,
+    "period": 44,
+    "period_type": "weekly"
+  },
+  "bytes": 3515,
+  "lines": 22,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "a2a283ba7d1acc4a6e5500ac109cbab7019afcfbb9e8991e522991f357af0587"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:57.137491+00:00",
+  "modified": "2025-12-18T07:32:57.137491+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_age_2022_44.csv",
+      "path": "raw/sentinel_weekly_age_2022_44.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_age_2022_44",
+    "source_hash": "2de8bcd831a7ef6e5c7a6c8ceea5f13baa36b01d5586c72ec5ee4e646de903b6",
+    "processing_time_seconds": 0.0007925033569335938,
+    "gender": "total"
+  }
+}

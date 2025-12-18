@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_monthly_age_female_2003_02",
+  "filename": "normalized_sentinel_monthly_age_female_2003_02.csv",
+  "path": "processed/normalized_sentinel_monthly_age_female_2003_02.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_age",
+  "temporal": {
+    "year": 2003,
+    "period": 2,
+    "period_type": "monthly"
+  },
+  "bytes": 1131,
+  "lines": 18,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "8a4c1a2d9438ac088a66154bf2d1004c49e262a0c299da3291dcd8c244869262"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:56.338750+00:00",
+  "modified": "2025-12-18T07:32:56.338750+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_age_2003_02.csv",
+      "path": "raw/sentinel_monthly_age_2003_02.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_age_2003_02",
+    "source_hash": "ff9dacf3fc37352c62009cd9fbff4eafcc5d4b636d7176ab806a1ea8aedfd59b",
+    "processing_time_seconds": 0.0005781650543212891,
+    "gender": "female"
+  }
+}

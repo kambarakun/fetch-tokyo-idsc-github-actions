@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_monthly_gender_2020_03",
+  "filename": "normalized_sentinel_monthly_gender_2020_03.csv",
+  "path": "processed/normalized_sentinel_monthly_gender_2020_03.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_gender",
+  "temporal": {
+    "year": 2020,
+    "period": 3,
+    "period_type": "monthly"
+  },
+  "bytes": 525,
+  "lines": 10,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "a444701a7c607115d08fba70de5c8d2ba64b8732213d42ab0bab04b37f2c520b"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:33:02.073753+00:00",
+  "modified": "2025-12-18T07:33:02.073753+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_gender_2020_03.csv",
+      "path": "raw/sentinel_monthly_gender_2020_03.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_gender_2020_03",
+    "source_hash": "e3b8fb9ff437b59cdfc19e0166ea03fa763d11f7df3bd534f1237584dddd02b7",
+    "processing_time_seconds": 8.130073547363281e-05,
+    "gender": null
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_monthly_age_total_2017_07",
+  "filename": "normalized_sentinel_monthly_age_total_2017_07.csv",
+  "path": "processed/normalized_sentinel_monthly_age_total_2017_07.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_age",
+  "temporal": {
+    "year": 2017,
+    "period": 7,
+    "period_type": "monthly"
+  },
+  "bytes": 1155,
+  "lines": 18,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "94196af7b581bc8c73440110a3a4db336639bd93b98cce19eef8fb0ef4318d71"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:57.096484+00:00",
+  "modified": "2025-12-18T07:32:57.096484+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_age_2017_07.csv",
+      "path": "raw/sentinel_monthly_age_2017_07.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_age_2017_07",
+    "source_hash": "6abbbaed6025dad913be6692086811ab36d2843ba96591ad0894b07892125f57",
+    "processing_time_seconds": 0.0005707740783691406,
+    "gender": "total"
+  }
+}

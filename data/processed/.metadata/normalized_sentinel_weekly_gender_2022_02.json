@@ -1,0 +1,34 @@
+{
+  "metadata_version": "1.1.0",
+  "name": "normalized_sentinel_weekly_gender_2022_02",
+  "filename": "normalized_sentinel_weekly_gender_2022_02.csv",
+  "path": "processed/normalized_sentinel_weekly_gender_2022_02.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_gender",
+  "temporal": {
+    "year": 2022,
+    "period": 2,
+    "period_type": "weekly"
+  },
+  "bytes": 967,
+  "lines": 22,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "9ff96492d3a1ec74dc674a4688df96f31d47d16a3831d76f139740c9901d211b"
+  },
+  "encoding": "utf-8",
+  "created": "2025-12-18T07:32:59.569942+00:00",
+  "modified": "2025-12-18T07:32:59.569942+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_gender_2022_02.csv",
+      "path": "raw/sentinel_weekly_gender_2022_02.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_gender_2022_02",
+    "source_hash": "6a9a68b6a0c66dee470adca9d789f5d98700f587ef0358b015ec504bba690089",
+    "processing_time_seconds": 7.510185241699219e-05,
+    "gender": null
+  }
+}
