@@ -1,20 +1,25 @@
 {
+  "metadata_version": "1.1.0",
+  "name": "sentinel_monthly_health_center_2010_04",
   "filename": "sentinel_monthly_health_center_2010_04.csv",
+  "path": "raw/sentinel_monthly_health_center_2010_04.csv",
+  "profile": "tokyo-idsc-raw",
   "data_type": "sentinel_monthly_health_center",
-  "year": 2010,
-  "period": 4,
-  "period_type": "monthly",
-  "file_size": 6177,
-  "sha256_hash": "88650aa0ca799c0794be48b8e9bf40405eb842e3e7ccf7f5f398740ec5fa09ff",
+  "temporal": {
+    "year": 2010,
+    "period": 4,
+    "period_type": "monthly"
+  },
+  "bytes": 6177,
+  "lines": 123,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "88650aa0ca799c0794be48b8e9bf40405eb842e3e7ccf7f5f398740ec5fa09ff"
+  },
   "encoding": "shift_jis",
-  "file_path": "sentinel_monthly_health_center_2010_04.csv",
-  "fetch_time": 0.4994659423828125,
-  "metadata_version": "1.0",
-  "created_at": "2025-11-01T17:58:04.613163",
-  "updated_at": "2025-11-01T17:58:04.613163",
-  "line_count": 123,
-  "checksum_algorithm": "sha256",
-  "source_url": null,
+  "created": "2025-11-01T17:58:04.613163",
+  "modified": "2025-11-01T17:58:04.613163",
+  "sources": [],
   "verification": {
     "status": "verified",
     "verified_at": "2025-12-17T09:53:50.306549",
@@ -29,5 +34,10 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2, 12}"
     ]
+  },
+  "_fetch": {
+    "fetch_time_seconds": 0.4994659423828125,
+    "force_overwrite": false,
+    "save_all_zero": false
   }
 }
