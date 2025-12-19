@@ -261,32 +261,50 @@ class GenderSumValidator:
         if not all([male_start, female_start, total_start]):
             return {"male": [], "female": [], "total": []}
 
-        # データ行を抽出 (ヘッダーは2行後、データは3行後から)
-        # 次のセクションまでのデータを取得
-        male_data_start = male_start + 2
-        female_data_start = female_start + 2
-        total_data_start = total_start + 2
-
-        # データ行数を推定 (次のセクション開始位置から逆算)
-        data_row_count = female_start - male_data_start - 1
-
-        male_rows = [
-            row
-            for row in rows[male_data_start : male_data_start + data_row_count]
-            if row and row[0] and row[0] not in ["", "性別"]
-        ]
-        female_rows = [
-            row
-            for row in rows[female_data_start : female_data_start + data_row_count]
-            if row and row[0] and row[0] not in ["", "性別"]
-        ]
-        total_rows = [
-            row
-            for row in rows[total_data_start : total_data_start + data_row_count]
-            if row and row[0] and row[0] not in ["", "性別", "集計期間終了週"]
-        ]
+        # 各セクションのデータ行を個別に抽出
+        # 各セクションは構造が異なる可能性があるため、次のセクション開始位置まで個別に検出
+        male_rows = self._extract_section_data(rows, male_start, female_start)
+        female_rows = self._extract_section_data(rows, female_start, total_start)
+        total_rows = self._extract_section_data(rows, total_start, None)
 
         return {"male": male_rows, "female": female_rows, "total": total_rows}
+
+    def _extract_section_data(
+        self, rows: list[list[str]], section_start: int, next_section_start: int | None
+    ) -> list[list[str]]:
+        """Extract data rows from a specific gender section.
+
+        This method extracts data rows from a section, automatically detecting
+        the section's end and filtering out metadata/footer rows.
+
+        Args:
+            rows: All CSV rows
+            section_start: Starting line index of the section (性別 header line)
+            next_section_start: Starting line index of next section, or None for last section
+
+        Returns:
+            List of data rows (excluding headers, footers, and metadata)
+        """
+        # データ開始位置 (セクションヘッダーの2行後から)
+        data_start = section_start + 2
+
+        # データ終了位置 (次のセクションの直前、または次のセクションがない場合はファイル終端)
+        data_end = next_section_start - 1 if next_section_start is not None else len(rows)
+
+        # フッター/メタデータ行を除外してデータ行のみ抽出
+        # 除外対象:
+        # - 空行 (row が空または row[0] が空)
+        # - "性別" で始まる行 (セクションヘッダー)
+        # - "集計期間開始週"、"集計期間終了週" (フッター行)
+        # - "*" で始まる行 (注釈行)
+        # - "定点報告疾患", "東京都", "定点数" などのフッター行
+        excluded_prefixes = ["性別", "集計期間開始週", "集計期間終了週", "*", "定点報告疾患", "東京都", "定点数"]
+
+        return [
+            row
+            for row in rows[data_start:data_end]
+            if row and row[0] and row[0] != "" and not any(row[0].startswith(prefix) for prefix in excluded_prefixes)
+        ]
 
     def _get_header(self, source_path: Path, section: str = "total") -> list[str]:
         """Get header row from specified section.
