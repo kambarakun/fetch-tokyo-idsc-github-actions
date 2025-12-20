@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from scripts.migrate_metadata_v1_2_0 import migrate_all, migrate_metadata_file, parse_version
+from scripts.migrate_metadata_v1_2_0 import migrate_all, migrate_metadata_file
+from src.utils.version import parse_version
 
 
 class TestParseVersion:

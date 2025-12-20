@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.managers.storage_manager import METADATA_VERSION  # noqa: E402
+from src.utils.version import parse_version  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -207,16 +208,15 @@ class MigrationRegistry:
         if v2 is None:
             return 1
 
-        # セマンティックバージョニング比較
-        def parse_version(v: str) -> tuple[int, ...]:
-            try:
-                return tuple(int(x) for x in v.split("."))
-            except ValueError as e:
-                msg = f"Invalid version format: '{v}'. Expected format: '1.0' or '1.2.3'"
-                raise ValueError(msg) from e
+        # セマンティックバージョニング比較 (共通ユーティリティを使用)
+        try:
+            v1_tuple = parse_version(v1)
+            v2_tuple = parse_version(v2)
+        except ValueError as e:
+            # parse_versionのエラーメッセージを明確化
+            msg = f"Invalid version format: '{v1}' or '{v2}'. Expected format: '1.0' or '1.2.3'"
+            raise ValueError(msg) from e
 
-        v1_tuple = parse_version(v1)
-        v2_tuple = parse_version(v2)
         if v1_tuple < v2_tuple:
             return -1
         if v1_tuple > v2_tuple:

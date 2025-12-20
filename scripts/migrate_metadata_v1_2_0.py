@@ -15,34 +15,14 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
+from src.utils.version import parse_version
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
-
-
-def parse_version(version_string: str) -> tuple[int, ...]:
-    """Parse semantic version string to tuple for comparison.
-
-    This function converts version strings like "1.2.0" to tuples like (1, 2, 0)
-    for correct version comparison. String comparison fails for versions like
-    "1.10.0" >= "1.2.0" (returns False incorrectly).
-
-    Args:
-        version_string: Semantic version string (e.g., "1.2.0")
-
-    Returns:
-        Tuple of integers for comparison (e.g., (1, 2, 0))
-
-    Raises:
-        ValueError: If version string cannot be parsed
-    """
-    try:
-        return tuple(int(part) for part in version_string.split("."))
-    except (ValueError, AttributeError) as e:
-        raise ValueError(f"Invalid version string: {version_string}") from e
 
 
 def migrate_metadata_file(metadata_path: Path, dry_run: bool = False, backup: bool = True) -> bool:

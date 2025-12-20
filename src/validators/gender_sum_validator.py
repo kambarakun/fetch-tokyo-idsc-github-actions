@@ -19,6 +19,15 @@ class GenderSumValidator:
     # Maximum cache size to prevent memory issues in long-running processes
     _MAX_CACHE_SIZE = 100
 
+    # Subprocess timeout for iconv conversion (seconds)
+    _CONVERSION_TIMEOUT = 30
+
+    # Floating point comparison tolerance for validation
+    _TOLERANCE = 0.01
+
+    # Maximum number of error samples to include in validation report
+    _MAX_ERROR_SAMPLES = 10
+
     # Applicable data types for gender sum validation
     # These data types have gender-disaggregated data (male, female, total sections)
     # and require validation of male + female = total consistency
@@ -144,8 +153,8 @@ class GenderSumValidator:
 
                     expected = male_val + female_val
 
-                    # 許容誤差 0.01 で検証
-                    if abs(expected - total_val) > 0.01:
+                    # 許容誤差で検証
+                    if abs(expected - total_val) > self._TOLERANCE:
                         # エラーを記録 (行ごとに最初の不一致のみ)
                         if not any(e["location"] == location for e in errors):
                             # ヘッダーからカラム名を取得
@@ -214,13 +223,14 @@ class GenderSumValidator:
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=30,  # 30 seconds should be sufficient for CSV files
+                timeout=self._CONVERSION_TIMEOUT,
                 shell=False,  # Explicit security best practice
             )
         except subprocess.TimeoutExpired:
             logger.error(
-                "Timeout while converting %s from Shift_JIS to UTF-8 (exceeded 30 seconds)",
+                "Timeout while converting %s from Shift_JIS to UTF-8 (exceeded %d seconds)",
                 source_path.name,
+                self._CONVERSION_TIMEOUT,
             )
             self._cache_put(source_path, None)
             return None
@@ -406,10 +416,9 @@ class GenderSumValidator:
                 },
             }
         # v1.2.0: 問題ありの場合
-        # 最大10件までのサンプルを含め、超過した場合はtruncatedフラグを立てる
-        max_samples = 10
-        affected_locations = errors[:max_samples]
-        truncated = len(errors) > max_samples
+        # 最大サンプル数までのエラーを含め、超過した場合はtruncatedフラグを立てる
+        affected_locations = errors[: self._MAX_ERROR_SAMPLES]
+        truncated = len(errors) > self._MAX_ERROR_SAMPLES
 
         return {
             "check_type": "gender_sum_consistency",
