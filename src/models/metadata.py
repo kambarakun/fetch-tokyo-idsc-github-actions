@@ -11,7 +11,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypedDict, cast
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,33 @@ METADATA_VERSION = "1.2.0"
 # プロファイル定義
 PROFILE_RAW = "tokyo-idsc-raw"
 PROFILE_PROCESSED = "tokyo-idsc-processed"
+
+
+# v1.2.0: データ品質検証結果の型定義
+class QualityIssueDetails(TypedDict, total=False):
+    """品質検証問題の詳細情報."""
+
+    source_file: str
+    affected_count: int
+    truncated: bool
+    affected_locations: list[dict[str, Any]]
+
+
+class QualityIssue(TypedDict):
+    """品質検証の個別問題."""
+
+    check_type: str
+    validation_status: Literal["completed", "skipped", "failed"]
+    message: str
+    details: QualityIssueDetails
+
+
+class QualityInfo(TypedDict):
+    """データ品質検証結果 (v1.2.0)."""
+
+    validation_timestamp: str  # ISO 8601 format
+    validation_status: Literal["completed", "skipped", "failed"]
+    issues: list[QualityIssue]
 
 
 @dataclass
@@ -221,7 +248,7 @@ class Metadata:
     lines: int | None = None
     sources: list[dict[str, str]] = field(default_factory=list)
     verification: Verification | None = None
-    quality: dict[str, Any] | None = None  # v1.2.0: データ品質検証結果
+    quality: QualityInfo | None = None  # v1.2.0: データ品質検証結果
 
     # プライベートプロパティ (プロファイルに応じて使用)
     _fetch: FetchInfo | None = None
@@ -539,7 +566,7 @@ class Metadata:
         processing_time: float = 0.0,
         gender: Literal["male", "female", "total"] | None = None,
         verification: Verification | None = None,
-        quality: dict[str, Any] | None = None,
+        quality: QualityInfo | None = None,
     ) -> Metadata:
         """processedメタデータを作成するファクトリメソッド
 

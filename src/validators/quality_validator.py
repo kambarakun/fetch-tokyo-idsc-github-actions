@@ -42,19 +42,19 @@ class QualityValidator:
         # Run gender sum validation for applicable data types
         gender_result = self.gender_sum_validator.validate(source_filename, data_type)
         if gender_result:
-            # Only add to issues if there are actual problems (completed with errors or skipped)
-            # For v1.2.0: issues array should only contain entries when validation_status is
-            # "completed" with affected_count > 0, or when we want to record validation status
-            # explicitly (like "skipped")
-            #
-            # However, based on the schema design review, we should ALWAYS record the validation
-            # result to distinguish "validated and clean" from "not validated"
-            if gender_result["validation_status"] == "completed" and gender_result["details"]["affected_count"] > 0:
+            # Add to issues based on validation status:
+            # - "completed" with errors: data has issues, user should know
+            # - "failed": validation process failed, user should know
+            # - "skipped": validation not applicable, no need to notify
+            if gender_result["validation_status"] == "completed":
+                if gender_result["details"]["affected_count"] > 0:
+                    issues.append(gender_result)
+                # If completed with 0 errors, don't add to issues (clean data)
+            elif gender_result["validation_status"] == "failed":
+                # Validation process failed (e.g., file read error, parsing error)
+                # User should be notified about this
                 issues.append(gender_result)
-            elif gender_result["validation_status"] == "skipped":
-                # For skipped validations, we may want to include them or not
-                # Based on schema discussion: empty issues = clean data, so we don't add skipped
-                pass
+            # "skipped" status: validation not applicable, don't add to issues
 
         # Build quality metadata according to v1.2.0 schema
         return {

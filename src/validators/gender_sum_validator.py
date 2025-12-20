@@ -215,6 +215,7 @@ class GenderSumValidator:
                 text=True,
                 check=False,
                 timeout=30,  # 30 seconds should be sufficient for CSV files
+                shell=False,  # Explicit security best practice
             )
         except subprocess.TimeoutExpired:
             logger.error(
