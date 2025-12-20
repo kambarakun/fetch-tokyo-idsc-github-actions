@@ -141,7 +141,8 @@ class GenderSumValidator:
                                 {
                                     "location": location,
                                     "column": col_name,
-                                    "row_index": i + 3,  # ヘッダー2行 + データ開始1行の分を調整
+                                    # セクション開始行(性別ヘッダー)からのオフセット: 性別行(0) + 空行(1) + カラムヘッダー(2) + データ行i(i) → i+3
+                                    "row_index": i + 3,
                                     "male": int(male_val),
                                     "female": int(female_val),
                                     "total": int(total_val),
@@ -309,6 +310,9 @@ class GenderSumValidator:
     def _get_header(self, source_path: Path, section: str = "total") -> list[str]:
         """Get header row from specified section.
 
+        This method uses CSV-parsed data instead of string matching to avoid
+        dependencies on CSV quoting format and encoding details.
+
         Args:
             source_path: Path to source CSV file
             section: Section to get header from ('male', 'female', or 'total')
@@ -321,18 +325,23 @@ class GenderSumValidator:
             return []
 
         lines = content.split("\n")
+        reader = csv.reader(lines)
+        rows = list(reader)
 
-        # セクションの開始位置を見つける
+        # セクションの開始位置を見つける (CSV構造化データを使用)
         section_map = {"male": "男性", "female": "女性", "total": "男女合計"}
         target_section = section_map.get(section, "男女合計")
 
-        for i, line in enumerate(lines):
-            if f'性別","{target_section}"' in line:
-                # 次の非空行がヘッダー
-                for j in range(i + 1, min(i + 5, len(lines))):
-                    if lines[j].strip() and lines[j].startswith('"",'):
-                        reader = csv.reader([lines[j]])
-                        return next(reader)
+        for i, row in enumerate(rows):
+            # CSVパース済みのデータで判定 (クォート形式に非依存)
+            if len(row) >= 2 and row[0] == "性別" and row[1] == target_section:
+                # 次の非空行がヘッダーを探す
+                # 最大10行先まで検索: 注釈行(*で始まる)や空行が複数ある場合に対応
+                # ageファイルでは注釈が3行+空行2行=5行あるため、余裕を持って10行検索
+                for j in range(i + 1, min(i + 10, len(rows))):
+                    # ヘッダー行は最初のセルが空文字列
+                    if rows[j] and len(rows[j]) > 0 and rows[j][0] == "":
+                        return rows[j]
 
         return []
 
