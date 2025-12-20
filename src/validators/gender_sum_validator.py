@@ -19,6 +19,20 @@ class GenderSumValidator:
     # Maximum cache size to prevent memory issues in long-running processes
     _MAX_CACHE_SIZE = 100
 
+    # Applicable data types for gender sum validation
+    # These data types have gender-disaggregated data (male, female, total sections)
+    # and require validation of male + female = total consistency
+    _APPLICABLE_DATA_TYPES = frozenset(
+        {
+            "sentinel_weekly_medical_district",
+            "sentinel_weekly_health_center",
+            "sentinel_weekly_age",
+            "sentinel_daily_medical_district",
+            "sentinel_daily_health_center",
+            "sentinel_daily_age",
+        }
+    )
+
     def __init__(self, raw_data_dir: Path):
         """Initialize validator.
 
@@ -45,9 +59,10 @@ class GenderSumValidator:
         if not source_path.exists():
             return None
 
-        # データタイプによって検証適用可否を判断
+        # データタイプによって検証適用可否を厳密に判断
+        # 定義されたセットに含まれるデータタイプのみを検証対象とする
         # gender データなど、性別分割されていないデータは検証不要
-        if "medical_district" in data_type or "health_center" in data_type or "age" in data_type:
+        if data_type in self._APPLICABLE_DATA_TYPES:
             return self._validate_gender_sum(source_path, source_filename)
 
         return None

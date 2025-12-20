@@ -80,6 +80,33 @@ class TestGenderSumValidatorIntegration:
         )
         assert result is None
 
+    def test_data_type_filtering_strict_matching(self) -> None:
+        """Test that data type filtering uses strict matching, not substring matching.
+
+        This test ensures that the validator only processes exact data types
+        defined in _APPLICABLE_DATA_TYPES, and rejects similar but different
+        data types like "sentinel_weekly_age_group_v2".
+
+        This addresses CodeRabbit's concern about ambiguous data type matching.
+        """
+        # Test that exact matches in the set are processed (even if file doesn't exist)
+        # validate() returns None for missing files, so we can't distinguish
+        # But we can verify the set membership logic directly
+        # Verify the set contains expected types
+        assert "sentinel_weekly_age" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_weekly_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_weekly_health_center" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_daily_age" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_daily_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_daily_health_center" in GenderSumValidator._APPLICABLE_DATA_TYPES
+
+        # Verify similar but different types are NOT in the set
+        assert "sentinel_weekly_age_group" not in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_weekly_age_v2" not in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "age" not in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "medical_district_summary" not in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_weekly_gender" not in GenderSumValidator._APPLICABLE_DATA_TYPES
+
 
 class TestQualityValidatorIntegration:
     """Integration tests for QualityValidator."""
