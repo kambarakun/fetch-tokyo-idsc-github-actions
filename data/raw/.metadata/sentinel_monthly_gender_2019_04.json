@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "sentinel_monthly_gender_2019_04",
   "filename": "sentinel_monthly_gender_2019_04.csv",
   "path": "raw/sentinel_monthly_gender_2019_04.csv",
@@ -39,5 +39,10 @@
     "fetch_time_seconds": 0.6447150707244873,
     "force_overwrite": false,
     "save_all_zero": false
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:51.485813+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }

@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "sentinel_weekly_age_2015_03",
   "filename": "sentinel_weekly_age_2015_03.csv",
   "path": "raw/sentinel_weekly_age_2015_03.csv",
@@ -39,5 +39,10 @@
     "fetch_time_seconds": 0.525402307510376,
     "force_overwrite": false,
     "save_all_zero": false
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:52.062123+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }

@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "sentinel_weekly_medical_district_2025_27",
   "filename": "sentinel_weekly_medical_district_2025_27.csv",
   "path": "sentinel_weekly_medical_district_2025_27.csv",
@@ -40,5 +40,10 @@
     "warnings": [
       "[csv_format] Inconsistent column count: {0, 1, 2, 32}"
     ]
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:53.786214+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }

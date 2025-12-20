@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "sentinel_weekly_gender_2001_13",
   "filename": "sentinel_weekly_gender_2001_13.csv",
   "path": "raw/sentinel_weekly_gender_2001_13.csv",
@@ -39,5 +39,10 @@
     "fetch_time_seconds": 0.3602023124694824,
     "force_overwrite": false,
     "save_all_zero": false
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:52.295799+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }

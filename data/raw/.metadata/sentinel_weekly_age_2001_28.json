@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "sentinel_weekly_age_2001_28",
   "filename": "sentinel_weekly_age_2001_28.csv",
   "path": "raw/sentinel_weekly_age_2001_28.csv",
@@ -39,5 +39,10 @@
     "fetch_time_seconds": 0.6445779800415039,
     "force_overwrite": false,
     "save_all_zero": false
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:51.787694+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }
