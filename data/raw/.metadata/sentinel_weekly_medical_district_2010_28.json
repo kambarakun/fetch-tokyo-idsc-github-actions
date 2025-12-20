@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "sentinel_weekly_medical_district_2010_28",
   "filename": "sentinel_weekly_medical_district_2010_28.csv",
   "path": "raw/sentinel_weekly_medical_district_2010_28.csv",
@@ -39,5 +39,10 @@
     "fetch_time_seconds": 1.8978843688964844,
     "force_overwrite": false,
     "save_all_zero": false
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:53.491866+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }

@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "notifiable_weekly_2006_38",
   "filename": "notifiable_weekly_2006_38.csv",
   "path": "raw/notifiable_weekly_2006_38.csv",
@@ -39,5 +39,10 @@
     "fetch_time_seconds": 0.34499478340148926,
     "force_overwrite": false,
     "save_all_zero": false
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:50.889018+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }

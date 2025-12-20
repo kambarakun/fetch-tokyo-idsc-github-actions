@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.2.0",
   "name": "sentinel_monthly_age_2019_11",
   "filename": "sentinel_monthly_age_2019_11.csv",
   "path": "raw/sentinel_monthly_age_2019_11.csv",
@@ -39,5 +39,10 @@
     "fetch_time_seconds": 0.35550856590270996,
     "force_overwrite": false,
     "save_all_zero": false
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-20T18:25:51.363927+00:00",
+    "validation_status": "skipped",
+    "issues": []
   }
 }
