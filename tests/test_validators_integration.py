@@ -89,9 +89,8 @@ class TestGenderSumValidatorIntegration:
 
         This addresses CodeRabbit's concern about ambiguous data type matching.
         """
-        # Test that exact matches in the set are processed (even if file doesn't exist)
-        # validate() returns None for missing files, so we can't distinguish
-        # But we can verify the set membership logic directly
+        # Test data type filtering by verifying set membership directly
+        # This ensures only exact matches are in _APPLICABLE_DATA_TYPES
         # Verify the set contains expected types
         assert "sentinel_weekly_age" in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "sentinel_weekly_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES

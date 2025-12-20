@@ -23,6 +23,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def parse_version(version_string: str) -> tuple[int, ...]:
+    """Parse semantic version string to tuple for comparison.
+
+    This function converts version strings like "1.2.0" to tuples like (1, 2, 0)
+    for correct version comparison. String comparison fails for versions like
+    "1.10.0" >= "1.2.0" (returns False incorrectly).
+
+    Args:
+        version_string: Semantic version string (e.g., "1.2.0")
+
+    Returns:
+        Tuple of integers for comparison (e.g., (1, 2, 0))
+
+    Raises:
+        ValueError: If version string cannot be parsed
+    """
+    try:
+        return tuple(int(part) for part in version_string.split("."))
+    except (ValueError, AttributeError) as e:
+        raise ValueError(f"Invalid version string: {version_string}") from e
+
+
 def migrate_metadata_file(metadata_path: Path, dry_run: bool = False, backup: bool = True) -> bool:
     """Migrate a single metadata file from v1.1.0 to v1.2.0.
 
@@ -42,9 +64,15 @@ def migrate_metadata_file(metadata_path: Path, dry_run: bool = False, backup: bo
         current_version = metadata.get("metadata_version", "unknown")
 
         # Skip if already v1.2.0 or higher
-        if current_version >= "1.2.0":
-            logger.debug(f"Skipping {metadata_path.name}: already at {current_version}")
-            return True
+        # Use tuple comparison to avoid issues like "1.10.0" >= "1.2.0" returning False
+        try:
+            if parse_version(current_version) >= parse_version("1.2.0"):
+                logger.debug(f"Skipping {metadata_path.name}: already at {current_version}")
+                return True
+        except ValueError:
+            # If version cannot be parsed, it's not a valid semantic version
+            logger.warning(f"Invalid version format {current_version} in {metadata_path.name}, skipping")
+            return False
 
         # Only migrate from v1.1.0
         if current_version != "1.1.0":
@@ -116,9 +144,14 @@ def migrate_all(metadata_dir: Path, dry_run: bool = False, backup: bool = True) 
                 metadata = json.load(f)
             version = metadata.get("metadata_version", "unknown")
 
-            if version >= "1.2.0":
-                skipped += 1
-                continue
+            # Use tuple comparison to avoid issues like "1.10.0" >= "1.2.0" returning False
+            try:
+                if parse_version(version) >= parse_version("1.2.0"):
+                    skipped += 1
+                    continue
+            except ValueError:
+                # Invalid version format will be handled by migrate_metadata_file
+                pass
 
             if migrate_metadata_file(metadata_file, dry_run=dry_run, backup=backup):
                 migrated += 1

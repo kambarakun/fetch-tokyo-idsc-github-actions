@@ -206,12 +206,23 @@ class GenderSumValidator:
             return self._file_cache[source_path]
 
         # Perform conversion
-        result = subprocess.run(
-            ["iconv", "-f", "SHIFT_JIS", "-t", "UTF-8", str(source_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # Use "--" to prevent filenames starting with "-" from being interpreted as options
+        # Add timeout to prevent hanging on large files or system issues
+        try:
+            result = subprocess.run(
+                ["iconv", "-f", "SHIFT_JIS", "-t", "UTF-8", "--", str(source_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,  # 30 seconds should be sufficient for CSV files
+            )
+        except subprocess.TimeoutExpired:
+            logger.error(
+                "Timeout while converting %s from Shift_JIS to UTF-8 (exceeded 30 seconds)",
+                source_path.name,
+            )
+            self._cache_put(source_path, None)
+            return None
 
         # Log conversion errors for debugging
         if result.returncode != 0:
