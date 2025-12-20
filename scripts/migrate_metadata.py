@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.managers.storage_manager import METADATA_VERSION  # noqa: E402
+from src.utils.version import parse_version  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -207,16 +208,15 @@ class MigrationRegistry:
         if v2 is None:
             return 1
 
-        # セマンティックバージョニング比較
-        def parse_version(v: str) -> tuple[int, ...]:
-            try:
-                return tuple(int(x) for x in v.split("."))
-            except ValueError as e:
-                msg = f"Invalid version format: '{v}'. Expected format: '1.0' or '1.2.3'"
-                raise ValueError(msg) from e
+        # セマンティックバージョニング比較 (共通ユーティリティを使用)
+        try:
+            v1_tuple = parse_version(v1)
+            v2_tuple = parse_version(v2)
+        except ValueError as e:
+            # parse_versionのエラーメッセージを明確化
+            msg = f"Invalid version format: '{v1}' or '{v2}'. Expected format: '1.0' or '1.2.3'"
+            raise ValueError(msg) from e
 
-        v1_tuple = parse_version(v1)
-        v2_tuple = parse_version(v2)
         if v1_tuple < v2_tuple:
             return -1
         if v1_tuple > v2_tuple:
@@ -351,7 +351,7 @@ def migrate_none_to_v1_0(metadata: dict, data_file: Path | None) -> tuple[dict, 
 
 
 @migration_registry.register(from_version="1.0", to_version="1.1.0")
-def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:  # noqa: PLR0915
     """v1.0 から v1.1.0 へのマイグレーション.
 
     変換内容:
@@ -576,6 +576,48 @@ V1_1_REQUIRED_FIELDS = {
     "modified",
 }
 
+# v1.2 で必須となるフィールド (v1.1と同じ、qualityは任意)
+V1_2_REQUIRED_FIELDS = V1_1_REQUIRED_FIELDS.copy()
+
+
+@migration_registry.register(from_version="1.1.0", to_version="1.2.0")
+def migrate_v1_1_0_to_v1_2_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+    """v1.1.0 から v1.2.0 へのマイグレーション.
+
+    変換内容:
+    - metadata_version: "1.1.0" -> "1.2.0"
+    - quality: 新規追加 (既存データでは検証スキップ)
+
+    Args:
+        metadata: マイグレーション対象のメタデータ辞書
+        data_file: 対応するCSVファイルのパス (未使用)
+
+    Returns:
+        (マイグレーション後のメタデータ, 変更リスト)
+    """
+    from datetime import UTC, datetime
+
+    migrated = metadata.copy()
+    changes = []
+
+    # バージョン更新
+    if migrated.get("metadata_version") != "1.2.0":
+        migrated["metadata_version"] = "1.2.0"
+        changes.append("metadata_version: 1.1.0 -> 1.2.0")
+
+    # quality フィールドの追加
+    # 既存データは実際の検証を行わず、skippedとして記録
+    if "quality" not in migrated:
+        validation_timestamp = datetime.now(UTC).isoformat()
+        migrated["quality"] = {
+            "validation_timestamp": validation_timestamp,
+            "validation_status": "skipped",
+            "issues": [],
+        }
+        changes.append("quality: added (validation_status=skipped)")
+
+    return migrated, changes
+
 
 def needs_migration(metadata: dict, target_version: str = METADATA_VERSION) -> bool:
     """メタデータがマイグレーションを必要とするかチェックする.
@@ -601,6 +643,11 @@ def needs_migration(metadata: dict, target_version: str = METADATA_VERSION) -> b
     # v1.1.x 形式のチェック
     if target_version.startswith("1.1"):
         missing = V1_1_REQUIRED_FIELDS - set(metadata.keys())
+        return len(missing) > 0
+
+    # v1.2.x 形式のチェック
+    if target_version.startswith("1.2"):
+        missing = V1_2_REQUIRED_FIELDS - set(metadata.keys())
         return len(missing) > 0
 
     return False

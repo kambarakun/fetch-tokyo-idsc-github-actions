@@ -333,10 +333,10 @@ class TestStorageManager(unittest.TestCase):
         metadata_file = self.storage.metadata_dir / "test_type_2025_01.json"
         self.assertTrue(metadata_file.exists())
         metadata = json.loads(metadata_file.read_text())
-        # v1.1形式: force_overwriteは_fetch内にネストされる
+        # v1.1+形式: force_overwriteは_fetch内にネストされる
         self.assertEqual(metadata["_fetch"]["force_overwrite"], True)
         # メタデータバージョンを確認
-        self.assertEqual(metadata["metadata_version"], "1.1.0")
+        self.assertEqual(metadata["metadata_version"], "1.2.0")
 
     def test_force_overwrite_updates_hash_index(self):
         """force_overwriteでハッシュインデックスが更新されることのテスト"""
@@ -1032,8 +1032,8 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertTrue(result.success)
         metadata = self.storage.get_metadata(result.file_path)
         self.assertIsNotNone(metadata)
-        # v1.1.0形式
-        self.assertEqual(metadata.get("metadata_version"), "1.1.0")
+        # v1.2.0形式
+        self.assertEqual(metadata.get("metadata_version"), "1.2.0")
 
     def test_created_at_and_updated_at_set_on_new_file(self):
         """新規ファイル作成時にcreated_atとupdated_atが設定されることを確認"""
@@ -1376,9 +1376,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         try:
             result = self.storage._check_path_safety_validation(symlink_path)
             self.assertFalse(result["valid"])
-            self.assertTrue(
-                any("Symbolic links not allowed" in err for err in result["errors"])
-            )
+            self.assertTrue(any("Symbolic links not allowed" in err for err in result["errors"]))
         finally:
             symlink_path.unlink()
             target_file.unlink()
@@ -1391,9 +1389,7 @@ class TestMetadataEnhancements(unittest.TestCase):
 
             result = self.storage._check_path_safety_validation(outside_path)
             self.assertFalse(result["valid"])
-            self.assertTrue(
-                any("Path traversal detected" in err for err in result["errors"])
-            )
+            self.assertTrue(any("Path traversal detected" in err for err in result["errors"]))
 
     def test_path_safety_validation_dangerous_pattern_detection(self):
         """危険なパターンが検出されることを確認"""
@@ -1401,9 +1397,7 @@ class TestMetadataEnhancements(unittest.TestCase):
 
         result = self.storage._check_path_safety_validation(dangerous_path)
         self.assertFalse(result["valid"])
-        self.assertTrue(
-            any("Dangerous pattern" in err for err in result["errors"])
-        )
+        self.assertTrue(any("Dangerous pattern" in err for err in result["errors"]))
 
     def test_save_aborted_on_path_safety_failure(self):
         """パス安全性チェック失敗時に保存が中断されることを確認"""
@@ -1414,13 +1408,8 @@ class TestMetadataEnhancements(unittest.TestCase):
         data = csv_data.encode("shift_jis")
 
         # パス安全性チェックが失敗するようにモック
-        with patch.object(
-            self.storage, "_check_path_safety_validation"
-        ) as mock_check:
-            mock_check.return_value = {
-                "valid": False,
-                "errors": ["[path_safety] Path traversal detected: test"]
-            }
+        with patch.object(self.storage, "_check_path_safety_validation") as mock_check:
+            mock_check.return_value = {"valid": False, "errors": ["[path_safety] Path traversal detected: test"]}
 
             result = self.storage.save_with_metadata(
                 data=data,
@@ -1450,9 +1439,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         # 無効なエンコーディングで検証が失敗することを確認
         self.assertFalse(result["valid"])
         self.assertTrue(len(result["errors"]) > 0)
-        self.assertTrue(
-            any("encoding" in err.lower() for err in result["errors"])
-        )
+        self.assertTrue(any("encoding" in err.lower() for err in result["errors"]))
 
     def test_csv_format_validation_with_inconsistent_columns(self):
         """_check_csv_format_validationが不整合なカラム数を検出することを確認"""
