@@ -108,8 +108,8 @@ def migrate_metadata_file(metadata_path: Path, dry_run: bool = False, backup: bo
         logger.info(f"Migrated: {metadata_path.name}")
         return True
 
-    except (OSError, json.JSONDecodeError) as e:
-        logger.error(f"Failed to migrate {metadata_path.name}: {e}")
+    except (OSError, json.JSONDecodeError):
+        logger.exception(f"Failed to migrate {metadata_path.name}")
         return False
 
 
@@ -158,8 +158,8 @@ def migrate_all(metadata_dir: Path, dry_run: bool = False, backup: bool = True) 
             else:
                 failed += 1
 
-        except (OSError, json.JSONDecodeError) as e:
-            logger.error(f"Error processing {metadata_file.name}: {e}")
+        except (OSError, json.JSONDecodeError):
+            logger.exception(f"Error processing {metadata_file.name}")
             failed += 1
 
     logger.info(f"Migration complete: {migrated} migrated, {skipped} skipped, {failed} failed")

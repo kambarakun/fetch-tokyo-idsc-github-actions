@@ -198,6 +198,7 @@ class Metadata:
         modified: 更新日時 (ISO 8601)
         sources: データソース情報
         verification: 検証情報
+        quality: データ品質検証結果 (v1.2.0+)
         _fetch: フェッチ情報 (raw用)
         _process: 処理情報 (processed用)
     """
@@ -220,6 +221,7 @@ class Metadata:
     lines: int | None = None
     sources: list[dict[str, str]] = field(default_factory=list)
     verification: Verification | None = None
+    quality: dict[str, Any] | None = None  # v1.2.0: データ品質検証結果
 
     # プライベートプロパティ (プロファイルに応じて使用)
     _fetch: FetchInfo | None = None
@@ -248,6 +250,10 @@ class Metadata:
 
         if self.verification:
             result["verification"] = self.verification.to_dict()
+
+        # v1.2.0: データ品質検証結果
+        if self.quality:
+            result["quality"] = self.quality
 
         # プライベートプロパティ
         if self._fetch:
@@ -293,6 +299,7 @@ class Metadata:
             modified=data["modified"],
             sources=data.get("sources", []),
             verification=verification,
+            quality=data.get("quality"),  # v1.2.0: データ品質検証結果
             _fetch=fetch_info,
             _process=process_info,
         )
@@ -532,6 +539,7 @@ class Metadata:
         processing_time: float = 0.0,
         gender: Literal["male", "female", "total"] | None = None,
         verification: Verification | None = None,
+        quality: dict[str, Any] | None = None,
     ) -> Metadata:
         """processedメタデータを作成するファクトリメソッド
 
@@ -549,6 +557,7 @@ class Metadata:
             processing_time: 処理時間
             gender: 性別カテゴリ
             verification: 検証結果
+            quality: データ品質検証結果 (v1.2.0+)
 
         Returns:
             Metadataオブジェクト
@@ -572,6 +581,7 @@ class Metadata:
             modified=now,
             sources=[],
             verification=verification,
+            quality=quality,  # v1.2.0: データ品質検証結果
             _process=ProcessInfo(
                 source_name=source_name,
                 source_hash=source_hash,
