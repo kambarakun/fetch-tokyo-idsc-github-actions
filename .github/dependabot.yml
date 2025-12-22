@@ -15,6 +15,11 @@ updates:
       prefix: "ci"
       include: "scope"
     open-pull-requests-limit: 5
+    # メジャーバージョンアップを無視（破壊的変更を手動でレビュー）
+    # セキュリティ更新は別途Dependabot Security Updatesで自動作成される
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # Python依存関係を更新 (uv使用)
   - package-ecosystem: "pip"
@@ -34,3 +39,35 @@ updates:
     # uv.lockファイルも更新対象に含める
     allow:
       - dependency-type: "all"
+    # メジャーバージョンアップを無視（破壊的変更を手動でレビュー）
+    # マイナー・パッチバージョンのみ自動更新
+    # セキュリティ更新は別途Dependabot Security Updatesで自動作成される
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    # 依存関係のグループ化（関連する更新をまとめる）
+    groups:
+      # 本番依存関係をまとめる（慎重にレビュー）
+      production:
+        patterns:
+          - "requests"
+          - "PyYAML"
+        update-types:
+          - "minor"
+          - "patch"
+      # テスト関連の依存関係をまとめる
+      testing:
+        patterns:
+          - "pytest*"
+          - "coverage"
+      # ビルドツール関連をまとめる（リンター・フォーマッター）
+      build-tools:
+        patterns:
+          - "ruff"
+          - "black"
+          - "isort"
+          - "mypy"
+      # 型定義ファイルをまとめる
+      type-stubs:
+        patterns:
+          - "types-*"
