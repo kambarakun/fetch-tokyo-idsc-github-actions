@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-感染症データの可視化グラフ生成スクリプト
+感染症データの可視化グラフ生成スクリプト (CDCベストプラクティス準拠)
 
-最新の感染症データから以下のグラフを生成:
-1. 主要感染症の週次推移(直近12週)
-2. 最新週のトップ10疾患
+以下の6種類のグラフを生成:
+1. 週次定点・絶対数トップ5
+2. 週次定点・季節性乖離率トップ5
+3. 週次全数・絶対数トップ5
+4. 週次全数・季節性乖離率トップ5
+5. 月次定点・絶対数トップ5
+6. 月次定点・季節性乖離率トップ5
+
+季節性ベースライン: 同週/同月の過去5年平均を使用 (CDC推奨)
+乖離率: (実測値 - ベースライン) / ベースライン x 100
 """
 
 import csv
@@ -275,273 +282,273 @@ def get_recent_months_data(data_dir: Path, num_months: int = 12) -> dict[str, di
     return dict(all_data)
 
 
-def calculate_baseline(data: dict[str, dict[int, float]], baseline_weeks: int = 4) -> dict[str, dict[int, float]]:
-    """ベースライン (過去N週平均) を計算
-
-    Args:
-        data: 疾患名 -> {週番号: 患者数}
-        baseline_weeks: ベースライン計算に使う過去週数
+def get_all_weeks_data(data_dir: Path) -> dict[str, dict[int, float]]:
+    """全週次データを取得 (季節性ベースライン計算用)
 
     Returns:
-        疾患名 -> {週番号: ベースライン値}
+        疾患名 -> {週番号: 患者数} のdict
+    """
+    weekly_files = sorted(data_dir.glob("sentinel_weekly_gender_*.csv"))
+    all_data: dict[str, dict[int, float]] = defaultdict(dict)
+
+    for file_path in weekly_files:
+        parts = file_path.stem.split("_")
+        if len(parts) >= 5:
+            try:
+                year = int(parts[3])
+                week = int(parts[4])
+                week_key = year * 100 + week
+            except (ValueError, IndexError):
+                continue
+
+            disease_data = parse_sentinel_weekly_gender(file_path)
+            for disease, value in disease_data.items():
+                all_data[disease][week_key] = value
+
+    return dict(all_data)
+
+
+def get_all_notifiable_weeks_data(data_dir: Path) -> dict[str, dict[int, float]]:
+    """全全数報告週次データを取得 (季節性ベースライン計算用)
+
+    Returns:
+        疾患名 -> {週番号: 報告数} のdict
+    """
+    weekly_files = sorted(data_dir.glob("notifiable_weekly_*.csv"))
+    all_data: dict[str, dict[int, float]] = defaultdict(dict)
+
+    for file_path in weekly_files:
+        parts = file_path.stem.split("_")
+        if len(parts) >= 3:
+            try:
+                year = int(parts[2])
+                week = int(parts[3])
+                week_key = year * 100 + week
+            except (ValueError, IndexError):
+                continue
+
+            disease_data = parse_notifiable_weekly(file_path)
+            for disease, value in disease_data.items():
+                all_data[disease][week_key] = value
+
+    return dict(all_data)
+
+
+def get_all_months_data(data_dir: Path) -> dict[str, dict[int, float]]:
+    """全月次データを取得 (季節性ベースライン計算用)
+
+    Returns:
+        疾患名 -> {月番号: 患者数} のdict
+    """
+    monthly_files = sorted(data_dir.glob("sentinel_monthly_gender_*.csv"))
+    all_data: dict[str, dict[int, float]] = defaultdict(dict)
+
+    for file_path in monthly_files:
+        parts = file_path.stem.split("_")
+        if len(parts) >= 4:
+            try:
+                year = int(parts[3])
+                month = int(parts[4])
+                month_key = year * 100 + month
+            except (ValueError, IndexError):
+                continue
+
+            disease_data = parse_sentinel_monthly_gender(file_path)
+            for disease, value in disease_data.items():
+                all_data[disease][month_key] = value
+
+    return dict(all_data)
+
+
+def calculate_seasonal_baseline(
+    all_data: dict[str, dict[int, float]], recent_periods: list[int], years: int = 5
+) -> dict[str, dict[int, float]]:
+    """季節性ベースラインを計算 (CDCベストプラクティス)
+
+    同週/同月の過去N年平均を計算
+
+    Args:
+        all_data: 全期間のデータ (疾患名 -> {期間番号: 値})
+        recent_periods: 直近の期間リスト (例: [202549, 202550])
+        years: 過去何年分を使うか (デフォルト: 5年)
+
+    Returns:
+        疾患名 -> {期間番号: ベースライン値}
     """
     baselines: dict[str, dict[int, float]] = {}
 
-    for disease, weeks_data in data.items():
-        sorted_weeks = sorted(weeks_data.keys())
+    for disease, periods_data in all_data.items():
         baseline_data = {}
 
-        for i, week in enumerate(sorted_weeks):
-            # 過去baseline_weeks週の平均を計算
-            start_idx = max(0, i - baseline_weeks)
-            past_weeks = sorted_weeks[start_idx:i]
+        for period in recent_periods:
+            # 期間を年と週/月に分解
+            year = period // 100
+            period_num = period % 100
 
-            if past_weeks:
-                avg = sum(weeks_data[w] for w in past_weeks) / len(past_weeks)
-                baseline_data[week] = avg
+            # 同じ週/月の過去years年分のデータを取得
+            historical_values = []
+            for past_year in range(year - years, year):
+                past_period = past_year * 100 + period_num
+                if past_period in periods_data:
+                    historical_values.append(periods_data[past_period])
+
+            # 平均を計算 (データが3年分以上ある場合のみ)
+            if len(historical_values) >= 3:
+                baseline_data[period] = sum(historical_values) / len(historical_values)
             else:
-                baseline_data[week] = 0
+                baseline_data[period] = 0
 
         baselines[disease] = baseline_data
 
     return baselines
 
 
-def generate_weekly_trend_chart(
+def calculate_deviation_rate(
+    data: dict[str, dict[int, float]], baseline: dict[str, dict[int, float]]
+) -> dict[str, dict[int, float]]:
+    """ベースラインからの乖離率を計算
+
+    Args:
+        data: 実測値 (疾患名 -> {期間番号: 値})
+        baseline: ベースライン (疾患名 -> {期間番号: 値})
+
+    Returns:
+        疾患名 -> {期間番号: 乖離率(%)} のdict
+    """
+    deviation_rates: dict[str, dict[int, float]] = {}
+
+    for disease, periods_data in data.items():
+        if disease not in baseline:
+            continue
+
+        rate_data = {}
+        for period, value in periods_data.items():
+            baseline_value = baseline[disease].get(period, 0)
+
+            # ベースラインが0の場合は計算しない
+            if baseline_value > 0:
+                deviation = ((value - baseline_value) / baseline_value) * 100
+                rate_data[period] = deviation
+            else:
+                rate_data[period] = 0
+
+        deviation_rates[disease] = rate_data
+
+    return deviation_rates
+
+
+def generate_absolute_chart(  # noqa: PLR0915
     data: dict[str, dict[int, float]],
     output_path: Path,
+    title: str,
+    ylabel: str,
+    data_source: str,
+    period_type: str = "week",
     top_n: int = 5,
-    baseline: dict[str, dict[int, float]] | None = None,
 ) -> None:
-    """週次推移グラフを生成(CDCスタイル、ベースライン付き)"""
+    """絶対数推移グラフを生成 (CDCスタイル)
+
+    Args:
+        data: 疾患名 -> {期間番号: 値}
+        output_path: 出力ファイルパス
+        title: グラフタイトル
+        ylabel: Y軸ラベル
+        data_source: データソース表示
+        period_type: 期間タイプ ('week' or 'month')
+        top_n: トップN疾患を表示
+    """
     if not data:
         print("警告: データが空のため、グラフを生成できません")
         return
 
-    # 最新週のトップN疾患を選択
-    latest_week = max(max(weeks.keys()) for weeks in data.values() if weeks)
-    latest_values = {disease: weeks.get(latest_week, 0) for disease, weeks in data.items()}
+    # 最新期間のトップN疾患を選択
+    latest_period = max(max(periods.keys()) for periods in data.values() if periods)
+    latest_values = {disease: periods.get(latest_period, 0) for disease, periods in data.items()}
     top_diseases = sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
     # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    for disease, _ in top_diseases:
-        weeks = sorted(data[disease].keys())
-        values = [data[disease][w] for w in weeks]
-
-        # 週番号を読みやすい形式に変換
-        week_labels = [f"{w // 100}年第{w % 100}週" for w in weeks]
-
-        # 折れ線グラフ(CDCスタイル:シンプルに)
-        line = ax.plot(range(len(weeks)), values, marker="o", linewidth=2.5, label=disease, markersize=5)
-
-        # ベースライン表示 (同じ色で点線)
-        if baseline and disease in baseline:
-            baseline_values = [baseline[disease].get(w, 0) for w in weeks]
-            ax.plot(
-                range(len(weeks)), baseline_values, linestyle="--", linewidth=1, alpha=0.5, color=line[0].get_color()
-            )
-
-    # 軸ラベルとタイトルを設定(日本語フォント適用)
-    if JAPANESE_FONT:
-        ax.set_xlabel("", fontsize=12, fontproperties=JAPANESE_FONT)  # X軸ラベル削除(CDCスタイル)
-        ax.set_ylabel("定点あたり患者数", fontsize=11, fontproperties=JAPANESE_FONT)
-        ax.set_title(
-            "主要感染症の週次推移",
-            fontsize=13,
-            fontweight="bold",
-            fontproperties=JAPANESE_FONT,
-            pad=15,
-        )
-        ax.legend(loc="upper left", fontsize=9, prop=JAPANESE_FONT, frameon=False)
-    else:
-        ax.set_xlabel("", fontsize=12)
-        ax.set_ylabel("定点あたり患者数", fontsize=11)
-        ax.set_title("主要感染症の週次推移", fontsize=13, fontweight="bold", pad=15)
-        ax.legend(loc="upper left", fontsize=9, frameon=False)
-
-    # CDCスタイル: グリッド線を薄く、水平線のみ
-    ax.grid(True, axis="y", alpha=0.2, linestyle="-", linewidth=0.5)
-    ax.grid(False, axis="x")
-
-    # 背景を白に
-    ax.set_facecolor("white")
-    fig.patch.set_facecolor("white")
-
-    # 枠線を薄く
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.5)
-        spine.set_color("#CCCCCC")
-
-    # X軸のラベルを調整(全部表示すると混雑するので一部のみ)
-    tick_positions = range(0, len(weeks), max(1, len(weeks) // 6))
-    ax.set_xticks(tick_positions)
-    tick_labels = ax.set_xticklabels([week_labels[i] for i in tick_positions], rotation=45, ha="right", fontsize=9)
-    if JAPANESE_FONT:
-        for label in tick_labels:
-            label.set_fontproperties(JAPANESE_FONT)
-
-    # データソースを追加(CDCスタイル)
-    if JAPANESE_FONT:
-        fig.text(
-            0.99,
-            0.01,
-            "データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
-            ha="right",
-            fontsize=7,
-            color="#666666",
-            fontproperties=JAPANESE_FONT,
-        )
-    else:
-        fig.text(
-            0.99,
-            0.01,
-            "データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
-            ha="right",
-            fontsize=7,
-            color="#666666",
-        )
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=100)
-    plt.close()
-
-    print(f"✅ 週次推移グラフを生成: {output_path} (800x500px)")
-
-
-def generate_top_diseases_chart(latest_data: dict[str, float], output_path: Path, top_n: int = 10) -> None:
-    """最新週のトップN疾患の横棒グラフを生成(CDCスタイル)"""
-    if not latest_data:
-        print("警告: データが空のため、グラフを生成できません")
-        return
-
-    # トップN疾患を選択
-    top_diseases = sorted(latest_data.items(), key=lambda x: x[1], reverse=True)[:top_n]
-    diseases = [d[0] for d in top_diseases]
-    values = [d[1] for d in top_diseases]
-
-    # グラフ作成 (800x500px固定サイズ)
-    fig, ax = plt.subplots(figsize=(8, 5))
-
-    # 色分け(上位3つを強調、CDCスタイル)
-    colors = ["#e74c3c" if i < 3 else "#3498db" for i in range(len(diseases))]
-
-    ax.barh(range(len(diseases)), values, color=colors, alpha=0.85)
-    ax.set_yticks(range(len(diseases)))
-
-    # Y軸ラベル(疾患名)に日本語フォント適用
-    ytick_labels = ax.set_yticklabels(diseases, fontsize=10)
-    if JAPANESE_FONT:
-        for label in ytick_labels:
-            label.set_fontproperties(JAPANESE_FONT)
-
-    # 軸ラベルとタイトルを設定(日本語フォント適用、CDCスタイル)
-    if JAPANESE_FONT:
-        ax.set_xlabel("定点あたり患者数", fontsize=11, fontproperties=JAPANESE_FONT)
-        ax.set_title(
-            f"感染症トップ{top_n}",
-            fontsize=13,
-            fontweight="bold",
-            fontproperties=JAPANESE_FONT,
-            pad=15,
-        )
-    else:
-        ax.set_xlabel("定点あたり患者数", fontsize=11)
-        ax.set_title(f"感染症トップ{top_n}", fontsize=13, fontweight="bold", pad=15)
-
-    # CDCスタイル: グリッド線を薄く、縦線のみ
-    ax.grid(True, axis="x", alpha=0.2, linestyle="-", linewidth=0.5)
-    ax.grid(False, axis="y")
-
-    # 背景を白に
-    ax.set_facecolor("white")
-    fig.patch.set_facecolor("white")
-
-    # 枠線を薄く
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.5)
-        spine.set_color("#CCCCCC")
-
-    # 値をバーの右側に表示(CDCスタイル:シンプルに)
-    for i, (_disease, value) in enumerate(top_diseases):
-        text = ax.text(value + 0.5, i, f"{value:.2f}", va="center", fontsize=9)
-        if JAPANESE_FONT:
-            text.set_fontproperties(JAPANESE_FONT)
-
-    # データソースを追加(CDCスタイル)
-    if JAPANESE_FONT:
-        fig.text(
-            0.99,
-            0.01,
-            "データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
-            ha="right",
-            fontsize=7,
-            color="#666666",
-            fontproperties=JAPANESE_FONT,
-        )
-    else:
-        fig.text(
-            0.99,
-            0.01,
-            "データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
-            ha="right",
-            fontsize=7,
-            color="#666666",
-        )
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=100)
-    plt.close()
-
-    print(f"✅ トップ疾患グラフを生成: {output_path} (800x500px)")
-
-
-def generate_notifiable_weekly_chart(
-    data: dict[str, dict[int, float]],
-    output_path: Path,
-    top_n: int = 5,
-    baseline: dict[str, dict[int, float]] | None = None,
-) -> None:
-    """全数報告週次推移グラフを生成(CDCスタイル、ベースライン付き)"""
-    if not data:
-        print("警告: データが空のため、グラフを生成できません")
-        return
-
-    # 最新週のトップN疾患を選択
-    latest_week = max(max(weeks.keys()) for weeks in data.values() if weeks)
-    latest_values = {disease: weeks.get(latest_week, 0) for disease, weeks in data.items()}
-    top_diseases = sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
-
-    # グラフ作成
-    fig, ax = plt.subplots(figsize=(8, 5))
+    # 全期間の最小・最大を取得
+    all_periods = sorted({p for periods in data.values() for p in periods})
+    min_period = min(all_periods)
+    max_period = max(all_periods)
 
     for disease, _ in top_diseases:
-        weeks = sorted(data[disease].keys())
-        values = [data[disease][w] for w in weeks]
-        week_labels = [f"{w // 100}年第{w % 100}週" for w in weeks]
+        # 全期間に対してデータをマッピング(欠損値はNone)
+        values = [data[disease].get(p) for p in all_periods]
 
-        # 折れ線グラフ
-        line = ax.plot(range(len(weeks)), values, marker="o", linewidth=2.5, label=disease, markersize=5)
+        # 最新値を取得(Noneでない最後の値)
+        latest_value = next((v for v in reversed(values) if v is not None), 0)
 
-        # ベースライン表示
-        if baseline and disease in baseline:
-            baseline_values = [baseline[disease].get(w, 0) for w in weeks]
-            ax.plot(
-                range(len(weeks)), baseline_values, linestyle="--", linewidth=1, alpha=0.5, color=line[0].get_color()
-            )
+        # 桁数を値に応じて調整(定点データは小数)
+        value_format = f"{latest_value:.1f}" if latest_value >= 10 else f"{latest_value:.2f}"
+
+        # 折れ線グラフ (CDCスタイル) - 凡例に最新値を含める
+        label_with_value = f"{disease} (最新: {value_format})"
+        line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
+
+        # 最新データポイントにアノテーションを追加(Noneでない最後のポイント)
+        if latest_value > 0:
+            # 最新値の位置を見つける
+            for i in range(len(values) - 1, -1, -1):
+                if values[i] is not None:
+                    ax.annotate(
+                        value_format,
+                        xy=(i, latest_value),
+                        xytext=(5, 0),
+                        textcoords="offset points",
+                        fontsize=8,
+                        color=line[0].get_color(),
+                        fontweight="bold",
+                        fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
+                    )
+                    break
+
+    # X軸ラベル(期間を明示)
+    if period_type == "week":
+        xlabel_text = f"{min_period // 100}年第{min_period % 100}週 - {max_period // 100}年第{max_period % 100}週"
+    else:  # month
+        xlabel_text = f"{min_period // 100}年{min_period % 100}月 - {max_period // 100}年{max_period % 100}月"
 
     # 軸ラベルとタイトル
     if JAPANESE_FONT:
-        ax.set_xlabel("", fontsize=12, fontproperties=JAPANESE_FONT)
-        ax.set_ylabel("報告数", fontsize=11, fontproperties=JAPANESE_FONT)
-        ax.set_title("全数報告疾患の週次推移", fontsize=13, fontweight="bold", fontproperties=JAPANESE_FONT, pad=15)
+        ax.set_xlabel(xlabel_text, fontsize=10, fontproperties=JAPANESE_FONT)
+        ax.set_ylabel(ylabel, fontsize=11, fontproperties=JAPANESE_FONT)
+        ax.set_title(title, fontsize=13, fontweight="bold", fontproperties=JAPANESE_FONT, pad=15)
         ax.legend(loc="upper left", fontsize=9, prop=JAPANESE_FONT, frameon=False)
+
+        # 注釈を追加(トップ5を表示していることを明記)
+        note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
+        ax.text(
+            0.98,
+            0.97,
+            note_text,
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="top",
+            horizontalalignment="right",
+            color="#666666",
+            fontproperties=JAPANESE_FONT,
+        )
     else:
-        ax.set_xlabel("", fontsize=12)
-        ax.set_ylabel("報告数", fontsize=11)
-        ax.set_title("全数報告疾患の週次推移", fontsize=13, fontweight="bold", pad=15)
+        ax.set_xlabel(xlabel_text, fontsize=10)
+        ax.set_ylabel(ylabel, fontsize=11)
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
         ax.legend(loc="upper left", fontsize=9, frameon=False)
+
+        # 注釈を追加
+        note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
+        ax.text(
+            0.98,
+            0.97,
+            note_text,
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="top",
+            horizontalalignment="right",
+            color="#666666",
+        )
 
     # CDCスタイル
     ax.grid(True, axis="y", alpha=0.2, linestyle="-", linewidth=0.5)
@@ -553,70 +560,162 @@ def generate_notifiable_weekly_chart(
         spine.set_linewidth(0.5)
         spine.set_color("#CCCCCC")
 
-    # X軸ラベル
-    tick_positions = range(0, len(weeks), max(1, len(weeks) // 6))
+    # X軸目盛り: 週番号/月番号の数字のみ
+    if period_type == "week":
+        # 52週を約5週ごとに表示(約10箇所)
+        tick_step = 5
+        tick_positions = list(range(0, len(all_periods), tick_step))
+        # 最後の週も必ず含める
+        if (len(all_periods) - 1) not in tick_positions:
+            tick_positions.append(len(all_periods) - 1)
+        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+    else:  # month
+        # 12ヶ月を全て表示
+        tick_positions = list(range(0, len(all_periods)))
+        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+
     ax.set_xticks(tick_positions)
-    tick_labels = ax.set_xticklabels([week_labels[i] for i in tick_positions], rotation=45, ha="right", fontsize=9)
+    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=9)
     if JAPANESE_FONT:
         for label in tick_labels:
             label.set_fontproperties(JAPANESE_FONT)
 
     # データソース
     if JAPANESE_FONT:
-        fig.text(
-            0.99,
-            0.01,
-            "データソース: 東京都感染症発生動向調査(全数週次報告)",
-            ha="right",
-            fontsize=7,
-            color="#666666",
-            fontproperties=JAPANESE_FONT,
-        )
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666", fontproperties=JAPANESE_FONT)
     else:
-        fig.text(
-            0.99, 0.01, "データソース: 東京都感染症発生動向調査(全数週次報告)", ha="right", fontsize=7, color="#666666"
-        )
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)
     plt.close()
 
-    print(f"✅ 全数報告週次グラフを生成: {output_path} (800x500px)")
+    print(f"✅ {title}グラフを生成: {output_path} (800x500px)")
 
 
-def generate_monthly_trend_chart(data: dict[str, dict[int, float]], output_path: Path, top_n: int = 5) -> None:
-    """月次推移グラフを生成(CDCスタイル)"""
-    if not data:
+def generate_deviation_chart(  # noqa: PLR0915
+    data: dict[str, dict[int, float]],
+    baseline: dict[str, dict[int, float]],
+    output_path: Path,
+    title: str,
+    data_source: str,
+    period_type: str = "week",
+    top_n: int = 5,
+) -> None:
+    """ベースライン乖離率グラフを生成 (CDCスタイル)
+
+    Args:
+        data: 疾患名 -> {期間番号: 値}
+        baseline: 疾患名 -> {期間番号: ベースライン値}
+        output_path: 出力ファイルパス
+        title: グラフタイトル
+        data_source: データソース表示
+        period_type: 期間タイプ ('week' or 'month')
+        top_n: トップN疾患を表示
+    """
+    if not data or not baseline:
         print("警告: データが空のため、グラフを生成できません")
         return
 
-    # 最新月のトップN疾患を選択
-    latest_month = max(max(months.keys()) for months in data.values() if months)
-    latest_values = {disease: months.get(latest_month, 0) for disease, months in data.items()}
-    top_diseases = sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    # 乖離率を計算
+    deviation_rates = calculate_deviation_rate(data, baseline)
 
-    # グラフ作成
+    if not deviation_rates:
+        print("警告: 乖離率データが空のため、グラフを生成できません")
+        return
+
+    # 最新期間でプラス方向(流行)の乖離率が大きい疾患のトップNを選択(CDCスタイル)
+    latest_period = max(max(periods.keys()) for periods in deviation_rates.values() if periods)
+    latest_deviation_rates = {disease: periods.get(latest_period, 0) for disease, periods in deviation_rates.items()}
+    # プラス方向(流行)のみを抽出してソート
+    positive_deviations = {k: v for k, v in latest_deviation_rates.items() if v > 0}
+    top_diseases = sorted(positive_deviations.items(), key=lambda x: x[1], reverse=True)[:top_n]
+
+    # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    for disease, _ in top_diseases:
-        months = sorted(data[disease].keys())
-        values = [data[disease][m] for m in months]
-        month_labels = [f"{m // 100}年{m % 100}月" for m in months]
+    # 全期間の最小・最大を取得
+    all_periods = sorted({p for periods in data.values() for p in periods})
+    min_period = min(all_periods)
+    max_period = max(all_periods)
 
-        # 折れ線グラフ
-        ax.plot(range(len(months)), values, marker="o", linewidth=2.5, label=disease, markersize=5)
+    for disease, _ in top_diseases:
+        if disease not in deviation_rates:
+            continue
+
+        # 全期間に対してデータをマッピング(欠損値はNone)
+        values = [deviation_rates[disease].get(p) for p in all_periods]
+
+        # 最新値を取得(Noneでない最後の値)
+        latest_value = next((v for v in reversed(values) if v is not None), 0)
+
+        # 折れ線グラフ (CDCスタイル) - 凡例に最新値を含める
+        label_with_value = f"{disease} (最新: {latest_value:+.0f}%)"
+        line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
+
+        # 最新データポイントにアノテーションを追加(Noneでない最後のポイント)
+        if latest_value != 0:
+            # 最新値の位置を見つける
+            for i in range(len(values) - 1, -1, -1):
+                if values[i] is not None:
+                    ax.annotate(
+                        f"{latest_value:+.0f}%",
+                        xy=(i, latest_value),
+                        xytext=(5, 0),
+                        textcoords="offset points",
+                        fontsize=8,
+                        color=line[0].get_color(),
+                        fontweight="bold",
+                        fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
+                    )
+                    break
+
+    # ベースライン (0%ライン) を表示
+    if len(all_periods) > 0:
+        ax.axhline(y=0, color="#999999", linestyle="--", linewidth=1, alpha=0.7)
+
+    # X軸ラベル(期間を明示)
+    if period_type == "week":
+        xlabel_text = f"{min_period // 100}年第{min_period % 100}週 - {max_period // 100}年第{max_period % 100}週"
+    else:  # month
+        xlabel_text = f"{min_period // 100}年{min_period % 100}月 - {max_period // 100}年{max_period % 100}月"
 
     # 軸ラベルとタイトル
     if JAPANESE_FONT:
-        ax.set_xlabel("", fontsize=12, fontproperties=JAPANESE_FONT)
-        ax.set_ylabel("定点あたり患者数", fontsize=11, fontproperties=JAPANESE_FONT)
-        ax.set_title("主要感染症の月次推移", fontsize=13, fontweight="bold", fontproperties=JAPANESE_FONT, pad=15)
+        ax.set_xlabel(xlabel_text, fontsize=10, fontproperties=JAPANESE_FONT)
+        ax.set_ylabel("季節性ベースラインからの乖離率 (%)", fontsize=11, fontproperties=JAPANESE_FONT)
+        ax.set_title(title, fontsize=13, fontweight="bold", fontproperties=JAPANESE_FONT, pad=15)
         ax.legend(loc="upper left", fontsize=9, prop=JAPANESE_FONT, frameon=False)
+
+        # 注釈を追加(プラス乖離の最大トップ5を表示していることを明記)
+        ax.text(
+            0.98,
+            0.97,
+            "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示",
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="top",
+            horizontalalignment="right",
+            color="#666666",
+            fontproperties=JAPANESE_FONT,
+        )
     else:
-        ax.set_xlabel("", fontsize=12)
-        ax.set_ylabel("定点あたり患者数", fontsize=11)
-        ax.set_title("主要感染症の月次推移", fontsize=13, fontweight="bold", pad=15)
+        ax.set_xlabel(xlabel_text, fontsize=10)
+        ax.set_ylabel("季節性ベースラインからの乖離率 (%)", fontsize=11)
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
         ax.legend(loc="upper left", fontsize=9, frameon=False)
+
+        # 注釈を追加
+        ax.text(
+            0.98,
+            0.97,
+            "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示",
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="top",
+            horizontalalignment="right",
+            color="#666666",
+        )
 
     # CDCスタイル
     ax.grid(True, axis="y", alpha=0.2, linestyle="-", linewidth=0.5)
@@ -628,45 +727,42 @@ def generate_monthly_trend_chart(data: dict[str, dict[int, float]], output_path:
         spine.set_linewidth(0.5)
         spine.set_color("#CCCCCC")
 
-    # X軸ラベル
-    tick_positions = range(0, len(months), max(1, len(months) // 6))
+    # X軸目盛り: 週番号/月番号の数字のみ
+    if period_type == "week":
+        # 52週を約5週ごとに表示(約10箇所)
+        tick_step = 5
+        tick_positions = list(range(0, len(all_periods), tick_step))
+        # 最後の週も必ず含める
+        if (len(all_periods) - 1) not in tick_positions:
+            tick_positions.append(len(all_periods) - 1)
+        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+    else:  # month
+        # 12ヶ月を全て表示
+        tick_positions = list(range(0, len(all_periods)))
+        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+
     ax.set_xticks(tick_positions)
-    tick_labels = ax.set_xticklabels([month_labels[i] for i in tick_positions], rotation=45, ha="right", fontsize=9)
+    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=9)
     if JAPANESE_FONT:
         for label in tick_labels:
             label.set_fontproperties(JAPANESE_FONT)
 
     # データソース
     if JAPANESE_FONT:
-        fig.text(
-            0.99,
-            0.01,
-            "データソース: 東京都感染症発生動向調査(定点月次・性別報告)",
-            ha="right",
-            fontsize=7,
-            color="#666666",
-            fontproperties=JAPANESE_FONT,
-        )
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666", fontproperties=JAPANESE_FONT)
     else:
-        fig.text(
-            0.99,
-            0.01,
-            "データソース: 東京都感染症発生動向調査(定点月次・性別報告)",
-            ha="right",
-            fontsize=7,
-            color="#666666",
-        )
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)
     plt.close()
 
-    print(f"✅ 月次推移グラフを生成: {output_path} (800x500px)")
+    print(f"✅ {title}グラフを生成: {output_path} (800x500px)")
 
 
 def main():
     """メイン処理"""
-    print("📊 感染症データ可視化グラフ生成")
+    print("📊 感染症データ可視化グラフ生成 (CDCスタイル)")
     print("=" * 50)
 
     # データディレクトリ
@@ -676,17 +772,20 @@ def main():
 
     print("\n📥 データ読み込み中...")
 
-    # 定点週次データ (直近12週)
-    sentinel_weekly_data = get_recent_weeks_data(data_dir, num_weeks=12)
-    print(f"✅ 定点週次: {len(sentinel_weekly_data)}種類")
-
-    # 全数報告週次データ (直近12週)
-    notifiable_weekly_data = get_notifiable_weeks_data(data_dir, num_weeks=12)
-    print(f"✅ 全数報告週次: {len(notifiable_weekly_data)}種類")
-
-    # 月次データ (直近12ヶ月)
+    # 直近52週(1年間)/12ヶ月のデータ
+    sentinel_weekly_data = get_recent_weeks_data(data_dir, num_weeks=52)
+    notifiable_weekly_data = get_notifiable_weeks_data(data_dir, num_weeks=52)
     monthly_data = get_recent_months_data(data_dir, num_months=12)
+
+    print(f"✅ 定点週次: {len(sentinel_weekly_data)}種類")
+    print(f"✅ 全数報告週次: {len(notifiable_weekly_data)}種類")
     print(f"✅ 定点月次: {len(monthly_data)}種類")
+
+    # 全データ (季節性ベースライン計算用)
+    print("\n📥 季節性ベースライン計算用データ読み込み中...")
+    all_sentinel_weeks = get_all_weeks_data(data_dir)
+    all_notifiable_weeks = get_all_notifiable_weeks_data(data_dir)
+    all_months = get_all_months_data(data_dir)
 
     if not sentinel_weekly_data and not notifiable_weekly_data and not monthly_data:
         print("❌ データが見つかりませんでした")
@@ -694,31 +793,91 @@ def main():
 
     print("\n🎨 グラフ生成中...")
 
-    # 1. 定点週次推移 (ベースライン付き)
+    # 1. 週次定点・絶対数
     if sentinel_weekly_data:
-        baseline = calculate_baseline(sentinel_weekly_data, baseline_weeks=4)
-        generate_weekly_trend_chart(
-            sentinel_weekly_data, output_dir / "sentinel_weekly_trend.png", top_n=5, baseline=baseline
+        generate_absolute_chart(
+            sentinel_weekly_data,
+            output_dir / "sentinel_weekly_absolute.png",
+            title="定点報告疾患の週次推移",
+            ylabel="患者数 (定点医療機関あたり)",
+            data_source="データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
+            period_type="week",
+            top_n=5,
         )
 
-    # 2. 全数報告週次推移 (ベースライン付き)
+    # 2. 週次定点・季節性乖離率
+    if sentinel_weekly_data and all_sentinel_weeks:
+        # 直近52週の期間リスト
+        recent_week_periods = sorted({p for periods in sentinel_weekly_data.values() for p in periods})
+        seasonal_baseline = calculate_seasonal_baseline(all_sentinel_weeks, recent_week_periods, years=5)
+
+        generate_deviation_chart(
+            sentinel_weekly_data,
+            seasonal_baseline,
+            output_dir / "sentinel_weekly_deviation.png",
+            title="定点報告疾患の週次乖離率 (流行検知)",
+            data_source="データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
+            period_type="week",
+            top_n=5,
+        )
+
+    # 3. 週次全数・絶対数
     if notifiable_weekly_data:
-        notifiable_baseline = calculate_baseline(notifiable_weekly_data, baseline_weeks=4)
-        generate_notifiable_weekly_chart(
-            notifiable_weekly_data, output_dir / "notifiable_weekly_trend.png", top_n=5, baseline=notifiable_baseline
+        generate_absolute_chart(
+            notifiable_weekly_data,
+            output_dir / "notifiable_weekly_absolute.png",
+            title="全数報告疾患の週次推移",
+            ylabel="報告数 (実数)",
+            data_source="データソース: 東京都感染症発生動向調査(全数週次報告)",
+            period_type="week",
+            top_n=5,
         )
 
-    # 3. 最新週トップ疾患
-    if sentinel_weekly_data:
-        latest_week = max(max(weeks.keys()) for weeks in sentinel_weekly_data.values() if weeks)
-        latest_data = {disease: weeks.get(latest_week, 0) for disease, weeks in sentinel_weekly_data.items()}
-        generate_top_diseases_chart(latest_data, output_dir / "top_diseases.png", top_n=10)
+    # 4. 週次全数・季節性乖離率
+    if notifiable_weekly_data and all_notifiable_weeks:
+        recent_notifiable_periods = sorted({p for periods in notifiable_weekly_data.values() for p in periods})
+        notifiable_seasonal_baseline = calculate_seasonal_baseline(
+            all_notifiable_weeks, recent_notifiable_periods, years=5
+        )
 
-    # 4. 月次推移
+        generate_deviation_chart(
+            notifiable_weekly_data,
+            notifiable_seasonal_baseline,
+            output_dir / "notifiable_weekly_deviation.png",
+            title="全数報告疾患の週次乖離率 (流行検知)",
+            data_source="データソース: 東京都感染症発生動向調査(全数週次報告)",
+            period_type="week",
+            top_n=5,
+        )
+
+    # 5. 月次定点・絶対数
     if monthly_data:
-        generate_monthly_trend_chart(monthly_data, output_dir / "monthly_trend.png", top_n=5)
+        generate_absolute_chart(
+            monthly_data,
+            output_dir / "sentinel_monthly_absolute.png",
+            title="定点報告疾患の月次推移",
+            ylabel="患者数 (定点医療機関あたり)",
+            data_source="データソース: 東京都感染症発生動向調査(定点月次・性別報告)",
+            period_type="month",
+            top_n=5,
+        )
 
-    print("\n✅ グラフ生成完了")
+    # 6. 月次定点・季節性乖離率
+    if monthly_data and all_months:
+        recent_month_periods = sorted({p for periods in monthly_data.values() for p in periods})
+        monthly_seasonal_baseline = calculate_seasonal_baseline(all_months, recent_month_periods, years=5)
+
+        generate_deviation_chart(
+            monthly_data,
+            monthly_seasonal_baseline,
+            output_dir / "sentinel_monthly_deviation.png",
+            title="定点報告疾患の月次乖離率 (流行検知)",
+            data_source="データソース: 東京都感染症発生動向調査(定点月次・性別報告)",
+            period_type="month",
+            top_n=5,
+        )
+
+    print("\n✅ グラフ生成完了 (6枚)")
 
 
 if __name__ == "__main__":

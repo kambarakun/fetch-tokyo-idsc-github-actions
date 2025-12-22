@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-def get_metadata_stats() -> dict:
+def get_metadata_stats() -> dict:  # noqa: PLR0915
     """メタデータディレクトリから統計情報を取得"""
     metadata_dir = Path("data/raw/.metadata")
 
@@ -25,6 +25,7 @@ def get_metadata_stats() -> dict:
             "year_range": "N/A",
             "latest_week": "N/A",
             "latest_month": "N/A",
+            "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
 
     # 全メタデータファイルを処理
@@ -35,6 +36,8 @@ def get_metadata_stats() -> dict:
     monthly_data = []
     # データタイプごとの期間情報を保存
     data_type_periods: dict[str, list[tuple[int, int]]] = {}
+    # 異常情報を収集
+    anomalies: dict[str, dict[str, list[str]]] = {"errors": {}, "warnings": {}, "quality_issues": {}}
 
     for json_file in metadata_dir.glob("*.json"):
         if json_file.name == "hash_index.json":
@@ -45,6 +48,32 @@ def get_metadata_stats() -> dict:
                 data = json.load(f)
 
             all_files.append(data)
+
+            # 異常情報の収集
+            filename = data.get("filename", json_file.stem)
+
+            # verification.errors
+            if "verification" in data and "errors" in data["verification"]:
+                for error in data["verification"]["errors"]:
+                    if error not in anomalies["errors"]:
+                        anomalies["errors"][error] = []
+                    anomalies["errors"][error].append(filename)
+
+            # verification.warnings
+            if "verification" in data and "warnings" in data["verification"]:
+                for warning in data["verification"]["warnings"]:
+                    if warning not in anomalies["warnings"]:
+                        anomalies["warnings"][warning] = []
+                    anomalies["warnings"][warning].append(filename)
+
+            # quality.issues
+            if "quality" in data and "issues" in data["quality"]:
+                for issue in data["quality"]["issues"]:
+                    issue_key = issue.get("type", "unknown")
+                    issue_desc = f"{issue_key}: {issue.get('message', '')}"
+                    if issue_desc not in anomalies["quality_issues"]:
+                        anomalies["quality_issues"][issue_desc] = []
+                    anomalies["quality_issues"][issue_desc].append(filename)
 
             # データタイプ別カウント
             data_type = data.get("data_type")
@@ -85,6 +114,7 @@ def get_metadata_stats() -> dict:
             "year_range": "N/A",
             "latest_week": "N/A",
             "latest_month": "N/A",
+            "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
 
     # 最終更新日時の取得
@@ -149,6 +179,7 @@ def get_metadata_stats() -> dict:
         "years": sorted(set(years)),
         "week_count": unique_weeks,
         "month_count": unique_months,
+        "anomalies": anomalies,
     }
 
 
@@ -197,6 +228,76 @@ def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[s
             missing = "N/A"
 
         lines.append(f"| {display_name} | {count:,}件 | {period_range} | {missing} |")
+
+    return "\n".join(lines)
+
+
+def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
+    """異常情報を折りたたみ形式で整形"""
+
+    # 異常の総数を計算
+    total_errors = sum(len(files) for files in anomalies["errors"].values())
+    total_warnings = sum(len(files) for files in anomalies["warnings"].values())
+    total_quality_issues = sum(len(files) for files in anomalies["quality_issues"].values())
+
+    if total_errors == 0 and total_warnings == 0 and total_quality_issues == 0:
+        return "✅ データ品質チェック: 異常なし"
+
+    lines = []
+
+    # エラー
+    if total_errors > 0:
+        lines.append(f"#### ❌ エラー ({total_errors}件)")
+        lines.append("")
+        for error_type, files in sorted(anomalies["errors"].items()):
+            lines.append("<details>")
+            lines.append(f"<summary><strong>{error_type}</strong> ({len(files)}件)</summary>")
+            lines.append("")
+            lines.append("```")
+            for file in sorted(files)[:50]:  # 最大50件まで表示
+                lines.append(file)
+            if len(files) > 50:
+                lines.append(f"... 他{len(files) - 50}件")
+            lines.append("```")
+            lines.append("")
+            lines.append("</details>")
+            lines.append("")
+
+    # 警告
+    if total_warnings > 0:
+        lines.append(f"#### ⚠️ 警告 ({total_warnings}件)")
+        lines.append("")
+        for warning_type, files in sorted(anomalies["warnings"].items()):
+            lines.append("<details>")
+            lines.append(f"<summary><strong>{warning_type}</strong> ({len(files)}件)</summary>")
+            lines.append("")
+            lines.append("```")
+            for file in sorted(files)[:50]:
+                lines.append(file)
+            if len(files) > 50:
+                lines.append(f"... 他{len(files) - 50}件")
+            lines.append("```")
+            lines.append("")
+            lines.append("</details>")
+            lines.append("")
+
+    # データ品質の問題
+    if total_quality_issues > 0:
+        lines.append(f"#### 🔍 データ品質の問題 ({total_quality_issues}件)")
+        lines.append("")
+        for issue_type, files in sorted(anomalies["quality_issues"].items()):
+            lines.append("<details>")
+            lines.append(f"<summary><strong>{issue_type}</strong> ({len(files)}件)</summary>")
+            lines.append("")
+            lines.append("```")
+            for file in sorted(files)[:50]:
+                lines.append(file)
+            if len(files) > 50:
+                lines.append(f"... 他{len(files) - 50}件")
+            lines.append("```")
+            lines.append("")
+            lines.append("</details>")
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -280,6 +381,55 @@ def update_readme(stats: dict) -> bool:
 | **最新データ取得日時** | {stats['latest_fetch']} |
 | **ファイル最終更新日時** | {stats['latest_update']} |
 
+### 📊 感染動向の可視化
+
+> 💡 季節性ベースライン（同週/同月の過去5年平均）からの乖離率で流行を検知
+
+#### 週次定点 (Sentinel Surveillance - Weekly)
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/sentinel_weekly_absolute.png" alt="週次定点・絶対数" width="100%">
+      <p align="center"><sub>定点週次・絶対数 (直近52週・1年間)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/sentinel_weekly_deviation.png" alt="週次定点・季節性乖離率" width="100%">
+      <p align="center"><sub>定点週次・季節性乖離率 (%)</sub></p>
+    </td>
+  </tr>
+</table>
+
+#### 週次全数 (Notifiable Diseases - Weekly)
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/notifiable_weekly_absolute.png" alt="週次全数・絶対数" width="100%">
+      <p align="center"><sub>全数報告週次・絶対数 (直近52週・1年間)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/notifiable_weekly_deviation.png" alt="週次全数・季節性乖離率" width="100%">
+      <p align="center"><sub>全数報告週次・季節性乖離率 (%)</sub></p>
+    </td>
+  </tr>
+</table>
+
+#### 月次定点 (Sentinel Surveillance - Monthly)
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/sentinel_monthly_absolute.png" alt="月次定点・絶対数" width="100%">
+      <p align="center"><sub>定点月次・絶対数 (直近12ヶ月)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/sentinel_monthly_deviation.png" alt="月次定点・季節性乖離率" width="100%">
+      <p align="center"><sub>定点月次・季節性乖離率 (%)</sub></p>
+    </td>
+  </tr>
+</table>
+
 ### 📈 収集統計
 
 | 項目 | 値 |
@@ -295,37 +445,9 @@ def update_readme(stats: dict) -> bool:
 
 {format_data_type_table(stats['data_types'], stats['data_type_periods'])}
 
-### 📊 感染動向の可視化
+### 🔍 データ品質チェック
 
-#### 週次データ
-
-<table>
-  <tr>
-    <td width="33%">
-      <img src="docs/images/sentinel_weekly_trend.png" alt="定点週次推移" width="100%">
-      <p align="center"><sub>定点報告疾患の週次推移 (ベースライン付き)</sub></p>
-    </td>
-    <td width="33%">
-      <img src="docs/images/notifiable_weekly_trend.png" alt="全数週次推移" width="100%">
-      <p align="center"><sub>全数報告疾患の週次推移 (ベースライン付き)</sub></p>
-    </td>
-    <td width="33%">
-      <img src="docs/images/top_diseases.png" alt="最新週トップ10" width="100%">
-      <p align="center"><sub>最新週のトップ10疾患</sub></p>
-    </td>
-  </tr>
-</table>
-
-#### 月次データ
-
-<table>
-  <tr>
-    <td width="100%">
-      <img src="docs/images/monthly_trend.png" alt="月次推移" width="100%">
-      <p align="center"><sub>定点報告疾患の月次推移 (直近12ヶ月)</sub></p>
-    </td>
-  </tr>
-</table>
+{format_anomalies_section(stats['anomalies'])}
 
 <!-- end data-statistics -->"""
 
