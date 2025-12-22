@@ -21,9 +21,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import logging
+import re
 import sys
 from collections import deque
 from collections.abc import Callable
@@ -635,9 +637,6 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
     Returns:
         (マイグレーション後のメタデータ, 変更リスト)
     """
-    import copy
-    import re
-
     migrated = copy.deepcopy(metadata)
     changes = []
 
