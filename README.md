@@ -9,6 +9,1082 @@
 
 東京都感染症発生動向情報システムから定期的にデータを自動取得・保存するGitHub Actionsベースのシステムです。
 
+<!-- start data-statistics -->
+
+## 📊 データ収集状況 (自動更新)
+
+> 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
+
+### 📅 最新データ
+
+| 項目                     | 値                   |
+| ------------------------ | -------------------- |
+| **最新週次データ**       | 2025年第50週         |
+| **最新月次データ**       | 2025年11月           |
+| **最新データ取得日時**   | 2025-12-18 08:10 JST |
+| **ファイル最終更新日時** | 2025-12-20 18:38 JST |
+
+### 📊 感染動向の可視化
+
+> 💡 季節性ベースライン (同週/同月の過去5年平均) からの乖離率で流行を検知
+
+#### 週次定点 (Sentinel Surveillance - Weekly)
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/sentinel_weekly_absolute.png" alt="週次定点・絶対数" width="100%">
+      <p align="center"><sub>定点週次・絶対数 (直近52週・1年間)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/sentinel_weekly_deviation.png" alt="週次定点・季節性乖離率" width="100%">
+      <p align="center"><sub>定点週次・季節性乖離率 (%)</sub></p>
+    </td>
+  </tr>
+</table>
+
+#### 週次全数 (Notifiable Diseases - Weekly)
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/notifiable_weekly_absolute.png" alt="週次全数・絶対数" width="100%">
+      <p align="center"><sub>全数報告週次・絶対数 (直近52週・1年間)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/notifiable_weekly_deviation.png" alt="週次全数・季節性乖離率" width="100%">
+      <p align="center"><sub>全数報告週次・季節性乖離率 (%)</sub></p>
+    </td>
+  </tr>
+</table>
+
+#### 月次定点 (Sentinel Surveillance - Monthly)
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/sentinel_monthly_absolute.png" alt="月次定点・絶対数" width="100%">
+      <p align="center"><sub>定点月次・絶対数 (直近12ヶ月)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/sentinel_monthly_deviation.png" alt="月次定点・季節性乖離率" width="100%">
+      <p align="center"><sub>定点月次・季節性乖離率 (%)</sub></p>
+    </td>
+  </tr>
+</table>
+
+### 📈 収集統計
+
+| 項目               | 値                         |
+| ------------------ | -------------------------- |
+| **総データ件数**   | 7,985件                    |
+| **週次データ期間** | 2000年第1週 - 2025年第50週 |
+| **月次データ期間** | 2000年1月 - 2025年11月     |
+| **収集週数**       | 1,354週                    |
+| **収集月数**       | 311ヶ月                    |
+| **データ種別数**   | 9種類                      |
+
+### 📋 データ種別内訳
+
+| データ種別         | 件数    | データ期間                | 欠損 |
+| ------------------ | ------- | ------------------------- | ---- |
+| 定点週次・保健所別 | 1,354件 | 2000年第1週-2025年第50週  | なし |
+| 全数週次           | 1,354件 | 2000年第1週-2025年第50週  | なし |
+| 定点週次・年齢群   | 1,354件 | 2000年第1週-2025年第50週  | なし |
+| 定点週次・医療圏別 | 1,341件 | 2000年第14週-2025年第50週 | なし |
+| 定点週次・性別     | 1,341件 | 2000年第14週-2025年第50週 | なし |
+| 定点月次・年齢群   | 311件   | 2000年1月-2025年11月      | なし |
+| 定点月次・保健所別 | 311件   | 2000年1月-2025年11月      | なし |
+| 定点月次・医療圏別 | 311件   | 2000年1月-2025年11月      | なし |
+| 定点月次・性別     | 308件   | 2000年4月-2025年11月      | なし |
+
+### 🔍 データ品質チェック
+
+#### ⚠️ 警告 (7985件)
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 10}</strong> (267件)</summary>
+
+```text
+sentinel_monthly_age_2000_01.csv
+sentinel_monthly_age_2000_02.csv
+sentinel_monthly_age_2000_03.csv
+sentinel_monthly_age_2000_04.csv
+sentinel_monthly_age_2000_05.csv
+sentinel_monthly_age_2000_06.csv
+sentinel_monthly_age_2000_07.csv
+sentinel_monthly_age_2000_08.csv
+sentinel_monthly_age_2000_09.csv
+sentinel_monthly_age_2000_10.csv
+sentinel_monthly_age_2000_11.csv
+sentinel_monthly_age_2000_12.csv
+sentinel_monthly_age_2001_01.csv
+sentinel_monthly_age_2001_02.csv
+sentinel_monthly_age_2001_03.csv
+sentinel_monthly_age_2001_04.csv
+sentinel_monthly_age_2001_05.csv
+sentinel_monthly_age_2001_06.csv
+sentinel_monthly_age_2001_07.csv
+sentinel_monthly_age_2001_08.csv
+sentinel_monthly_age_2001_09.csv
+sentinel_monthly_age_2001_10.csv
+sentinel_monthly_age_2001_11.csv
+sentinel_monthly_age_2001_12.csv
+sentinel_monthly_age_2002_01.csv
+sentinel_monthly_age_2002_02.csv
+sentinel_monthly_age_2002_03.csv
+sentinel_monthly_age_2002_04.csv
+sentinel_monthly_age_2002_05.csv
+sentinel_monthly_age_2002_06.csv
+sentinel_monthly_age_2002_07.csv
+sentinel_monthly_age_2002_08.csv
+sentinel_monthly_age_2002_09.csv
+sentinel_monthly_age_2002_10.csv
+sentinel_monthly_age_2002_11.csv
+sentinel_monthly_age_2002_12.csv
+sentinel_monthly_age_2003_01.csv
+sentinel_monthly_age_2003_02.csv
+sentinel_monthly_age_2003_03.csv
+sentinel_monthly_age_2003_04.csv
+sentinel_monthly_age_2003_05.csv
+sentinel_monthly_age_2003_06.csv
+sentinel_monthly_age_2003_07.csv
+sentinel_monthly_age_2003_08.csv
+sentinel_monthly_age_2003_09.csv
+sentinel_monthly_age_2003_10.csv
+sentinel_monthly_age_2003_11.csv
+sentinel_monthly_age_2003_12.csv
+sentinel_monthly_age_2004_01.csv
+sentinel_monthly_age_2004_02.csv
+... 他217件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 11}</strong> (44件)</summary>
+
+```text
+sentinel_monthly_age_2011_02.csv
+sentinel_monthly_age_2011_03.csv
+sentinel_monthly_age_2011_04.csv
+sentinel_monthly_age_2011_05.csv
+sentinel_monthly_age_2011_06.csv
+sentinel_monthly_age_2011_07.csv
+sentinel_monthly_age_2011_08.csv
+sentinel_monthly_age_2011_09.csv
+sentinel_monthly_age_2011_10.csv
+sentinel_monthly_age_2011_11.csv
+sentinel_monthly_age_2011_12.csv
+sentinel_monthly_age_2012_01.csv
+sentinel_monthly_age_2012_02.csv
+sentinel_monthly_age_2012_03.csv
+sentinel_monthly_age_2012_04.csv
+sentinel_monthly_age_2012_05.csv
+sentinel_monthly_age_2012_06.csv
+sentinel_monthly_age_2012_07.csv
+sentinel_monthly_age_2012_08.csv
+sentinel_monthly_age_2012_09.csv
+sentinel_monthly_age_2012_10.csv
+sentinel_monthly_age_2012_11.csv
+sentinel_monthly_age_2012_12.csv
+sentinel_monthly_age_2013_01.csv
+sentinel_monthly_age_2013_02.csv
+sentinel_monthly_age_2013_03.csv
+sentinel_monthly_age_2013_04.csv
+sentinel_monthly_age_2013_05.csv
+sentinel_monthly_age_2013_06.csv
+sentinel_monthly_age_2013_07.csv
+sentinel_monthly_age_2013_08.csv
+sentinel_monthly_age_2013_09.csv
+sentinel_monthly_age_2013_10.csv
+sentinel_monthly_age_2013_11.csv
+sentinel_monthly_age_2013_12.csv
+sentinel_monthly_age_2014_01.csv
+sentinel_monthly_age_2014_02.csv
+sentinel_monthly_age_2014_03.csv
+sentinel_monthly_age_2014_04.csv
+sentinel_monthly_age_2014_05.csv
+sentinel_monthly_age_2014_06.csv
+sentinel_monthly_age_2014_07.csv
+sentinel_monthly_age_2014_08.csv
+sentinel_monthly_age_2014_09.csv
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 12}</strong> (534件)</summary>
+
+```text
+sentinel_monthly_health_center_2000_01.csv
+sentinel_monthly_health_center_2000_02.csv
+sentinel_monthly_health_center_2000_03.csv
+sentinel_monthly_health_center_2000_04.csv
+sentinel_monthly_health_center_2000_05.csv
+sentinel_monthly_health_center_2000_06.csv
+sentinel_monthly_health_center_2000_07.csv
+sentinel_monthly_health_center_2000_08.csv
+sentinel_monthly_health_center_2000_09.csv
+sentinel_monthly_health_center_2000_10.csv
+sentinel_monthly_health_center_2000_11.csv
+sentinel_monthly_health_center_2000_12.csv
+sentinel_monthly_health_center_2001_01.csv
+sentinel_monthly_health_center_2001_02.csv
+sentinel_monthly_health_center_2001_03.csv
+sentinel_monthly_health_center_2001_04.csv
+sentinel_monthly_health_center_2001_05.csv
+sentinel_monthly_health_center_2001_06.csv
+sentinel_monthly_health_center_2001_07.csv
+sentinel_monthly_health_center_2001_08.csv
+sentinel_monthly_health_center_2001_09.csv
+sentinel_monthly_health_center_2001_10.csv
+sentinel_monthly_health_center_2001_11.csv
+sentinel_monthly_health_center_2001_12.csv
+sentinel_monthly_health_center_2002_01.csv
+sentinel_monthly_health_center_2002_02.csv
+sentinel_monthly_health_center_2002_03.csv
+sentinel_monthly_health_center_2002_04.csv
+sentinel_monthly_health_center_2002_05.csv
+sentinel_monthly_health_center_2002_06.csv
+sentinel_monthly_health_center_2002_07.csv
+sentinel_monthly_health_center_2002_08.csv
+sentinel_monthly_health_center_2002_09.csv
+sentinel_monthly_health_center_2002_10.csv
+sentinel_monthly_health_center_2002_11.csv
+sentinel_monthly_health_center_2002_12.csv
+sentinel_monthly_health_center_2003_01.csv
+sentinel_monthly_health_center_2003_02.csv
+sentinel_monthly_health_center_2003_03.csv
+sentinel_monthly_health_center_2003_04.csv
+sentinel_monthly_health_center_2003_05.csv
+sentinel_monthly_health_center_2003_06.csv
+sentinel_monthly_health_center_2003_07.csv
+sentinel_monthly_health_center_2003_08.csv
+sentinel_monthly_health_center_2003_09.csv
+sentinel_monthly_health_center_2003_10.csv
+sentinel_monthly_health_center_2003_11.csv
+sentinel_monthly_health_center_2003_12.csv
+sentinel_monthly_health_center_2004_01.csv
+sentinel_monthly_health_center_2004_02.csv
+... 他484件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 13}</strong> (88件)</summary>
+
+```text
+sentinel_monthly_health_center_2011_02.csv
+sentinel_monthly_health_center_2011_03.csv
+sentinel_monthly_health_center_2011_04.csv
+sentinel_monthly_health_center_2011_05.csv
+sentinel_monthly_health_center_2011_06.csv
+sentinel_monthly_health_center_2011_07.csv
+sentinel_monthly_health_center_2011_08.csv
+sentinel_monthly_health_center_2011_09.csv
+sentinel_monthly_health_center_2011_10.csv
+sentinel_monthly_health_center_2011_11.csv
+sentinel_monthly_health_center_2011_12.csv
+sentinel_monthly_health_center_2012_01.csv
+sentinel_monthly_health_center_2012_02.csv
+sentinel_monthly_health_center_2012_03.csv
+sentinel_monthly_health_center_2012_04.csv
+sentinel_monthly_health_center_2012_05.csv
+sentinel_monthly_health_center_2012_06.csv
+sentinel_monthly_health_center_2012_07.csv
+sentinel_monthly_health_center_2012_08.csv
+sentinel_monthly_health_center_2012_09.csv
+sentinel_monthly_health_center_2012_10.csv
+sentinel_monthly_health_center_2012_11.csv
+sentinel_monthly_health_center_2012_12.csv
+sentinel_monthly_health_center_2013_01.csv
+sentinel_monthly_health_center_2013_02.csv
+sentinel_monthly_health_center_2013_03.csv
+sentinel_monthly_health_center_2013_04.csv
+sentinel_monthly_health_center_2013_05.csv
+sentinel_monthly_health_center_2013_06.csv
+sentinel_monthly_health_center_2013_07.csv
+sentinel_monthly_health_center_2013_08.csv
+sentinel_monthly_health_center_2013_09.csv
+sentinel_monthly_health_center_2013_10.csv
+sentinel_monthly_health_center_2013_11.csv
+sentinel_monthly_health_center_2013_12.csv
+sentinel_monthly_health_center_2014_01.csv
+sentinel_monthly_health_center_2014_02.csv
+sentinel_monthly_health_center_2014_03.csv
+sentinel_monthly_health_center_2014_04.csv
+sentinel_monthly_health_center_2014_05.csv
+sentinel_monthly_health_center_2014_06.csv
+sentinel_monthly_health_center_2014_07.csv
+sentinel_monthly_health_center_2014_08.csv
+sentinel_monthly_health_center_2014_09.csv
+sentinel_monthly_medical_district_2011_02.csv
+sentinel_monthly_medical_district_2011_03.csv
+sentinel_monthly_medical_district_2011_04.csv
+sentinel_monthly_medical_district_2011_05.csv
+sentinel_monthly_medical_district_2011_06.csv
+sentinel_monthly_medical_district_2011_07.csv
+... 他38件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 21}</strong> (157件)</summary>
+
+```text
+sentinel_weekly_age_2008_01.csv
+sentinel_weekly_age_2008_02.csv
+sentinel_weekly_age_2008_03.csv
+sentinel_weekly_age_2008_04.csv
+sentinel_weekly_age_2008_05.csv
+sentinel_weekly_age_2008_06.csv
+sentinel_weekly_age_2008_07.csv
+sentinel_weekly_age_2008_08.csv
+sentinel_weekly_age_2008_09.csv
+sentinel_weekly_age_2008_10.csv
+sentinel_weekly_age_2008_11.csv
+sentinel_weekly_age_2008_12.csv
+sentinel_weekly_age_2008_13.csv
+sentinel_weekly_age_2008_14.csv
+sentinel_weekly_age_2008_15.csv
+sentinel_weekly_age_2008_16.csv
+sentinel_weekly_age_2008_17.csv
+sentinel_weekly_age_2008_18.csv
+sentinel_weekly_age_2008_19.csv
+sentinel_weekly_age_2008_20.csv
+sentinel_weekly_age_2008_21.csv
+sentinel_weekly_age_2008_22.csv
+sentinel_weekly_age_2008_23.csv
+sentinel_weekly_age_2008_24.csv
+sentinel_weekly_age_2008_25.csv
+sentinel_weekly_age_2008_26.csv
+sentinel_weekly_age_2008_27.csv
+sentinel_weekly_age_2008_28.csv
+sentinel_weekly_age_2008_29.csv
+sentinel_weekly_age_2008_30.csv
+sentinel_weekly_age_2008_31.csv
+sentinel_weekly_age_2008_32.csv
+sentinel_weekly_age_2008_33.csv
+sentinel_weekly_age_2008_34.csv
+sentinel_weekly_age_2008_35.csv
+sentinel_weekly_age_2008_36.csv
+sentinel_weekly_age_2008_37.csv
+sentinel_weekly_age_2008_38.csv
+sentinel_weekly_age_2008_39.csv
+sentinel_weekly_age_2008_40.csv
+sentinel_weekly_age_2008_41.csv
+sentinel_weekly_age_2008_42.csv
+sentinel_weekly_age_2008_43.csv
+sentinel_weekly_age_2008_44.csv
+sentinel_weekly_age_2008_45.csv
+sentinel_weekly_age_2008_46.csv
+sentinel_weekly_age_2008_47.csv
+sentinel_weekly_age_2008_48.csv
+sentinel_weekly_age_2008_49.csv
+sentinel_weekly_age_2008_50.csv
+... 他107件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 24}</strong> (217件)</summary>
+
+```text
+sentinel_weekly_age_2003_45.csv
+sentinel_weekly_age_2003_46.csv
+sentinel_weekly_age_2003_47.csv
+sentinel_weekly_age_2003_48.csv
+sentinel_weekly_age_2003_49.csv
+sentinel_weekly_age_2003_50.csv
+sentinel_weekly_age_2003_51.csv
+sentinel_weekly_age_2003_52.csv
+sentinel_weekly_age_2004_01.csv
+sentinel_weekly_age_2004_02.csv
+sentinel_weekly_age_2004_03.csv
+sentinel_weekly_age_2004_04.csv
+sentinel_weekly_age_2004_05.csv
+sentinel_weekly_age_2004_06.csv
+sentinel_weekly_age_2004_07.csv
+sentinel_weekly_age_2004_08.csv
+sentinel_weekly_age_2004_09.csv
+sentinel_weekly_age_2004_10.csv
+sentinel_weekly_age_2004_11.csv
+sentinel_weekly_age_2004_12.csv
+sentinel_weekly_age_2004_13.csv
+sentinel_weekly_age_2004_14.csv
+sentinel_weekly_age_2004_15.csv
+sentinel_weekly_age_2004_16.csv
+sentinel_weekly_age_2004_17.csv
+sentinel_weekly_age_2004_18.csv
+sentinel_weekly_age_2004_19.csv
+sentinel_weekly_age_2004_20.csv
+sentinel_weekly_age_2004_21.csv
+sentinel_weekly_age_2004_22.csv
+sentinel_weekly_age_2004_23.csv
+sentinel_weekly_age_2004_24.csv
+sentinel_weekly_age_2004_25.csv
+sentinel_weekly_age_2004_26.csv
+sentinel_weekly_age_2004_27.csv
+sentinel_weekly_age_2004_28.csv
+sentinel_weekly_age_2004_29.csv
+sentinel_weekly_age_2004_30.csv
+sentinel_weekly_age_2004_31.csv
+sentinel_weekly_age_2004_32.csv
+sentinel_weekly_age_2004_33.csv
+sentinel_weekly_age_2004_34.csv
+sentinel_weekly_age_2004_35.csv
+sentinel_weekly_age_2004_36.csv
+sentinel_weekly_age_2004_37.csv
+sentinel_weekly_age_2004_38.csv
+sentinel_weekly_age_2004_39.csv
+sentinel_weekly_age_2004_40.csv
+sentinel_weekly_age_2004_41.csv
+sentinel_weekly_age_2004_42.csv
+... 他167件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 25}</strong> (200件)</summary>
+
+```text
+sentinel_weekly_age_2000_01.csv
+sentinel_weekly_age_2000_02.csv
+sentinel_weekly_age_2000_03.csv
+sentinel_weekly_age_2000_04.csv
+sentinel_weekly_age_2000_05.csv
+sentinel_weekly_age_2000_06.csv
+sentinel_weekly_age_2000_07.csv
+sentinel_weekly_age_2000_08.csv
+sentinel_weekly_age_2000_09.csv
+sentinel_weekly_age_2000_10.csv
+sentinel_weekly_age_2000_11.csv
+sentinel_weekly_age_2000_12.csv
+sentinel_weekly_age_2000_13.csv
+sentinel_weekly_age_2000_14.csv
+sentinel_weekly_age_2000_15.csv
+sentinel_weekly_age_2000_16.csv
+sentinel_weekly_age_2000_17.csv
+sentinel_weekly_age_2000_18.csv
+sentinel_weekly_age_2000_19.csv
+sentinel_weekly_age_2000_20.csv
+sentinel_weekly_age_2000_21.csv
+sentinel_weekly_age_2000_22.csv
+sentinel_weekly_age_2000_23.csv
+sentinel_weekly_age_2000_24.csv
+sentinel_weekly_age_2000_25.csv
+sentinel_weekly_age_2000_26.csv
+sentinel_weekly_age_2000_27.csv
+sentinel_weekly_age_2000_28.csv
+sentinel_weekly_age_2000_29.csv
+sentinel_weekly_age_2000_30.csv
+sentinel_weekly_age_2000_31.csv
+sentinel_weekly_age_2000_32.csv
+sentinel_weekly_age_2000_33.csv
+sentinel_weekly_age_2000_34.csv
+sentinel_weekly_age_2000_35.csv
+sentinel_weekly_age_2000_36.csv
+sentinel_weekly_age_2000_37.csv
+sentinel_weekly_age_2000_38.csv
+sentinel_weekly_age_2000_39.csv
+sentinel_weekly_age_2000_40.csv
+sentinel_weekly_age_2000_41.csv
+sentinel_weekly_age_2000_42.csv
+sentinel_weekly_age_2000_43.csv
+sentinel_weekly_age_2000_44.csv
+sentinel_weekly_age_2000_45.csv
+sentinel_weekly_age_2000_46.csv
+sentinel_weekly_age_2000_47.csv
+sentinel_weekly_age_2000_48.csv
+sentinel_weekly_age_2000_49.csv
+sentinel_weekly_age_2000_50.csv
+... 他150件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 27}</strong> (314件)</summary>
+
+```text
+sentinel_weekly_health_center_2008_01.csv
+sentinel_weekly_health_center_2008_02.csv
+sentinel_weekly_health_center_2008_03.csv
+sentinel_weekly_health_center_2008_04.csv
+sentinel_weekly_health_center_2008_05.csv
+sentinel_weekly_health_center_2008_06.csv
+sentinel_weekly_health_center_2008_07.csv
+sentinel_weekly_health_center_2008_08.csv
+sentinel_weekly_health_center_2008_09.csv
+sentinel_weekly_health_center_2008_10.csv
+sentinel_weekly_health_center_2008_11.csv
+sentinel_weekly_health_center_2008_12.csv
+sentinel_weekly_health_center_2008_13.csv
+sentinel_weekly_health_center_2008_14.csv
+sentinel_weekly_health_center_2008_15.csv
+sentinel_weekly_health_center_2008_16.csv
+sentinel_weekly_health_center_2008_17.csv
+sentinel_weekly_health_center_2008_18.csv
+sentinel_weekly_health_center_2008_19.csv
+sentinel_weekly_health_center_2008_20.csv
+sentinel_weekly_health_center_2008_21.csv
+sentinel_weekly_health_center_2008_22.csv
+sentinel_weekly_health_center_2008_23.csv
+sentinel_weekly_health_center_2008_24.csv
+sentinel_weekly_health_center_2008_25.csv
+sentinel_weekly_health_center_2008_26.csv
+sentinel_weekly_health_center_2008_27.csv
+sentinel_weekly_health_center_2008_28.csv
+sentinel_weekly_health_center_2008_29.csv
+sentinel_weekly_health_center_2008_30.csv
+sentinel_weekly_health_center_2008_31.csv
+sentinel_weekly_health_center_2008_32.csv
+sentinel_weekly_health_center_2008_33.csv
+sentinel_weekly_health_center_2008_34.csv
+sentinel_weekly_health_center_2008_35.csv
+sentinel_weekly_health_center_2008_36.csv
+sentinel_weekly_health_center_2008_37.csv
+sentinel_weekly_health_center_2008_38.csv
+sentinel_weekly_health_center_2008_39.csv
+sentinel_weekly_health_center_2008_40.csv
+sentinel_weekly_health_center_2008_41.csv
+sentinel_weekly_health_center_2008_42.csv
+sentinel_weekly_health_center_2008_43.csv
+sentinel_weekly_health_center_2008_44.csv
+sentinel_weekly_health_center_2008_45.csv
+sentinel_weekly_health_center_2008_46.csv
+sentinel_weekly_health_center_2008_47.csv
+sentinel_weekly_health_center_2008_48.csv
+sentinel_weekly_health_center_2008_49.csv
+sentinel_weekly_health_center_2008_50.csv
+... 他264件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 28}</strong> (848件)</summary>
+
+```text
+sentinel_weekly_health_center_2011_01.csv
+sentinel_weekly_health_center_2011_02.csv
+sentinel_weekly_health_center_2011_03.csv
+sentinel_weekly_health_center_2011_04.csv
+sentinel_weekly_health_center_2011_05.csv
+sentinel_weekly_health_center_2011_06.csv
+sentinel_weekly_health_center_2011_07.csv
+sentinel_weekly_health_center_2011_08.csv
+sentinel_weekly_health_center_2011_09.csv
+sentinel_weekly_health_center_2011_10.csv
+sentinel_weekly_health_center_2011_11.csv
+sentinel_weekly_health_center_2011_12.csv
+sentinel_weekly_health_center_2011_13.csv
+sentinel_weekly_health_center_2011_14.csv
+sentinel_weekly_health_center_2011_15.csv
+sentinel_weekly_health_center_2011_16.csv
+sentinel_weekly_health_center_2011_17.csv
+sentinel_weekly_health_center_2011_18.csv
+sentinel_weekly_health_center_2011_19.csv
+sentinel_weekly_health_center_2011_20.csv
+sentinel_weekly_health_center_2011_21.csv
+sentinel_weekly_health_center_2011_22.csv
+sentinel_weekly_health_center_2011_23.csv
+sentinel_weekly_health_center_2011_24.csv
+sentinel_weekly_health_center_2011_25.csv
+sentinel_weekly_health_center_2011_26.csv
+sentinel_weekly_health_center_2011_27.csv
+sentinel_weekly_health_center_2011_28.csv
+sentinel_weekly_health_center_2011_29.csv
+sentinel_weekly_health_center_2011_30.csv
+sentinel_weekly_health_center_2011_31.csv
+sentinel_weekly_health_center_2011_32.csv
+sentinel_weekly_health_center_2011_33.csv
+sentinel_weekly_health_center_2011_34.csv
+sentinel_weekly_health_center_2011_35.csv
+sentinel_weekly_health_center_2011_36.csv
+sentinel_weekly_health_center_2011_37.csv
+sentinel_weekly_health_center_2011_38.csv
+sentinel_weekly_health_center_2011_39.csv
+sentinel_weekly_health_center_2011_40.csv
+sentinel_weekly_health_center_2011_41.csv
+sentinel_weekly_health_center_2011_42.csv
+sentinel_weekly_health_center_2011_43.csv
+sentinel_weekly_health_center_2011_44.csv
+sentinel_weekly_health_center_2011_45.csv
+sentinel_weekly_health_center_2011_46.csv
+sentinel_weekly_health_center_2011_47.csv
+sentinel_weekly_health_center_2011_48.csv
+sentinel_weekly_health_center_2011_49.csv
+sentinel_weekly_health_center_2011_50.csv
+... 他798件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 29}</strong> (904件)</summary>
+
+```text
+sentinel_weekly_age_2011_01.csv
+sentinel_weekly_age_2011_02.csv
+sentinel_weekly_age_2011_03.csv
+sentinel_weekly_age_2011_04.csv
+sentinel_weekly_age_2011_05.csv
+sentinel_weekly_age_2011_06.csv
+sentinel_weekly_age_2011_07.csv
+sentinel_weekly_age_2011_08.csv
+sentinel_weekly_age_2011_09.csv
+sentinel_weekly_age_2011_10.csv
+sentinel_weekly_age_2011_11.csv
+sentinel_weekly_age_2011_12.csv
+sentinel_weekly_age_2011_13.csv
+sentinel_weekly_age_2011_14.csv
+sentinel_weekly_age_2011_15.csv
+sentinel_weekly_age_2011_16.csv
+sentinel_weekly_age_2011_17.csv
+sentinel_weekly_age_2011_18.csv
+sentinel_weekly_age_2011_19.csv
+sentinel_weekly_age_2011_20.csv
+sentinel_weekly_age_2011_21.csv
+sentinel_weekly_age_2011_22.csv
+sentinel_weekly_age_2011_23.csv
+sentinel_weekly_age_2011_24.csv
+sentinel_weekly_age_2011_25.csv
+sentinel_weekly_age_2011_26.csv
+sentinel_weekly_age_2011_27.csv
+sentinel_weekly_age_2011_28.csv
+sentinel_weekly_age_2011_29.csv
+sentinel_weekly_age_2011_30.csv
+sentinel_weekly_age_2011_31.csv
+sentinel_weekly_age_2011_32.csv
+sentinel_weekly_age_2011_33.csv
+sentinel_weekly_age_2011_34.csv
+sentinel_weekly_age_2011_35.csv
+sentinel_weekly_age_2011_36.csv
+sentinel_weekly_age_2011_37.csv
+sentinel_weekly_age_2011_38.csv
+sentinel_weekly_age_2011_39.csv
+sentinel_weekly_age_2011_40.csv
+sentinel_weekly_age_2011_41.csv
+sentinel_weekly_age_2011_42.csv
+sentinel_weekly_age_2011_43.csv
+sentinel_weekly_age_2011_44.csv
+sentinel_weekly_age_2011_45.csv
+sentinel_weekly_age_2011_46.csv
+sentinel_weekly_age_2011_47.csv
+sentinel_weekly_age_2011_48.csv
+sentinel_weekly_age_2011_49.csv
+sentinel_weekly_age_2011_50.csv
+... 他854件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 30}</strong> (834件)</summary>
+
+```text
+sentinel_weekly_age_2013_42.csv
+sentinel_weekly_age_2013_43.csv
+sentinel_weekly_age_2013_44.csv
+sentinel_weekly_age_2013_45.csv
+sentinel_weekly_age_2013_46.csv
+sentinel_weekly_age_2013_47.csv
+sentinel_weekly_age_2013_48.csv
+sentinel_weekly_age_2013_49.csv
+sentinel_weekly_age_2013_50.csv
+sentinel_weekly_age_2013_51.csv
+sentinel_weekly_age_2013_52.csv
+sentinel_weekly_age_2014_01.csv
+sentinel_weekly_age_2014_02.csv
+sentinel_weekly_age_2014_03.csv
+sentinel_weekly_age_2014_04.csv
+sentinel_weekly_age_2014_05.csv
+sentinel_weekly_age_2014_06.csv
+sentinel_weekly_age_2014_07.csv
+sentinel_weekly_age_2014_08.csv
+sentinel_weekly_age_2014_09.csv
+sentinel_weekly_age_2014_10.csv
+sentinel_weekly_age_2014_11.csv
+sentinel_weekly_age_2014_12.csv
+sentinel_weekly_age_2014_13.csv
+sentinel_weekly_age_2014_14.csv
+sentinel_weekly_age_2014_15.csv
+sentinel_weekly_age_2014_16.csv
+sentinel_weekly_age_2014_17.csv
+sentinel_weekly_age_2014_18.csv
+sentinel_weekly_age_2014_19.csv
+sentinel_weekly_age_2014_20.csv
+sentinel_weekly_age_2014_21.csv
+sentinel_weekly_age_2014_22.csv
+sentinel_weekly_age_2014_23.csv
+sentinel_weekly_age_2014_24.csv
+sentinel_weekly_age_2014_25.csv
+sentinel_weekly_age_2014_26.csv
+sentinel_weekly_age_2014_27.csv
+sentinel_weekly_age_2014_28.csv
+sentinel_weekly_age_2014_29.csv
+sentinel_weekly_age_2014_30.csv
+sentinel_weekly_age_2014_31.csv
+sentinel_weekly_age_2014_32.csv
+sentinel_weekly_age_2014_33.csv
+sentinel_weekly_age_2014_34.csv
+sentinel_weekly_age_2014_35.csv
+sentinel_weekly_age_2014_36.csv
+sentinel_weekly_age_2014_37.csv
+sentinel_weekly_age_2014_38.csv
+sentinel_weekly_age_2014_39.csv
+... 他784件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 31}</strong> (387件)</summary>
+
+```text
+sentinel_weekly_health_center_2000_01.csv
+sentinel_weekly_health_center_2000_02.csv
+sentinel_weekly_health_center_2000_03.csv
+sentinel_weekly_health_center_2000_04.csv
+sentinel_weekly_health_center_2000_05.csv
+sentinel_weekly_health_center_2000_06.csv
+sentinel_weekly_health_center_2000_07.csv
+sentinel_weekly_health_center_2000_08.csv
+sentinel_weekly_health_center_2000_09.csv
+sentinel_weekly_health_center_2000_10.csv
+sentinel_weekly_health_center_2000_11.csv
+sentinel_weekly_health_center_2000_12.csv
+sentinel_weekly_health_center_2000_13.csv
+sentinel_weekly_health_center_2000_14.csv
+sentinel_weekly_health_center_2000_15.csv
+sentinel_weekly_health_center_2000_16.csv
+sentinel_weekly_health_center_2000_17.csv
+sentinel_weekly_health_center_2000_18.csv
+sentinel_weekly_health_center_2000_19.csv
+sentinel_weekly_health_center_2000_20.csv
+sentinel_weekly_health_center_2000_21.csv
+sentinel_weekly_health_center_2000_22.csv
+sentinel_weekly_health_center_2000_23.csv
+sentinel_weekly_health_center_2000_24.csv
+sentinel_weekly_health_center_2000_25.csv
+sentinel_weekly_health_center_2000_26.csv
+sentinel_weekly_health_center_2000_27.csv
+sentinel_weekly_health_center_2000_28.csv
+sentinel_weekly_health_center_2000_29.csv
+sentinel_weekly_health_center_2000_30.csv
+sentinel_weekly_health_center_2000_31.csv
+sentinel_weekly_health_center_2000_32.csv
+sentinel_weekly_health_center_2000_33.csv
+sentinel_weekly_health_center_2000_34.csv
+sentinel_weekly_health_center_2000_35.csv
+sentinel_weekly_health_center_2000_36.csv
+sentinel_weekly_health_center_2000_37.csv
+sentinel_weekly_health_center_2000_38.csv
+sentinel_weekly_health_center_2000_39.csv
+sentinel_weekly_health_center_2000_40.csv
+sentinel_weekly_health_center_2000_41.csv
+sentinel_weekly_health_center_2000_42.csv
+sentinel_weekly_health_center_2000_43.csv
+sentinel_weekly_health_center_2000_44.csv
+sentinel_weekly_health_center_2000_45.csv
+sentinel_weekly_health_center_2000_46.csv
+sentinel_weekly_health_center_2000_47.csv
+sentinel_weekly_health_center_2000_48.csv
+sentinel_weekly_health_center_2000_49.csv
+sentinel_weekly_health_center_2000_50.csv
+... 他337件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 32}</strong> (72件)</summary>
+
+```text
+sentinel_weekly_health_center_2025_15.csv
+sentinel_weekly_health_center_2025_16.csv
+sentinel_weekly_health_center_2025_17.csv
+sentinel_weekly_health_center_2025_18.csv
+sentinel_weekly_health_center_2025_19.csv
+sentinel_weekly_health_center_2025_20.csv
+sentinel_weekly_health_center_2025_21.csv
+sentinel_weekly_health_center_2025_22.csv
+sentinel_weekly_health_center_2025_23.csv
+sentinel_weekly_health_center_2025_24.csv
+sentinel_weekly_health_center_2025_25.csv
+sentinel_weekly_health_center_2025_26.csv
+sentinel_weekly_health_center_2025_27.csv
+sentinel_weekly_health_center_2025_28.csv
+sentinel_weekly_health_center_2025_29.csv
+sentinel_weekly_health_center_2025_30.csv
+sentinel_weekly_health_center_2025_31.csv
+sentinel_weekly_health_center_2025_32.csv
+sentinel_weekly_health_center_2025_33.csv
+sentinel_weekly_health_center_2025_34.csv
+sentinel_weekly_health_center_2025_35.csv
+sentinel_weekly_health_center_2025_36.csv
+sentinel_weekly_health_center_2025_37.csv
+sentinel_weekly_health_center_2025_38.csv
+sentinel_weekly_health_center_2025_39.csv
+sentinel_weekly_health_center_2025_40.csv
+sentinel_weekly_health_center_2025_41.csv
+sentinel_weekly_health_center_2025_42.csv
+sentinel_weekly_health_center_2025_43.csv
+sentinel_weekly_health_center_2025_44.csv
+sentinel_weekly_health_center_2025_45.csv
+sentinel_weekly_health_center_2025_46.csv
+sentinel_weekly_health_center_2025_47.csv
+sentinel_weekly_health_center_2025_48.csv
+sentinel_weekly_health_center_2025_49.csv
+sentinel_weekly_health_center_2025_50.csv
+sentinel_weekly_medical_district_2025_15.csv
+sentinel_weekly_medical_district_2025_16.csv
+sentinel_weekly_medical_district_2025_17.csv
+sentinel_weekly_medical_district_2025_18.csv
+sentinel_weekly_medical_district_2025_19.csv
+sentinel_weekly_medical_district_2025_20.csv
+sentinel_weekly_medical_district_2025_21.csv
+sentinel_weekly_medical_district_2025_22.csv
+sentinel_weekly_medical_district_2025_23.csv
+sentinel_weekly_medical_district_2025_24.csv
+sentinel_weekly_medical_district_2025_25.csv
+sentinel_weekly_medical_district_2025_26.csv
+sentinel_weekly_medical_district_2025_27.csv
+sentinel_weekly_medical_district_2025_28.csv
+... 他22件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 34}</strong> (80件)</summary>
+
+```text
+sentinel_weekly_age_2023_39.csv
+sentinel_weekly_age_2023_40.csv
+sentinel_weekly_age_2023_41.csv
+sentinel_weekly_age_2023_42.csv
+sentinel_weekly_age_2023_43.csv
+sentinel_weekly_age_2023_44.csv
+sentinel_weekly_age_2023_45.csv
+sentinel_weekly_age_2023_46.csv
+sentinel_weekly_age_2023_47.csv
+sentinel_weekly_age_2023_48.csv
+sentinel_weekly_age_2023_49.csv
+sentinel_weekly_age_2023_50.csv
+sentinel_weekly_age_2023_51.csv
+sentinel_weekly_age_2023_52.csv
+sentinel_weekly_age_2024_01.csv
+sentinel_weekly_age_2024_02.csv
+sentinel_weekly_age_2024_03.csv
+sentinel_weekly_age_2024_04.csv
+sentinel_weekly_age_2024_05.csv
+sentinel_weekly_age_2024_06.csv
+sentinel_weekly_age_2024_07.csv
+sentinel_weekly_age_2024_08.csv
+sentinel_weekly_age_2024_09.csv
+sentinel_weekly_age_2024_10.csv
+sentinel_weekly_age_2024_11.csv
+sentinel_weekly_age_2024_12.csv
+sentinel_weekly_age_2024_13.csv
+sentinel_weekly_age_2024_14.csv
+sentinel_weekly_age_2024_15.csv
+sentinel_weekly_age_2024_16.csv
+sentinel_weekly_age_2024_17.csv
+sentinel_weekly_age_2024_18.csv
+sentinel_weekly_age_2024_19.csv
+sentinel_weekly_age_2024_20.csv
+sentinel_weekly_age_2024_21.csv
+sentinel_weekly_age_2024_22.csv
+sentinel_weekly_age_2024_23.csv
+sentinel_weekly_age_2024_24.csv
+sentinel_weekly_age_2024_25.csv
+sentinel_weekly_age_2024_26.csv
+sentinel_weekly_age_2024_27.csv
+sentinel_weekly_age_2024_28.csv
+sentinel_weekly_age_2024_29.csv
+sentinel_weekly_age_2024_30.csv
+sentinel_weekly_age_2024_31.csv
+sentinel_weekly_age_2024_32.csv
+sentinel_weekly_age_2024_33.csv
+sentinel_weekly_age_2024_34.csv
+sentinel_weekly_age_2024_35.csv
+sentinel_weekly_age_2024_36.csv
+... 他30件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 35}</strong> (36件)</summary>
+
+```text
+sentinel_weekly_age_2025_15.csv
+sentinel_weekly_age_2025_16.csv
+sentinel_weekly_age_2025_17.csv
+sentinel_weekly_age_2025_18.csv
+sentinel_weekly_age_2025_19.csv
+sentinel_weekly_age_2025_20.csv
+sentinel_weekly_age_2025_21.csv
+sentinel_weekly_age_2025_22.csv
+sentinel_weekly_age_2025_23.csv
+sentinel_weekly_age_2025_24.csv
+sentinel_weekly_age_2025_25.csv
+sentinel_weekly_age_2025_26.csv
+sentinel_weekly_age_2025_27.csv
+sentinel_weekly_age_2025_28.csv
+sentinel_weekly_age_2025_29.csv
+sentinel_weekly_age_2025_30.csv
+sentinel_weekly_age_2025_31.csv
+sentinel_weekly_age_2025_32.csv
+sentinel_weekly_age_2025_33.csv
+sentinel_weekly_age_2025_34.csv
+sentinel_weekly_age_2025_35.csv
+sentinel_weekly_age_2025_36.csv
+sentinel_weekly_age_2025_37.csv
+sentinel_weekly_age_2025_38.csv
+sentinel_weekly_age_2025_39.csv
+sentinel_weekly_age_2025_40.csv
+sentinel_weekly_age_2025_41.csv
+sentinel_weekly_age_2025_42.csv
+sentinel_weekly_age_2025_43.csv
+sentinel_weekly_age_2025_44.csv
+sentinel_weekly_age_2025_45.csv
+sentinel_weekly_age_2025_46.csv
+sentinel_weekly_age_2025_47.csv
+sentinel_weekly_age_2025_48.csv
+sentinel_weekly_age_2025_49.csv
+sentinel_weekly_age_2025_50.csv
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 5}</strong> (1649件)</summary>
+
+```text
+sentinel_monthly_gender_2000_04.csv
+sentinel_monthly_gender_2000_05.csv
+sentinel_monthly_gender_2000_06.csv
+sentinel_monthly_gender_2000_07.csv
+sentinel_monthly_gender_2000_08.csv
+sentinel_monthly_gender_2000_09.csv
+sentinel_monthly_gender_2000_10.csv
+sentinel_monthly_gender_2000_11.csv
+sentinel_monthly_gender_2000_12.csv
+sentinel_monthly_gender_2001_01.csv
+sentinel_monthly_gender_2001_02.csv
+sentinel_monthly_gender_2001_03.csv
+sentinel_monthly_gender_2001_04.csv
+sentinel_monthly_gender_2001_05.csv
+sentinel_monthly_gender_2001_06.csv
+sentinel_monthly_gender_2001_07.csv
+sentinel_monthly_gender_2001_08.csv
+sentinel_monthly_gender_2001_09.csv
+sentinel_monthly_gender_2001_10.csv
+sentinel_monthly_gender_2001_11.csv
+sentinel_monthly_gender_2001_12.csv
+sentinel_monthly_gender_2002_01.csv
+sentinel_monthly_gender_2002_02.csv
+sentinel_monthly_gender_2002_03.csv
+sentinel_monthly_gender_2002_04.csv
+sentinel_monthly_gender_2002_05.csv
+sentinel_monthly_gender_2002_06.csv
+sentinel_monthly_gender_2002_07.csv
+sentinel_monthly_gender_2002_08.csv
+sentinel_monthly_gender_2002_09.csv
+sentinel_monthly_gender_2002_10.csv
+sentinel_monthly_gender_2002_11.csv
+sentinel_monthly_gender_2002_12.csv
+sentinel_monthly_gender_2003_01.csv
+sentinel_monthly_gender_2003_02.csv
+sentinel_monthly_gender_2003_03.csv
+sentinel_monthly_gender_2003_04.csv
+sentinel_monthly_gender_2003_05.csv
+sentinel_monthly_gender_2003_06.csv
+sentinel_monthly_gender_2003_07.csv
+sentinel_monthly_gender_2003_08.csv
+sentinel_monthly_gender_2003_09.csv
+sentinel_monthly_gender_2003_10.csv
+sentinel_monthly_gender_2003_11.csv
+sentinel_monthly_gender_2003_12.csv
+sentinel_monthly_gender_2004_01.csv
+sentinel_monthly_gender_2004_02.csv
+sentinel_monthly_gender_2004_03.csv
+sentinel_monthly_gender_2004_04.csv
+sentinel_monthly_gender_2004_05.csv
+... 他1599件
+```
+
+</details>
+
+<details>
+<summary><strong>[csv_format] Inconsistent column count: {0, 1, 2}</strong> (1354件)</summary>
+
+```text
+notifiable_weekly_2000_01.csv
+notifiable_weekly_2000_02.csv
+notifiable_weekly_2000_03.csv
+notifiable_weekly_2000_04.csv
+notifiable_weekly_2000_05.csv
+notifiable_weekly_2000_06.csv
+notifiable_weekly_2000_07.csv
+notifiable_weekly_2000_08.csv
+notifiable_weekly_2000_09.csv
+notifiable_weekly_2000_10.csv
+notifiable_weekly_2000_11.csv
+notifiable_weekly_2000_12.csv
+notifiable_weekly_2000_13.csv
+notifiable_weekly_2000_14.csv
+notifiable_weekly_2000_15.csv
+notifiable_weekly_2000_16.csv
+notifiable_weekly_2000_17.csv
+notifiable_weekly_2000_18.csv
+notifiable_weekly_2000_19.csv
+notifiable_weekly_2000_20.csv
+notifiable_weekly_2000_21.csv
+notifiable_weekly_2000_22.csv
+notifiable_weekly_2000_23.csv
+notifiable_weekly_2000_24.csv
+notifiable_weekly_2000_25.csv
+notifiable_weekly_2000_26.csv
+notifiable_weekly_2000_27.csv
+notifiable_weekly_2000_28.csv
+notifiable_weekly_2000_29.csv
+notifiable_weekly_2000_30.csv
+notifiable_weekly_2000_31.csv
+notifiable_weekly_2000_32.csv
+notifiable_weekly_2000_33.csv
+notifiable_weekly_2000_34.csv
+notifiable_weekly_2000_35.csv
+notifiable_weekly_2000_36.csv
+notifiable_weekly_2000_37.csv
+notifiable_weekly_2000_38.csv
+notifiable_weekly_2000_39.csv
+notifiable_weekly_2000_40.csv
+notifiable_weekly_2000_41.csv
+notifiable_weekly_2000_42.csv
+notifiable_weekly_2000_43.csv
+notifiable_weekly_2000_44.csv
+notifiable_weekly_2000_45.csv
+notifiable_weekly_2000_46.csv
+notifiable_weekly_2000_47.csv
+notifiable_weekly_2000_48.csv
+notifiable_weekly_2000_49.csv
+notifiable_weekly_2000_50.csv
+... 他1304件
+```
+
+</details>
+
+<!-- end data-statistics -->
+
 ## 📋 主な機能
 
 - 🔄 **自動収集**: GitHub Actionsによる2種類の自動実行
@@ -43,7 +1119,7 @@
 
 ### データディレクトリ構造
 
-```text
+````text
 data/
 ├── raw/                                        # 生データ（Shift_JIS エンコーディング）
 │   ├── .metadata/                             # メタデータ保存用
@@ -64,7 +1140,7 @@ data/
 │   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv # 定点・医療圏・女性（UTF-8）
 │   └── normalized_sentinel_weekly_gender_2000_01.csv         # 定点・性別（UTF-8、性別列形式のため分割なし）
 └── logs/                                       # ログファイル
-```
+```text
 
 ### ファイル命名規則
 
@@ -115,15 +1191,15 @@ data/
 - 他のデータタイプ（`age`, `health_center` 等）: 元データのtotalを使用し、male + female との一致を検証
 - 検証時、定点数の列など加算が意味をなさない列は検証対象外です
 
-**年齢別データの注釈（2000年〜現在、全期間共通）:**
+**年齢別データの注釈（2000年~現在、全期間共通）:**
 
 年齢別データ（`sentinel_*_age`）には、東京都による以下の注釈があります。データ利用時はこれらに従って解釈してください。
 
-| 注釈 | 対象疾患 | 内容 |
-|------|----------|------|
-| `*急性呼吸器感染症（ARI）の「〜5ヶ月」は「0歳」、「1歳」は「1〜4歳」、「5歳」は「5〜9歳」と読み替えてください。` | 急性呼吸器感染症（ARI） | 年齢グループ化されており、該当しない年齢帯には`*`（非該当）が入る |
-| `*小児科定点把握対象疾患のうち「20-29歳」は「20歳以上」と読み替えてください。` | 小児科定点把握対象疾患 | 20歳以上は単一グループとして報告 |
-| `*眼科疾患のうち、「70-79歳」は「70歳以上」と読み替えてください。` | 眼科疾患 | 70歳以上は単一グループとして報告 |
+| 注釈                                                                                                          | 対象疾患                | 内容                                                              |
+| ------------------------------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------- |
+| `*急性呼吸器感染症（ARI）の「~5ヶ月」は「0歳」、「1歳」は「1~4歳」、「5歳」は「5~9歳」と読み替えてください。` | 急性呼吸器感染症（ARI） | 年齢グループ化されており、該当しない年齢帯には`*`（非該当）が入る |
+| `*小児科定点把握対象疾患のうち「20-29歳」は「20歳以上」と読み替えてください。`                                | 小児科定点把握対象疾患  | 20歳以上は単一グループとして報告                                  |
+| `*眼科疾患のうち、「70-79歳」は「70歳以上」と読み替えてください。`                                            | 眼科疾患                | 70歳以上は単一グループとして報告                                  |
 
 **`*`（アスタリスク）マークについて:**
 
@@ -137,7 +1213,7 @@ data/
 
 1. **欠損値として扱う**: `*`をNaN/NAに変換し、集計から除外
 2. **該当年齢帯を参照**: 注釈に従い、グループ化された年齢帯のデータを使用
-   - 例: ARIの「2歳」データが必要な場合 → 「1歳 (=1〜4歳)」のデータを参照
+   - 例: ARIの「2歳」データが必要な場合 → 「1歳 (=1~4歳)」のデータを参照
 3. **行をフィルタリング**: `*`を含む行を除外して分析
 
 ## 🔄 GitHub Actionsワークフロー
@@ -204,7 +1280,7 @@ data/
 # フォークまたはクローン
 git clone https://github.com/kambarakun/fetch-tokyo-idsc-github-actions.git
 cd fetch-tokyo-idsc-github-actions
-```
+```text
 
 上記の**GitHub Actions権限設定**を行った後、自動実行ワークフローが動作を開始します。
 
@@ -228,7 +1304,7 @@ uv sync
 
 # 開発用依存関係も含める場合
 uv sync --all-extras
-```
+```text
 
 #### ローカルでのデータ取得
 
@@ -236,7 +1312,7 @@ uv sync --all-extras
 # 最新データのみ取得
 uv run python scripts/fetch_data.py
 
-# 指定期間のデータ取得（例: 2000年〜2025年）
+# 指定期間のデータ取得（例: 2000年~2025年）
 uv run python scripts/fetch_data.py --start-year 2000 --end-year 2025
 
 # ドライラン（テスト実行、実際のダウンロードは行わない）
@@ -244,7 +1320,7 @@ uv run python scripts/fetch_data.py --dry-run
 
 # 欠番チェック
 uv run python scripts/check_missing.py data/raw
-```
+```text
 
 #### 開発者向けコマンド
 
@@ -263,7 +1339,7 @@ uv run pytest --cov=src --cov-report=html
 
 # 特定のテストのみ
 uv run pytest tests/test_enhanced_fetcher.py
-```
+```text
 
 ### 🛠️ 設定ファイル
 
@@ -315,7 +1391,7 @@ PR_BODY: |
 PR_LABELS:
   - data-update # データ更新PR用
   - automated # 自動生成PR用
-```
+```text
 
 カスタマイズが必要な場合は、`.github/workflows/fetch-data.yml` の該当箇所を直接編集してください。
 
@@ -376,3 +1452,4 @@ Issues や Pull Requests を歓迎します。大きな変更を行う場合は�
 ## 📧 連絡先
 
 問題や質問がある場合は、[GitHub Issues](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues) でお知らせください。
+````
