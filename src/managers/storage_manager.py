@@ -911,15 +911,11 @@ class StorageManager:
         checks["file_size"] = size_result["valid"]
         errors.extend(size_result.get("errors", []))
         warnings.extend(size_result.get("warnings", []))
-        if size_result.get("details"):
-            details.update(size_result["details"])
 
         # エンコーディングチェック
         encoding_result = self._check_encoding_validation(data)
         checks["encoding"] = encoding_result["valid"]
         errors.extend(encoding_result.get("errors", []))
-        if encoding_result.get("details"):
-            details.update(encoding_result["details"])
 
         # CSVフォーマットチェック
         # エンコーディング検証で取得したデコード済みコンテンツを再利用 (パフォーマンス最適化)
@@ -935,8 +931,6 @@ class StorageManager:
         path_result = self._check_path_safety_validation(file_path)
         checks["path_safety"] = path_result["valid"]
         errors.extend(path_result.get("errors", []))
-        if path_result.get("details"):
-            details.update(path_result["details"])
 
         # ステータスの決定
         status = "failed" if errors else "verified"
