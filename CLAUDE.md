@@ -355,20 +355,15 @@ source .venv/bin/activate
 - **uv.lockファイルは必ずコミット**（再現性の保証）
 - **GitHub Actionsでもuvを使用**（高速化と再現性）
 
-#### DependabotとuvのLockfile互換性
+#### Dependabotによる自動更新
 
-このプロジェクトでは、Dependabotによる依存関係の自動更新を使用していますが、Dependabotは`pip`エコシステムで動作するため、uvネイティブなlockfileと完全に一致しない可能性があります。
-
-**解決策**: `.github/workflows/dependabot-uv-lock.yml`ワークフロー
-
-- Dependabotが作成したPRに対して自動的に`uv lock`を実行
-- uvネイティブなlockfileを再生成してコミット
-- 既存のCI/CDワークフローの`uv lock --check`が確実に成功
+このプロジェクトでは、Dependabotによる依存関係の自動更新を使用しています。**Dependabotは2025年3月13日から`uv`をネイティブサポート**しており、`pyproject.toml`と`uv.lock`の両方を自動的に更新します。
 
 **設定ファイル**:
 
-- `.github/dependabot.yml`: Dependabotの基本設定（週次更新、バージョニング戦略、グループ化）
-- `.github/workflows/dependabot-uv-lock.yml`: uv互換性保証ワークフロー
+- `.github/dependabot.yml`: Dependabotの設定（週次更新、バージョニング戦略、グループ化）
+  - `package-ecosystem: "uv"` - uvネイティブサポートを使用
+  - セキュリティ更新は2025年12月16日から対応
 
 **バージョニング戦略**:
 
@@ -379,8 +374,8 @@ source .venv/bin/activate
 **依存関係のグループ化**:
 
 - `production`: 本番依存関係 (requests, PyYAML)
-- `testing`: テスト関連 (pytest\*, coverage)
-- `build-tools`: リンター・フォーマッター (ruff, black, isort, mypy)
+- `testing`: テスト関連 (pytest\*, pytest-cov)
+- `build-tools`: リンター・フォーマッター (ruff, black, isort, mypy, pre-commit)
 - `type-stubs`: 型定義ファイル (types-\*)
 
 ### 2.2 依存関係の管理

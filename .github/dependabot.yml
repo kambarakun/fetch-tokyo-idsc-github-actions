@@ -21,8 +21,8 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
-  # Python依存関係を更新 (uv使用)
-  - package-ecosystem: "pip"
+  # Python依存関係を更新 (uvネイティブサポート)
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -36,13 +36,11 @@ updates:
       prefix: "deps"
       include: "scope"
     open-pull-requests-limit: 5
-    # uv.lockファイルも更新対象に含める
-    # 注: 実際のlockfileはdependabot-uv-lock.ymlワークフローで再生成される
-    allow:
-      - dependency-type: "all"
     # メジャーバージョンアップを無視（破壊的変更を手動でレビュー）
     # マイナー・パッチバージョンのみ自動更新
     # セキュリティ更新は別途Dependabot Security Updatesで自動作成される
+    # 注: Dependabotはuvをネイティブサポート (2025年3月13日〜)
+    # pyproject.tomlとuv.lockの両方を自動更新
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -60,7 +58,7 @@ updates:
       testing:
         patterns:
           - "pytest*"
-          - "coverage"
+          - "pytest-cov"
       # ビルドツール関連をまとめる（リンター・フォーマッター）
       build-tools:
         patterns:
@@ -68,6 +66,7 @@ updates:
           - "black"
           - "isort"
           - "mypy"
+          - "pre-commit"
       # 型定義ファイルをまとめる
       type-stubs:
         patterns:
