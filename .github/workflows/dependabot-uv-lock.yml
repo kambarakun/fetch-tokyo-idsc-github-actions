@@ -74,5 +74,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '✅ `uv lock`によってlockfileを更新しました。CI/CDチェック (`uv lock --check`) が成功することを確認してください。'
+              body: '🔧 `uv lock`によってlockfileを更新しました。\n\nこれからCI/CDチェック (`uv lock --check`) が実行されます。結果をご確認ください。\n\n---\n💡 このコメントは`dependabot-uv-lock.yml`ワークフローにより自動投稿されました。'
             })

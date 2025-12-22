@@ -355,6 +355,34 @@ source .venv/bin/activate
 - **uv.lockファイルは必ずコミット**（再現性の保証）
 - **GitHub Actionsでもuvを使用**（高速化と再現性）
 
+#### DependabotとuvのLockfile互換性
+
+このプロジェクトでは、Dependabotによる依存関係の自動更新を使用していますが、Dependabotは`pip`エコシステムで動作するため、uvネイティブなlockfileと完全に一致しない可能性があります。
+
+**解決策**: `.github/workflows/dependabot-uv-lock.yml`ワークフロー
+
+- Dependabotが作成したPRに対して自動的に`uv lock`を実行
+- uvネイティブなlockfileを再生成してコミット
+- 既存のCI/CDワークフローの`uv lock --check`が確実に成功
+
+**設定ファイル**:
+
+- `.github/dependabot.yml`: Dependabotの基本設定（週次更新、バージョニング戦略、グループ化）
+- `.github/workflows/dependabot-uv-lock.yml`: uv互換性保証ワークフロー
+
+**バージョニング戦略**:
+
+- メジャーバージョンアップは手動レビュー（破壊的変更を防ぐ）
+- マイナー・パッチバージョンのみ自動更新
+- セキュリティ更新は別途Dependabot Security Updatesで自動作成
+
+**依存関係のグループ化**:
+
+- `production`: 本番依存関係 (requests, PyYAML)
+- `testing`: テスト関連 (pytest\*, coverage)
+- `build-tools`: リンター・フォーマッター (ruff, black, isort, mypy)
+- `type-stubs`: 型定義ファイル (types-\*)
+
 ### 2.2 依存関係の管理
 
 ```toml
