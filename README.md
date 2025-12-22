@@ -11,7 +11,7 @@
 
 <!-- start data-statistics -->
 
-## 📊 データ収集状況（自動更新）
+## 📊 データ収集状況 (自動更新)
 
 > 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
 
@@ -26,7 +26,7 @@
 
 ### 📊 感染動向の可視化
 
-> 💡 季節性ベースライン（同週/同月の過去5年平均）からの乖離率で流行を検知
+> 💡 季節性ベースライン (同週/同月の過去5年平均) からの乖離率で流行を検知
 
 #### 週次定点 (Sentinel Surveillance - Weekly)
 
@@ -105,7 +105,7 @@
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 10}</strong> (267件)</summary>
 
-```
+```text
 sentinel_monthly_age_2000_01.csv
 sentinel_monthly_age_2000_02.csv
 sentinel_monthly_age_2000_03.csv
@@ -164,7 +164,7 @@ sentinel_monthly_age_2004_02.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 11}</strong> (44件)</summary>
 
-```
+```text
 sentinel_monthly_age_2011_02.csv
 sentinel_monthly_age_2011_03.csv
 sentinel_monthly_age_2011_04.csv
@@ -216,7 +216,7 @@ sentinel_monthly_age_2014_09.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 12}</strong> (534件)</summary>
 
-```
+```text
 sentinel_monthly_health_center_2000_01.csv
 sentinel_monthly_health_center_2000_02.csv
 sentinel_monthly_health_center_2000_03.csv
@@ -275,7 +275,7 @@ sentinel_monthly_health_center_2004_02.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 13}</strong> (88件)</summary>
 
-```
+```text
 sentinel_monthly_health_center_2011_02.csv
 sentinel_monthly_health_center_2011_03.csv
 sentinel_monthly_health_center_2011_04.csv
@@ -334,7 +334,7 @@ sentinel_monthly_medical_district_2011_07.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 21}</strong> (157件)</summary>
 
-```
+```text
 sentinel_weekly_age_2008_01.csv
 sentinel_weekly_age_2008_02.csv
 sentinel_weekly_age_2008_03.csv
@@ -393,7 +393,7 @@ sentinel_weekly_age_2008_50.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 24}</strong> (217件)</summary>
 
-```
+```text
 sentinel_weekly_age_2003_45.csv
 sentinel_weekly_age_2003_46.csv
 sentinel_weekly_age_2003_47.csv
@@ -452,7 +452,7 @@ sentinel_weekly_age_2004_42.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 25}</strong> (200件)</summary>
 
-```
+```text
 sentinel_weekly_age_2000_01.csv
 sentinel_weekly_age_2000_02.csv
 sentinel_weekly_age_2000_03.csv
@@ -511,7 +511,7 @@ sentinel_weekly_age_2000_50.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 27}</strong> (314件)</summary>
 
-```
+```text
 sentinel_weekly_health_center_2008_01.csv
 sentinel_weekly_health_center_2008_02.csv
 sentinel_weekly_health_center_2008_03.csv
@@ -570,7 +570,7 @@ sentinel_weekly_health_center_2008_50.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 28}</strong> (848件)</summary>
 
-```
+```text
 sentinel_weekly_health_center_2011_01.csv
 sentinel_weekly_health_center_2011_02.csv
 sentinel_weekly_health_center_2011_03.csv
@@ -629,7 +629,7 @@ sentinel_weekly_health_center_2011_50.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 29}</strong> (904件)</summary>
 
-```
+```text
 sentinel_weekly_age_2011_01.csv
 sentinel_weekly_age_2011_02.csv
 sentinel_weekly_age_2011_03.csv
@@ -688,7 +688,7 @@ sentinel_weekly_age_2011_50.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 30}</strong> (834件)</summary>
 
-```
+```text
 sentinel_weekly_age_2013_42.csv
 sentinel_weekly_age_2013_43.csv
 sentinel_weekly_age_2013_44.csv
@@ -747,7 +747,7 @@ sentinel_weekly_age_2014_39.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 31}</strong> (387件)</summary>
 
-```
+```text
 sentinel_weekly_health_center_2000_01.csv
 sentinel_weekly_health_center_2000_02.csv
 sentinel_weekly_health_center_2000_03.csv
@@ -806,7 +806,7 @@ sentinel_weekly_health_center_2000_50.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 32}</strong> (72件)</summary>
 
-```
+```text
 sentinel_weekly_health_center_2025_15.csv
 sentinel_weekly_health_center_2025_16.csv
 sentinel_weekly_health_center_2025_17.csv
@@ -865,7 +865,7 @@ sentinel_weekly_medical_district_2025_28.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 34}</strong> (80件)</summary>
 
-```
+```text
 sentinel_weekly_age_2023_39.csv
 sentinel_weekly_age_2023_40.csv
 sentinel_weekly_age_2023_41.csv
@@ -924,7 +924,7 @@ sentinel_weekly_age_2024_36.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 35}</strong> (36件)</summary>
 
-```
+```text
 sentinel_weekly_age_2025_15.csv
 sentinel_weekly_age_2025_16.csv
 sentinel_weekly_age_2025_17.csv
@@ -968,7 +968,7 @@ sentinel_weekly_age_2025_50.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2, 5}</strong> (1649件)</summary>
 
-```
+```text
 sentinel_monthly_gender_2000_04.csv
 sentinel_monthly_gender_2000_05.csv
 sentinel_monthly_gender_2000_06.csv
@@ -1027,7 +1027,7 @@ sentinel_monthly_gender_2004_05.csv
 <details>
 <summary><strong>[csv_format] Inconsistent column count: {0, 1, 2}</strong> (1354件)</summary>
 
-```
+```text
 notifiable_weekly_2000_01.csv
 notifiable_weekly_2000_02.csv
 notifiable_weekly_2000_03.csv
@@ -1119,7 +1119,7 @@ notifiable_weekly_2000_50.csv
 
 ### データディレクトリ構造
 
-```text
+````text
 data/
 ├── raw/                                        # 生データ（Shift_JIS エンコーディング）
 │   ├── .metadata/                             # メタデータ保存用
@@ -1140,7 +1140,7 @@ data/
 │   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv # 定点・医療圏・女性（UTF-8）
 │   └── normalized_sentinel_weekly_gender_2000_01.csv         # 定点・性別（UTF-8、性別列形式のため分割なし）
 └── logs/                                       # ログファイル
-```
+```text
 
 ### ファイル命名規則
 
@@ -1280,7 +1280,7 @@ data/
 # フォークまたはクローン
 git clone https://github.com/kambarakun/fetch-tokyo-idsc-github-actions.git
 cd fetch-tokyo-idsc-github-actions
-```
+```text
 
 上記の**GitHub Actions権限設定**を行った後、自動実行ワークフローが動作を開始します。
 
@@ -1304,7 +1304,7 @@ uv sync
 
 # 開発用依存関係も含める場合
 uv sync --all-extras
-```
+```text
 
 #### ローカルでのデータ取得
 
@@ -1320,7 +1320,7 @@ uv run python scripts/fetch_data.py --dry-run
 
 # 欠番チェック
 uv run python scripts/check_missing.py data/raw
-```
+```text
 
 #### 開発者向けコマンド
 
@@ -1339,7 +1339,7 @@ uv run pytest --cov=src --cov-report=html
 
 # 特定のテストのみ
 uv run pytest tests/test_enhanced_fetcher.py
-```
+```text
 
 ### 🛠️ 設定ファイル
 
@@ -1391,7 +1391,7 @@ PR_BODY: |
 PR_LABELS:
   - data-update # データ更新PR用
   - automated # 自動生成PR用
-```
+```text
 
 カスタマイズが必要な場合は、`.github/workflows/fetch-data.yml` の該当箇所を直接編集してください。
 
@@ -1452,3 +1452,4 @@ Issues や Pull Requests を歓迎します。大きな変更を行う場合は�
 ## 📧 連絡先
 
 問題や質問がある場合は、[GitHub Issues](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues) でお知らせください。
+````

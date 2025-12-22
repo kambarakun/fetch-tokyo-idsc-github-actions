@@ -35,10 +35,14 @@ def setup_japanese_font():
     if not font_path.exists():
         print("📥 日本語フォント (Noto Sans CJK JP) をダウンロード中...")
         url = "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+        # セキュリティ: HTTPSのみ許可
+        if not url.startswith("https://"):
+            print("⚠️ セキュリティエラー: HTTPSのみ許可されています")
+            return None
         try:
             request.urlretrieve(url, font_path)
             print(f"✅ フォントをダウンロード: {font_path}")
-        except Exception as e:
+        except (OSError, ValueError) as e:
             print(f"⚠️ フォントのダウンロードに失敗: {e}")
             return None
 
@@ -57,8 +61,7 @@ def setup_japanese_font():
         plt.rcParams["axes.unicode_minus"] = False
 
         print(f"✅ 日本語フォントを設定: {font_prop.get_name()}")
-        return font_prop
-    except Exception as e:
+    except (OSError, ValueError) as e:
         print(f"⚠️ フォントの設定に失敗: {e}")
         # フォールバック: システムの日本語フォントを試す
         plt.rcParams["font.family"] = "sans-serif"
@@ -70,6 +73,8 @@ def setup_japanese_font():
         ]
         plt.rcParams["axes.unicode_minus"] = False
         return None
+    else:
+        return font_prop
 
 
 # フォント設定 (遅延評価: 初回グラフ生成時に呼び出される)
@@ -78,7 +83,7 @@ _JAPANESE_FONT = None
 
 def get_japanese_font():
     """日本語フォントを遅延初期化して取得"""
-    global _JAPANESE_FONT  # noqa: PLW0603
+    global _JAPANESE_FONT
     if _JAPANESE_FONT is None:
         _JAPANESE_FONT = setup_japanese_font()
         # Seabornスタイル設定もここで実行
@@ -444,7 +449,7 @@ def calculate_deviation_rate(
     return deviation_rates
 
 
-def generate_absolute_chart(  # noqa: PLR0915
+def generate_absolute_chart(
     data: dict[str, dict[int, float]],
     output_path: Path,
     title: str,
@@ -469,7 +474,7 @@ def generate_absolute_chart(  # noqa: PLR0915
         return
 
     # 日本語フォントを初期化 (遅延評価)
-    JAPANESE_FONT = get_japanese_font()  # noqa: N806
+    JAPANESE_FONT = get_japanese_font()
 
     # 最新期間のトップN疾患を選択
     latest_period = max(max(periods.keys()) for periods in data.values() if periods)
@@ -603,7 +608,7 @@ def generate_absolute_chart(  # noqa: PLR0915
     print(f"✅ {title}グラフを生成: {output_path} (800x500px)")
 
 
-def generate_deviation_chart(  # noqa: PLR0915
+def generate_deviation_chart(
     data: dict[str, dict[int, float]],
     baseline: dict[str, dict[int, float]],
     output_path: Path,
@@ -635,7 +640,7 @@ def generate_deviation_chart(  # noqa: PLR0915
         return
 
     # 日本語フォントを初期化 (遅延評価)
-    JAPANESE_FONT = get_japanese_font()  # noqa: N806
+    JAPANESE_FONT = get_japanese_font()
 
     # 最新期間でプラス方向(流行)の乖離率が大きい疾患のトップNを選択(CDCスタイル)
     latest_period = max(max(periods.keys()) for periods in deviation_rates.values() if periods)

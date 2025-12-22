@@ -29,7 +29,7 @@ def _has_53_weeks(year: int) -> bool:
     return iso_year == year and iso_week == 53
 
 
-def get_metadata_stats() -> dict:  # noqa: PLR0915
+def get_metadata_stats() -> dict:
     """メタデータディレクトリから統計情報を取得"""
     metadata_dir = Path("data/raw/.metadata")
 
@@ -278,7 +278,7 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
             lines.append("<details>")
             lines.append(f"<summary><strong>{error_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
-            lines.append("```")
+            lines.append("```text")
             for file in sorted(files)[:50]:  # 最大50件まで表示
                 lines.append(file)
             if len(files) > 50:
@@ -296,7 +296,7 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
             lines.append("<details>")
             lines.append(f"<summary><strong>{warning_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
-            lines.append("```")
+            lines.append("```text")
             for file in sorted(files)[:50]:
                 lines.append(file)
             if len(files) > 50:
@@ -314,7 +314,7 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
             lines.append("<details>")
             lines.append(f"<summary><strong>{issue_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
-            lines.append("```")
+            lines.append("```text")
             for file in sorted(files)[:50]:
                 lines.append(file)
             if len(files) > 50:
@@ -393,7 +393,7 @@ def update_readme(stats: dict) -> bool:
 
     # 統計情報セクションを生成
     stats_section = f"""<!-- start data-statistics -->
-## 📊 データ収集状況（自動更新）
+## 📊 データ収集状況 (自動更新)
 
 > 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
 
@@ -408,7 +408,7 @@ def update_readme(stats: dict) -> bool:
 
 ### 📊 感染動向の可視化
 
-> 💡 季節性ベースライン（同週/同月の過去5年平均）からの乖離率で流行を検知
+> 💡 季節性ベースライン (同週/同月の過去5年平均) からの乖離率で流行を検知
 
 #### 週次定点 (Sentinel Surveillance - Weekly)
 
@@ -507,7 +507,7 @@ def update_readme(stats: dict) -> bool:
             f.write(new_content)
         print("✅ README.md の統計情報を更新しました")
         return True
-    print("ℹ️ README.md に変更はありません")
+    print("ℹ README.md に変更はありません")
     return False
 
 
@@ -532,7 +532,7 @@ def main():
     if updated:
         print("\n✅ 更新完了")
     else:
-        print("\n✅ 処理完了（変更なし）")
+        print("\n✅ 処理完了 (変更なし)")
 
 
 if __name__ == "__main__":
