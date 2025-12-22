@@ -15,7 +15,9 @@
 """
 
 import csv
+import hashlib
 from collections import defaultdict
+from functools import lru_cache
 from pathlib import Path
 
 import matplotlib.font_manager as fm
@@ -36,14 +38,29 @@ def setup_japanese_font():
         print("📥 日本語フォント (Noto Sans CJK JP) をダウンロード中...")
         # セキュリティ: 許可されたURLのみ使用可能
         ALLOWED_FONT_URL = "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+        # セキュリティ: 期待されるSHA256ハッシュ (フォントファイルの整合性検証用)
+        # 注: 初回実行時にダウンロードしたフォントのハッシュを確認して設定すること
+        # EXPECTED_SHA256 = "..."  # 本番環境では実際のハッシュ値を設定
 
         try:
             # タイムアウト30秒、リダイレクト禁止でセキュリティ強化
             response = requests.get(ALLOWED_FONT_URL, timeout=30, allow_redirects=False)
             response.raise_for_status()
 
+            # ダウンロードしたデータのSHA256ハッシュを計算
+            downloaded_data = response.content
+            sha256_hash = hashlib.sha256(downloaded_data).hexdigest()
+            print(f"ℹ️  ダウンロードしたフォントのSHA256: {sha256_hash}")
+
+            # 注: 本番環境では以下のハッシュ検証を有効化すること
+            # if sha256_hash != EXPECTED_SHA256:
+            #     print(f"⚠️ セキュリティエラー: フォントファイルのハッシュが一致しません")
+            #     print(f"   期待値: {EXPECTED_SHA256}")
+            #     print(f"   実際値: {sha256_hash}")
+            #     return None
+
             # ダウンロードしたデータを保存
-            font_path.write_bytes(response.content)
+            font_path.write_bytes(downloaded_data)
             print(f"✅ フォントをダウンロード: {font_path}")
         except requests.exceptions.RequestException as e:
             print(f"⚠️ フォントのダウンロードに失敗: {e}")
@@ -81,19 +98,20 @@ def setup_japanese_font():
         return font_prop
 
 
-# フォント設定 (遅延評価: 初回グラフ生成時に呼び出される)
-_JAPANESE_FONT = None
-
-
+@lru_cache(maxsize=1)
 def get_japanese_font():
-    """日本語フォントを遅延初期化して取得"""
-    global _JAPANESE_FONT
-    if _JAPANESE_FONT is None:
-        _JAPANESE_FONT = setup_japanese_font()
-        # Seabornスタイル設定もここで実行
-        sns.set_style("whitegrid")
-        sns.set_palette("husl")
-    return _JAPANESE_FONT
+    """日本語フォントを遅延初期化して取得 (@lru_cacheでキャッシュ)
+
+    @lru_cacheを使用することで、グローバル変数を使わずにキャッシュを実現。
+    テストやコンカレント実行時の問題を回避する。
+    """
+    font_prop = setup_japanese_font()
+
+    # Seabornスタイル設定もここで実行
+    sns.set_style("whitegrid")
+    sns.set_palette("husl")
+
+    return font_prop
 
 
 def read_csv_shift_jis(file_path: Path) -> list[list[str]]:
