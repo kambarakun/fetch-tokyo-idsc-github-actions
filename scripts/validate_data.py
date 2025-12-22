@@ -69,6 +69,7 @@ class DataValidator:
             "warnings": [],
             "valid": True,
         }
+        details: dict[str, Any] = {}
 
         try:
             # ファイル存在チェック
@@ -83,12 +84,16 @@ class DataValidator:
             if not size_result["valid"]:
                 result["errors"].extend(size_result.get("errors", []))
                 result["warnings"].extend(size_result.get("warnings", []))
+            if size_result.get("details"):
+                details.update(size_result["details"])
 
             # エンコーディングチェック
             encoding_result = self._check_encoding(file_path)
             result["checks"]["encoding"] = encoding_result
             if not encoding_result["valid"]:
                 result["errors"].extend(encoding_result.get("errors", []))
+            if encoding_result.get("details"):
+                details.update(encoding_result["details"])
 
             # CSVフォーマットチェック
             if file_path.suffix.lower() == ".csv":
@@ -97,12 +102,20 @@ class DataValidator:
                 if not csv_result["valid"]:
                     result["errors"].extend(csv_result.get("errors", []))
                     result["warnings"].extend(csv_result.get("warnings", []))
+                if csv_result.get("details"):
+                    details.update(csv_result["details"])
 
             # パストラバーサルチェック
             path_result = self._check_path_safety(file_path)
             result["checks"]["path_safety"] = path_result
             if not path_result["valid"]:
                 result["errors"].extend(path_result.get("errors", []))
+            if path_result.get("details"):
+                details.update(path_result["details"])
+
+            # 詳細情報がある場合のみdetailsフィールドを追加
+            if details:
+                result["details"] = details
 
             # 結果の集計
             if result["errors"]:
@@ -170,7 +183,7 @@ class DataValidator:
 
     def _check_csv_format(self, file_path: Path) -> dict[str, Any]:
         """CSVフォーマットをチェック"""
-        result = {"valid": True, "errors": [], "warnings": []}
+        result = {"valid": True, "errors": [], "warnings": [], "details": {}}
 
         try:
             with file_path.open("r", encoding=EXPECTED_ENCODING) as f:
@@ -211,7 +224,10 @@ class DataValidator:
 
                 # カラム数の一貫性チェック
                 if len(column_counts) > 1:
-                    result["warnings"].append(f"Inconsistent column count: {column_counts}")
+                    # 警告メッセージは統一形式
+                    result["warnings"].append("Inconsistent column count")
+                    # 詳細情報はdetailsフィールドに保存 (ソート済みリスト形式)
+                    result["details"]["column_counts"] = sorted(column_counts)
 
         except csv.Error as e:
             result["errors"].append(f"CSV format error: {e!s}")
@@ -393,7 +409,7 @@ class DataValidator:
             for result in report["results"]:
                 file_name = self._escape_markdown(Path(result["file"]).name)
                 size = result.get("checks", {}).get("file_size", {}).get("size_mb", "N/A")
-                if isinstance(size, (int, float)):
+                if isinstance(size, int | float):
                     size = f"{size:.2f} MB"
                 line_count = result.get("checks", {}).get("csv_format", {}).get("line_count", "N/A")
                 status = "✅" if result["valid"] else "❌"

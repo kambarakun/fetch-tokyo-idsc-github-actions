@@ -901,17 +901,22 @@ class StorageManager:
         errors: list[str] = []
         warnings: list[str] = []
         checks: dict[str, bool] = {}
+        details: dict[str, Any] = {}
 
         # ファイルサイズチェック
         size_result = self._check_file_size_validation(data)
         checks["file_size"] = size_result["valid"]
         errors.extend(size_result.get("errors", []))
         warnings.extend(size_result.get("warnings", []))
+        if size_result.get("details"):
+            details.update(size_result["details"])
 
         # エンコーディングチェック
         encoding_result = self._check_encoding_validation(data)
         checks["encoding"] = encoding_result["valid"]
         errors.extend(encoding_result.get("errors", []))
+        if encoding_result.get("details"):
+            details.update(encoding_result["details"])
 
         # CSVフォーマットチェック
         # エンコーディング検証で取得したデコード済みコンテンツを再利用 (パフォーマンス最適化)
@@ -920,11 +925,15 @@ class StorageManager:
         checks["csv_format"] = csv_result["valid"]
         errors.extend(csv_result.get("errors", []))
         warnings.extend(csv_result.get("warnings", []))
+        if csv_result.get("details"):
+            details.update(csv_result["details"])
 
         # パス安全性チェック
         path_result = self._check_path_safety_validation(file_path)
         checks["path_safety"] = path_result["valid"]
         errors.extend(path_result.get("errors", []))
+        if path_result.get("details"):
+            details.update(path_result["details"])
 
         # ステータスの決定
         status = "failed" if errors else "verified"
@@ -933,7 +942,7 @@ class StorageManager:
         errors = self._truncate_messages(errors, MAX_ERROR_COUNT)
         warnings = self._truncate_messages(warnings, MAX_WARNING_COUNT)
 
-        return {
+        result = {
             "status": status,
             "verified_at": datetime.now(UTC).isoformat(),
             "method": "automated",
@@ -941,6 +950,12 @@ class StorageManager:
             "errors": errors,
             "warnings": warnings,
         }
+
+        # 詳細情報がある場合のみdetailsフィールドを追加
+        if details:
+            result["details"] = details
+
+        return result
 
     def validate_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
         """ファイルを検証し、検証結果を返す (公開API).
@@ -1029,9 +1044,9 @@ class StorageManager:
                              指定された場合はこれを使用し、再デコードを回避する。
 
         Returns:
-            検証結果の辞書
+            検証結果の辞書 (警告メッセージは統一形式、詳細情報はdetailsフィールドに保存)
         """
-        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": [], "details": {}}
 
         try:
             # デコード済みコンテンツがあれば再利用、なければフォールバックでデコード
@@ -1077,7 +1092,10 @@ class StorageManager:
 
             # カラム数の一貫性チェック
             if len(column_counts) > 1:
-                result["warnings"].append(f"[csv_format] Inconsistent column count: {column_counts}")
+                # 警告メッセージは統一形式
+                result["warnings"].append("[csv_format] Inconsistent column count")
+                # 詳細情報はdetailsフィールドに保存 (ソート済みリスト形式)
+                result["details"]["column_counts"] = sorted(column_counts)
 
         except csv.Error as e:
             result["errors"].append(f"[csv_format] CSV format error: {e!s}")

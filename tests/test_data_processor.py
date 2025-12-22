@@ -354,8 +354,8 @@ class TestDataProcessor(unittest.TestCase):
         with metadata_file.open("r", encoding="utf-8") as f:
             meta = json.load(f)
 
-        # v1.2.0形式の検証
-        self.assertEqual(meta["metadata_version"], "1.2.0")
+        # v1.3.0形式の検証
+        self.assertEqual(meta["metadata_version"], "1.3.0")
         self.assertEqual(meta["profile"], "tokyo-idsc-processed")
         self.assertEqual(meta["filename"], "normalized_notifiable_weekly_2025_01.csv")
         self.assertEqual(meta["encoding"], "utf-8")

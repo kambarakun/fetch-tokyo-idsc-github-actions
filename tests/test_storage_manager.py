@@ -336,7 +336,7 @@ class TestStorageManager(unittest.TestCase):
         # v1.1+形式: force_overwriteは_fetch内にネストされる
         self.assertEqual(metadata["_fetch"]["force_overwrite"], True)
         # メタデータバージョンを確認
-        self.assertEqual(metadata["metadata_version"], "1.2.0")
+        self.assertEqual(metadata["metadata_version"], "1.3.0")
 
     def test_force_overwrite_updates_hash_index(self):
         """force_overwriteでハッシュインデックスが更新されることのテスト"""
@@ -1032,8 +1032,8 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertTrue(result.success)
         metadata = self.storage.get_metadata(result.file_path)
         self.assertIsNotNone(metadata)
-        # v1.2.0形式
-        self.assertEqual(metadata.get("metadata_version"), "1.2.0")
+        # v1.3.0形式
+        self.assertEqual(metadata.get("metadata_version"), "1.3.0")
 
     def test_created_at_and_updated_at_set_on_new_file(self):
         """新規ファイル作成時にcreated_atとupdated_atが設定されることを確認"""

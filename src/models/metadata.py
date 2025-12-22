@@ -16,7 +16,7 @@ from typing import Any, Literal, TypedDict, cast
 logger = logging.getLogger(__name__)
 
 # メタデータスキーマバージョン (Semantic Versioning)
-METADATA_VERSION = "1.2.0"
+METADATA_VERSION = "1.3.0"
 
 # プロファイル定義
 PROFILE_RAW = "tokyo-idsc-raw"

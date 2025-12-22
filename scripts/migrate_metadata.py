@@ -619,6 +619,78 @@ def migrate_v1_1_0_to_v1_2_0(metadata: dict, data_file: Path | None) -> tuple[di
     return migrated, changes
 
 
+@migration_registry.register(from_version="1.2.0", to_version="1.3.0")
+def migrate_v1_2_0_to_v1_3_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+    """v1.2.0 から v1.3.0 へのマイグレーション.
+
+    変換内容:
+    - metadata_version: "1.2.0" -> "1.3.0"
+    - verification.warnings: 警告メッセージを統一形式に変換
+    - verification.details: カラム数情報を構造化して保存
+
+    Args:
+        metadata: マイグレーション対象のメタデータ辞書
+        data_file: 対応するCSVファイルのパス (未使用)
+
+    Returns:
+        (マイグレーション後のメタデータ, 変更リスト)
+    """
+    import re
+
+    migrated = metadata.copy()
+    changes = []
+
+    # バージョン更新
+    if migrated.get("metadata_version") != "1.3.0":
+        migrated["metadata_version"] = "1.3.0"
+        changes.append("metadata_version: 1.2.0 -> 1.3.0")
+
+    # verification.warnings の変換
+    verification = migrated.get("verification")
+    if verification and isinstance(verification, dict):
+        warnings = verification.get("warnings", [])
+        if warnings and isinstance(warnings, list):
+            new_warnings = []
+            details = verification.get("details", {})
+            warnings_updated = False
+
+            # 警告メッセージのパターン: "[csv_format] Inconsistent column count: {0, 1, 2, 10}"
+            pattern = re.compile(r"\[csv_format\] Inconsistent column count: \{(.+?)\}")
+
+            for warning in warnings:
+                if not isinstance(warning, str):
+                    new_warnings.append(warning)
+                    continue
+
+                match = pattern.match(warning)
+                if match:
+                    # 統一メッセージに変換
+                    new_warnings.append("[csv_format] Inconsistent column count")
+
+                    # カラム数情報を抽出してdetailsに保存
+                    column_counts_str = match.group(1)
+                    # "0, 1, 2, 10" のような文字列をパース
+                    try:
+                        column_counts = sorted(int(x.strip()) for x in column_counts_str.split(","))
+                        details["column_counts"] = column_counts
+                        changes.append(
+                            f"verification.warnings: normalized message, " f"details.column_counts: {column_counts}"
+                        )
+                        warnings_updated = True
+                    except (ValueError, AttributeError):
+                        # パース失敗時は元のメッセージを保持
+                        new_warnings.append(warning)
+                else:
+                    new_warnings.append(warning)
+
+            if warnings_updated:
+                verification["warnings"] = new_warnings
+                if details:
+                    verification["details"] = details
+
+    return migrated, changes
+
+
 def needs_migration(metadata: dict, target_version: str = METADATA_VERSION) -> bool:
     """メタデータがマイグレーションを必要とするかチェックする.
 
