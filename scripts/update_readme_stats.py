@@ -122,16 +122,14 @@ def get_metadata_stats() -> dict:
         else "N/A"
     )
 
-    # 週次・月次を組み合わせて表示
-    date_range = f"週次: {week_range} / 月次: {month_range}"
-
     # 週数・月数をカウント (重複を除外)
     unique_weeks = len(set(weekly_data))
     unique_months = len(set(monthly_data))
 
     return {
         "total_files": len(all_files),
-        "date_range": date_range,
+        "week_range": week_range,
+        "month_range": month_range,
         "latest_fetch": latest_created.strftime("%Y-%m-%d %H:%M JST"),
         "latest_update": latest_modified.strftime("%Y-%m-%d %H:%M JST"),
         "data_types": dict(data_type_counts.most_common()),
@@ -200,8 +198,10 @@ def update_readme(stats: dict) -> bool:
 | 項目 | 値 |
 |------|-----|
 | **総データ件数** | {stats['total_files']:,}件 |
-| **データ期間** | {stats['date_range']} |
-| **収集週数** | {stats['week_count']:,}週 / 収集月数 {stats['month_count']:,}ヶ月 |
+| **週次データ期間** | {stats['week_range']} |
+| **月次データ期間** | {stats['month_range']} |
+| **収集週数** | {stats['week_count']:,}週 |
+| **収集月数** | {stats['month_count']:,}ヶ月 |
 | **データ種別数** | {len(stats['data_types'])}種類 |
 
 ### 📋 データ種別内訳
@@ -256,7 +256,8 @@ def main():
     stats = get_metadata_stats()
 
     print(f"✅ {stats['total_files']}件のメタデータを読み込みました")
-    print(f"   データ期間: {stats['date_range']}")
+    print(f"   週次: {stats['week_range']}")
+    print(f"   月次: {stats['month_range']}")
     print(f"   最終更新: {stats['latest_update']}")
 
     # README.mdを更新
