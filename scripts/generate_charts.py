@@ -421,10 +421,10 @@ def calculate_seasonal_baseline(
                     historical_values.append(periods_data[past_period])
 
             # 平均を計算 (データが3年分以上ある場合のみ)
+            # データ不足の場合はキーを設定しない (None の代わり)
             if len(historical_values) >= 3:
                 baseline_data[period] = sum(historical_values) / len(historical_values)
-            else:
-                baseline_data[period] = 0
+            # else: データ不足時はキーを設定しない
 
         baselines[disease] = baseline_data
 
@@ -451,14 +451,17 @@ def calculate_deviation_rate(
 
         rate_data = {}
         for period, value in periods_data.items():
-            baseline_value = baseline[disease].get(period, 0)
+            # ベースラインが存在しない場合 (データ不足) は乖離率を計算しない
+            if period not in baseline[disease]:
+                continue
 
-            # ベースラインが0の場合は計算しない
+            baseline_value = baseline[disease][period]
+
+            # ベースラインが0の場合は計算しない (ゼロ除算回避)
             if baseline_value > 0:
                 deviation = ((value - baseline_value) / baseline_value) * 100
                 rate_data[period] = deviation
-            else:
-                rate_data[period] = 0
+            # else: ベースラインが0の場合はキーを設定しない
 
         deviation_rates[disease] = rate_data
 
