@@ -17,10 +17,10 @@
 import csv
 from collections import defaultdict
 from pathlib import Path
-from urllib import request
 
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
+import requests
 import seaborn as sns
 
 
@@ -34,16 +34,22 @@ def setup_japanese_font():
     # フォントが存在しない場合はダウンロード
     if not font_path.exists():
         print("📥 日本語フォント (Noto Sans CJK JP) をダウンロード中...")
-        url = "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
-        # セキュリティ: HTTPSのみ許可
-        if not url.startswith("https://"):
-            print("⚠️ セキュリティエラー: HTTPSのみ許可されています")
-            return None
+        # セキュリティ: 許可されたURLのみ使用可能
+        ALLOWED_FONT_URL = "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+
         try:
-            request.urlretrieve(url, font_path)
+            # タイムアウト30秒、リダイレクト禁止でセキュリティ強化
+            response = requests.get(ALLOWED_FONT_URL, timeout=30, allow_redirects=False)
+            response.raise_for_status()
+
+            # ダウンロードしたデータを保存
+            font_path.write_bytes(response.content)
             print(f"✅ フォントをダウンロード: {font_path}")
-        except (OSError, ValueError) as e:
+        except requests.exceptions.RequestException as e:
             print(f"⚠️ フォントのダウンロードに失敗: {e}")
+            return None
+        except OSError as e:
+            print(f"⚠️ フォントの保存に失敗: {e}")
             return None
 
     # フォントを登録してFontPropertiesオブジェクトを返す

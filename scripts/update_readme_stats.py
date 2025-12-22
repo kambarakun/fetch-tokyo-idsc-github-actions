@@ -55,6 +55,8 @@ def get_metadata_stats() -> dict:
     data_type_periods: dict[str, list[tuple[int, int]]] = {}
     # 異常情報を収集
     anomalies: dict[str, dict[str, list[str]]] = {"errors": {}, "warnings": {}, "quality_issues": {}}
+    # 失敗したファイルを追跡
+    failed_files: list[str] = []
 
     for json_file in metadata_dir.glob("*.json"):
         if json_file.name == "hash_index.json":
@@ -119,7 +121,17 @@ def get_metadata_stats() -> dict:
 
         except (json.JSONDecodeError, KeyError, OSError) as e:
             print(f"警告: {json_file.name} の読み込みに失敗: {e}")
+            failed_files.append(json_file.name)
             continue
+
+    # 失敗ファイルのサマリーを表示
+    if failed_files:
+        print(f"\n⚠️  {len(failed_files)}件のメタデータ読み込みに失敗しました")
+        if len(failed_files) > 10:
+            print("   多数のエラーが発生しています。データ品質を確認してください。")
+            print(f"   失敗ファイル (最初の10件): {', '.join(failed_files[:10])}")
+        else:
+            print(f"   失敗ファイル: {', '.join(failed_files)}")
 
     # 統計情報の集計
     if not all_files:

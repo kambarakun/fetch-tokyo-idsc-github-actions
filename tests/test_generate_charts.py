@@ -6,8 +6,11 @@ tests/test_generate_charts.py - グラフ生成機能のテスト
 - _format_period_label: 期間ラベル生成
 - calculate_seasonal_baseline: 季節性ベースライン計算
 - calculate_deviation_rate: 乖離率計算
+- parse_sentinel_weekly_gender: 定点週次・性別CSVパース
+- parse_notifiable_weekly: 全数週次CSVパース
 """
 
+import tempfile
 from pathlib import Path
 
 # テスト対象モジュールのインポート
@@ -15,7 +18,9 @@ from scripts.generate_charts import (
     _format_period_label,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
+    parse_notifiable_weekly,
     parse_period_from_filename,
+    parse_sentinel_weekly_gender,
 )
 
 
@@ -213,3 +218,153 @@ class TestCalculateDeviationRate:
 
         # 疾患がベースラインに存在しない場合はスキップ
         assert "新型疾患" not in rates
+
+
+class TestParseSentinelWeeklyGender:
+    """parse_sentinel_weekly_gender()関数のテスト"""
+
+    def test_parse_valid_csv_with_data(self):
+        """正常なCSVデータのパース"""
+        # Shift_JISで書かれたCSVファイルを一時ファイルとして作成
+        # 実際のフォーマット: 疾病名、男性、女性、男女合計、定点数の列が必要
+        csv_content = """集計対象期間,2025年第1週,,,
+性別,男性,,,
+疾病名,男性,女性,男女合計,定点数
+インフルエンザ,250,300,550,10
+COVID-19,100,120,220,10
+RSウイルス,50,60,110,10"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            # パース実行
+            result = parse_sentinel_weekly_gender(temp_path)
+
+            # 疾患データが正しく抽出されているか確認
+            assert "インフルエンザ" in result
+            assert "COVID-19" in result
+            assert "RSウイルス" in result
+
+            # 値が正しいか確認 (合計/定点数)
+            assert result["インフルエンザ"] == 55.0  # 550/10
+            assert result["COVID-19"] == 22.0  # 220/10
+            assert result["RSウイルス"] == 11.0  # 110/10
+        finally:
+            temp_path.unlink()
+
+    def test_parse_csv_with_no_data(self):
+        """データ行がないCSVのパース"""
+        csv_content = """集計対象期間,2025年第1週,,,
+性別,男性,,,
+疾病名,男性,女性,男女合計"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            result = parse_sentinel_weekly_gender(temp_path)
+            # データがない場合は空の辞書が返される
+            assert result == {}
+        finally:
+            temp_path.unlink()
+
+    def test_parse_csv_with_invalid_values(self):
+        """不正な数値データの扱い"""
+        csv_content = """集計対象期間,2025年第1週,,,
+性別,男性,,,
+疾病名,男性,女性,男女合計,定点数
+インフルエンザ,abc,def,550,10
+COVID-19,100,120,xyz,10"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            result = parse_sentinel_weekly_gender(temp_path)
+            # 有効な値のみが抽出される
+            assert isinstance(result, dict)
+            assert "インフルエンザ" in result  # 550は有効
+            assert result["インフルエンザ"] == 55.0  # 550/10
+            # COVID-19はxyzなのでスキップされる
+            assert "COVID-19" not in result
+        finally:
+            temp_path.unlink()
+
+
+class TestParseNotifiableWeekly:
+    """parse_notifiable_weekly()関数のテスト"""
+
+    def test_parse_valid_csv_with_data(self):
+        """正常なCSVデータのパース"""
+        csv_content = """集計対象期間,2025年第1週,,,
+,,,,
+,東京都
+疾病名,報告数
+腸管出血性大腸菌感染症,5
+デング熱,2
+梅毒,15"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            result = parse_notifiable_weekly(temp_path)
+
+            # 疾患データが正しく抽出されているか確認
+            assert "腸管出血性大腸菌感染症" in result
+            assert "デング熱" in result
+            assert "梅毒" in result
+
+            # 値が正しいか確認
+            assert result["腸管出血性大腸菌感染症"] == 5.0
+            assert result["デング熱"] == 2.0
+            assert result["梅毒"] == 15.0
+        finally:
+            temp_path.unlink()
+
+    def test_parse_csv_with_no_data(self):
+        """データ行がないCSVのパース"""
+        csv_content = """集計対象期間,2025年第1週,,,
+,,,,
+,東京都
+疾病名,報告数"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            result = parse_notifiable_weekly(temp_path)
+            # データがない場合は空の辞書が返される
+            assert result == {}
+        finally:
+            temp_path.unlink()
+
+    def test_parse_csv_with_zero_values(self):
+        """0件のデータを含むCSVのパース"""
+        csv_content = """集計対象期間,2025年第1週,,,
+,,,,
+,東京都
+疾病名,報告数
+腸管出血性大腸菌感染症,0
+デング熱,5"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            result = parse_notifiable_weekly(temp_path)
+
+            # 0はスキップされるので含まれない
+            assert "腸管出血性大腸菌感染症" not in result
+            # 5は正しく記録される
+            assert "デング熱" in result
+            assert result["デング熱"] == 5.0
+        finally:
+            temp_path.unlink()

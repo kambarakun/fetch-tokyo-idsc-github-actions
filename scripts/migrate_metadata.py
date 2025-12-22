@@ -351,7 +351,7 @@ def migrate_none_to_v1_0(metadata: dict, data_file: Path | None) -> tuple[dict, 
 
 
 @migration_registry.register(from_version="1.0", to_version="1.1.0")
-def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:  # noqa: PLR0915
+def migrate_v1_0_to_v1_1_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
     """v1.0 から v1.1.0 へのマイグレーション.
 
     変換内容:
