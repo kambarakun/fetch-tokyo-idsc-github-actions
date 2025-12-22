@@ -12,6 +12,23 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _has_53_weeks(year: int) -> bool:
+    """ISO 8601週番号で53週を持つ年かを判定
+
+    53週を持つ年は、以下の条件のいずれかを満たす:
+    1. 木曜日で始まる年
+    2. 水曜日で始まる閏年
+    """
+    from datetime import date
+
+    # 12月31日の週番号を確認
+    dec_31 = date(year, 12, 31)
+    iso_year, iso_week, _ = dec_31.isocalendar()
+
+    # 12月31日がISO週番号で53週目にある場合、その年は53週を持つ
+    return iso_year == year and iso_week == 53
+
+
 def get_metadata_stats() -> dict:  # noqa: PLR0915
     """メタデータディレクトリから統計情報を取得"""
     metadata_dir = Path("data/raw/.metadata")
@@ -29,11 +46,11 @@ def get_metadata_stats() -> dict:  # noqa: PLR0915
         }
 
     # 全メタデータファイルを処理
-    all_files = []
+    all_files: list[dict] = []
     data_type_counts: Counter[str] = Counter()
-    years = []
-    weekly_data = []
-    monthly_data = []
+    years: list[int] = []
+    weekly_data: list[tuple[int, int]] = []
+    monthly_data: list[tuple[int, int]] = []
     # データタイプごとの期間情報を保存
     data_type_periods: dict[str, list[tuple[int, int]]] = {}
     # 異常情報を収集
@@ -100,7 +117,7 @@ def get_metadata_stats() -> dict:  # noqa: PLR0915
                         data_type_periods[data_type] = []
                     data_type_periods[data_type].append((year, period))
 
-        except Exception as e:
+        except (json.JSONDecodeError, KeyError, OSError) as e:
             print(f"警告: {json_file.name} の読み込みに失敗: {e}")
             continue
 
@@ -118,22 +135,30 @@ def get_metadata_stats() -> dict:  # noqa: PLR0915
         }
 
     # 最終更新日時の取得
-    latest_modified = max(
-        (
-            datetime.fromisoformat(f["modified"]).replace(tzinfo=None) if "modified" in f else datetime.now()
-            for f in all_files
-        ),
-        default=datetime.now(),
-    )
+    latest_modified_dates: list[datetime] = []
+    for file_data in all_files:
+        if file_data.get("modified"):
+            try:
+                dt = datetime.fromisoformat(file_data["modified"])
+                # タイムゾーン情報を削除して統一 (素朴な比較可能にする)
+                latest_modified_dates.append(dt.replace(tzinfo=None) if dt.tzinfo else dt)
+            except (ValueError, TypeError):
+                pass
+
+    latest_modified = max(latest_modified_dates) if latest_modified_dates else datetime.now().replace(tzinfo=None)
 
     # 最新データ取得日時の取得 (created フィールドから)
-    latest_created = max(
-        (
-            datetime.fromisoformat(f["created"]).replace(tzinfo=None) if "created" in f else datetime.now()
-            for f in all_files
-        ),
-        default=datetime.now(),
-    )
+    latest_created_dates: list[datetime] = []
+    for file_data in all_files:
+        if file_data.get("created"):
+            try:
+                dt = datetime.fromisoformat(file_data["created"])
+                # タイムゾーン情報を削除して統一 (素朴な比較可能にする)
+                latest_created_dates.append(dt.replace(tzinfo=None) if dt.tzinfo else dt)
+            except (ValueError, TypeError):
+                pass
+
+    latest_created = max(latest_created_dates) if latest_created_dates else datetime.now().replace(tzinfo=None)
 
     # 年の範囲
     min_year = min(years) if years else "N/A"
@@ -149,14 +174,14 @@ def get_metadata_stats() -> dict:  # noqa: PLR0915
     # データ期間を簡潔に表示 (週次と月次の両方)
     min_week_tuple = min(weekly_data) if weekly_data else (0, 0)
     week_range = (
-        f"{min_week_tuple[0]}年第{min_week_tuple[1]}週 〜 {latest_week_tuple[0]}年第{latest_week_tuple[1]}週"
+        f"{min_week_tuple[0]}年第{min_week_tuple[1]}週 - {latest_week_tuple[0]}年第{latest_week_tuple[1]}週"
         if weekly_data
         else "N/A"
     )
 
     min_month_tuple = min(monthly_data) if monthly_data else (0, 0)
     month_range = (
-        f"{min_month_tuple[0]}年{min_month_tuple[1]}月 〜 {latest_month_tuple[0]}年{latest_month_tuple[1]}月"
+        f"{min_month_tuple[0]}年{min_month_tuple[1]}月 - {latest_month_tuple[0]}年{latest_month_tuple[1]}月"
         if monthly_data
         else "N/A"
     )
@@ -173,7 +198,7 @@ def get_metadata_stats() -> dict:  # noqa: PLR0915
         "latest_update": latest_modified.strftime("%Y-%m-%d %H:%M JST"),
         "data_types": dict(data_type_counts.most_common()),
         "data_type_periods": data_type_periods,
-        "year_range": f"{min_year}年〜{max_year}年",
+        "year_range": f"{min_year}年-{max_year}年",
         "latest_week": latest_week,
         "latest_month": latest_month,
         "years": sorted(set(years)),
@@ -217,9 +242,9 @@ def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[s
             # 週次 or 月次かを判定
             is_weekly = "weekly" in data_type
             if is_weekly:
-                period_range = f"{min_period[0]}年第{min_period[1]}週〜{max_period[0]}年第{max_period[1]}週"
+                period_range = f"{min_period[0]}年第{min_period[1]}週-{max_period[0]}年第{max_period[1]}週"
             else:
-                period_range = f"{min_period[0]}年{min_period[1]}月〜{max_period[0]}年{max_period[1]}月"
+                period_range = f"{min_period[0]}年{min_period[1]}月-{max_period[0]}年{max_period[1]}月"
 
             # 欠損を検出 (簡易版: 最初と最後の期間から期待される件数を計算)
             missing = _detect_missing_periods(data_type, periods)
@@ -315,9 +340,9 @@ def _detect_missing_periods(data_type: str, periods: list[tuple[int, int]]) -> s
     expected_periods = set()
 
     if is_weekly:
-        # 週次データ: 各年52-53週
+        # 週次データ: 各年52-53週 (ISO 8601動的判定)
         for year in range(min_period[0], max_period[0] + 1):
-            max_week = 53 if year in [2004, 2009, 2015, 2020] else 52
+            max_week = 53 if _has_53_weeks(year) else 52
             start_week = min_period[1] if year == min_period[0] else 1
             end_week = max_period[1] if year == max_period[0] else max_week
             for week in range(start_week, end_week + 1):

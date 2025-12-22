@@ -72,12 +72,19 @@ def setup_japanese_font():
         return None
 
 
-# フォント設定を実行(グローバル変数として保存)
-JAPANESE_FONT = setup_japanese_font()
+# フォント設定 (遅延評価: 初回グラフ生成時に呼び出される)
+_JAPANESE_FONT = None
 
-# Seabornスタイル設定
-sns.set_style("whitegrid")
-sns.set_palette("husl")
+
+def get_japanese_font():
+    """日本語フォントを遅延初期化して取得"""
+    global _JAPANESE_FONT  # noqa: PLW0603
+    if _JAPANESE_FONT is None:
+        _JAPANESE_FONT = setup_japanese_font()
+        # Seabornスタイル設定もここで実行
+        sns.set_style("whitegrid")
+        sns.set_palette("husl")
+    return _JAPANESE_FONT
 
 
 def read_csv_shift_jis(file_path: Path) -> list[list[str]]:
@@ -461,6 +468,9 @@ def generate_absolute_chart(  # noqa: PLR0915
         print("警告: データが空のため、グラフを生成できません")
         return
 
+    # 日本語フォントを初期化 (遅延評価)
+    JAPANESE_FONT = get_japanese_font()  # noqa: N806
+
     # 最新期間のトップN疾患を選択
     latest_period = max(max(periods.keys()) for periods in data.values() if periods)
     latest_values = {disease: periods.get(latest_period, 0) for disease, periods in data.items()}
@@ -623,6 +633,9 @@ def generate_deviation_chart(  # noqa: PLR0915
     if not deviation_rates:
         print("警告: 乖離率データが空のため、グラフを生成できません")
         return
+
+    # 日本語フォントを初期化 (遅延評価)
+    JAPANESE_FONT = get_japanese_font()  # noqa: N806
 
     # 最新期間でプラス方向(流行)の乖離率が大きい疾患のトップNを選択(CDCスタイル)
     latest_period = max(max(periods.keys()) for periods in deviation_rates.values() if periods)
