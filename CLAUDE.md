@@ -355,6 +355,29 @@ source .venv/bin/activate
 - **uv.lockファイルは必ずコミット**（再現性の保証）
 - **GitHub Actionsでもuvを使用**（高速化と再現性）
 
+#### Dependabotによる自動更新
+
+このプロジェクトでは、Dependabotによる依存関係の自動更新を使用しています。**Dependabotは2025年3月13日から`uv`をネイティブサポート**しており、`pyproject.toml`と`uv.lock`の両方を自動的に更新します。
+
+**設定ファイル**:
+
+- `.github/dependabot.yml`: Dependabotの設定（週次更新、バージョニング戦略、グループ化）
+  - `package-ecosystem: "uv"` - uvネイティブサポートを使用
+  - セキュリティ更新は2025年12月16日から対応
+
+**バージョニング戦略**:
+
+- メジャーバージョンアップは手動レビュー（破壊的変更を防ぐ）
+- マイナー・パッチバージョンのみ自動更新
+- セキュリティ更新は別途Dependabot Security Updatesで自動作成
+
+**依存関係のグループ化**:
+
+- `production`: 本番依存関係 (requests, PyYAML)
+- `testing`: テスト関連 (pytest\*, pytest-cov)
+- `build-tools`: リンター・フォーマッター (ruff, black, isort, mypy, pre-commit)
+- `type-stubs`: 型定義ファイル (types-\*)
+
 ### 2.2 依存関係の管理
 
 ```toml
