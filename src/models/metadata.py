@@ -114,6 +114,7 @@ class Verification:
         checks: 各検証項目の結果
         errors: エラーメッセージリスト
         warnings: 警告メッセージリスト
+        details: 構造化詳細情報 (v1.3.0+)
     """
 
     status: Literal["verified", "failed", "pending"]
@@ -122,6 +123,7 @@ class Verification:
     checks: dict[str, bool] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    details: dict[str, Any] = field(default_factory=dict)  # v1.3.0: 構造化詳細情報
 
     def to_dict(self) -> dict[str, Any]:
         """辞書形式に変換"""
@@ -137,6 +139,7 @@ class Verification:
             checks=data.get("checks", {}),
             errors=data.get("errors", []),
             warnings=data.get("warnings", []),
+            details=data.get("details", {}),  # v1.3.0: 詳細情報
         )
 
 
