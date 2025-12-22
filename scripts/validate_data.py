@@ -19,14 +19,14 @@ from typing import Any
 # プロジェクトのルートディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# 検証設定
-MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ(MB)
-MIN_FILE_SIZE_BYTES = 100  # 最小ファイルサイズ(バイト)
-MAX_LINE_COUNT = 1000000  # 最大行数
-MIN_LINE_COUNT = 1  # 最小行数
-EXPECTED_ENCODING = "shift_jis"  # 期待されるエンコーディング
-MAX_COLUMN_COUNT = 100  # 最大カラム数
-MIN_COLUMN_COUNT = 2  # 最小カラム数
+# storage_manager から検証設定と統一メッセージ定数をインポート
+from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, EXPECTED_ENCODING
+from src.managers.storage_manager import VALIDATION_MAX_COLUMN_COUNT as MAX_COLUMN_COUNT
+from src.managers.storage_manager import VALIDATION_MAX_FILE_SIZE_MB as MAX_FILE_SIZE_MB
+from src.managers.storage_manager import VALIDATION_MAX_LINE_COUNT as MAX_LINE_COUNT
+from src.managers.storage_manager import VALIDATION_MIN_COLUMN_COUNT as MIN_COLUMN_COUNT
+from src.managers.storage_manager import VALIDATION_MIN_FILE_SIZE as MIN_FILE_SIZE_BYTES
+from src.managers.storage_manager import VALIDATION_MIN_LINE_COUNT as MIN_LINE_COUNT
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -224,8 +224,8 @@ class DataValidator:
 
                 # カラム数の一貫性チェック
                 if len(column_counts) > 1:
-                    # 警告メッセージは統一形式
-                    result["warnings"].append("[csv_format] Inconsistent column count")
+                    # 警告メッセージは統一形式 (v1.3.0: storage_managerと共通化)
+                    result["warnings"].append(CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG)
                     # 詳細情報はdetailsフィールドに保存 (ソート済みリスト形式)
                     result["details"]["column_counts"] = sorted(column_counts)
 

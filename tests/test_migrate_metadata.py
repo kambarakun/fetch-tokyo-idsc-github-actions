@@ -18,7 +18,7 @@ from scripts.migrate_metadata import (
     needs_migration,
     run_migration,
 )
-from src.managers.storage_manager import METADATA_VERSION
+from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, METADATA_VERSION
 
 
 class TestCountLines:
@@ -635,7 +635,7 @@ class TestMigrateV120ToV130:
         # v1.3形式の検証
         assert migrated["metadata_version"] == "1.3.0"
         # 警告メッセージが統一形式に変換されている
-        assert migrated["verification"]["warnings"] == ["[csv_format] Inconsistent column count"]
+        assert migrated["verification"]["warnings"] == [CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG]
         # カラム数情報がdetailsに保存されている
         assert "details" in migrated["verification"]
         assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2, 28]
@@ -716,7 +716,7 @@ class TestMigrateV120ToV130:
 
         # カラム数警告のみ変換される
         assert migrated["verification"]["warnings"] == [
-            "[csv_format] Inconsistent column count",
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
             "[file_size] File is large",
         ]
         assert migrated["verification"]["details"]["column_counts"] == [0, 10]
@@ -800,7 +800,7 @@ class TestMigrateV120ToV130:
 
         # migratedは正しく変換されていることを確認
         assert migrated["metadata_version"] == "1.3.0"
-        assert migrated["verification"]["warnings"] == ["[csv_format] Inconsistent column count"]
+        assert migrated["verification"]["warnings"] == [CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG]
         assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2, 28]
 
 

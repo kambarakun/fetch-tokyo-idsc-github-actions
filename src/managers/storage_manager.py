@@ -28,6 +28,9 @@ MAX_ERROR_COUNT = 10
 MAX_WARNING_COUNT = 10
 MAX_MESSAGE_LENGTH = 500
 
+# 検証メッセージのフォーマット (v1.3.0: 統一形式)
+CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG = "[csv_format] Inconsistent column count"
+
 # 検証設定
 VALIDATION_MIN_FILE_SIZE = 100  # 最小ファイルサイズ(バイト)
 VALIDATION_MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ(MB)
@@ -1092,8 +1095,8 @@ class StorageManager:
 
             # カラム数の一貫性チェック
             if len(column_counts) > 1:
-                # 警告メッセージは統一形式
-                result["warnings"].append("[csv_format] Inconsistent column count")
+                # 警告メッセージは統一形式 (v1.3.0)
+                result["warnings"].append(CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG)
                 # 詳細情報はdetailsフィールドに保存 (ソート済みリスト形式)
                 result["details"]["column_counts"] = sorted(column_counts)
 

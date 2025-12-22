@@ -14,7 +14,12 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.managers.storage_manager import CommitResult, GitHandler, StorageManager
+from src.managers.storage_manager import (
+    CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+    CommitResult,
+    GitHandler,
+    StorageManager,
+)
 
 
 class TestGitHandler(unittest.TestCase):
@@ -1451,7 +1456,7 @@ class TestMetadataEnhancements(unittest.TestCase):
 
         # カラム数の不整合がwarningsに含まれることを確認
         self.assertTrue(len(result["warnings"]) > 0)
-        self.assertIn("[csv_format] Inconsistent column count", result["warnings"])
+        self.assertIn(CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, result["warnings"])
 
         # detailsフィールドにcolumn_countsが含まれることを確認 (v1.3.0新機能)
         self.assertIn("details", result)
@@ -1488,7 +1493,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertIn("verification", metadata)
         verification = metadata["verification"]
         self.assertIn("warnings", verification)
-        self.assertIn("[csv_format] Inconsistent column count", verification["warnings"])
+        self.assertIn(CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, verification["warnings"])
 
         # verification.details.column_counts が正しく設定されていることを確認 (v1.3.0新機能)
         self.assertIn("details", verification)
