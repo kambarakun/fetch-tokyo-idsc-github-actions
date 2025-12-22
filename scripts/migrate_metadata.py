@@ -620,7 +620,7 @@ def migrate_v1_1_0_to_v1_2_0(metadata: dict, data_file: Path | None) -> tuple[di
 
 
 @migration_registry.register(from_version="1.2.0", to_version="1.3.0")
-def migrate_v1_2_0_to_v1_3_0(metadata: dict, data_file: Path | None) -> tuple[dict, list[str]]:
+def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[dict, list[str]]:
     """v1.2.0 から v1.3.0 へのマイグレーション.
 
     変換内容:
@@ -630,14 +630,15 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, data_file: Path | None) -> tuple[di
 
     Args:
         metadata: マイグレーション対象のメタデータ辞書
-        data_file: 対応するCSVファイルのパス (未使用)
+        _data_file: 対応するCSVファイルのパス (未使用)
 
     Returns:
         (マイグレーション後のメタデータ, 変更リスト)
     """
+    import copy
     import re
 
-    migrated = metadata.copy()
+    migrated = copy.deepcopy(metadata)
     changes = []
 
     # バージョン更新

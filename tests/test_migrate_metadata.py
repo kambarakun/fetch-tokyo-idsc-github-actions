@@ -712,7 +712,7 @@ class TestMigrateV120ToV130:
                 ],
             },
         }
-        migrated, changes = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+        migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
 
         # カラム数警告のみ変換される
         assert migrated["verification"]["warnings"] == [
@@ -752,6 +752,56 @@ class TestMigrateV120ToV130:
         for key in v1_2_metadata:
             if key != "metadata_version":
                 assert migrated[key] == v1_2_metadata[key]
+
+    def test_migrate_v1_2_0_does_not_mutate_original(self) -> None:
+        """マイグレーションが元のmetadataを変更しないことを確認 (deepcopyのテスト)."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "name": "test",
+            "filename": "test.csv",
+            "path": "raw/test.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_age",
+            "temporal": {"year": 2024, "period": 1, "period_type": "weekly"},
+            "bytes": 2796,
+            "lines": 22,
+            "hash": {"algorithm": "sha256", "value": "abc123..."},
+            "encoding": "shift_jis",
+            "created": "2025-12-18T07:33:02.713186+00:00",
+            "modified": "2025-12-18T07:33:02.713186+00:00",
+            "verification": {
+                "status": "verified",
+                "verified_at": "2025-12-18T07:33:02.713186+00:00",
+                "method": "automated",
+                "checks": {"file_size": True, "encoding": True, "csv_format": True, "path_safety": True},
+                "errors": [],
+                "warnings": ["[csv_format] Inconsistent column count: {0, 1, 2, 28}"],
+            },
+        }
+
+        # 元のmetadataのコピーを保存
+        import copy
+
+        original_copy = copy.deepcopy(v1_2_metadata)
+
+        # マイグレーション実行
+        migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # 元のmetadataが変更されていないことを確認
+        assert v1_2_metadata == original_copy
+
+        # ネストされた辞書も独立していることを確認
+        verification = v1_2_metadata["verification"]
+        assert isinstance(verification, dict)
+        assert verification["warnings"] == ["[csv_format] Inconsistent column count: {0, 1, 2, 28}"]
+        assert "details" not in verification
+
+        # migratedは正しく変換されていることを確認
+        assert migrated["metadata_version"] == "1.3.0"
+        assert migrated["verification"]["warnings"] == ["[csv_format] Inconsistent column count"]
+        assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2, 28]
 
 
 class TestMigrateMetadata:

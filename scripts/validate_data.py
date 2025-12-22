@@ -225,7 +225,7 @@ class DataValidator:
                 # カラム数の一貫性チェック
                 if len(column_counts) > 1:
                     # 警告メッセージは統一形式
-                    result["warnings"].append("Inconsistent column count")
+                    result["warnings"].append("[csv_format] Inconsistent column count")
                     # 詳細情報はdetailsフィールドに保存 (ソート済みリスト形式)
                     result["details"]["column_counts"] = sorted(column_counts)
 
