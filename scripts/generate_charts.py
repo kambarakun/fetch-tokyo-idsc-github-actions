@@ -250,7 +250,7 @@ def generate_weekly_trend_chart(data: dict[str, dict[int, float]], output_path: 
         )
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=100, bbox_inches="tight")
+    plt.savefig(output_path, dpi=100)
     plt.close()
 
     print(f"✅ 週次推移グラフを生成: {output_path} (800x500px)")
@@ -337,7 +337,7 @@ def generate_top_diseases_chart(latest_data: dict[str, float], output_path: Path
         )
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=100, bbox_inches="tight")
+    plt.savefig(output_path, dpi=100)
     plt.close()
 
     print(f"✅ トップ疾患グラフを生成: {output_path} (800x500px)")
