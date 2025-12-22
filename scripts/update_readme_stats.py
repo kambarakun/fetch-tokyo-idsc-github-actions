@@ -33,6 +33,8 @@ def get_metadata_stats() -> dict:
     years = []
     weekly_data = []
     monthly_data = []
+    # データタイプごとの期間情報を保存
+    data_type_periods: dict[str, list[tuple[int, int]]] = {}
 
     for json_file in metadata_dir.glob("*.json"):
         if json_file.name == "hash_index.json":
@@ -45,8 +47,9 @@ def get_metadata_stats() -> dict:
             all_files.append(data)
 
             # データタイプ別カウント
-            if "data_type" in data:
-                data_type_counts[data["data_type"]] += 1
+            data_type = data.get("data_type")
+            if data_type:
+                data_type_counts[data_type] += 1
 
             # 年の収集
             if "temporal" in data and "year" in data["temporal"]:
@@ -61,6 +64,12 @@ def get_metadata_stats() -> dict:
                     weekly_data.append((year, period))
                 elif period_type == "monthly":
                     monthly_data.append((year, period))
+
+                # データタイプごとの期間情報を収集
+                if data_type and year and period:
+                    if data_type not in data_type_periods:
+                        data_type_periods[data_type] = []
+                    data_type_periods[data_type].append((year, period))
 
         except Exception as e:
             print(f"警告: {json_file.name} の読み込みに失敗: {e}")
@@ -133,6 +142,7 @@ def get_metadata_stats() -> dict:
         "latest_fetch": latest_created.strftime("%Y-%m-%d %H:%M JST"),
         "latest_update": latest_modified.strftime("%Y-%m-%d %H:%M JST"),
         "data_types": dict(data_type_counts.most_common()),
+        "data_type_periods": data_type_periods,
         "year_range": f"{min_year}年〜{max_year}年",
         "latest_week": latest_week,
         "latest_month": latest_month,
@@ -142,8 +152,8 @@ def get_metadata_stats() -> dict:
     }
 
 
-def format_data_type_table(data_types: dict[str, int]) -> str:
-    """データ種別を表形式で整形"""
+def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[str, list[tuple[int, int]]]) -> str:
+    """データ種別を表形式で整形 (期間と欠損情報を含む)"""
     # データ種別の日本語名マッピング
     type_names = {
         "sentinel_weekly_health_center": "定点週次・保健所別",
@@ -158,14 +168,89 @@ def format_data_type_table(data_types: dict[str, int]) -> str:
     }
 
     # 表のヘッダー
-    lines = ["| データ種別 | 件数 |", "|-----------|------|"]
+    lines = [
+        "| データ種別 | 件数 | データ期間 | 欠損 |",
+        "|-----------|------|-----------|------|",
+    ]
 
     # データ行
     for data_type, count in data_types.items():
         display_name = type_names.get(data_type, data_type)
-        lines.append(f"| {display_name} | {count:,}件 |")
+
+        # 期間情報を取得
+        periods = data_type_periods.get(data_type, [])
+        if periods:
+            min_period = min(periods)
+            max_period = max(periods)
+
+            # 週次 or 月次かを判定
+            is_weekly = "weekly" in data_type
+            if is_weekly:
+                period_range = f"{min_period[0]}年第{min_period[1]}週〜{max_period[0]}年第{max_period[1]}週"
+            else:
+                period_range = f"{min_period[0]}年{min_period[1]}月〜{max_period[0]}年{max_period[1]}月"
+
+            # 欠損を検出 (簡易版: 最初と最後の期間から期待される件数を計算)
+            missing = _detect_missing_periods(data_type, periods)
+        else:
+            period_range = "N/A"
+            missing = "N/A"
+
+        lines.append(f"| {display_name} | {count:,}件 | {period_range} | {missing} |")
 
     return "\n".join(lines)
+
+
+def _detect_missing_periods(data_type: str, periods: list[tuple[int, int]]) -> str:
+    """欠損期間を検出"""
+    if not periods:
+        return "N/A"
+
+    min_period = min(periods)
+    max_period = max(periods)
+
+    # 期待される期間をすべて生成
+    is_weekly = "weekly" in data_type
+    expected_periods = set()
+
+    if is_weekly:
+        # 週次データ: 各年52-53週
+        for year in range(min_period[0], max_period[0] + 1):
+            max_week = 53 if year in [2004, 2009, 2015, 2020] else 52
+            start_week = min_period[1] if year == min_period[0] else 1
+            end_week = max_period[1] if year == max_period[0] else max_week
+            for week in range(start_week, end_week + 1):
+                expected_periods.add((year, week))
+    else:
+        # 月次データ: 各年12ヶ月
+        for year in range(min_period[0], max_period[0] + 1):
+            start_month = min_period[1] if year == min_period[0] else 1
+            end_month = max_period[1] if year == max_period[0] else 12
+            for month in range(start_month, end_month + 1):
+                expected_periods.add((year, month))
+
+    # 実際の期間との差分を計算
+    actual_periods = set(periods)
+    missing_periods = expected_periods - actual_periods
+
+    if not missing_periods:
+        return "なし"
+
+    # 欠損が多い場合は件数のみ表示
+    if len(missing_periods) > 5:
+        return f"{len(missing_periods)}件"
+
+    # 欠損が少ない場合は詳細を表示
+    missing_list = sorted(missing_periods)
+    if is_weekly:
+        missing_str = ", ".join([f"{y}年第{p}週" for y, p in missing_list[:5]])
+    else:
+        missing_str = ", ".join([f"{y}年{p}月" for y, p in missing_list[:5]])
+
+    if len(missing_periods) > 5:
+        missing_str += f"他{len(missing_periods) - 5}件"
+
+    return missing_str
 
 
 def update_readme(stats: dict) -> bool:
@@ -206,7 +291,7 @@ def update_readme(stats: dict) -> bool:
 
 ### 📋 データ種別内訳
 
-{format_data_type_table(stats['data_types'])}
+{format_data_type_table(stats['data_types'], stats['data_type_periods'])}
 
 > 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
 <!-- end data-statistics -->"""
