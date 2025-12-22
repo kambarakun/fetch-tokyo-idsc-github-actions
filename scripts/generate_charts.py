@@ -48,11 +48,9 @@ def setup_japanese_font():
 
     # フォントを登録してFontPropertiesオブジェクトを返す
     try:
-        # フォントを明示的に追加
+        # フォントを明示的に追加 (matplotlib 3.10.8以降はキャッシュ自動更新)
         fm.fontManager.addfont(str(font_path))
 
-        # キャッシュを再構築
-        fm._load_fontmanager(try_read_cache=False)
         # FontPropertiesオブジェクトを作成
         font_prop = fm.FontProperties(fname=str(font_path))
 
