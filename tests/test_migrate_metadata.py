@@ -739,7 +739,7 @@ class TestMigrateV120ToV130:
             "encoding": "shift_jis",
             "created": "2025-01-01T00:00:00+00:00",
             "modified": "2025-01-01T00:00:00+00:00",
-            "fetch": {
+            "_fetch": {
                 "source_url": "https://example.com",
                 "fetch_time_seconds": 1.23,
                 "force_overwrite": False,
