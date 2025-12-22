@@ -468,6 +468,73 @@ def calculate_deviation_rate(
     return deviation_rates
 
 
+def _format_period_label(min_period: int, max_period: int, period_type: str) -> str:
+    """期間ラベルを生成 (X軸用)
+
+    Args:
+        min_period: 最小期間 (YYYYPP形式)
+        max_period: 最大期間 (YYYYPP形式)
+        period_type: 期間タイプ ('week' or 'month')
+
+    Returns:
+        フォーマットされた期間ラベル
+    """
+    if period_type == "week":
+        return f"{min_period // 100}年第{min_period % 100}週 - {max_period // 100}年第{max_period % 100}週"
+    return f"{min_period // 100}年{min_period % 100}月 - {max_period // 100}年{max_period % 100}月"
+
+
+def _apply_cdc_styling(ax, fig) -> None:
+    """CDCスタイルをグラフに適用
+
+    Args:
+        ax: Matplotlibの軸オブジェクト
+        fig: Matplotlibの図オブジェクト
+    """
+    # グリッド: Y軸のみ表示
+    ax.grid(True, axis="y", alpha=0.2, linestyle="-", linewidth=0.5)
+    ax.grid(False, axis="x")
+
+    # 背景色: 白
+    ax.set_facecolor("white")
+    fig.patch.set_facecolor("white")
+
+    # 枠線: 薄いグレー
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.5)
+        spine.set_color("#CCCCCC")
+
+
+def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_font) -> None:
+    """X軸の目盛りを設定
+
+    Args:
+        ax: Matplotlibの軸オブジェクト
+        all_periods: 全期間のリスト
+        period_type: 期間タイプ ('week' or 'month')
+        japanese_font: 日本語フォントプロパティ (None可)
+    """
+    if period_type == "week":
+        # 52週を約5週ごとに表示 (約10箇所)
+        tick_step = 5
+        tick_positions = list(range(0, len(all_periods), tick_step))
+        # 最後の週も必ず含める
+        if (len(all_periods) - 1) not in tick_positions:
+            tick_positions.append(len(all_periods) - 1)
+        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+    else:  # month
+        # 12ヶ月を全て表示
+        tick_positions = list(range(len(all_periods)))
+        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+
+    ax.set_xticks(tick_positions)
+    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=9)
+
+    if japanese_font:
+        for label in tick_labels:
+            label.set_fontproperties(japanese_font)
+
+
 def generate_absolute_chart(
     data: dict[str, dict[int, float]],
     output_path: Path,
