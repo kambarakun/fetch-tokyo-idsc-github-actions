@@ -78,11 +78,19 @@ def get_metadata_stats() -> dict:
             "latest_month": "N/A",
         }
 
-    # 最新更新日時の取得
-
+    # 最終更新日時の取得
     latest_modified = max(
         (
             datetime.fromisoformat(f["modified"]).replace(tzinfo=None) if "modified" in f else datetime.now()
+            for f in all_files
+        ),
+        default=datetime.now(),
+    )
+
+    # 最新データ取得日時の取得 (created フィールドから)
+    latest_created = max(
+        (
+            datetime.fromisoformat(f["created"]).replace(tzinfo=None) if "created" in f else datetime.now()
             for f in all_files
         ),
         default=datetime.now(),
@@ -110,6 +118,7 @@ def get_metadata_stats() -> dict:
     return {
         "total_files": len(all_files),
         "date_range": date_range,
+        "latest_fetch": latest_created.strftime("%Y-%m-%d %H:%M JST"),
         "latest_update": latest_modified.strftime("%Y-%m-%d %H:%M JST"),
         "data_types": dict(data_type_counts.most_common()),
         "year_range": f"{min_year}年〜{max_year}年",
@@ -167,7 +176,8 @@ def update_readme(stats: dict) -> bool:
 |------|-----|
 | **最新週次データ** | {stats['latest_week']} |
 | **最新月次データ** | {stats['latest_month']} |
-| **最終更新日時** | {stats['latest_update']} |
+| **最新データ取得日時** | {stats['latest_fetch']} |
+| **ファイル最終更新日時** | {stats['latest_update']} |
 
 ### 📈 収集統計
 
