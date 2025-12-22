@@ -107,13 +107,27 @@ def get_metadata_stats() -> dict:
     latest_month_tuple = max(monthly_data) if monthly_data else (0, 0)
     latest_month = f"{latest_month_tuple[0]}年{latest_month_tuple[1]}月" if monthly_data else "N/A"
 
-    # データ期間を簡潔に表示
+    # データ期間を簡潔に表示 (週次と月次の両方)
     min_week_tuple = min(weekly_data) if weekly_data else (0, 0)
-    date_range = (
+    week_range = (
         f"{min_week_tuple[0]}年第{min_week_tuple[1]}週 〜 {latest_week_tuple[0]}年第{latest_week_tuple[1]}週"
         if weekly_data
-        else "データなし"
+        else "N/A"
     )
+
+    min_month_tuple = min(monthly_data) if monthly_data else (0, 0)
+    month_range = (
+        f"{min_month_tuple[0]}年{min_month_tuple[1]}月 〜 {latest_month_tuple[0]}年{latest_month_tuple[1]}月"
+        if monthly_data
+        else "N/A"
+    )
+
+    # 週次・月次を組み合わせて表示
+    date_range = f"週次: {week_range} / 月次: {month_range}"
+
+    # 週数・月数をカウント (重複を除外)
+    unique_weeks = len(set(weekly_data))
+    unique_months = len(set(monthly_data))
 
     return {
         "total_files": len(all_files),
@@ -125,6 +139,8 @@ def get_metadata_stats() -> dict:
         "latest_week": latest_week,
         "latest_month": latest_month,
         "years": sorted(set(years)),
+        "week_count": unique_weeks,
+        "month_count": unique_months,
     }
 
 
@@ -185,7 +201,7 @@ def update_readme(stats: dict) -> bool:
 |------|-----|
 | **総データ件数** | {stats['total_files']:,}件 |
 | **データ期間** | {stats['date_range']} |
-| **収集年範囲** | {stats['year_range']} ({len(stats.get('years', []))}年分) |
+| **収集週数** | {stats['week_count']:,}週 / 収集月数 {stats['month_count']:,}ヶ月 |
 | **データ種別数** | {len(stats['data_types'])}種類 |
 
 ### 📋 データ種別内訳
