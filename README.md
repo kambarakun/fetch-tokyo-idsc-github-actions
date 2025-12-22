@@ -7,6 +7,8 @@
 [![codecov](https://codecov.io/gh/kambarakun/fetch-tokyo-idsc-github-actions/graph/badge.svg)](https://codecov.io/gh/kambarakun/fetch-tokyo-idsc-github-actions)
 [![License](https://img.shields.io/badge/License-Non--Commercial-orange.svg)](LICENSE.md)
 
+東京都感染症発生動向情報システムから定期的にデータを自動取得・保存するGitHub Actionsベースのシステムです。
+
 <!-- start data-statistics -->
 
 ## 📊 データ収集状況（自動更新）
@@ -48,8 +50,6 @@
 > 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
 
 <!-- end data-statistics -->
-
-東京都感染症発生動向情報システムから定期的にデータを自動取得・保存するGitHub Actionsベースのシステムです。
 
 ## 📋 主な機能
 
