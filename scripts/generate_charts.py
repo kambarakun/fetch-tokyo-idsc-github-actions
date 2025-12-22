@@ -176,7 +176,7 @@ def generate_weekly_trend_chart(data: dict[str, dict[int, float]], output_path: 
     latest_values = {disease: weeks.get(latest_week, 0) for disease, weeks in data.items()}
     top_diseases = sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
-    # グラフ作成 (横並び表示用に最適化)
+    # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for disease, _ in top_diseases:
@@ -250,10 +250,10 @@ def generate_weekly_trend_chart(data: dict[str, dict[int, float]], output_path: 
         )
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=100, bbox_inches="tight")
     plt.close()
 
-    print(f"✅ 週次推移グラフを生成: {output_path}")
+    print(f"✅ 週次推移グラフを生成: {output_path} (800x500px)")
 
 
 def generate_top_diseases_chart(latest_data: dict[str, float], output_path: Path, top_n: int = 10) -> None:
@@ -267,8 +267,8 @@ def generate_top_diseases_chart(latest_data: dict[str, float], output_path: Path
     diseases = [d[0] for d in top_diseases]
     values = [d[1] for d in top_diseases]
 
-    # グラフ作成 (横並び表示用に最適化)
-    fig, ax = plt.subplots(figsize=(7, 5))
+    # グラフ作成 (800x500px固定サイズ)
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     # 色分け(上位3つを強調、CDCスタイル)
     colors = ["#e74c3c" if i < 3 else "#3498db" for i in range(len(diseases))]
@@ -337,10 +337,10 @@ def generate_top_diseases_chart(latest_data: dict[str, float], output_path: Path
         )
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.savefig(output_path, dpi=100, bbox_inches="tight")
     plt.close()
 
-    print(f"✅ トップ疾患グラフを生成: {output_path}")
+    print(f"✅ トップ疾患グラフを生成: {output_path} (800x500px)")
 
 
 def main():
