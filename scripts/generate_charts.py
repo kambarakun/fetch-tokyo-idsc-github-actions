@@ -535,6 +535,54 @@ def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_f
             label.set_fontproperties(japanese_font)
 
 
+def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text: str, japanese_font) -> None:
+    """チャートの軸ラベル、タイトル、凡例、注釈を設定
+
+    Args:
+        ax: Matplotlibの軸オブジェクト
+        xlabel_text: X軸ラベル
+        ylabel: Y軸ラベル
+        title: グラフタイトル
+        note_text: 注釈テキスト
+        japanese_font: 日本語フォントプロパティ (None可)
+    """
+    if japanese_font:
+        ax.set_xlabel(xlabel_text, fontsize=10, fontproperties=japanese_font)
+        ax.set_ylabel(ylabel, fontsize=11, fontproperties=japanese_font)
+        ax.set_title(title, fontsize=13, fontweight="bold", fontproperties=japanese_font, pad=15)
+        ax.legend(loc="upper left", fontsize=9, prop=japanese_font, frameon=False)
+
+        # 注釈を追加
+        ax.text(
+            0.98,
+            0.97,
+            note_text,
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="top",
+            horizontalalignment="right",
+            color="#666666",
+            fontproperties=japanese_font,
+        )
+    else:
+        ax.set_xlabel(xlabel_text, fontsize=10)
+        ax.set_ylabel(ylabel, fontsize=11)
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
+        ax.legend(loc="upper left", fontsize=9, frameon=False)
+
+        # 注釈を追加
+        ax.text(
+            0.98,
+            0.97,
+            note_text,
+            transform=ax.transAxes,
+            fontsize=8,
+            verticalalignment="top",
+            horizontalalignment="right",
+            color="#666666",
+        )
+
+
 def generate_absolute_chart(
     data: dict[str, dict[int, float]],
     output_path: Path,
@@ -559,19 +607,26 @@ def generate_absolute_chart(
         print("警告: データが空のため、グラフを生成できません")
         return
 
+    # 全期間の期間番号を取得
+    all_periods = sorted({p for periods in data.values() for p in periods})
+
+    # 全ての疾患の期間データが空でないか確認
+    if not all_periods:
+        print("警告: 全ての疾患データが空のため、グラフを生成できません")
+        return
+
     # 日本語フォントを初期化 (遅延評価)
     JAPANESE_FONT = get_japanese_font()
 
     # 最新期間のトップN疾患を選択
-    latest_period = max(max(periods.keys()) for periods in data.values() if periods)
+    latest_period = max(all_periods)
     latest_values = {disease: periods.get(latest_period, 0) for disease, periods in data.items()}
     top_diseases = sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
     # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    # 全期間の最小・最大を取得
-    all_periods = sorted({p for periods in data.values() for p in periods})
+    # 期間の最小・最大を取得
     min_period = min(all_periods)
     max_period = max(all_periods)
 
@@ -606,80 +661,18 @@ def generate_absolute_chart(
                     )
                     break
 
-    # X軸ラベル(期間を明示)
-    if period_type == "week":
-        xlabel_text = f"{min_period // 100}年第{min_period % 100}週 - {max_period // 100}年第{max_period % 100}週"
-    else:  # month
-        xlabel_text = f"{min_period // 100}年{min_period % 100}月 - {max_period // 100}年{max_period % 100}月"
+    # X軸ラベル (期間を明示)
+    xlabel_text = _format_period_label(min_period, max_period, period_type)
 
-    # 軸ラベルとタイトル
-    if JAPANESE_FONT:
-        ax.set_xlabel(xlabel_text, fontsize=10, fontproperties=JAPANESE_FONT)
-        ax.set_ylabel(ylabel, fontsize=11, fontproperties=JAPANESE_FONT)
-        ax.set_title(title, fontsize=13, fontweight="bold", fontproperties=JAPANESE_FONT, pad=15)
-        ax.legend(loc="upper left", fontsize=9, prop=JAPANESE_FONT, frameon=False)
+    # 軸ラベル、タイトル、凡例、注釈を設定
+    note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
+    _setup_chart_labels(ax, xlabel_text, ylabel, title, note_text, JAPANESE_FONT)
 
-        # 注釈を追加(トップ5を表示していることを明記)
-        note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
-        ax.text(
-            0.98,
-            0.97,
-            note_text,
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-            fontproperties=JAPANESE_FONT,
-        )
-    else:
-        ax.set_xlabel(xlabel_text, fontsize=10)
-        ax.set_ylabel(ylabel, fontsize=11)
-        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
-        ax.legend(loc="upper left", fontsize=9, frameon=False)
+    # CDCスタイルを適用
+    _apply_cdc_styling(ax, fig)
 
-        # 注釈を追加
-        note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
-        ax.text(
-            0.98,
-            0.97,
-            note_text,
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-        )
-
-    # CDCスタイル
-    ax.grid(True, axis="y", alpha=0.2, linestyle="-", linewidth=0.5)
-    ax.grid(False, axis="x")
-    ax.set_facecolor("white")
-    fig.patch.set_facecolor("white")
-
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.5)
-        spine.set_color("#CCCCCC")
-
-    # X軸目盛り: 週番号/月番号の数字のみ
-    if period_type == "week":
-        # 52週を約5週ごとに表示(約10箇所)
-        tick_step = 5
-        tick_positions = list(range(0, len(all_periods), tick_step))
-        # 最後の週も必ず含める
-        if (len(all_periods) - 1) not in tick_positions:
-            tick_positions.append(len(all_periods) - 1)
-        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
-    else:  # month
-        # 12ヶ月を全て表示
-        tick_positions = list(range(0, len(all_periods)))
-        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
-
-    ax.set_xticks(tick_positions)
-    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=9)
-    if JAPANESE_FONT:
-        for label in tick_labels:
-            label.set_fontproperties(JAPANESE_FONT)
+    # X軸目盛りを設定
+    _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
     # データソース
     if JAPANESE_FONT:
@@ -725,11 +718,24 @@ def generate_deviation_chart(
         print("警告: 乖離率データが空のため、グラフを生成できません")
         return
 
+    # 乖離率データの全期間をチェック
+    if not any(periods for periods in deviation_rates.values()):
+        print("警告: 乖離率データの期間が空のため、グラフを生成できません")
+        return
+
+    # 全期間の期間番号を取得
+    all_periods = sorted({p for periods in data.values() for p in periods})
+
+    # 全ての疾患の期間データが空でないか確認
+    if not all_periods:
+        print("警告: 全ての疾患データが空のため、グラフを生成できません")
+        return
+
     # 日本語フォントを初期化 (遅延評価)
     JAPANESE_FONT = get_japanese_font()
 
     # 最新期間でプラス方向(流行)の乖離率が大きい疾患のトップNを選択(CDCスタイル)
-    latest_period = max(max(periods.keys()) for periods in deviation_rates.values() if periods)
+    latest_period = max(all_periods)
     latest_deviation_rates = {disease: periods.get(latest_period, 0) for disease, periods in deviation_rates.items()}
     # プラス方向(流行)のみを抽出してソート
     positive_deviations = {k: v for k, v in latest_deviation_rates.items() if v > 0}
@@ -738,8 +744,7 @@ def generate_deviation_chart(
     # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
 
-    # 全期間の最小・最大を取得
-    all_periods = sorted({p for periods in data.values() for p in periods})
+    # 期間の最小・最大を取得
     min_period = min(all_periods)
     max_period = max(all_periods)
 
@@ -778,78 +783,18 @@ def generate_deviation_chart(
     if len(all_periods) > 0:
         ax.axhline(y=0, color="#999999", linestyle="--", linewidth=1, alpha=0.7)
 
-    # X軸ラベル(期間を明示)
-    if period_type == "week":
-        xlabel_text = f"{min_period // 100}年第{min_period % 100}週 - {max_period // 100}年第{max_period % 100}週"
-    else:  # month
-        xlabel_text = f"{min_period // 100}年{min_period % 100}月 - {max_period // 100}年{max_period % 100}月"
+    # X軸ラベル (期間を明示)
+    xlabel_text = _format_period_label(min_period, max_period, period_type)
 
-    # 軸ラベルとタイトル
-    if JAPANESE_FONT:
-        ax.set_xlabel(xlabel_text, fontsize=10, fontproperties=JAPANESE_FONT)
-        ax.set_ylabel("季節性ベースラインからの乖離率 (%)", fontsize=11, fontproperties=JAPANESE_FONT)
-        ax.set_title(title, fontsize=13, fontweight="bold", fontproperties=JAPANESE_FONT, pad=15)
-        ax.legend(loc="upper left", fontsize=9, prop=JAPANESE_FONT, frameon=False)
+    # 軸ラベル、タイトル、凡例、注釈を設定
+    note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"
+    _setup_chart_labels(ax, xlabel_text, "季節性ベースラインからの乖離率 (%)", title, note_text, JAPANESE_FONT)
 
-        # 注釈を追加(プラス乖離の最大トップ5を表示していることを明記)
-        ax.text(
-            0.98,
-            0.97,
-            "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示",
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-            fontproperties=JAPANESE_FONT,
-        )
-    else:
-        ax.set_xlabel(xlabel_text, fontsize=10)
-        ax.set_ylabel("季節性ベースラインからの乖離率 (%)", fontsize=11)
-        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
-        ax.legend(loc="upper left", fontsize=9, frameon=False)
+    # CDCスタイルを適用
+    _apply_cdc_styling(ax, fig)
 
-        # 注釈を追加
-        ax.text(
-            0.98,
-            0.97,
-            "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示",
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-        )
-
-    # CDCスタイル
-    ax.grid(True, axis="y", alpha=0.2, linestyle="-", linewidth=0.5)
-    ax.grid(False, axis="x")
-    ax.set_facecolor("white")
-    fig.patch.set_facecolor("white")
-
-    for spine in ax.spines.values():
-        spine.set_linewidth(0.5)
-        spine.set_color("#CCCCCC")
-
-    # X軸目盛り: 週番号/月番号の数字のみ
-    if period_type == "week":
-        # 52週を約5週ごとに表示(約10箇所)
-        tick_step = 5
-        tick_positions = list(range(0, len(all_periods), tick_step))
-        # 最後の週も必ず含める
-        if (len(all_periods) - 1) not in tick_positions:
-            tick_positions.append(len(all_periods) - 1)
-        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
-    else:  # month
-        # 12ヶ月を全て表示
-        tick_positions = list(range(0, len(all_periods)))
-        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
-
-    ax.set_xticks(tick_positions)
-    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=9)
-    if JAPANESE_FONT:
-        for label in tick_labels:
-            label.set_fontproperties(JAPANESE_FONT)
+    # X軸目盛りを設定
+    _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
     # データソース
     if JAPANESE_FONT:

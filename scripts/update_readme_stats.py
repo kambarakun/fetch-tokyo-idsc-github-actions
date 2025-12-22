@@ -8,7 +8,7 @@ README.md統計情報更新スクリプト
 import json
 import re
 from collections import Counter
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -134,31 +134,44 @@ def get_metadata_stats() -> dict:
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
 
-    # 最終更新日時の取得
+    # 最終更新日時の取得 (タイムゾーン情報を維持してUTCに統一)
+
     latest_modified_dates: list[datetime] = []
     for file_data in all_files:
         if file_data.get("modified"):
             try:
-                dt = datetime.fromisoformat(file_data["modified"])
-                # タイムゾーン情報を削除して統一 (素朴な比較可能にする)
-                latest_modified_dates.append(dt.replace(tzinfo=None) if dt.tzinfo else dt)
+                # ISO形式のタイムスタンプをパース ('Z' を '+00:00' に変換)
+                timestamp_str = file_data["modified"].replace("Z", "+00:00")
+                dt = datetime.fromisoformat(timestamp_str)
+
+                # タイムゾーン情報がない場合はUTCとして扱う、他の場合はUTCに変換
+                dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+                latest_modified_dates.append(dt)
             except (ValueError, TypeError):
                 pass
 
-    latest_modified = max(latest_modified_dates) if latest_modified_dates else datetime.now().replace(tzinfo=None)
+    # データがない場合は None を返すのではなく、デフォルトのUTC最小値を使用
+    # (ファイルがない場合は表示時に "N/A" となるように後続処理で対応)
+    latest_modified = max(latest_modified_dates) if latest_modified_dates else datetime.min.replace(tzinfo=UTC)
 
     # 最新データ取得日時の取得 (created フィールドから)
     latest_created_dates: list[datetime] = []
     for file_data in all_files:
         if file_data.get("created"):
             try:
-                dt = datetime.fromisoformat(file_data["created"])
-                # タイムゾーン情報を削除して統一 (素朴な比較可能にする)
-                latest_created_dates.append(dt.replace(tzinfo=None) if dt.tzinfo else dt)
+                # ISO形式のタイムスタンプをパース ('Z' を '+00:00' に変換)
+                timestamp_str = file_data["created"].replace("Z", "+00:00")
+                dt = datetime.fromisoformat(timestamp_str)
+
+                # タイムゾーン情報がない場合はUTCとして扱う、他の場合はUTCに変換
+                dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+                latest_created_dates.append(dt)
             except (ValueError, TypeError):
                 pass
 
-    latest_created = max(latest_created_dates) if latest_created_dates else datetime.now().replace(tzinfo=None)
+    latest_created = max(latest_created_dates) if latest_created_dates else datetime.min.replace(tzinfo=UTC)
 
     # 年の範囲
     min_year = min(years) if years else "N/A"
@@ -190,12 +203,21 @@ def get_metadata_stats() -> dict:
     unique_weeks = len(set(weekly_data))
     unique_months = len(set(monthly_data))
 
+    # datetime.min の場合は "N/A" と表示 (データなし)
+
+    latest_fetch_str = (
+        "N/A" if latest_created == datetime.min.replace(tzinfo=UTC) else latest_created.strftime("%Y-%m-%d %H:%M JST")
+    )
+    latest_update_str = (
+        "N/A" if latest_modified == datetime.min.replace(tzinfo=UTC) else latest_modified.strftime("%Y-%m-%d %H:%M JST")
+    )
+
     return {
         "total_files": len(all_files),
         "week_range": week_range,
         "month_range": month_range,
-        "latest_fetch": latest_created.strftime("%Y-%m-%d %H:%M JST"),
-        "latest_update": latest_modified.strftime("%Y-%m-%d %H:%M JST"),
+        "latest_fetch": latest_fetch_str,
+        "latest_update": latest_update_str,
         "data_types": dict(data_type_counts.most_common()),
         "data_type_periods": data_type_periods,
         "year_range": f"{min_year}年-{max_year}年",
