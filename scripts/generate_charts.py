@@ -91,10 +91,46 @@ def get_japanese_font():
 
 
 def read_csv_shift_jis(file_path: Path) -> list[list[str]]:
-    """Shift_JISエンコードのCSVファイルを読み込む"""
-    with file_path.open(encoding="shift_jis", errors="ignore") as f:
+    """Shift_JISエンコードのCSVファイルを読み込む
+
+    デコード不可能な文字は'�'(U+FFFD)に置換してデータ品質問題を可視化する。
+    """
+    with file_path.open(encoding="shift_jis", errors="replace") as f:
         reader = csv.reader(f)
         return list(reader)
+
+
+def parse_period_from_filename(file_path: Path) -> tuple[int, int, int] | None:
+    """ファイル名から年と期間を抽出する
+
+    Args:
+        file_path: データファイルのパス
+
+    Returns:
+        (year, period, period_key) のタプル、またはNone
+        - year: 年 (例: 2025)
+        - period: 週または月 (例: 50 for 第50週, 12 for 12月)
+        - period_key: 年*100 + 期間 (例: 202550 for 2025年第50週)
+
+    Examples:
+        sentinel_weekly_gender_2025_50.csv -> (2025, 50, 202550)
+        notifiable_weekly_2025_01.csv -> (2025, 1, 202501)
+        sentinel_monthly_age_2024_12.csv -> (2024, 12, 202412)
+    """
+    parts = file_path.stem.split("_")
+    # ファイル名形式: {type}_{period_type}_{subtype}_{YYYY}_{PP}.csv
+    # 最後の2つがYYYYとPP
+    if len(parts) < 2:
+        return None
+
+    try:
+        # 末尾から2番目と1番目を年と期間として抽出
+        year = int(parts[-2])
+        period = int(parts[-1])
+        period_key = year * 100 + period
+        return (year, period, period_key)
+    except (ValueError, IndexError):
+        return None
 
 
 def parse_sentinel_weekly_gender(csv_path: Path) -> dict[str, float]:
@@ -215,19 +251,16 @@ def get_recent_weeks_data(data_dir: Path, num_weeks: int = 12) -> dict[str, dict
     all_data: dict[str, dict[int, float]] = defaultdict(dict)
 
     for file_path in weekly_files[:num_weeks]:
-        # ファイル名から年週を抽出: sentinel_weekly_gender_YYYY_WW.csv
-        parts = file_path.stem.split("_")
-        if len(parts) >= 5:  # sentinel, weekly, gender, YYYY, WW
-            try:
-                year = int(parts[3])
-                week = int(parts[4])
-                week_key = year * 100 + week  # 202550形式
-            except (ValueError, IndexError):
-                continue
+        # ファイル名から年週を抽出
+        period_info = parse_period_from_filename(file_path)
+        if period_info is None:
+            continue
 
-            disease_data = parse_sentinel_weekly_gender(file_path)
-            for disease, value in disease_data.items():
-                all_data[disease][week_key] = value
+        _, _, period_key = period_info
+
+        disease_data = parse_sentinel_weekly_gender(file_path)
+        for disease, value in disease_data.items():
+            all_data[disease][period_key] = value
 
     return dict(all_data)
 
@@ -246,18 +279,15 @@ def get_notifiable_weeks_data(data_dir: Path, num_weeks: int = 12) -> dict[str, 
     all_data: dict[str, dict[int, float]] = defaultdict(dict)
 
     for file_path in weekly_files[:num_weeks]:
-        parts = file_path.stem.split("_")
-        if len(parts) >= 3:  # notifiable, weekly, YYYY, WW
-            try:
-                year = int(parts[2])
-                week = int(parts[3])
-                week_key = year * 100 + week
-            except (ValueError, IndexError):
-                continue
+        period_info = parse_period_from_filename(file_path)
+        if period_info is None:
+            continue
 
-            disease_data = parse_notifiable_weekly(file_path)
-            for disease, value in disease_data.items():
-                all_data[disease][week_key] = value
+        _, _, period_key = period_info
+
+        disease_data = parse_notifiable_weekly(file_path)
+        for disease, value in disease_data.items():
+            all_data[disease][period_key] = value
 
     return dict(all_data)
 
@@ -276,18 +306,15 @@ def get_recent_months_data(data_dir: Path, num_months: int = 12) -> dict[str, di
     all_data: dict[str, dict[int, float]] = defaultdict(dict)
 
     for file_path in monthly_files[:num_months]:
-        parts = file_path.stem.split("_")
-        if len(parts) >= 4:  # sentinel, monthly, gender, YYYY, MM
-            try:
-                year = int(parts[3])
-                month = int(parts[4])
-                month_key = year * 100 + month  # 202511形式
-            except (ValueError, IndexError):
-                continue
+        period_info = parse_period_from_filename(file_path)
+        if period_info is None:
+            continue
 
-            disease_data = parse_sentinel_monthly_gender(file_path)
-            for disease, value in disease_data.items():
-                all_data[disease][month_key] = value
+        _, _, period_key = period_info
+
+        disease_data = parse_sentinel_monthly_gender(file_path)
+        for disease, value in disease_data.items():
+            all_data[disease][period_key] = value
 
     return dict(all_data)
 
@@ -302,18 +329,15 @@ def get_all_weeks_data(data_dir: Path) -> dict[str, dict[int, float]]:
     all_data: dict[str, dict[int, float]] = defaultdict(dict)
 
     for file_path in weekly_files:
-        parts = file_path.stem.split("_")
-        if len(parts) >= 5:
-            try:
-                year = int(parts[3])
-                week = int(parts[4])
-                week_key = year * 100 + week
-            except (ValueError, IndexError):
-                continue
+        period_info = parse_period_from_filename(file_path)
+        if period_info is None:
+            continue
 
-            disease_data = parse_sentinel_weekly_gender(file_path)
-            for disease, value in disease_data.items():
-                all_data[disease][week_key] = value
+        _, _, period_key = period_info
+
+        disease_data = parse_sentinel_weekly_gender(file_path)
+        for disease, value in disease_data.items():
+            all_data[disease][period_key] = value
 
     return dict(all_data)
 
@@ -328,18 +352,15 @@ def get_all_notifiable_weeks_data(data_dir: Path) -> dict[str, dict[int, float]]
     all_data: dict[str, dict[int, float]] = defaultdict(dict)
 
     for file_path in weekly_files:
-        parts = file_path.stem.split("_")
-        if len(parts) >= 3:
-            try:
-                year = int(parts[2])
-                week = int(parts[3])
-                week_key = year * 100 + week
-            except (ValueError, IndexError):
-                continue
+        period_info = parse_period_from_filename(file_path)
+        if period_info is None:
+            continue
 
-            disease_data = parse_notifiable_weekly(file_path)
-            for disease, value in disease_data.items():
-                all_data[disease][week_key] = value
+        _, _, period_key = period_info
+
+        disease_data = parse_notifiable_weekly(file_path)
+        for disease, value in disease_data.items():
+            all_data[disease][period_key] = value
 
     return dict(all_data)
 
@@ -354,18 +375,15 @@ def get_all_months_data(data_dir: Path) -> dict[str, dict[int, float]]:
     all_data: dict[str, dict[int, float]] = defaultdict(dict)
 
     for file_path in monthly_files:
-        parts = file_path.stem.split("_")
-        if len(parts) >= 4:
-            try:
-                year = int(parts[3])
-                month = int(parts[4])
-                month_key = year * 100 + month
-            except (ValueError, IndexError):
-                continue
+        period_info = parse_period_from_filename(file_path)
+        if period_info is None:
+            continue
 
-            disease_data = parse_sentinel_monthly_gender(file_path)
-            for disease, value in disease_data.items():
-                all_data[disease][month_key] = value
+        _, _, period_key = period_info
+
+        disease_data = parse_sentinel_monthly_gender(file_path)
+        for disease, value in disease_data.items():
+            all_data[disease][period_key] = value
 
     return dict(all_data)
 
