@@ -49,27 +49,22 @@
 | 定点月次・医療圏別 | 311件   | 2000年1月〜2025年11月      | なし |
 | 定点月次・性別     | 308件   | 2000年4月〜2025年11月      | なし |
 
+### 📊 感染動向の可視化
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/weekly_trend.png" alt="主要感染症の週次推移" width="100%">
+      <p align="center"><sub>主要感染症の週次推移 (直近12週)</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/top_diseases.png" alt="感染症トップ10" width="100%">
+      <p align="center"><sub>最新週のトップ10疾患</sub></p>
+    </td>
+  </tr>
+</table>
+
 <!-- end data-statistics -->
-
-<!-- start data-visualization -->
-
-## 📈 感染動向の可視化（自動更新）
-
-> 💡 このセクションは `scripts/generate_charts.py` により自動生成されています。
-
-### 主要感染症の週次推移（直近12週）
-
-<div align="center">
-  <img src="docs/images/weekly_trend.png" alt="主要感染症の週次推移" width="100%">
-</div>
-
-### 最新週のトップ10疾患
-
-<div align="center">
-  <img src="docs/images/top_diseases.png" alt="感染症トップ10" width="100%">
-</div>
-
-<!-- end data-visualization -->
 
 ## 📋 主な機能
 
