@@ -50,23 +50,23 @@ def setup_japanese_font():
             # ダウンロードしたデータのSHA256ハッシュを計算
             downloaded_data = response.content
             sha256_hash = hashlib.sha256(downloaded_data).hexdigest()
-            print(f"ℹ️  ダウンロードしたフォントのSHA256: {sha256_hash}")
+            print(f"[INFO] ダウンロードしたフォントのSHA256: {sha256_hash}")
 
             # 注: 本番環境では以下のハッシュ検証を有効化すること
             # if sha256_hash != EXPECTED_SHA256:
-            #     print(f"⚠️ セキュリティエラー: フォントファイルのハッシュが一致しません")
+            #     print("[WARNING] セキュリティエラー: フォントファイルのハッシュが一致しません")
             #     print(f"   期待値: {EXPECTED_SHA256}")
             #     print(f"   実際値: {sha256_hash}")
             #     return None
 
             # ダウンロードしたデータを保存
             font_path.write_bytes(downloaded_data)
-            print(f"✅ フォントをダウンロード: {font_path}")
+            print(f"[SUCCESS] フォントをダウンロード: {font_path}")
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ フォントのダウンロードに失敗: {e}")
+            print(f"[WARNING] フォントのダウンロードに失敗: {e}")
             return None
         except OSError as e:
-            print(f"⚠️ フォントの保存に失敗: {e}")
+            print(f"[WARNING] フォントの保存に失敗: {e}")
             return None
 
     # フォントを登録してFontPropertiesオブジェクトを返す

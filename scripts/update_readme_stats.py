@@ -10,6 +10,7 @@ import re
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 def _has_53_weeks(year: int) -> bool:
@@ -216,12 +217,17 @@ def get_metadata_stats() -> dict:
     unique_months = len(set(monthly_data))
 
     # datetime.min の場合は "N/A" と表示 (データなし)
-
+    # UTC から JST (Asia/Tokyo) に変換して表示
+    jst = ZoneInfo("Asia/Tokyo")
     latest_fetch_str = (
-        "N/A" if latest_created == datetime.min.replace(tzinfo=UTC) else latest_created.strftime("%Y-%m-%d %H:%M JST")
+        "N/A"
+        if latest_created == datetime.min.replace(tzinfo=UTC)
+        else latest_created.astimezone(jst).strftime("%Y-%m-%d %H:%M JST")
     )
     latest_update_str = (
-        "N/A" if latest_modified == datetime.min.replace(tzinfo=UTC) else latest_modified.strftime("%Y-%m-%d %H:%M JST")
+        "N/A"
+        if latest_modified == datetime.min.replace(tzinfo=UTC)
+        else latest_modified.astimezone(jst).strftime("%Y-%m-%d %H:%M JST")
     )
 
     return {
@@ -539,9 +545,9 @@ def update_readme(stats: dict) -> bool:
     if new_content != content:
         with readme_path.open("w", encoding="utf-8") as f:
             f.write(new_content)
-        print("✅ README.md の統計情報を更新しました")
+        print("[SUCCESS] README.md の統計情報を更新しました")
         return True
-    print("ℹ README.md に変更はありません")
+    print("[INFO] README.md に変更はありません")
     return False
 
 

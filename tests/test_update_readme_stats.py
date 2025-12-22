@@ -10,6 +10,7 @@ tests/test_update_readme_stats.py - README統計情報更新機能のテスト
 """
 
 import json
+import os
 from pathlib import Path
 
 from scripts.update_readme_stats import (
@@ -60,12 +61,11 @@ class TestDetectMissingPeriods:
 
     def test_many_missing_periods(self):
         """多数の欠損がある場合 (件数のみ表示)"""
-        # 2025年第1週と第20週 (18週分が欠損)
+        # 2025年第1週と第20週 (第2週から第19週まで18週分が欠損)
         periods = [(2025, 1), (2025, 20)]
         result = _detect_missing_periods("sentinel_weekly_gender", periods)
-        assert "件" in result
-        # 欠損数が表示される
-        assert "18" in result or "19" in result
+        # 欠損が5件より多い場合は件数のみ表示される
+        assert result == "18件"
 
     def test_no_missing_monthly_data(self):
         """月次データに欠損がない場合"""
@@ -87,9 +87,6 @@ class TestGetMetadataStats:
     def test_no_metadata_directory(self, tmp_path):
         """メタデータディレクトリが存在しない場合"""
         # 一時ディレクトリを作業ディレクトリとして使用
-        import os
-        from pathlib import Path
-
         original_cwd = Path.cwd()
         try:
             os.chdir(tmp_path)
@@ -127,8 +124,6 @@ class TestGetMetadataStats:
         (metadata_dir / "sentinel_weekly_gender_2025_02.json").write_text(json.dumps(metadata2), encoding="utf-8")
 
         # テスト実行
-        import os
-
         original_cwd = Path.cwd()
         try:
             os.chdir(tmp_path)
@@ -157,8 +152,6 @@ class TestGetMetadataStats:
             "modified": "2025-01-01T00:00:00Z",
         }
         (metadata_dir / "valid.json").write_text(json.dumps(valid_metadata), encoding="utf-8")
-
-        import os
 
         original_cwd = Path.cwd()
         try:
@@ -243,8 +236,6 @@ More content
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
 
-        import os
-
         original_cwd = Path.cwd()
         try:
             os.chdir(tmp_path)
@@ -279,8 +270,6 @@ More content
             "month_count": 3,
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
-
-        import os
 
         original_cwd = Path.cwd()
         try:
