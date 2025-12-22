@@ -51,15 +51,32 @@
 
 ### 📊 感染動向の可視化
 
+#### 週次データ
+
 <table>
   <tr>
-    <td width="50%">
-      <img src="docs/images/weekly_trend.png" alt="主要感染症の週次推移" width="100%">
-      <p align="center"><sub>主要感染症の週次推移 (直近12週)</sub></p>
+    <td width="33%">
+      <img src="docs/images/sentinel_weekly_trend.png" alt="定点週次推移" width="100%">
+      <p align="center"><sub>定点報告疾患の週次推移 (ベースライン付き)</sub></p>
     </td>
-    <td width="50%">
-      <img src="docs/images/top_diseases.png" alt="感染症トップ10" width="100%">
+    <td width="33%">
+      <img src="docs/images/notifiable_weekly_trend.png" alt="全数週次推移" width="100%">
+      <p align="center"><sub>全数報告疾患の週次推移 (ベースライン付き)</sub></p>
+    </td>
+    <td width="33%">
+      <img src="docs/images/top_diseases.png" alt="最新週トップ10" width="100%">
       <p align="center"><sub>最新週のトップ10疾患</sub></p>
+    </td>
+  </tr>
+</table>
+
+#### 月次データ
+
+<table>
+  <tr>
+    <td width="100%">
+      <img src="docs/images/monthly_trend.png" alt="月次推移" width="100%">
+      <p align="center"><sub>定点報告疾患の月次推移 (直近12ヶ月)</sub></p>
     </td>
   </tr>
 </table>
