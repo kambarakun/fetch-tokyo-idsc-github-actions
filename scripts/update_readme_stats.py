@@ -269,6 +269,8 @@ def update_readme(stats: dict) -> bool:
     stats_section = f"""<!-- start data-statistics -->
 ## 📊 データ収集状況（自動更新）
 
+> 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
+
 ### 📅 最新データ
 
 | 項目 | 値 |
@@ -292,8 +294,6 @@ def update_readme(stats: dict) -> bool:
 ### 📋 データ種別内訳
 
 {format_data_type_table(stats['data_types'], stats['data_type_periods'])}
-
-> 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
 <!-- end data-statistics -->"""
 
     # マーカーが存在するかチェック
