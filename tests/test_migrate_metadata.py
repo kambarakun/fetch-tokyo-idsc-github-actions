@@ -560,9 +560,9 @@ class TestMigrateV110ToV120:
         migrated, _ = migrate_v1_1_0_to_v1_2_0(v1_1_metadata, None)
 
         # 全てのフィールドが保持されている
-        for key in v1_1_metadata:
+        for key, value in v1_1_metadata.items():
             if key != "metadata_version":
-                assert migrated[key] == v1_1_metadata[key]
+                assert migrated[key] == value
 
         # quality が追加されている
         assert "quality" in migrated
@@ -749,9 +749,9 @@ class TestMigrateV120ToV130:
         migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
 
         # 全てのフィールドが保持されている
-        for key in v1_2_metadata:
+        for key, value in v1_2_metadata.items():
             if key != "metadata_version":
-                assert migrated[key] == v1_2_metadata[key]
+                assert migrated[key] == value
 
     def test_migrate_v1_2_0_does_not_mutate_original(self) -> None:
         """マイグレーションが元のmetadataを変更しないことを確認 (deepcopyのテスト)."""
