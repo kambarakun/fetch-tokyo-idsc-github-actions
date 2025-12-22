@@ -51,6 +51,26 @@
 
 <!-- end data-statistics -->
 
+<!-- start data-visualization -->
+
+## 📈 感染動向の可視化（自動更新）
+
+> 💡 このセクションは `scripts/generate_charts.py` により自動生成されています。
+
+### 主要感染症の週次推移（直近12週）
+
+<div align="center">
+  <img src="docs/images/weekly_trend.png" alt="主要感染症の週次推移" width="100%">
+</div>
+
+### 最新週のトップ10疾患
+
+<div align="center">
+  <img src="docs/images/top_diseases.png" alt="感染症トップ10" width="100%">
+</div>
+
+<!-- end data-visualization -->
+
 ## 📋 主な機能
 
 - 🔄 **自動収集**: GitHub Actionsによる2種類の自動実行

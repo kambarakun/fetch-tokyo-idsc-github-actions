@@ -293,6 +293,18 @@ jobs:
             # 検証失敗でもPR作成は続行（レビューで確認）
           fi
 
+      - name: Generate visualization charts
+        if: env.DRY_RUN != 'true'
+        run: |
+          echo "📈 感染動向グラフを生成しています..."
+          uv run python scripts/generate_charts.py
+
+          # グラフファイルをステージング
+          if ! git diff --quiet docs/images/; then
+            git add docs/images/
+            echo "✅ Charts updated"
+          fi
+
       - name: Update README statistics
         if: env.DRY_RUN != 'true'
         run: |
