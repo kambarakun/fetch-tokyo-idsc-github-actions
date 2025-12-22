@@ -293,6 +293,20 @@ jobs:
             # 検証失敗でもPR作成は続行（レビューで確認）
           fi
 
+      - name: Update README statistics
+        if: env.DRY_RUN != 'true'
+        run: |
+          echo "📊 README統計情報を更新しています..."
+          uv run python scripts/update_readme_stats.py
+
+          # 変更があればステージング
+          if ! git diff --quiet README.md; then
+            git add README.md
+            echo "✅ README.md updated with latest statistics"
+          else
+            echo "ℹ️ No README changes needed"
+          fi
+
       - name: Check for changes
         id: changes
         if: env.DRY_RUN != 'true'
