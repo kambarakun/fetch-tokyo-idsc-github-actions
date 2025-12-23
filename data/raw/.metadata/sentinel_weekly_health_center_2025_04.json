@@ -48,5 +48,10 @@
         30
       ]
     }
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-23T09:44:19.153948+00:00",
+    "validation_status": "completed",
+    "issues": []
   }
 }

@@ -16,6 +16,7 @@
 
 import csv
 import hashlib
+import time
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
@@ -24,6 +25,72 @@ import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import requests
 import seaborn as sns
+
+
+def _copy_font_properties(base_fp, size: float):
+    """FontPropertiesをサイズ指定でコピー
+
+    @lru_cacheの副作用を回避するため、常に新しいインスタンスを返す
+
+    Args:
+        base_fp: 元のFontPropertiesオブジェクト (None可)
+        size: フォントサイズ (ポイント)
+
+    Returns:
+        サイズ設定済みのFontPropertiesコピー、またはNone
+    """
+    if not base_fp:
+        return None
+    fp = base_fp.copy()
+    fp.set_size(size)
+    return fp
+
+
+def _add_annotation(ax, values: list, value_text: str, line_color: str, japanese_font, check_non_zero: bool = True):
+    """グラフにアノテーションを追加 (最新の非None値に対して)
+
+    Args:
+        ax: matplotlibのAxesオブジェクト
+        values: データ値のリスト (Noneを含む可能性あり)
+        value_text: 表示するテキスト (例: "123", "+45%")
+        line_color: アノテーションの色 (線の色と同じ)
+        japanese_font: 日本語フォント (FontPropertiesオブジェクト、またはNone)
+        check_non_zero: Trueの場合は最新値が0でないときのみ追加
+    """
+    # 最新値を取得 (Noneでない最後の値)
+    latest_value = next((v for v in reversed(values) if v is not None), None)
+
+    # 最新値がNoneの場合、またはcheck_non_zeroがTrueで値が0の場合はスキップ
+    if latest_value is None:
+        return
+    if check_non_zero and latest_value == 0:
+        return
+
+    # 最新値の位置を見つける (逆順で最初の非None値)
+    for i in range(len(values) - 1, -1, -1):
+        if values[i] is not None:
+            # アノテーションを追加
+            if japanese_font:
+                ax.annotate(
+                    value_text,
+                    xy=(i, latest_value),
+                    xytext=(5, 0),
+                    textcoords="offset points",
+                    color=line_color,
+                    fontweight="bold",
+                    fontproperties=_copy_font_properties(japanese_font, 9),
+                )
+            else:
+                ax.annotate(
+                    value_text,
+                    xy=(i, latest_value),
+                    xytext=(5, 0),
+                    textcoords="offset points",
+                    fontsize=9,
+                    color=line_color,
+                    fontweight="bold",
+                )
+            break
 
 
 def setup_japanese_font():
@@ -38,36 +105,55 @@ def setup_japanese_font():
         print("📥 日本語フォント (Noto Sans CJK JP) をダウンロード中...")
         # セキュリティ: 許可されたURLのみ使用可能
         ALLOWED_FONT_URL = "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
-        # セキュリティ: 期待されるSHA256ハッシュ (フォントファイルの整合性検証用)
-        # 注: 初回実行時にダウンロードしたフォントのハッシュを確認して設定すること
-        # EXPECTED_SHA256 = "..."  # 本番環境では実際のハッシュ値を設定
+        # フォントファイルの最小サイズ (Noto Sans CJK JP Regular は約15-20MB)
+        MIN_FONT_SIZE = 1024 * 1024  # 1MB (空ファイルや不完全なダウンロードを検出)
 
-        try:
-            # タイムアウト30秒、リダイレクト禁止でセキュリティ強化
-            response = requests.get(ALLOWED_FONT_URL, timeout=30, allow_redirects=False)
-            response.raise_for_status()
+        # リトライロジック (最大3回)
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"[INFO] ダウンロード試行 {attempt}/{max_retries}...")
+                # GitHubのCDNリダイレクトを許可 (allow_redirects=True)
+                response = requests.get(ALLOWED_FONT_URL, timeout=30, allow_redirects=True)
+                response.raise_for_status()
 
-            # ダウンロードしたデータのSHA256ハッシュを計算
-            downloaded_data = response.content
-            sha256_hash = hashlib.sha256(downloaded_data).hexdigest()
-            print(f"[INFO] ダウンロードしたフォントのSHA256: {sha256_hash}")
+                # ダウンロードしたデータのサイズとSHA256ハッシュを検証
+                downloaded_data = response.content
+                file_size = len(downloaded_data)
+                sha256_hash = hashlib.sha256(downloaded_data).hexdigest()
 
-            # 注: 本番環境では以下のハッシュ検証を有効化すること
-            # if sha256_hash != EXPECTED_SHA256:
-            #     print("[WARNING] セキュリティエラー: フォントファイルのハッシュが一致しません")
-            #     print(f"   期待値: {EXPECTED_SHA256}")
-            #     print(f"   実際値: {sha256_hash}")
-            #     return None
+                print(f"[INFO] ダウンロードサイズ: {file_size / 1024 / 1024:.2f} MB")
+                print(f"[INFO] SHA256: {sha256_hash}")
 
-            # ダウンロードしたデータを保存
-            font_path.write_bytes(downloaded_data)
-            print(f"[SUCCESS] フォントをダウンロード: {font_path}")
-        except requests.exceptions.RequestException as e:
-            print(f"[WARNING] フォントのダウンロードに失敗: {e}")
-            return None
-        except OSError as e:
-            print(f"[WARNING] フォントの保存に失敗: {e}")
-            return None
+                # ファイルサイズの検証
+                if file_size < MIN_FONT_SIZE:
+                    raise ValueError(
+                        f"ダウンロードしたファイルが小さすぎます ({file_size} bytes < {MIN_FONT_SIZE} bytes). "
+                        f"不完全なダウンロードの可能性があります。"
+                    )
+
+                # ダウンロードしたデータを保存
+                font_path.write_bytes(downloaded_data)
+                print(f"[SUCCESS] フォントをダウンロード: {font_path}")
+                break  # 成功したらループを抜ける
+
+            except requests.exceptions.RequestException as e:
+                print(f"[WARNING] フォントのダウンロードに失敗 (試行 {attempt}/{max_retries}): {e}")
+                if attempt == max_retries:
+                    print("[ERROR] 最大リトライ回数に達しました。フォントなしで続行します。")
+                    return None
+            except (ValueError, OSError) as e:
+                print(f"[WARNING] フォントの検証/保存に失敗 (試行 {attempt}/{max_retries}): {e}")
+                if attempt == max_retries:
+                    print("[ERROR] 最大リトライ回数に達しました。フォントなしで続行します。")
+                    return None
+                # 不完全なファイルを削除
+                if font_path.exists():
+                    font_path.unlink()
+
+            # リトライ前に少し待機
+            if attempt < max_retries:
+                time.sleep(2)
 
     # フォントを登録してFontPropertiesオブジェクトを返す
     try:
@@ -193,7 +279,8 @@ def parse_sentinel_weekly_gender(csv_path: Path) -> dict[str, float]:
         value_str = str(row[total_col_idx]).strip()
 
         # 疾患名と患者数が有効な場合のみ追加
-        if disease_name and value_str and value_str not in ["*", "-", "", "0"]:
+        # 注: 0のデータも含める (線の連続性のため)
+        if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 # 定点あたり患者数を計算(合計患者数 / 定点数)
                 total_count = float(value_str)
@@ -239,10 +326,12 @@ def parse_notifiable_weekly(csv_path: Path) -> dict[str, float]:
         value_str = str(row[1]).strip()
 
         # 疾患名と報告数が有効な場合のみ追加
-        if disease_name and value_str and value_str not in ["*", "-", "", "0"]:
+        # 0のデータは除外 (統計的に意味がないため)
+        if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 count = float(value_str)
-                disease_data[disease_name] = count
+                if count > 0:  # 0より大きい値のみ追加
+                    disease_data[disease_name] = count
             except ValueError:
                 continue
 
@@ -481,11 +570,12 @@ def calculate_deviation_rate(
 
             baseline_value = baseline[disease][period]
 
-            # ベースラインが0の場合は計算しない (ゼロ除算回避)
+            # 乖離率を計算 (ベースラインが0の場合は計算不可能なのでスキップ)
             if baseline_value > 0:
+                # 通常の計算
                 deviation = ((value - baseline_value) / baseline_value) * 100
                 rate_data[period] = deviation
-            # else: ベースラインが0の場合はキーを設定しない
+            # baseline_value == 0 または < 0 の場合はスキップ (統計的に意味がない)
 
         deviation_rates[disease] = rate_data
 
@@ -539,72 +629,62 @@ def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_f
         japanese_font: 日本語フォントプロパティ (None可)
     """
     if period_type == "week":
-        # 52週を約5週ごとに表示 (約10箇所)
-        tick_step = 5
-        tick_positions = list(range(0, len(all_periods), tick_step))
-        # 最後の週も必ず含める
-        if (len(all_periods) - 1) not in tick_positions:
-            tick_positions.append(len(all_periods) - 1)
-        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+        # 週番号ベースで5の倍数を表示 (最小・最大は必ず含む)
+        week_numbers = [p % 100 for p in all_periods]
+        min_week = min(week_numbers)
+        max_week = max(week_numbers)
+
+        # 表示する週番号を決定 (5の倍数 + 最小・最大)
+        display_weeks = set()
+        display_weeks.add(min_week)  # 最小週
+        display_weeks.add(max_week)  # 最大週
+
+        # 5の倍数を追加
+        for week in range(0, 55, 5):  # 0, 5, 10, ..., 50
+            if min_week <= week <= max_week:
+                display_weeks.add(week)
+
+        # インデックスと週番号のマッピング
+        tick_positions = []
+        tick_labels_list = []
+        for i, week in enumerate(week_numbers):
+            if week in display_weeks:
+                tick_positions.append(i)
+                tick_labels_list.append(str(week))
     else:  # month
         # 12ヶ月を全て表示
         tick_positions = list(range(len(all_periods)))
         tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
 
     ax.set_xticks(tick_positions)
-    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=9)
+    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=10)
 
     if japanese_font:
         for label in tick_labels:
             label.set_fontproperties(japanese_font)
 
 
-def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text: str, japanese_font) -> None:
-    """チャートの軸ラベル、タイトル、凡例、注釈を設定
+def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, japanese_font) -> None:
+    """チャートの軸ラベル、タイトル、凡例を設定
 
     Args:
         ax: Matplotlibの軸オブジェクト
         xlabel_text: X軸ラベル
         ylabel: Y軸ラベル
         title: グラフタイトル
-        note_text: 注釈テキスト
         japanese_font: 日本語フォントプロパティ (None可)
     """
     if japanese_font:
-        ax.set_xlabel(xlabel_text, fontsize=10, fontproperties=japanese_font)
-        ax.set_ylabel(ylabel, fontsize=11, fontproperties=japanese_font)
-        ax.set_title(title, fontsize=13, fontweight="bold", fontproperties=japanese_font, pad=15)
-        ax.legend(loc="upper left", fontsize=9, prop=japanese_font, frameon=False)
-
-        # 注釈を追加
-        ax.text(
-            0.98,
-            0.97,
-            note_text,
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-            fontproperties=japanese_font,
-        )
+        # FontPropertiesをサイズ別にcopyして渡す (fontsize引数の上書き問題を回避)
+        ax.set_xlabel(xlabel_text, fontproperties=_copy_font_properties(japanese_font, 11))
+        ax.set_ylabel(ylabel, fontproperties=_copy_font_properties(japanese_font, 12))
+        ax.set_title(title, fontweight="bold", fontproperties=_copy_font_properties(japanese_font, 20), pad=10)
+        ax.legend(loc="upper left", prop=_copy_font_properties(japanese_font, 12), frameon=False)
     else:
-        ax.set_xlabel(xlabel_text, fontsize=10)
-        ax.set_ylabel(ylabel, fontsize=11)
-        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
-        ax.legend(loc="upper left", fontsize=9, frameon=False)
-
-        # 注釈を追加
-        ax.text(
-            0.98,
-            0.97,
-            note_text,
-            transform=ax.transAxes,
-            fontsize=8,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-        )
+        ax.set_xlabel(xlabel_text, fontsize=11)
+        ax.set_ylabel(ylabel, fontsize=12)
+        ax.set_title(title, fontsize=20, fontweight="bold", pad=10)
+        ax.legend(loc="upper left", fontsize=12, frameon=False)
 
 
 def generate_absolute_chart(
@@ -668,29 +748,14 @@ def generate_absolute_chart(
         label_with_value = f"{disease} (最新: {value_format})"
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
-        # 最新データポイントにアノテーションを追加(Noneでない最後のポイント)
-        if latest_value > 0:
-            # 最新値の位置を見つける
-            for i in range(len(values) - 1, -1, -1):
-                if values[i] is not None:
-                    ax.annotate(
-                        value_format,
-                        xy=(i, latest_value),
-                        xytext=(5, 0),
-                        textcoords="offset points",
-                        fontsize=8,
-                        color=line[0].get_color(),
-                        fontweight="bold",
-                        fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
-                    )
-                    break
+        # 最新データポイントにアノテーションを追加 (共通関数を使用)
+        _add_annotation(ax, values, value_format, line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
 
     # X軸ラベル (期間を明示)
     xlabel_text = _format_period_label(min_period, max_period, period_type)
 
-    # 軸ラベル、タイトル、凡例、注釈を設定
-    note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
-    _setup_chart_labels(ax, xlabel_text, ylabel, title, note_text, JAPANESE_FONT)
+    # 軸ラベル、タイトル、凡例を設定
+    _setup_chart_labels(ax, xlabel_text, ylabel, title, JAPANESE_FONT)
 
     # CDCスタイルを適用
     _apply_cdc_styling(ax, fig)
@@ -698,13 +763,26 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソース
-    if JAPANESE_FONT:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666", fontproperties=JAPANESE_FONT)
-    else:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666")
+    # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
+    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
 
-    plt.tight_layout()
+    # データソースと注釈 (下側の確保したスペースに配置)
+    note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
+    footer_text = f"{note_text}\n{data_source}"
+    if JAPANESE_FONT:
+        # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
+        fig.text(
+            0.99,
+            0.01,
+            footer_text,
+            ha="right",
+            va="bottom",
+            color="#666666",
+            fontproperties=_copy_font_properties(JAPANESE_FONT, 8),
+        )
+    else:
+        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
+
     plt.savefig(output_path, dpi=100)
     plt.close()
 
@@ -786,22 +864,8 @@ def generate_deviation_chart(
         label_with_value = f"{disease} (最新: {latest_value:+.0f}%)"
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
-        # 最新データポイントにアノテーションを追加(Noneでない最後のポイント)
-        if latest_value != 0:
-            # 最新値の位置を見つける
-            for i in range(len(values) - 1, -1, -1):
-                if values[i] is not None:
-                    ax.annotate(
-                        f"{latest_value:+.0f}%",
-                        xy=(i, latest_value),
-                        xytext=(5, 0),
-                        textcoords="offset points",
-                        fontsize=8,
-                        color=line[0].get_color(),
-                        fontweight="bold",
-                        fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
-                    )
-                    break
+        # 最新データポイントにアノテーションを追加 (共通関数を使用)
+        _add_annotation(ax, values, f"{latest_value:+.0f}%", line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
 
     # ベースライン (0%ライン) を表示
     if len(all_periods) > 0:
@@ -810,9 +874,8 @@ def generate_deviation_chart(
     # X軸ラベル (期間を明示)
     xlabel_text = _format_period_label(min_period, max_period, period_type)
 
-    # 軸ラベル、タイトル、凡例、注釈を設定
-    note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"
-    _setup_chart_labels(ax, xlabel_text, "季節性ベースラインからの乖離率 (%)", title, note_text, JAPANESE_FONT)
+    # 軸ラベル、タイトル、凡例を設定
+    _setup_chart_labels(ax, xlabel_text, "季節性ベースラインからの乖離率 (%)", title, JAPANESE_FONT)
 
     # CDCスタイルを適用
     _apply_cdc_styling(ax, fig)
@@ -820,13 +883,26 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソース
-    if JAPANESE_FONT:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666", fontproperties=JAPANESE_FONT)
-    else:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666")
+    # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
+    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
 
-    plt.tight_layout()
+    # データソースと注釈 (下側の確保したスペースに配置)
+    note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"
+    footer_text = f"{note_text}\n{data_source}"
+    if JAPANESE_FONT:
+        # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
+        fig.text(
+            0.99,
+            0.01,
+            footer_text,
+            ha="right",
+            va="bottom",
+            color="#666666",
+            fontproperties=_copy_font_properties(JAPANESE_FONT, 8),
+        )
+    else:
+        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
+
     plt.savefig(output_path, dpi=100)
     plt.close()
 

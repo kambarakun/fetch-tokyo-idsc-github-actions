@@ -10,7 +10,11 @@ import re
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
+
+# 表示する項目数の上限
+MAX_DISPLAY_ITEMS = 50
 
 
 def _has_53_weeks(year: int) -> bool:
@@ -55,7 +59,7 @@ def get_metadata_stats() -> dict:
     # データタイプごとの期間情報を保存
     data_type_periods: dict[str, list[tuple[int, int]]] = {}
     # 異常情報を収集
-    anomalies: dict[str, dict[str, list[str]]] = {"errors": {}, "warnings": {}, "quality_issues": {}}
+    anomalies: dict[str, dict[str, Any]] = {"errors": {}, "warnings": {}, "quality_issues": {}}
     # 失敗したファイルを追跡
     failed_files: list[str] = []
 
@@ -86,14 +90,25 @@ def get_metadata_stats() -> dict:
                         anomalies["warnings"][warning] = []
                     anomalies["warnings"][warning].append(filename)
 
-            # quality.issues
+            # quality.issues (詳細情報も保存)
             if "quality" in data and "issues" in data["quality"]:
                 for issue in data["quality"]["issues"]:
-                    issue_key = issue.get("type", "unknown")
-                    issue_desc = f"{issue_key}: {issue.get('message', '')}"
-                    if issue_desc not in anomalies["quality_issues"]:
-                        anomalies["quality_issues"][issue_desc] = []
-                    anomalies["quality_issues"][issue_desc].append(filename)
+                    check_type = issue.get("check_type", "unknown")
+                    if check_type not in anomalies["quality_issues"]:
+                        anomalies["quality_issues"][check_type] = {
+                            "files": [],
+                            "details": [],  # affected_count, message などの詳細
+                        }
+                    anomalies["quality_issues"][check_type]["files"].append(filename)
+                    # 詳細情報を保存 (affected_count, message など)
+                    anomalies["quality_issues"][check_type]["details"].append(
+                        {
+                            "filename": filename,
+                            "message": issue.get("message", ""),
+                            "affected_count": issue.get("details", {}).get("affected_count", 0),
+                            "validation_status": issue.get("validation_status", "unknown"),
+                        }
+                    )
 
             # データタイプ別カウント
             data_type = data.get("data_type")
@@ -297,32 +312,65 @@ def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[s
     return "\n".join(lines)
 
 
-def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
+def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
     """異常情報を折りたたみ形式で整形"""
+
+    def _extract_file_sort_key(filename: str) -> tuple[int, int, str]:
+        """ファイル名から年・期間を抽出してソートキーを生成 (新しい順)"""
+        match = re.search(r"_(\d{4})_(\d{2})\.csv$", filename)
+        if match:
+            year = int(match.group(1))
+            period = int(match.group(2))
+            # 降順ソートのため負数にする
+            return (-year, -period, filename)
+        # パースできない場合は末尾に配置
+        return (0, 0, filename)
+
+    # 既知のエラー/警告の解説
+    KNOWN_DESCRIPTIONS = {
+        # verification.warnings
+        "[csv_format] Inconsistent column count": "💡 CSVファイル内で行ごとにカラム数が異なります。東京都IDSCの元データには注釈行や集計期間情報が含まれているため発生します。",
+        # verification.errors (将来的に追加される可能性)
+        "[file_size] File too large": "⚠️ ファイルサイズが上限を超えています。データ品質を確認してください。",
+        "[encoding] Invalid encoding": "⚠️ ファイルのエンコーディングがShift_JISではありません。データ取得プロセスを確認してください。",
+        # quality.issues
+        "gender_sum_consistency": "🔍 性別データの合計値検証で不整合が検出されました。男性+女性の合計が、元データの男女合計値と一致しません。",
+    }
 
     # 異常の総数を計算
     total_errors = sum(len(files) for files in anomalies["errors"].values())
     total_warnings = sum(len(files) for files in anomalies["warnings"].values())
-    total_quality_issues = sum(len(files) for files in anomalies["quality_issues"].values())
+    total_quality_issues = sum(len(info["files"]) for info in anomalies["quality_issues"].values())
 
     if total_errors == 0 and total_warnings == 0 and total_quality_issues == 0:
         return "✅ データ品質チェック: 異常なし"
 
     lines = []
 
+    # === 生データ (raw) の検証 ===
+    if total_errors > 0 or total_warnings > 0:
+        lines.append("#### 📁 生データ (raw) の検証")
+        lines.append("")
+
     # エラー
     if total_errors > 0:
-        lines.append(f"#### ❌ エラー ({total_errors}件)")
+        lines.append(f"##### ❌ エラー ({total_errors}件)")
         lines.append("")
         for error_type, files in sorted(anomalies["errors"].items()):
+            # 解説を追加
+            description = KNOWN_DESCRIPTIONS.get(error_type, "")
+            if description:
+                lines.append(f"> {description}")
+                lines.append("")
+
             lines.append("<details>")
             lines.append(f"<summary><strong>{error_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
             lines.append("```text")
-            for file in sorted(files)[:50]:  # 最大50件まで表示
+            for file in sorted(files, key=_extract_file_sort_key)[:MAX_DISPLAY_ITEMS]:  # 新しい順にソート
                 lines.append(file)
-            if len(files) > 50:
-                lines.append(f"... 他{len(files) - 50}件")
+            if len(files) > MAX_DISPLAY_ITEMS:
+                lines.append(f"... 他{len(files) - MAX_DISPLAY_ITEMS}件")
             lines.append("```")
             lines.append("")
             lines.append("</details>")
@@ -330,39 +378,79 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
 
     # 警告
     if total_warnings > 0:
-        lines.append(f"#### ⚠️ 警告 ({total_warnings}件)")
+        lines.append(f"##### ⚠️ 警告 ({total_warnings}件)")
         lines.append("")
         for warning_type, files in sorted(anomalies["warnings"].items()):
+            # 解説を追加
+            description = KNOWN_DESCRIPTIONS.get(warning_type, "")
+            if description:
+                lines.append(f"> {description}")
+                lines.append("")
+
             lines.append("<details>")
             lines.append(f"<summary><strong>{warning_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
             lines.append("```text")
-            for file in sorted(files)[:50]:
+            for file in sorted(files, key=_extract_file_sort_key)[:MAX_DISPLAY_ITEMS]:  # 新しい順にソート
                 lines.append(file)
-            if len(files) > 50:
-                lines.append(f"... 他{len(files) - 50}件")
+            if len(files) > MAX_DISPLAY_ITEMS:
+                lines.append(f"... 他{len(files) - MAX_DISPLAY_ITEMS}件")
             lines.append("```")
             lines.append("")
             lines.append("</details>")
             lines.append("")
 
+    # === 処理済みデータ (processed) の品質チェック ===
+    lines.append("")
+    lines.append("#### 📊 処理済みデータ (processed) の品質チェック")
+    lines.append("")
+
     # データ品質の問題
     if total_quality_issues > 0:
-        lines.append(f"#### 🔍 データ品質の問題 ({total_quality_issues}件)")
+        lines.append(f"##### 🔍 データ品質の問題 ({total_quality_issues}件)")
         lines.append("")
-        for issue_type, files in sorted(anomalies["quality_issues"].items()):
+        for check_type, info in sorted(anomalies["quality_issues"].items()):
+            files = info["files"]
+            details = info["details"]
+
+            # 解説を追加
+            description = KNOWN_DESCRIPTIONS.get(check_type, "")
+            if description:
+                lines.append(f"> {description}")
+                lines.append("")
+
+            # 合計 affected_count を計算 (防御的な辞書アクセス)
+            total_affected = sum(d.get("affected_count", 0) for d in details)
+
             lines.append("<details>")
-            lines.append(f"<summary><strong>{issue_type}</strong> ({len(files)}件)</summary>")
+            if total_affected > 0:
+                lines.append(
+                    f"<summary><strong>{check_type}</strong> ({len(files)}ファイル, 不整合: {total_affected}件)</summary>"
+                )
+            else:
+                lines.append(f"<summary><strong>{check_type}</strong> ({len(files)}ファイル)</summary>")
             lines.append("")
+
+            # ファイルごとの詳細を表示 (新しい順にソート)
             lines.append("```text")
-            for file in sorted(files)[:50]:
-                lines.append(file)
-            if len(files) > 50:
-                lines.append(f"... 他{len(files) - 50}件")
+            for detail in sorted(details, key=lambda d: _extract_file_sort_key(d.get("filename", "")))[
+                :MAX_DISPLAY_ITEMS
+            ]:
+                affected_count = detail.get("affected_count", 0)
+                if affected_count > 0:
+                    lines.append(f"{detail.get('filename', 'Unknown')} (不整合: {affected_count}件)")
+                else:
+                    lines.append(f"{detail.get('filename', 'Unknown')}")
+            if len(details) > MAX_DISPLAY_ITEMS:
+                lines.append(f"... 他{len(details) - MAX_DISPLAY_ITEMS}ファイル")
             lines.append("```")
             lines.append("")
             lines.append("</details>")
             lines.append("")
+    else:
+        lines.append("##### ✅ データ品質の問題")
+        lines.append("")
+        lines.append("問題なし")
 
     return "\n".join(lines)
 
