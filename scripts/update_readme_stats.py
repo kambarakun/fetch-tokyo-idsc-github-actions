@@ -217,23 +217,32 @@ def get_metadata_stats() -> dict[str, Any]:
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
 
-    # 最新データ取得日時の取得 (created フィールドから)
-    latest_created_dates: list[datetime] = []
-    for file_data in all_files:
-        if file_data.get("created"):
+    # 最新データ取得日時の取得 (data/logs/stats_*.json から)
+    latest_fetch_time = datetime.min.replace(tzinfo=UTC)
+    logs_dir = Path("data/logs")
+    if logs_dir.exists():
+        # stats_*.json ファイルを新しい順に探索
+        stats_files = sorted(logs_dir.glob("stats_*.json"), reverse=True)
+        for stats_file in stats_files:
             try:
-                # ISO形式のタイムスタンプをパース ('Z' を '+00:00' に変換)
-                timestamp_str = file_data["created"].replace("Z", "+00:00")
-                dt = datetime.fromisoformat(timestamp_str)
+                with stats_file.open(encoding="utf-8") as f:
+                    stats_data = json.load(f)
 
-                # タイムゾーン情報がない場合はUTCとして扱う、他の場合はUTCに変換
-                dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+                # 実際にデータ変更があったログのみ対象
+                new_files = stats_data.get("new_files", 0)
+                updated_files = stats_data.get("updated_files", 0)
 
-                latest_created_dates.append(dt)
-            except (ValueError, TypeError):
-                pass
-
-    latest_created = max(latest_created_dates) if latest_created_dates else datetime.min.replace(tzinfo=UTC)
+                if new_files > 0 or updated_files > 0:
+                    # end_time を取得
+                    end_time_str = stats_data.get("end_time", "")
+                    if end_time_str:
+                        # ISO形式のタイムスタンプをパース
+                        dt = datetime.fromisoformat(end_time_str)
+                        # タイムゾーン情報がない場合はUTCとして扱う
+                        latest_fetch_time = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+                        break
+            except (json.JSONDecodeError, ValueError, TypeError, OSError):
+                continue
 
     # 年の範囲
     min_year = min(years) if years else "N/A"
@@ -270,8 +279,8 @@ def get_metadata_stats() -> dict[str, Any]:
     tz, tz_name = _get_jst_zone()
     latest_fetch_str = (
         "N/A"
-        if latest_created == datetime.min.replace(tzinfo=UTC)
-        else latest_created.astimezone(tz).strftime(f"%Y-%m-%d %H:%M {tz_name}")
+        if latest_fetch_time == datetime.min.replace(tzinfo=UTC)
+        else latest_fetch_time.astimezone(tz).strftime(f"%Y-%m-%d %H:%M {tz_name}")
     )
     # スクリプト実行日時 (最終統計更新日時) を取得
     last_stats_update_str = _get_current_jst_timestamp()
