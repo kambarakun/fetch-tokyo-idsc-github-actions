@@ -49,8 +49,111 @@
     "save_all_zero": false
   },
   "quality": {
-    "validation_timestamp": "2025-12-20T18:25:53.682493+00:00",
-    "validation_status": "skipped",
-    "issues": []
+    "validation_timestamp": "2025-12-23T09:43:54.773730+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 12 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2020_14.csv",
+          "affected_count": 12,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "RSウイルス感染症",
+              "row_index": 3,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区南部",
+              "column": "伝染性紅斑",
+              "row_index": 4,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西南部",
+              "column": "不明発しん症",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "不明発しん症",
+              "row_index": 6,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "区西北部",
+              "column": "川崎病",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "伝染性紅斑",
+              "row_index": 8,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "西多摩",
+              "column": "突発性発しん",
+              "row_index": 10,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "南多摩",
+              "column": "インフルエンザ",
+              "row_index": 11,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "インフルエンザ",
+              "row_index": 12,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "北多摩南部",
+              "column": "不明発しん症",
+              "row_index": 13,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            }
+          ]
+        }
+      }
+    ]
   }
 }

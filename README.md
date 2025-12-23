@@ -167,9 +167,68 @@ notifiable_weekly_2000_50.csv
 
 #### 📊 処理済みデータ (processed) の品質チェック
 
-##### ✅ データ品質の問題
+##### 🔍 データ品質の問題 (989件)
 
-問題なし
+> 🔍 性別データの合計値検証で不整合が検出されました。男性+女性の合計が、元データの男女合計値と一致しません。データ提供元の確認が必要です。
+
+<details>
+<summary><strong>gender_sum_consistency</strong> (989ファイル, 不整合: 11412件)</summary>
+
+```text
+sentinel_weekly_medical_district_2019_16.csv (不整合: 14件)
+sentinel_weekly_medical_district_2024_46.csv (不整合: 14件)
+sentinel_weekly_medical_district_2009_41.csv (不整合: 14件)
+sentinel_weekly_medical_district_2011_21.csv (不整合: 14件)
+sentinel_weekly_medical_district_2018_17.csv (不整合: 14件)
+sentinel_weekly_medical_district_2007_24.csv (不整合: 14件)
+sentinel_weekly_medical_district_2025_47.csv (不整合: 14件)
+sentinel_weekly_medical_district_2023_39.csv (不整合: 14件)
+sentinel_weekly_medical_district_2013_51.csv (不整合: 14件)
+sentinel_weekly_medical_district_2009_36.csv (不整合: 14件)
+sentinel_weekly_medical_district_2015_38.csv (不整合: 14件)
+sentinel_weekly_medical_district_2023_38.csv (不整合: 14件)
+sentinel_weekly_medical_district_2023_48.csv (不整合: 14件)
+sentinel_weekly_medical_district_2015_13.csv (不整合: 14件)
+sentinel_weekly_medical_district_2023_44.csv (不整合: 14件)
+sentinel_weekly_medical_district_2012_37.csv (不整合: 14件)
+sentinel_weekly_medical_district_2019_47.csv (不整合: 14件)
+sentinel_weekly_medical_district_2018_11.csv (不整合: 14件)
+sentinel_weekly_medical_district_2020_39.csv (不整合: 14件)
+sentinel_weekly_medical_district_2014_24.csv (不整合: 14件)
+sentinel_weekly_medical_district_2016_18.csv (不整合: 14件)
+sentinel_weekly_medical_district_2025_17.csv (不整合: 14件)
+sentinel_weekly_medical_district_2017_23.csv (不整合: 14件)
+sentinel_weekly_medical_district_2023_12.csv (不整合: 14件)
+sentinel_weekly_medical_district_2024_20.csv (不整合: 14件)
+sentinel_weekly_medical_district_2011_47.csv (不整合: 14件)
+sentinel_weekly_medical_district_2011_06.csv (不整合: 14件)
+sentinel_weekly_medical_district_2009_32.csv (不整合: 14件)
+sentinel_weekly_medical_district_2014_10.csv (不整合: 14件)
+sentinel_weekly_medical_district_2008_44.csv (不整合: 14件)
+sentinel_weekly_medical_district_2025_38.csv (不整合: 14件)
+sentinel_weekly_medical_district_2016_21.csv (不整合: 14件)
+sentinel_weekly_medical_district_2008_29.csv (不整合: 14件)
+sentinel_weekly_medical_district_2024_38.csv (不整合: 14件)
+sentinel_weekly_medical_district_2007_21.csv (不整合: 14件)
+sentinel_weekly_medical_district_2025_03.csv (不整合: 14件)
+sentinel_weekly_medical_district_2014_07.csv (不整合: 14件)
+sentinel_weekly_medical_district_2018_32.csv (不整合: 14件)
+sentinel_weekly_medical_district_2018_08.csv (不整合: 14件)
+sentinel_weekly_medical_district_2014_41.csv (不整合: 14件)
+sentinel_weekly_medical_district_2014_01.csv (不整合: 14件)
+sentinel_weekly_medical_district_2018_22.csv (不整合: 14件)
+sentinel_weekly_medical_district_2007_07.csv (不整合: 14件)
+sentinel_weekly_medical_district_2009_19.csv (不整合: 14件)
+sentinel_weekly_medical_district_2024_49.csv (不整合: 14件)
+sentinel_weekly_medical_district_2009_35.csv (不整合: 14件)
+sentinel_weekly_medical_district_2016_06.csv (不整合: 14件)
+sentinel_weekly_medical_district_2012_04.csv (不整合: 14件)
+sentinel_weekly_medical_district_2013_09.csv (不整合: 14件)
+sentinel_weekly_medical_district_2019_03.csv (不整合: 14件)
+... 他939ファイル
+```
+
+</details>
 
 <!-- end data-statistics -->
 

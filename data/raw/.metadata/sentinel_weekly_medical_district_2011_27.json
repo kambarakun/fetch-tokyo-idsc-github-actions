@@ -49,8 +49,75 @@
     "save_all_zero": false
   },
   "quality": {
-    "validation_timestamp": "2025-12-20T18:25:53.510925+00:00",
-    "validation_status": "skipped",
-    "issues": []
+    "validation_timestamp": "2025-12-23T09:43:50.253428+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 6 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2011_27.csv",
+          "affected_count": 6,
+          "truncated": false,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "咽頭結膜熱",
+              "row_index": 3,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区東部",
+              "column": "百日咳",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "咽頭結膜熱",
+              "row_index": 12,
+              "male": 4,
+              "female": 4,
+              "total": 4,
+              "expected": 8
+            },
+            {
+              "location": "北多摩南部",
+              "column": "川崎病",
+              "row_index": 13,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "島しょ",
+              "column": "川崎病",
+              "row_index": 15,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "合計",
+              "column": "咽頭結膜熱",
+              "row_index": 16,
+              "male": 125,
+              "female": 82,
+              "total": 200,
+              "expected": 207
+            }
+          ]
+        }
+      }
+    ]
   }
 }

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from src.models.metadata import METADATA_VERSION
+from src.validators.quality_validator import QualityValidator
 
 # 旧バージョンとの互換性のためのエイリアス
 LEGACY_METADATA_VERSION = "1.0"
@@ -232,6 +233,9 @@ class StorageManager:
         self.hash_index_file = self.metadata_dir / "hash_index.json"
         self.hash_index = self._load_hash_index()
 
+        # 品質検証器を初期化
+        self.quality_validator = QualityValidator(self.base_path)
+
     def organize_file_path(self, data_type: str, year: int, period: int, is_monthly: bool = False) -> Path:
         """フラットなディレクトリ構造でのファイルパス生成する。
 
@@ -395,6 +399,11 @@ class StorageManager:
             # 検証の実行
             verification = self._validate_saved_file(file_path, data)
             metadata["verification"] = verification
+
+            # 品質検証の実行
+            # processing_metadataは空でOK (GenderSumValidatorは使用しない)
+            quality = self.quality_validator.validate(filename, data_type, {})
+            metadata["quality"] = quality
 
             # メタデータは別ディレクトリに保存(.metadataディレクトリ)
             metadata_filename = f"{filename.replace('.csv', '.json')}"
