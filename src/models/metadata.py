@@ -123,7 +123,10 @@ class Verification:
     checks: dict[str, bool] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-    details: dict[str, Any] = field(default_factory=dict)  # v1.3.0: 構造化詳細情報
+    # v1.3.0: 構造化詳細情報
+    # 現在サポートされているフィールド:
+    #   - column_counts: list[int] - CSVカラム数の一覧 (不整合検出時)
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """辞書形式に変換"""

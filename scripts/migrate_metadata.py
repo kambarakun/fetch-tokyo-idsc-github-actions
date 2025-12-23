@@ -655,7 +655,8 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
             warnings_updated = False
 
             # 警告メッセージのパターン: "[csv_format] Inconsistent column count: {0, 1, 2, 10}"
-            pattern = re.compile(r"\[csv_format\] Inconsistent column count: \{(.+?)\}")
+            # 数値、カンマ、空白のみを許可する厳密なパターン
+            pattern = re.compile(r"\[csv_format\] Inconsistent column count: \{([0-9, ]+)\}")
 
             for warning in warnings:
                 if not isinstance(warning, str):
@@ -677,8 +678,9 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
                             f"verification.warnings: normalized message, " f"details.column_counts: {column_counts}"
                         )
                         warnings_updated = True
-                    except (ValueError, AttributeError):
+                    except (ValueError, AttributeError) as e:
                         # パース失敗時は元のメッセージを保持
+                        logger.debug(f"Failed to parse column counts from warning: {warning!r} - {e}")
                         new_warnings.append(warning)
                 else:
                     new_warnings.append(warning)
