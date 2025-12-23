@@ -572,14 +572,14 @@ def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_f
 
 
 def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text: str, japanese_font) -> None:
-    """チャートの軸ラベル、タイトル、凡例、注釈を設定
+    """チャートの軸ラベル、タイトル、凡例を設定
 
     Args:
         ax: Matplotlibの軸オブジェクト
         xlabel_text: X軸ラベル
         ylabel: Y軸ラベル
         title: グラフタイトル
-        note_text: 注釈テキスト
+        note_text: 注釈テキスト (未使用 - データソースと統合)
         japanese_font: 日本語フォントプロパティ (None可)
     """
     if japanese_font:
@@ -587,36 +587,11 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
         ax.set_ylabel(ylabel, fontsize=12, fontproperties=japanese_font)
         ax.set_title(title, fontsize=15, fontweight="bold", fontproperties=japanese_font, pad=15)
         ax.legend(loc="upper left", fontsize=10, prop=japanese_font, frameon=False)
-
-        # 注釈を追加
-        ax.text(
-            0.98,
-            0.97,
-            note_text,
-            transform=ax.transAxes,
-            fontsize=9,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-            fontproperties=japanese_font,
-        )
     else:
         ax.set_xlabel(xlabel_text, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=12)
         ax.set_title(title, fontsize=15, fontweight="bold", pad=15)
         ax.legend(loc="upper left", fontsize=10, frameon=False)
-
-        # 注釈を追加
-        ax.text(
-            0.98,
-            0.97,
-            note_text,
-            transform=ax.transAxes,
-            fontsize=9,
-            verticalalignment="top",
-            horizontalalignment="right",
-            color="#666666",
-        )
 
 
 def generate_absolute_chart(
@@ -700,7 +675,7 @@ def generate_absolute_chart(
     # X軸ラベル (期間を明示)
     xlabel_text = _format_period_label(min_period, max_period, period_type)
 
-    # 軸ラベル、タイトル、凡例、注釈を設定
+    # 軸ラベル、タイトル、凡例を設定
     note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
     _setup_chart_labels(ax, xlabel_text, ylabel, title, note_text, JAPANESE_FONT)
 
@@ -710,11 +685,14 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソース
+    # データソースと注釈 (右下にまとめて配置)
+    footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT)
+        fig.text(
+            0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
+        )
     else:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666")
+        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)
@@ -822,7 +800,7 @@ def generate_deviation_chart(
     # X軸ラベル (期間を明示)
     xlabel_text = _format_period_label(min_period, max_period, period_type)
 
-    # 軸ラベル、タイトル、凡例、注釈を設定
+    # 軸ラベル、タイトル、凡例を設定
     note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"
     _setup_chart_labels(ax, xlabel_text, "季節性ベースラインからの乖離率 (%)", title, note_text, JAPANESE_FONT)
 
@@ -832,11 +810,14 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソース
+    # データソースと注釈 (右下にまとめて配置)
+    footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT)
+        fig.text(
+            0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
+        )
     else:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666")
+        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)
