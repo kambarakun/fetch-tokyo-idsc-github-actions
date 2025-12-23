@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfoNotFoundError
 from scripts.update_readme_stats import (
     _detect_missing_periods,
     _get_current_jst_timestamp,
+    _get_jst_zone,
     _has_53_weeks,
     format_data_type_table,
     get_metadata_stats,
@@ -44,6 +45,48 @@ class TestHas53Weeks:
     def test_2023_has_52_weeks(self):
         """2023年は52週のみ"""
         assert _has_53_weeks(2023) is False
+
+
+class TestGetJSTZone:
+    """_get_jst_zone()関数のテスト"""
+
+    def test_returns_jst_zone_and_name(self):
+        """正常系: JSTのZoneInfoとタイムゾーン名を返す"""
+        tz, tz_name = _get_jst_zone()
+
+        # タイムゾーン名が"JST"であることを確認
+        assert tz_name == "JST"
+
+        # ZoneInfoが使用可能であることを確認 (文字列表現で検証)
+        assert "Asia/Tokyo" in str(tz)
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_zoneinfo_not_found(self, mock_zoneinfo):
+        """ZoneInfoNotFoundError発生時のUTCフォールバックを確認"""
+        from datetime import UTC
+
+        # ZoneInfoの初期化時にZoneInfoNotFoundErrorを発生させる
+        mock_zoneinfo.side_effect = ZoneInfoNotFoundError("Asia/Tokyo")
+
+        tz, tz_name = _get_jst_zone()
+
+        # UTCフォールバックが機能していることを確認
+        assert tz == UTC
+        assert tz_name == "UTC"
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_os_error(self, mock_zoneinfo):
+        """OSError発生時のUTCフォールバックを確認"""
+        from datetime import UTC
+
+        # ZoneInfoの初期化時にOSErrorを発生させる
+        mock_zoneinfo.side_effect = OSError("Timezone data corrupted")
+
+        tz, tz_name = _get_jst_zone()
+
+        # UTCフォールバックが機能していることを確認
+        assert tz == UTC
+        assert tz_name == "UTC"
 
 
 class TestGetCurrentJSTTimestamp:

@@ -8,13 +8,33 @@ README.md統計情報更新スクリプト
 import json
 import re
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # 表示する項目数の上限
 MAX_DISPLAY_ITEMS = 50
+
+
+def _get_jst_zone() -> tuple[tzinfo, str]:
+    """Asia/TokyoのZoneInfoを安全に取得
+
+    ZoneInfo取得に失敗した場合はUTCにフォールバックします。
+
+    Returns:
+        tuple: (タイムゾーンオブジェクト, タイムゾーン名文字列)
+            - 成功時: (ZoneInfo("Asia/Tokyo"), "JST")
+            - 失敗時: (UTC, "UTC")
+    """
+    try:
+        return ZoneInfo("Asia/Tokyo"), "JST"
+    except (ZoneInfoNotFoundError, OSError, KeyError):
+        # フォールバック: UTCを使用
+        # ZoneInfoNotFoundError: タイムゾーンが見つからない
+        # OSError: システムのタイムゾーンデータが破損
+        # KeyError: 内部的なタイムゾーンルックアップの失敗
+        return UTC, "UTC"
 
 
 def _get_current_jst_timestamp() -> str:
@@ -26,16 +46,8 @@ def _get_current_jst_timestamp() -> str:
         str: "YYYY-MM-DD HH:MM JST" 形式の文字列 (JSTが利用可能な場合)
              "YYYY-MM-DD HH:MM UTC" 形式の文字列 (フォールバック時)
     """
-    try:
-        jst = ZoneInfo("Asia/Tokyo")
-        return datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
-    except (ZoneInfoNotFoundError, OSError, KeyError):
-        # フォールバック: UTCを使用
-        # ZoneInfoNotFoundError: タイムゾーンが見つからない
-        # OSError: システムのタイムゾーンデータが破損
-        # KeyError: 内部的なタイムゾーンルックアップの失敗
-        utc_time = datetime.now(UTC)
-        return utc_time.strftime("%Y-%m-%d %H:%M UTC")
+    tz, tz_name = _get_jst_zone()
+    return datetime.now(tz).strftime(f"%Y-%m-%d %H:%M {tz_name}")
 
 
 def _has_53_weeks(year: int) -> bool:
@@ -255,11 +267,11 @@ def get_metadata_stats() -> dict[str, Any]:
 
     # datetime.min の場合は "N/A" と表示 (データなし)
     # UTC から JST (Asia/Tokyo) に変換して表示
-    jst = ZoneInfo("Asia/Tokyo")
+    tz, tz_name = _get_jst_zone()
     latest_fetch_str = (
         "N/A"
         if latest_created == datetime.min.replace(tzinfo=UTC)
-        else latest_created.astimezone(jst).strftime("%Y-%m-%d %H:%M JST")
+        else latest_created.astimezone(tz).strftime(f"%Y-%m-%d %H:%M {tz_name}")
     )
     # スクリプト実行日時 (最終統計更新日時) を取得
     last_stats_update_str = _get_current_jst_timestamp()
