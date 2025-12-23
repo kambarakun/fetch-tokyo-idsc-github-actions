@@ -419,8 +419,8 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
                 lines.append(f"> {description}")
                 lines.append("")
 
-            # 合計 affected_count を計算
-            total_affected = sum(d["affected_count"] for d in details)
+            # 合計 affected_count を計算 (防御的な辞書アクセス)
+            total_affected = sum(d.get("affected_count", 0) for d in details)
 
             lines.append("<details>")
             if total_affected > 0:
@@ -436,10 +436,11 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
             for detail in sorted(details, key=lambda d: _extract_file_sort_key(d.get("filename", "")))[
                 :MAX_DISPLAY_ITEMS
             ]:
-                if detail["affected_count"] > 0:
-                    lines.append(f"{detail['filename']} (不整合: {detail['affected_count']}件)")
+                affected_count = detail.get("affected_count", 0)
+                if affected_count > 0:
+                    lines.append(f"{detail.get('filename', 'Unknown')} (不整合: {affected_count}件)")
                 else:
-                    lines.append(f"{detail['filename']}")
+                    lines.append(f"{detail.get('filename', 'Unknown')}")
             if len(details) > MAX_DISPLAY_ITEMS:
                 lines.append(f"... 他{len(details) - MAX_DISPLAY_ITEMS}ファイル")
             lines.append("```")
