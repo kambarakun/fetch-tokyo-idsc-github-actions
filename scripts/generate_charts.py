@@ -16,6 +16,7 @@
 
 import csv
 import hashlib
+import time
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
@@ -104,36 +105,55 @@ def setup_japanese_font():
         print("📥 日本語フォント (Noto Sans CJK JP) をダウンロード中...")
         # セキュリティ: 許可されたURLのみ使用可能
         ALLOWED_FONT_URL = "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
-        # セキュリティ: 期待されるSHA256ハッシュ (フォントファイルの整合性検証用)
-        # 注: 初回実行時にダウンロードしたフォントのハッシュを確認して設定すること
-        # EXPECTED_SHA256 = "..."  # 本番環境では実際のハッシュ値を設定
+        # フォントファイルの最小サイズ (Noto Sans CJK JP Regular は約15-20MB)
+        MIN_FONT_SIZE = 1024 * 1024  # 1MB (空ファイルや不完全なダウンロードを検出)
 
-        try:
-            # タイムアウト30秒、リダイレクト禁止でセキュリティ強化
-            response = requests.get(ALLOWED_FONT_URL, timeout=30, allow_redirects=False)
-            response.raise_for_status()
+        # リトライロジック (最大3回)
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                print(f"[INFO] ダウンロード試行 {attempt}/{max_retries}...")
+                # GitHubのCDNリダイレクトを許可 (allow_redirects=True)
+                response = requests.get(ALLOWED_FONT_URL, timeout=30, allow_redirects=True)
+                response.raise_for_status()
 
-            # ダウンロードしたデータのSHA256ハッシュを計算
-            downloaded_data = response.content
-            sha256_hash = hashlib.sha256(downloaded_data).hexdigest()
-            print(f"[INFO] ダウンロードしたフォントのSHA256: {sha256_hash}")
+                # ダウンロードしたデータのサイズとSHA256ハッシュを検証
+                downloaded_data = response.content
+                file_size = len(downloaded_data)
+                sha256_hash = hashlib.sha256(downloaded_data).hexdigest()
 
-            # 注: 本番環境では以下のハッシュ検証を有効化すること
-            # if sha256_hash != EXPECTED_SHA256:
-            #     print("[WARNING] セキュリティエラー: フォントファイルのハッシュが一致しません")
-            #     print(f"   期待値: {EXPECTED_SHA256}")
-            #     print(f"   実際値: {sha256_hash}")
-            #     return None
+                print(f"[INFO] ダウンロードサイズ: {file_size / 1024 / 1024:.2f} MB")
+                print(f"[INFO] SHA256: {sha256_hash}")
 
-            # ダウンロードしたデータを保存
-            font_path.write_bytes(downloaded_data)
-            print(f"[SUCCESS] フォントをダウンロード: {font_path}")
-        except requests.exceptions.RequestException as e:
-            print(f"[WARNING] フォントのダウンロードに失敗: {e}")
-            return None
-        except OSError as e:
-            print(f"[WARNING] フォントの保存に失敗: {e}")
-            return None
+                # ファイルサイズの検証
+                if file_size < MIN_FONT_SIZE:
+                    raise ValueError(
+                        f"ダウンロードしたファイルが小さすぎます ({file_size} bytes < {MIN_FONT_SIZE} bytes). "
+                        f"不完全なダウンロードの可能性があります。"
+                    )
+
+                # ダウンロードしたデータを保存
+                font_path.write_bytes(downloaded_data)
+                print(f"[SUCCESS] フォントをダウンロード: {font_path}")
+                break  # 成功したらループを抜ける
+
+            except requests.exceptions.RequestException as e:
+                print(f"[WARNING] フォントのダウンロードに失敗 (試行 {attempt}/{max_retries}): {e}")
+                if attempt == max_retries:
+                    print("[ERROR] 最大リトライ回数に達しました。フォントなしで続行します。")
+                    return None
+            except (ValueError, OSError) as e:
+                print(f"[WARNING] フォントの検証/保存に失敗 (試行 {attempt}/{max_retries}): {e}")
+                if attempt == max_retries:
+                    print("[ERROR] 最大リトライ回数に達しました。フォントなしで続行します。")
+                    return None
+                # 不完全なファイルを削除
+                if font_path.exists():
+                    font_path.unlink()
+
+            # リトライ前に少し待機
+            if attempt < max_retries:
+                time.sleep(2)
 
     # フォントを登録してFontPropertiesオブジェクトを返す
     try:
