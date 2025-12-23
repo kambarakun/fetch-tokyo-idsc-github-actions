@@ -125,7 +125,7 @@ class TestCalculateSeasonalBaseline:
         assert abs(baselines["インフルエンザ"][202501] - 12.2) < 0.01
 
     def test_baseline_with_insufficient_data(self):
-        """データ不足の場合 (3年未満)"""
+        """データ不足の場合 (2年分) - グラフ連続性のため1年分でも計算"""
         all_data = {
             "インフルエンザ": {
                 202401: 13.0,
@@ -136,12 +136,16 @@ class TestCalculateSeasonalBaseline:
 
         baselines = calculate_seasonal_baseline(all_data, recent_periods, years=5)
 
-        # データ不足の場合はキーが設定されない
+        # 時系列グラフの連続性のため、1年分でもベースライン計算される
+        # 統計的信頼性は低いが、グラフの欠損を防ぐ
         assert "インフルエンザ" in baselines
-        assert 202501 not in baselines["インフルエンザ"]
+        assert 202501 in baselines["インフルエンザ"]
+        # 2年分の平均: (13+20) / 2 = 16.5 (注: recent_periods以外のデータは除外)
+        # 実際は202401の13.0のみが過去データ (202501は現在年のため除外)
+        assert abs(baselines["インフルエンザ"][202501] - 13.0) < 0.01
 
     def test_baseline_with_exactly_3_years(self):
-        """ちょうど3年分のデータ (最小必要データ数)"""
+        """3年分のデータ (CDCベストプラクティス)"""
         all_data = {
             "インフルエンザ": {
                 202201: 15.0,
@@ -187,16 +191,31 @@ class TestCalculateDeviationRate:
         assert 202501 in rates["インフルエンザ"]
         assert abs(rates["インフルエンザ"][202501] - (-50.0)) < 0.01
 
-    def test_zero_baseline(self):
-        """ベースラインが0の場合 (ゼロ除算回避)"""
+    def test_zero_baseline_with_positive_value(self):
+        """ベースラインが0で実測値が正の場合 - 新規発生として固定値100%"""
         data = {"インフルエンザ": {202501: 10.0}}
         baseline = {"インフルエンザ": {202501: 0.0}}
 
         rates = calculate_deviation_rate(data, baseline)
 
-        # ベースラインが0の場合はキーが設定されない
+        # 「新規発生」として固定値100%を設定
+        # これにより、トップN選択で除外されず、グラフの連続性も保たれる
+        # CDCでは計算スキップだが、可視化目的では適度な警告レベルとして表示
         assert "インフルエンザ" in rates
-        assert 202501 not in rates["インフルエンザ"]
+        assert 202501 in rates["インフルエンザ"]
+        assert rates["インフルエンザ"][202501] == 100.0
+
+    def test_zero_baseline_with_zero_value(self):
+        """ベースラインと実測値の両方が0の場合 - グラフ連続性のため0%を設定"""
+        data = {"インフルエンザ": {202501: 0.0}}
+        baseline = {"インフルエンザ": {202501: 0.0}}
+
+        rates = calculate_deviation_rate(data, baseline)
+
+        # 時系列グラフの連続性のため、0%を明示的に設定
+        assert "インフルエンザ" in rates
+        assert 202501 in rates["インフルエンザ"]
+        assert rates["インフルエンザ"][202501] == 0.0
 
     def test_missing_baseline(self):
         """ベースラインが存在しない場合 (データ不足)"""
@@ -294,6 +313,34 @@ COVID-19,100,120,xyz,10"""
         finally:
             temp_path.unlink()
 
+    def test_parse_csv_with_zero_values(self):
+        """0件のデータを含むCSVのパース - 時系列グラフの連続性のため0も含める"""
+        csv_content = """集計対象期間,2025年第1週,,,
+性別,男性,,,
+疾病名,男性,女性,男女合計,定点数
+インフルエンザ,0,0,0,10
+COVID-19,50,60,110,10
+RSウイルス,0,0,0,5"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            result = parse_sentinel_weekly_gender(temp_path)
+
+            # 時系列グラフの連続性のため、0の値も含まれる
+            assert "インフルエンザ" in result
+            assert result["インフルエンザ"] == 0.0  # 0/10
+            # 正の値も正しく記録される
+            assert "COVID-19" in result
+            assert result["COVID-19"] == 11.0  # 110/10
+            # 別の0の値も含まれる
+            assert "RSウイルス" in result
+            assert result["RSウイルス"] == 0.0  # 0/5
+        finally:
+            temp_path.unlink()
+
 
 class TestParseNotifiableWeekly:
     """parse_notifiable_weekly()関数のテスト"""
@@ -346,7 +393,7 @@ class TestParseNotifiableWeekly:
             temp_path.unlink()
 
     def test_parse_csv_with_zero_values(self):
-        """0件のデータを含むCSVのパース"""
+        """0件のデータを含むCSVのパース - 時系列グラフの連続性のため0も含める"""
         csv_content = """集計対象期間,2025年第1週,,,
 ,,,,
 ,東京都
@@ -361,9 +408,10 @@ class TestParseNotifiableWeekly:
         try:
             result = parse_notifiable_weekly(temp_path)
 
-            # 0はスキップされるので含まれない
-            assert "腸管出血性大腸菌感染症" not in result
-            # 5は正しく記録される
+            # 時系列グラフの連続性のため、0の値も含まれる
+            assert "腸管出血性大腸菌感染症" in result
+            assert result["腸管出血性大腸菌感染症"] == 0.0
+            # 正の値も正しく記録される
             assert "デング熱" in result
             assert result["デング熱"] == 5.0
         finally:

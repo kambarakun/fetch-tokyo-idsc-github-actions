@@ -279,7 +279,8 @@ def parse_sentinel_weekly_gender(csv_path: Path) -> dict[str, float]:
         value_str = str(row[total_col_idx]).strip()
 
         # 疾患名と患者数が有効な場合のみ追加
-        # 注: 0のデータも含める (線の連続性のため)
+        # 注: 0のデータも含める (時系列グラフの連続性を保つため)
+        # 0を除外すると、折れ線グラフに欠損が生じ、視覚的な連続性が損なわれる
         if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 # 定点あたり患者数を計算(合計患者数 / 定点数)
@@ -326,12 +327,12 @@ def parse_notifiable_weekly(csv_path: Path) -> dict[str, float]:
         value_str = str(row[1]).strip()
 
         # 疾患名と報告数が有効な場合のみ追加
-        # 0のデータは除外 (統計的に意味がないため)
+        # 注: 0のデータも含める (時系列グラフの連続性を保つため)
+        # 0を除外すると、折れ線グラフに欠損が生じ、視覚的な連続性が損なわれる
         if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 count = float(value_str)
-                if count > 0:  # 0より大きい値のみ追加
-                    disease_data[disease_name] = count
+                disease_data[disease_name] = count
             except ValueError:
                 continue
 
@@ -533,11 +534,12 @@ def calculate_seasonal_baseline(
                 if past_period in periods_data:
                     historical_values.append(periods_data[past_period])
 
-            # 平均を計算 (データが3年分以上ある場合のみ)
-            # データ不足の場合はキーを設定しない (None の代わり)
-            if len(historical_values) >= 3:
+            # 平均を計算 (時系列グラフの連続性のため、データが1つでもあれば計算)
+            # CDCベストプラクティスでは3年以上推奨だが、連続性を優先
+            # データが少ない場合は統計的信頼性は低いが、グラフの欠損を防ぐ
+            if len(historical_values) >= 1:
                 baseline_data[period] = sum(historical_values) / len(historical_values)
-            # else: データ不足時はキーを設定しない
+            # else: 過去データが全くない場合のみスキップ
 
         baselines[disease] = baseline_data
 
@@ -570,12 +572,21 @@ def calculate_deviation_rate(
 
             baseline_value = baseline[disease][period]
 
-            # 乖離率を計算 (ベースラインが0の場合は計算不可能なのでスキップ)
+            # 乖離率を計算
+            # 時系列グラフの連続性のため、可能な限り値を設定する
             if baseline_value > 0:
                 # 通常の計算
                 deviation = ((value - baseline_value) / baseline_value) * 100
                 rate_data[period] = deviation
-            # baseline_value == 0 または < 0 の場合はスキップ (統計的に意味がない)
+            elif baseline_value == 0 and value == 0:
+                # ベースラインも実測値も0: 乖離率0%
+                rate_data[period] = 0.0
+            elif baseline_value == 0 and value > 0:
+                # ベースライン0で実測値が正: 「新規発生」として固定値100%
+                # CDCでは計算スキップだが、可視化では連続性とトップN選択のため固定値を使用
+                # 100%は「ベースラインの2倍」に相当し、適度な警告レベルを示す
+                rate_data[period] = 100.0
+            # else: baseline_value < 0 の場合はスキップ (異常値)
 
         deviation_rates[disease] = rate_data
 
