@@ -4,11 +4,11 @@
 
 ## 最終更新日
 
-2025-12-12
+2025-12-23
 
 ## バージョン
 
-1.2.0
+1.3.0
 
 ==============================================================================
 
@@ -897,6 +897,98 @@ def is_all_zero_data(data: bytes) -> bool:
     # 数値カラムが全て0かチェック
     pass
 ```
+
+### 8.3 メタデータスキーマ (v1.3.0)
+
+#### メタデータの2つの検証フィールド
+
+メタデータには**2種類の検証フィールド**があり、異なる目的で使用されます：
+
+| フィールド            | 用途                 | 例                                          |
+| --------------------- | -------------------- | ------------------------------------------- |
+| **verification**      | ファイル形式の検証   | CSVカラム数の不整合                         |
+| **quality** (v1.2.0+) | データ内容の品質検証 | 性別合計値の不整合 (male + female != total) |
+
+#### verification フィールド (ファイル形式検証)
+
+ファイル自体の**構造的な問題**を記録します。
+
+**構造**:
+
+```python
+"verification": {
+    "status": "verified",  # "verified" | "failed" | "pending"
+    "verified_at": "2025-12-23T00:00:00Z",
+    "method": "automated",
+    "checks": {
+        "file_size": True,
+        "encoding": True,
+        "csv_format": True,
+        "path_safety": True
+    },
+    "errors": [],  # 検証エラーリスト
+    "warnings": [   # 警告リスト（v1.3.0で統一形式化）
+        "[csv_format] Inconsistent column count"
+    ],
+    "details": {  # v1.3.0: 構造化詳細情報
+        "column_counts": [0, 1, 2, 10]  # 観測されたカラム数のリスト
+    }
+}
+```
+
+**v1.3.0の変更点**:
+
+- **警告メッセージの統一**: `[csv_format] Inconsistent column count: {0, 1, 2, 10}` → `[csv_format] Inconsistent column count`
+- **詳細情報の構造化**: 具体的な値（カラム数）は `details.column_counts` に保存
+- **検索性と集計性の向上**: 統一メッセージでグループ化可能
+
+#### quality フィールド (データ品質検証)
+
+データ**内容の品質問題**を記録します。
+
+**構造**:
+
+```python
+"quality": {
+    "check_type": "gender_sum_consistency",
+    "validation_status": "completed",
+    "message": "No mismatch observed in 30 record(s)",
+    "details": {
+        "source_file": "sentinel_weekly_age_2025_01.csv",
+        "affected_count": 0,
+        "truncated": False,
+        "affected_locations": []  # 不整合がある場合、詳細リスト
+    }
+}
+```
+
+**検証内容**:
+
+- `male + female = total` の一致確認
+- 不整合がある場合、場所・行・列・期待値を記録
+- 実装: `src/validators/gender_sum_validator.py`
+
+#### マイグレーション
+
+メタデータスキーマのバージョンアップ時は、`scripts/migrate_metadata.py` を使用：
+
+```bash
+# ドライラン（変更内容を確認）
+uv run python scripts/migrate_metadata.py --dry-run
+
+# 実際にマイグレーション実行
+uv run python scripts/migrate_metadata.py
+
+# 特定バージョンへ
+uv run python scripts/migrate_metadata.py --target-version 1.3.0
+```
+
+**バージョン履歴**:
+
+- **v1.0**: 基本スキーマ
+- **v1.1.0**: temporal フィールド追加
+- **v1.2.0**: quality フィールド追加（性別合計検証）
+- **v1.3.0**: verification.details フィールド追加（警告詳細の構造化）
 
 ## 9. 重要な注意事項
 
