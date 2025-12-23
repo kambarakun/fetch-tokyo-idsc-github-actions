@@ -653,6 +653,7 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
             new_warnings = []
             details = verification.get("details", {})
             warnings_updated = False
+            all_column_counts = []  # 全ての警告からカラム数を収集
 
             # 警告メッセージのパターン: "[csv_format] Inconsistent column count: {0, 1, 2, 10}"
             # 数値、カンマ、空白のみを許可する厳密なパターン
@@ -669,20 +670,18 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
                     # 統一メッセージに変換
                     new_warnings.append("[csv_format] Inconsistent column count")
 
-                    # カラム数情報を抽出してdetailsに保存
+                    # カラム数情報を抽出して収集 (複数の警告から全て収集)
                     column_counts_str = match.group(1)
                     # "0, 1, 2, 10" のような文字列をパース
                     try:
                         # 空文字列の場合は空リスト
                         if column_counts_str.strip():
-                            column_counts = sorted(int(x.strip()) for x in column_counts_str.split(",") if x.strip())
+                            column_counts = [int(x.strip()) for x in column_counts_str.split(",") if x.strip()]
                         else:
                             column_counts = []
 
-                        details["column_counts"] = column_counts
-                        changes.append(
-                            f"verification.warnings: normalized message, " f"details.column_counts: {column_counts}"
-                        )
+                        # 全ての警告からカラム数を収集
+                        all_column_counts.extend(column_counts)
                         warnings_updated = True
                     except (ValueError, AttributeError) as e:
                         # パース失敗時は元のメッセージを保持し、warningログとchangesに記録
@@ -695,6 +694,13 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
 
             if warnings_updated:
                 verification["warnings"] = new_warnings
+                # 全ての警告から収集したカラム数を重複除去してソート
+                if all_column_counts:
+                    details["column_counts"] = sorted(set(all_column_counts))
+                    changes.append(
+                        f"verification.warnings: normalized {len([w for w in new_warnings if 'Inconsistent column count' in w])} message(s), "
+                        f"details.column_counts: {details['column_counts']}"
+                    )
                 if details:
                     verification["details"] = details
 

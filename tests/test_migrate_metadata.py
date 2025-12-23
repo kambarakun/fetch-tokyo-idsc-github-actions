@@ -829,9 +829,10 @@ class TestMigrateV120ToV130:
             CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
         ]
 
-        # detailsには最後の警告のカラム数が保存される (3つの警告があるので上書きされる)
-        # 最後の警告: "{  0,  1  }" → [0, 1]
-        assert migrated["verification"]["details"]["column_counts"] == [0, 1]
+        # detailsには全ての警告からカラム数が収集される (重複除去してソート)
+        # "{}" → [], "{0, 1, 2, }" → [0, 1, 2], "{  0,  1  }" → [0, 1]
+        # 全てマージ: [0, 1, 2]
+        assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2]
 
 
 class TestMigrateMetadata:
