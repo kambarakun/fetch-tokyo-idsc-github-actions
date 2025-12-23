@@ -14,6 +14,7 @@ import os
 import re
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfoNotFoundError
 
 from scripts.update_readme_stats import (
     _detect_missing_periods,
@@ -80,10 +81,22 @@ class TestGetCurrentJSTTimestamp:
         assert ("JST" in timestamp1 and "JST" in timestamp2) or ("UTC" in timestamp1 and "UTC" in timestamp2)
 
     @patch("scripts.update_readme_stats.ZoneInfo")
-    def test_fallback_to_utc_on_error(self, mock_zoneinfo):
-        """ZoneInfo取得に失敗した場合のUTCフォールバックを確認"""
-        # ZoneInfoの初期化時に例外を発生させる
-        mock_zoneinfo.side_effect = Exception("ZoneInfo not available")
+    def test_fallback_to_utc_on_zoneinfo_not_found(self, mock_zoneinfo):
+        """ZoneInfoNotFoundError発生時のUTCフォールバックを確認"""
+        # ZoneInfoの初期化時にZoneInfoNotFoundErrorを発生させる
+        mock_zoneinfo.side_effect = ZoneInfoNotFoundError("Asia/Tokyo")
+
+        timestamp = _get_current_jst_timestamp()
+
+        # UTCフォールバックが機能していることを確認
+        assert "UTC" in timestamp
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", timestamp)
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_os_error(self, mock_zoneinfo):
+        """OSError発生時のUTCフォールバックを確認"""
+        # ZoneInfoの初期化時にOSErrorを発生させる
+        mock_zoneinfo.side_effect = OSError("Timezone data corrupted")
 
         timestamp = _get_current_jst_timestamp()
 

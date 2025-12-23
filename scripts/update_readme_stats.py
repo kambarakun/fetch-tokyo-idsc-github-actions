@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # 表示する項目数の上限
 MAX_DISPLAY_ITEMS = 50
@@ -29,8 +29,11 @@ def _get_current_jst_timestamp() -> str:
     try:
         jst = ZoneInfo("Asia/Tokyo")
         return datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
-    except Exception:
+    except (ZoneInfoNotFoundError, OSError, KeyError):
         # フォールバック: UTCを使用
+        # ZoneInfoNotFoundError: タイムゾーンが見つからない
+        # OSError: システムのタイムゾーンデータが破損
+        # KeyError: 内部的なタイムゾーンルックアップの失敗
         utc_time = datetime.now(UTC)
         return utc_time.strftime("%Y-%m-%d %H:%M UTC")
 
