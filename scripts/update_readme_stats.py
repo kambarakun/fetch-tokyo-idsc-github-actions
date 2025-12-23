@@ -10,6 +10,7 @@ import re
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 
@@ -55,7 +56,7 @@ def get_metadata_stats() -> dict:
     # データタイプごとの期間情報を保存
     data_type_periods: dict[str, list[tuple[int, int]]] = {}
     # 異常情報を収集
-    anomalies: dict[str, dict[str, list[str]]] = {"errors": {}, "warnings": {}, "quality_issues": {}}
+    anomalies: dict[str, dict[str, Any]] = {"errors": {}, "warnings": {}, "quality_issues": {}}
     # 失敗したファイルを追跡
     failed_files: list[str] = []
 
@@ -86,14 +87,25 @@ def get_metadata_stats() -> dict:
                         anomalies["warnings"][warning] = []
                     anomalies["warnings"][warning].append(filename)
 
-            # quality.issues
+            # quality.issues (詳細情報も保存)
             if "quality" in data and "issues" in data["quality"]:
                 for issue in data["quality"]["issues"]:
-                    issue_key = issue.get("check_type", "unknown")
-                    issue_desc = f"{issue_key}: {issue.get('message', '')}"
-                    if issue_desc not in anomalies["quality_issues"]:
-                        anomalies["quality_issues"][issue_desc] = []
-                    anomalies["quality_issues"][issue_desc].append(filename)
+                    check_type = issue.get("check_type", "unknown")
+                    if check_type not in anomalies["quality_issues"]:
+                        anomalies["quality_issues"][check_type] = {
+                            "files": [],
+                            "details": [],  # affected_count, message などの詳細
+                        }
+                    anomalies["quality_issues"][check_type]["files"].append(filename)
+                    # 詳細情報を保存 (affected_count, message など)
+                    anomalies["quality_issues"][check_type]["details"].append(
+                        {
+                            "filename": filename,
+                            "message": issue.get("message", ""),
+                            "affected_count": issue.get("details", {}).get("affected_count", 0),
+                            "validation_status": issue.get("validation_status", "unknown"),
+                        }
+                    )
 
             # データタイプ別カウント
             data_type = data.get("data_type")
@@ -297,7 +309,7 @@ def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[s
     return "\n".join(lines)
 
 
-def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
+def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
     """異常情報を折りたたみ形式で整形"""
 
     # 既知のエラー/警告の解説
@@ -314,7 +326,7 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
     # 異常の総数を計算
     total_errors = sum(len(files) for files in anomalies["errors"].values())
     total_warnings = sum(len(files) for files in anomalies["warnings"].values())
-    total_quality_issues = sum(len(files) for files in anomalies["quality_issues"].values())
+    total_quality_issues = sum(len(info["files"]) for info in anomalies["quality_issues"].values())
 
     if total_errors == 0 and total_warnings == 0 and total_quality_issues == 0:
         return "✅ データ品質チェック: 異常なし"
@@ -383,22 +395,37 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
     if total_quality_issues > 0:
         lines.append(f"##### 🔍 データ品質の問題 ({total_quality_issues}件)")
         lines.append("")
-        for issue_type, files in sorted(anomalies["quality_issues"].items()):
-            # check_typeを抽出 (issue_typeは "check_type: message" 形式)
-            check_type = issue_type.split(":")[0].strip()
+        for check_type, info in sorted(anomalies["quality_issues"].items()):
+            files = info["files"]
+            details = info["details"]
+
+            # 解説を追加
             description = KNOWN_DESCRIPTIONS.get(check_type, "")
             if description:
                 lines.append(f"> {description}")
                 lines.append("")
 
+            # 合計 affected_count を計算
+            total_affected = sum(d["affected_count"] for d in details)
+
             lines.append("<details>")
-            lines.append(f"<summary><strong>{issue_type}</strong> ({len(files)}件)</summary>")
+            if total_affected > 0:
+                lines.append(
+                    f"<summary><strong>{check_type}</strong> ({len(files)}ファイル, 不整合: {total_affected}件)</summary>"
+                )
+            else:
+                lines.append(f"<summary><strong>{check_type}</strong> ({len(files)}ファイル)</summary>")
             lines.append("")
+
+            # ファイルごとの詳細を表示
             lines.append("```text")
-            for file in sorted(files)[:50]:
-                lines.append(file)
-            if len(files) > 50:
-                lines.append(f"... 他{len(files) - 50}件")
+            for detail in sorted(details, key=lambda x: x["affected_count"], reverse=True)[:50]:
+                if detail["affected_count"] > 0:
+                    lines.append(f"{detail['filename']} (不整合: {detail['affected_count']}件)")
+                else:
+                    lines.append(f"{detail['filename']}")
+            if len(details) > 50:
+                lines.append(f"... 他{len(details) - 50}ファイル")
             lines.append("```")
             lines.append("")
             lines.append("</details>")
