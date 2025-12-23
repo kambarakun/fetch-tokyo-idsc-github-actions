@@ -597,15 +597,25 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
         note_text: 注釈テキスト (未使用 - データソースと統合)
         japanese_font: 日本語フォントプロパティ (None可)
     """
+
+    def _fp(base_fp, size: float):
+        """FontPropertiesをサイズ指定でコピー (@lru_cacheの副作用回避)"""
+        if not base_fp:
+            return None
+        fp = base_fp.copy()
+        fp.set_size(size)
+        return fp
+
     if japanese_font:
-        ax.set_xlabel(xlabel_text, fontsize=11, fontproperties=japanese_font)
-        ax.set_ylabel(ylabel, fontsize=12, fontproperties=japanese_font)
-        ax.set_title(title, fontsize=24, fontweight="bold", fontproperties=japanese_font, pad=15)
-        ax.legend(loc="upper left", fontsize=12, prop=japanese_font, frameon=False)
+        # FontPropertiesをサイズ別にcopyして渡す (fontsize引数の上書き問題を回避)
+        ax.set_xlabel(xlabel_text, fontproperties=_fp(japanese_font, 11))
+        ax.set_ylabel(ylabel, fontproperties=_fp(japanese_font, 12))
+        ax.set_title(title, fontweight="bold", fontproperties=_fp(japanese_font, 20), pad=10)
+        ax.legend(loc="upper left", prop=_fp(japanese_font, 12), frameon=False)
     else:
         ax.set_xlabel(xlabel_text, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=12)
-        ax.set_title(title, fontsize=24, fontweight="bold", pad=15)
+        ax.set_title(title, fontsize=20, fontweight="bold", pad=10)
         ax.legend(loc="upper left", fontsize=12, frameon=False)
 
 
@@ -675,16 +685,29 @@ def generate_absolute_chart(
             # 最新値の位置を見つける
             for i in range(len(values) - 1, -1, -1):
                 if values[i] is not None:
-                    ax.annotate(
-                        value_format,
-                        xy=(i, latest_value),
-                        xytext=(5, 0),
-                        textcoords="offset points",
-                        fontsize=9,
-                        color=line[0].get_color(),
-                        fontweight="bold",
-                        fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
-                    )
+                    # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
+                    if JAPANESE_FONT:
+                        fp_annotate = JAPANESE_FONT.copy()
+                        fp_annotate.set_size(9)
+                        ax.annotate(
+                            value_format,
+                            xy=(i, latest_value),
+                            xytext=(5, 0),
+                            textcoords="offset points",
+                            color=line[0].get_color(),
+                            fontweight="bold",
+                            fontproperties=fp_annotate,
+                        )
+                    else:
+                        ax.annotate(
+                            value_format,
+                            xy=(i, latest_value),
+                            xytext=(5, 0),
+                            textcoords="offset points",
+                            fontsize=9,
+                            color=line[0].get_color(),
+                            fontweight="bold",
+                        )
                     break
 
     # X軸ラベル (期間を明示)
@@ -700,15 +723,16 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # グラフエリアを縮めて上下にスペースを確保 (上: タイトル用4%, 下: フッター用6%)
-    plt.tight_layout(rect=[0, 0.06, 1, 0.96])
+    # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
+    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
 
     # データソースと注釈 (下側の確保したスペースに配置)
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
-        fig.text(
-            0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
-        )
+        # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
+        fp_footer = JAPANESE_FONT.copy()
+        fp_footer.set_size(8)
+        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", color="#666666", fontproperties=fp_footer)
     else:
         fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
@@ -798,16 +822,29 @@ def generate_deviation_chart(
             # 最新値の位置を見つける
             for i in range(len(values) - 1, -1, -1):
                 if values[i] is not None:
-                    ax.annotate(
-                        f"{latest_value:+.0f}%",
-                        xy=(i, latest_value),
-                        xytext=(5, 0),
-                        textcoords="offset points",
-                        fontsize=9,
-                        color=line[0].get_color(),
-                        fontweight="bold",
-                        fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
-                    )
+                    # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
+                    if JAPANESE_FONT:
+                        fp_annotate = JAPANESE_FONT.copy()
+                        fp_annotate.set_size(9)
+                        ax.annotate(
+                            f"{latest_value:+.0f}%",
+                            xy=(i, latest_value),
+                            xytext=(5, 0),
+                            textcoords="offset points",
+                            color=line[0].get_color(),
+                            fontweight="bold",
+                            fontproperties=fp_annotate,
+                        )
+                    else:
+                        ax.annotate(
+                            f"{latest_value:+.0f}%",
+                            xy=(i, latest_value),
+                            xytext=(5, 0),
+                            textcoords="offset points",
+                            fontsize=9,
+                            color=line[0].get_color(),
+                            fontweight="bold",
+                        )
                     break
 
     # ベースライン (0%ライン) を表示
@@ -827,15 +864,16 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # グラフエリアを縮めて上下にスペースを確保 (上: タイトル用4%, 下: フッター用6%)
-    plt.tight_layout(rect=[0, 0.06, 1, 0.96])
+    # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
+    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
 
     # データソースと注釈 (下側の確保したスペースに配置)
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
-        fig.text(
-            0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
-        )
+        # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
+        fp_footer = JAPANESE_FONT.copy()
+        fp_footer.set_size(8)
+        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", color="#666666", fontproperties=fp_footer)
     else:
         fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
