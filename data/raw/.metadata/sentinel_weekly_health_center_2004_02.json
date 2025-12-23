@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.2.0",
+  "metadata_version": "1.3.0",
   "name": "sentinel_weekly_health_center_2004_02",
   "filename": "sentinel_weekly_health_center_2004_02.csv",
   "path": "raw/sentinel_weekly_health_center_2004_02.csv",
@@ -32,8 +32,16 @@
     },
     "errors": [],
     "warnings": [
-      "[csv_format] Inconsistent column count: {0, 1, 2, 30}"
-    ]
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2,
+        30
+      ]
+    }
   },
   "_fetch": {
     "fetch_time_seconds": 0.24186182022094727,
