@@ -700,14 +700,14 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソースと注釈 (右下にまとめて配置、Y座標を上げてスペースを確保)
+    # データソースと注釈 (右下にまとめて配置、Y座標を下げてX軸ラベルとのスペースを確保)
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
         fig.text(
-            0.99, 0.06, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
+            0.99, -0.02, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
         )
     else:
-        fig.text(0.99, 0.06, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
+        fig.text(0.99, -0.02, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)
@@ -825,14 +825,14 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソースと注釈 (右下にまとめて配置、Y座標を上げてスペースを確保)
+    # データソースと注釈 (右下にまとめて配置、Y座標を下げてX軸ラベルとのスペースを確保)
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
         fig.text(
-            0.99, 0.06, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
+            0.99, -0.02, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
         )
     else:
-        fig.text(0.99, 0.06, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
+        fig.text(0.99, -0.02, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)
