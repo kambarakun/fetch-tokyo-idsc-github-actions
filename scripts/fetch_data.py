@@ -334,7 +334,7 @@ class DataCollector:
         """変更をGitにコミット"""
         try:
             commit_result = self.storage.commit_changes(
-                data_type="epidemic_data", date_range=f"{datetime.now().strftime('%Y%m%d')}"
+                data_type="epidemic_data", date_range=f"{datetime.now(UTC).strftime('%Y%m%d')}"
             )
             if commit_result.success:
                 self.logger.info(f"変更をコミットしました: {commit_result.message}")
@@ -386,11 +386,11 @@ def save_stats_to_file(stats: dict[str, Any], logger: logging.Logger) -> None:
                 f"FETCH_TIMESTAMPの形式が不正です(期待: YYYYMMDD_HHMMSS、実際: {fetch_timestamp})。"
                 "現在時刻を使用します。"
             )
-            fetch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fetch_timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         else:
             logger.info(f"環境変数FETCH_TIMESTAMPを使用: {fetch_timestamp}")
     else:
-        fetch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fetch_timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         logger.info(f"FETCH_TIMESTAMPが未設定のため、現在時刻を使用: {fetch_timestamp}")
 
     stats_file = Path("data/logs") / f"stats_{fetch_timestamp}.json"
