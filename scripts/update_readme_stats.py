@@ -312,6 +312,17 @@ def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[s
 def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
     """異常情報を折りたたみ形式で整形"""
 
+    def _extract_file_sort_key(filename: str) -> tuple[int, int, str]:
+        """ファイル名から年・期間を抽出してソートキーを生成 (新しい順)"""
+        match = re.search(r"_(\d{4})_(\d{2})\.csv$", filename)
+        if match:
+            year = int(match.group(1))
+            period = int(match.group(2))
+            # 降順ソートのため負数にする
+            return (-year, -period, filename)
+        # パースできない場合は末尾に配置
+        return (0, 0, filename)
+
     # 既知のエラー/警告の解説
     KNOWN_DESCRIPTIONS = {
         # verification.warnings
@@ -353,7 +364,7 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
             lines.append(f"<summary><strong>{error_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
             lines.append("```text")
-            for file in sorted(files)[:50]:  # 最大50件まで表示
+            for file in sorted(files, key=_extract_file_sort_key)[:50]:  # 新しい順にソート
                 lines.append(file)
             if len(files) > 50:
                 lines.append(f"... 他{len(files) - 50}件")
@@ -377,7 +388,7 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
             lines.append(f"<summary><strong>{warning_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
             lines.append("```text")
-            for file in sorted(files)[:50]:
+            for file in sorted(files, key=_extract_file_sort_key)[:50]:  # 新しい順にソート
                 lines.append(file)
             if len(files) > 50:
                 lines.append(f"... 他{len(files) - 50}件")
@@ -417,9 +428,9 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
                 lines.append(f"<summary><strong>{check_type}</strong> ({len(files)}ファイル)</summary>")
             lines.append("")
 
-            # ファイルごとの詳細を表示
+            # ファイルごとの詳細を表示 (新しい順にソート)
             lines.append("```text")
-            for detail in sorted(details, key=lambda x: x["affected_count"], reverse=True)[:50]:
+            for detail in sorted(details, key=lambda d: _extract_file_sort_key(d.get("filename", "")))[:50]:
                 if detail["affected_count"] > 0:
                     lines.append(f"{detail['filename']} (不整合: {detail['affected_count']}件)")
                 else:
