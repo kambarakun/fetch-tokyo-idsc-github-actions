@@ -51,6 +51,16 @@ set -e
 #   - PR_URL    : 作成されたPRのURL (GITHUB_ENVに設定)
 #   - PR_NUMBER : PR番号 (GITHUB_ENVに設定、自動マージに使用)
 #
+# 動作:
+#   1. 新規ブランチを作成してチェックアウト
+#   2. 変更をコミット
+#   3. リモートにプッシュ
+#   4. PRを作成（ラベル付与）
+#   5. 自動マージを設定（squashマージ、マージ後ブランチ自動削除）
+#      - auto-merge有効化により、CI/CD成功後に自動的にマージ
+#      - マージ完了後、ブランチは自動的に削除される
+#      - ブランチ保護ルールの要件を満たす必要がある
+#
 # 終了コード:
 #   0 : 成功
 #   1 : エラー（引数不足、環境変数未設定、git操作失敗等）
@@ -522,12 +532,19 @@ if [ -z "$PR_NUMBER" ]; then
 else
   echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
-  # 自動マージを有効化（squashマージを使用）
+  # 自動マージを有効化（squashマージを使用、マージ後にブランチを自動削除）
   echo "🔄 自動マージを設定中..."
-  if gh pr merge "$PR_NUMBER" --auto --squash; then
-    echo "✅ Auto-merge configured successfully"
+  if gh pr merge "$PR_NUMBER" --auto --squash --delete-branch; then
+    echo "✅ Auto-merge configured successfully (branch will be deleted after merge)"
   else
+    EXIT_CODE=$?
     echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
     echo "   Manual merge may be required." >&2
+    echo "   Error code: $EXIT_CODE" >&2
+    echo "   Attempted command: gh pr merge $PR_NUMBER --auto --squash --delete-branch" >&2
+    if [ $EXIT_CODE -eq 1 ]; then
+      echo "💡 If auto-merge succeeds but branch deletion fails, you may need to delete the branch manually:" >&2
+      echo "   git push origin --delete $BRANCH_NAME" >&2
+    fi
   fi
 fi
