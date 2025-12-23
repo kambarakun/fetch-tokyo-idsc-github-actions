@@ -11,10 +11,15 @@ tests/test_update_readme_stats.py - README統計情報更新機能のテスト
 
 import json
 import os
+import re
 from pathlib import Path
+from unittest.mock import patch
+from zoneinfo import ZoneInfoNotFoundError
 
 from scripts.update_readme_stats import (
     _detect_missing_periods,
+    _get_current_jst_timestamp,
+    _get_jst_zone,
     _has_53_weeks,
     format_data_type_table,
     get_metadata_stats,
@@ -40,6 +45,107 @@ class TestHas53Weeks:
     def test_2023_has_52_weeks(self):
         """2023年は52週のみ"""
         assert _has_53_weeks(2023) is False
+
+
+class TestGetJSTZone:
+    """_get_jst_zone()関数のテスト"""
+
+    def test_returns_jst_zone_and_name(self):
+        """正常系: JSTのZoneInfoとタイムゾーン名を返す"""
+        tz, tz_name = _get_jst_zone()
+
+        # タイムゾーン名が"JST"であることを確認
+        assert tz_name == "JST"
+
+        # ZoneInfoが使用可能であることを確認 (文字列表現で検証)
+        assert "Asia/Tokyo" in str(tz)
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_zoneinfo_not_found(self, mock_zoneinfo):
+        """ZoneInfoNotFoundError発生時のUTCフォールバックを確認"""
+        from datetime import UTC
+
+        # ZoneInfoの初期化時にZoneInfoNotFoundErrorを発生させる
+        mock_zoneinfo.side_effect = ZoneInfoNotFoundError("Asia/Tokyo")
+
+        tz, tz_name = _get_jst_zone()
+
+        # UTCフォールバックが機能していることを確認
+        assert tz == UTC
+        assert tz_name == "UTC"
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_os_error(self, mock_zoneinfo):
+        """OSError発生時のUTCフォールバックを確認"""
+        from datetime import UTC
+
+        # ZoneInfoの初期化時にOSErrorを発生させる
+        mock_zoneinfo.side_effect = OSError("Timezone data corrupted")
+
+        tz, tz_name = _get_jst_zone()
+
+        # UTCフォールバックが機能していることを確認
+        assert tz == UTC
+        assert tz_name == "UTC"
+
+
+class TestGetCurrentJSTTimestamp:
+    """_get_current_jst_timestamp()関数のテスト"""
+
+    def test_timestamp_format_jst(self):
+        """JSTタイムスタンプの形式が正しいことを確認"""
+        timestamp = _get_current_jst_timestamp()
+        # フォーマット検証: "YYYY-MM-DD HH:MM JST" または "YYYY-MM-DD HH:MM UTC" (フォールバック時)
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} (JST|UTC)", timestamp)
+
+        # 通常はJSTが返される
+        if "JST" in timestamp:
+            # 日時の範囲検証
+            parts = timestamp.split()
+            date_str, time_str = parts[0], parts[1]
+
+            # 日付の検証 (YYYY-MM-DD)
+            year, month, day = map(int, date_str.split("-"))
+            assert 2000 <= year <= 2100  # 現実的な年の範囲
+            assert 1 <= month <= 12
+            assert 1 <= day <= 31
+
+            # 時刻の検証 (HH:MM)
+            hour, minute = map(int, time_str.split(":"))
+            assert 0 <= hour <= 23
+            assert 0 <= minute <= 59
+
+    def test_timestamp_consistency(self):
+        """連続して呼び出した場合の一貫性を確認"""
+        timestamp1 = _get_current_jst_timestamp()
+        timestamp2 = _get_current_jst_timestamp()
+
+        # 両方とも同じタイムゾーン (JST or UTC) を使用していることを確認
+        assert ("JST" in timestamp1 and "JST" in timestamp2) or ("UTC" in timestamp1 and "UTC" in timestamp2)
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_zoneinfo_not_found(self, mock_zoneinfo):
+        """ZoneInfoNotFoundError発生時のUTCフォールバックを確認"""
+        # ZoneInfoの初期化時にZoneInfoNotFoundErrorを発生させる
+        mock_zoneinfo.side_effect = ZoneInfoNotFoundError("Asia/Tokyo")
+
+        timestamp = _get_current_jst_timestamp()
+
+        # UTCフォールバックが機能していることを確認
+        assert "UTC" in timestamp
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", timestamp)
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_os_error(self, mock_zoneinfo):
+        """OSError発生時のUTCフォールバックを確認"""
+        # ZoneInfoの初期化時にOSErrorを発生させる
+        mock_zoneinfo.side_effect = OSError("Timezone data corrupted")
+
+        timestamp = _get_current_jst_timestamp()
+
+        # UTCフォールバックが機能していることを確認
+        assert "UTC" in timestamp
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", timestamp)
 
 
 class TestDetectMissingPeriods:
@@ -93,6 +199,11 @@ class TestGetMetadataStats:
             result = get_metadata_stats()
             assert result["total_files"] == 0
             assert result["date_range"] == "データなし"
+            # 最終統計更新日時が設定されていることを確認
+            assert "last_stats_update" in result
+            assert result["last_stats_update"] != "N/A"
+            # フォーマット検証: "YYYY-MM-DD HH:MM JST"
+            assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} JST", result["last_stats_update"])
         finally:
             os.chdir(original_cwd)
 
@@ -132,6 +243,11 @@ class TestGetMetadataStats:
             assert "sentinel_weekly_gender" in result["data_types"]
             assert result["data_types"]["sentinel_weekly_gender"] == 2
             assert 2025 in result["years"]
+            # 最終統計更新日時が設定されていることを確認
+            assert "last_stats_update" in result
+            assert result["last_stats_update"] != "N/A"
+            # フォーマット検証: "YYYY-MM-DD HH:MM JST"
+            assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} JST", result["last_stats_update"])
         finally:
             os.chdir(original_cwd)
 
@@ -226,7 +342,7 @@ More content
             "week_range": "2025年第1週 - 2025年第10週",
             "month_range": "2025年1月 - 2025年3月",
             "latest_fetch": "2025-01-01 00:00 JST",
-            "latest_update": "2025-01-01 00:00 JST",
+            "last_stats_update": "2025-01-01 00:00 JST",
             "data_types": {},
             "data_type_periods": {},
             "latest_week": "2025年第10週",
@@ -261,7 +377,7 @@ More content
             "week_range": "2025年第1週 - 2025年第10週",
             "month_range": "2025年1月 - 2025年3月",
             "latest_fetch": "2025-01-01 00:00 JST",
-            "latest_update": "2025-01-01 00:00 JST",
+            "last_stats_update": "2025-01-01 00:00 JST",
             "data_types": {},
             "data_type_periods": {},
             "latest_week": "2025年第10週",
