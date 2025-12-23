@@ -600,12 +600,12 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
     if japanese_font:
         ax.set_xlabel(xlabel_text, fontsize=11, fontproperties=japanese_font)
         ax.set_ylabel(ylabel, fontsize=12, fontproperties=japanese_font)
-        ax.set_title(title, fontsize=16, fontweight="bold", fontproperties=japanese_font, pad=15)
+        ax.set_title(title, fontsize=18, fontweight="bold", fontproperties=japanese_font, pad=15)
         ax.legend(loc="upper left", fontsize=10, prop=japanese_font, frameon=False)
     else:
         ax.set_xlabel(xlabel_text, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=12)
-        ax.set_title(title, fontsize=16, fontweight="bold", pad=15)
+        ax.set_title(title, fontsize=18, fontweight="bold", pad=15)
         ax.legend(loc="upper left", fontsize=10, frameon=False)
 
 
