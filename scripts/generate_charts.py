@@ -193,7 +193,8 @@ def parse_sentinel_weekly_gender(csv_path: Path) -> dict[str, float]:
         value_str = str(row[total_col_idx]).strip()
 
         # 疾患名と患者数が有効な場合のみ追加
-        if disease_name and value_str and value_str not in ["*", "-", "", "0"]:
+        # 注: 0のデータも含める (線の連続性のため)
+        if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 # 定点あたり患者数を計算(合計患者数 / 定点数)
                 total_count = float(value_str)
@@ -239,7 +240,8 @@ def parse_notifiable_weekly(csv_path: Path) -> dict[str, float]:
         value_str = str(row[1]).strip()
 
         # 疾患名と報告数が有効な場合のみ追加
-        if disease_name and value_str and value_str not in ["*", "-", "", "0"]:
+        # 注: 0のデータも含める (線の連続性のため)
+        if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 count = float(value_str)
                 disease_data[disease_name] = count
@@ -481,11 +483,21 @@ def calculate_deviation_rate(
 
             baseline_value = baseline[disease][period]
 
-            # ベースラインが0の場合は計算しない (ゼロ除算回避)
+            # 乖離率を計算
             if baseline_value > 0:
+                # 通常の計算
                 deviation = ((value - baseline_value) / baseline_value) * 100
                 rate_data[period] = deviation
-            # else: ベースラインが0の場合はキーを設定しない
+            elif baseline_value == 0:
+                # ベースラインが0の場合
+                if value == 0:
+                    # 実測値も0なら乖離率0% (変化なし)
+                    rate_data[period] = 0.0
+                else:
+                    # 実測値>0でベースライン0の場合は非常に大きな正の乖離
+                    # グラフの連続性のため、上限値として+999%を設定
+                    rate_data[period] = 999.0
+            # else: baseline_value < 0 は理論上ありえないのでスキップ
 
         deviation_rates[disease] = rate_data
 
@@ -552,7 +564,7 @@ def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_f
         tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
 
     ax.set_xticks(tick_positions)
-    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=9)
+    tick_labels = ax.set_xticklabels(tick_labels_list, rotation=0, ha="center", fontsize=10)
 
     if japanese_font:
         for label in tick_labels:
@@ -571,10 +583,10 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
         japanese_font: 日本語フォントプロパティ (None可)
     """
     if japanese_font:
-        ax.set_xlabel(xlabel_text, fontsize=10, fontproperties=japanese_font)
-        ax.set_ylabel(ylabel, fontsize=11, fontproperties=japanese_font)
-        ax.set_title(title, fontsize=13, fontweight="bold", fontproperties=japanese_font, pad=15)
-        ax.legend(loc="upper left", fontsize=9, prop=japanese_font, frameon=False)
+        ax.set_xlabel(xlabel_text, fontsize=11, fontproperties=japanese_font)
+        ax.set_ylabel(ylabel, fontsize=12, fontproperties=japanese_font)
+        ax.set_title(title, fontsize=15, fontweight="bold", fontproperties=japanese_font, pad=15)
+        ax.legend(loc="upper left", fontsize=10, prop=japanese_font, frameon=False)
 
         # 注釈を追加
         ax.text(
@@ -582,17 +594,17 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
             0.97,
             note_text,
             transform=ax.transAxes,
-            fontsize=8,
+            fontsize=9,
             verticalalignment="top",
             horizontalalignment="right",
             color="#666666",
             fontproperties=japanese_font,
         )
     else:
-        ax.set_xlabel(xlabel_text, fontsize=10)
-        ax.set_ylabel(ylabel, fontsize=11)
-        ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
-        ax.legend(loc="upper left", fontsize=9, frameon=False)
+        ax.set_xlabel(xlabel_text, fontsize=11)
+        ax.set_ylabel(ylabel, fontsize=12)
+        ax.set_title(title, fontsize=15, fontweight="bold", pad=15)
+        ax.legend(loc="upper left", fontsize=10, frameon=False)
 
         # 注釈を追加
         ax.text(
@@ -600,7 +612,7 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
             0.97,
             note_text,
             transform=ax.transAxes,
-            fontsize=8,
+            fontsize=9,
             verticalalignment="top",
             horizontalalignment="right",
             color="#666666",
@@ -678,7 +690,7 @@ def generate_absolute_chart(
                         xy=(i, latest_value),
                         xytext=(5, 0),
                         textcoords="offset points",
-                        fontsize=8,
+                        fontsize=9,
                         color=line[0].get_color(),
                         fontweight="bold",
                         fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
@@ -700,9 +712,9 @@ def generate_absolute_chart(
 
     # データソース
     if JAPANESE_FONT:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666", fontproperties=JAPANESE_FONT)
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT)
     else:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666")
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)
@@ -796,7 +808,7 @@ def generate_deviation_chart(
                         xy=(i, latest_value),
                         xytext=(5, 0),
                         textcoords="offset points",
-                        fontsize=8,
+                        fontsize=9,
                         color=line[0].get_color(),
                         fontweight="bold",
                         fontproperties=JAPANESE_FONT if JAPANESE_FONT else None,
@@ -822,9 +834,9 @@ def generate_deviation_chart(
 
     # データソース
     if JAPANESE_FONT:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666", fontproperties=JAPANESE_FONT)
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT)
     else:
-        fig.text(0.99, 0.01, data_source, ha="right", fontsize=7, color="#666666")
+        fig.text(0.99, 0.01, data_source, ha="right", fontsize=8, color="#666666")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=100)

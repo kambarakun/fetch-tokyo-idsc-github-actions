@@ -89,7 +89,7 @@ def get_metadata_stats() -> dict:
             # quality.issues
             if "quality" in data and "issues" in data["quality"]:
                 for issue in data["quality"]["issues"]:
-                    issue_key = issue.get("type", "unknown")
+                    issue_key = issue.get("check_type", "unknown")
                     issue_desc = f"{issue_key}: {issue.get('message', '')}"
                     if issue_desc not in anomalies["quality_issues"]:
                         anomalies["quality_issues"][issue_desc] = []
@@ -300,6 +300,17 @@ def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[s
 def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
     """異常情報を折りたたみ形式で整形"""
 
+    # 既知のエラー/警告の解説
+    KNOWN_DESCRIPTIONS = {
+        # verification.warnings
+        "[csv_format] Inconsistent column count": "💡 CSVファイル内で行ごとにカラム数が異なります。東京都IDSCの元データには注釈行や集計期間情報が含まれており、データ行と異なるカラム数を持つため発生します。データ処理時に適切にフィルタリングされるため、分析には影響しません。",
+        # verification.errors (将来的に追加される可能性)
+        "[file_size] File too large": "⚠️ ファイルサイズが上限を超えています。データ品質を確認してください。",
+        "[encoding] Invalid encoding": "⚠️ ファイルのエンコーディングがShift_JISではありません。データ取得プロセスを確認してください。",
+        # quality.issues
+        "gender_sum_consistency": "🔍 性別データの合計値検証で不整合が検出されました。男性+女性の合計が、元データの男女合計値と一致しません。データ提供元の確認が必要です。",
+    }
+
     # 異常の総数を計算
     total_errors = sum(len(files) for files in anomalies["errors"].values())
     total_warnings = sum(len(files) for files in anomalies["warnings"].values())
@@ -310,11 +321,22 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
 
     lines = []
 
+    # === 生データ (raw) の検証 ===
+    if total_errors > 0 or total_warnings > 0:
+        lines.append("#### 📁 生データ (raw) の検証")
+        lines.append("")
+
     # エラー
     if total_errors > 0:
-        lines.append(f"#### ❌ エラー ({total_errors}件)")
+        lines.append(f"##### ❌ エラー ({total_errors}件)")
         lines.append("")
         for error_type, files in sorted(anomalies["errors"].items()):
+            # 解説を追加
+            description = KNOWN_DESCRIPTIONS.get(error_type, "")
+            if description:
+                lines.append(f"> {description}")
+                lines.append("")
+
             lines.append("<details>")
             lines.append(f"<summary><strong>{error_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
@@ -330,9 +352,15 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
 
     # 警告
     if total_warnings > 0:
-        lines.append(f"#### ⚠️ 警告 ({total_warnings}件)")
+        lines.append(f"##### ⚠️ 警告 ({total_warnings}件)")
         lines.append("")
         for warning_type, files in sorted(anomalies["warnings"].items()):
+            # 解説を追加
+            description = KNOWN_DESCRIPTIONS.get(warning_type, "")
+            if description:
+                lines.append(f"> {description}")
+                lines.append("")
+
             lines.append("<details>")
             lines.append(f"<summary><strong>{warning_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
@@ -346,11 +374,23 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
             lines.append("</details>")
             lines.append("")
 
+    # === 処理済みデータ (processed) の品質チェック ===
+    lines.append("")
+    lines.append("#### 📊 処理済みデータ (processed) の品質チェック")
+    lines.append("")
+
     # データ品質の問題
     if total_quality_issues > 0:
-        lines.append(f"#### 🔍 データ品質の問題 ({total_quality_issues}件)")
+        lines.append(f"##### 🔍 データ品質の問題 ({total_quality_issues}件)")
         lines.append("")
         for issue_type, files in sorted(anomalies["quality_issues"].items()):
+            # check_typeを抽出 (issue_typeは "check_type: message" 形式)
+            check_type = issue_type.split(":")[0].strip()
+            description = KNOWN_DESCRIPTIONS.get(check_type, "")
+            if description:
+                lines.append(f"> {description}")
+                lines.append("")
+
             lines.append("<details>")
             lines.append(f"<summary><strong>{issue_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
@@ -363,6 +403,10 @@ def format_anomalies_section(anomalies: dict[str, dict[str, list[str]]]) -> str:
             lines.append("")
             lines.append("</details>")
             lines.append("")
+    else:
+        lines.append("##### ✅ データ品質の問題")
+        lines.append("")
+        lines.append("問題なし")
 
     return "\n".join(lines)
 

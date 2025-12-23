@@ -950,23 +950,40 @@ def is_all_zero_data(data: bytes) -> bool:
 
 ```python
 "quality": {
-    "check_type": "gender_sum_consistency",
-    "validation_status": "completed",
-    "message": "No mismatch observed in 30 record(s)",
-    "details": {
-        "source_file": "sentinel_weekly_age_2025_01.csv",
-        "affected_count": 0,
-        "truncated": False,
-        "affected_locations": []  # 不整合がある場合、詳細リスト
-    }
+    "validation_timestamp": "2025-12-20T18:25:51.756524+00:00",
+    "validation_status": "completed",  # 全体の検証プロセスのステータス
+    "issues": [  # 検証で発見された問題のリスト (空の場合は問題なし)
+        {
+            "check_type": "gender_sum_consistency",
+            "validation_status": "completed",  # この検証のステータス
+            "message": "Observed mismatch between (male + female) and reported total in 5 record(s)",
+            "details": {
+                "source_file": "sentinel_weekly_age_2025_01.csv",
+                "affected_count": 5,  # 問題のあるレコード数
+                "truncated": False,  # affected_locationsが切り詰められているか
+                "affected_locations": [  # 不整合がある場合、詳細リスト (最大10件)
+                    {
+                        "location": "千代田区",
+                        "column": "インフルエンザ",
+                        "row_index": 5,
+                        "male": 10,
+                        "female": 8,
+                        "total": 20,  # 元データの値
+                        "expected": 18  # male + female の期待値
+                    }
+                ]
+            }
+        }
+    ]
 }
 ```
 
 **検証内容**:
 
-- `male + female = total` の一致確認
-- 不整合がある場合、場所・行・列・期待値を記録
-- 実装: `src/validators/gender_sum_validator.py`
+- `male + female = total` の一致確認 (性別データがあるファイルのみ)
+- 不整合がある場合、場所・行・列・期待値を記録 (最大10件、超過時は truncated: true)
+- 問題がない場合は `issues: []` (空リスト)
+- 実装: `src/validators/quality_validator.py` (orchestrator), `src/validators/gender_sum_validator.py` (個別検証)
 
 #### マイグレーション
 
