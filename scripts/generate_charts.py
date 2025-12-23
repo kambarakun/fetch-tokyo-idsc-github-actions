@@ -279,7 +279,8 @@ def parse_sentinel_weekly_gender(csv_path: Path) -> dict[str, float]:
         value_str = str(row[total_col_idx]).strip()
 
         # 疾患名と患者数が有効な場合のみ追加
-        # 注: 0のデータも含める (線の連続性のため)
+        # 注: 0のデータも含める (時系列グラフの連続性を保つため)
+        # 0を除外すると、折れ線グラフに欠損が生じ、視覚的な連続性が損なわれる
         if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 # 定点あたり患者数を計算(合計患者数 / 定点数)

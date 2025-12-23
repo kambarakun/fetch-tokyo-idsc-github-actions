@@ -294,6 +294,34 @@ COVID-19,100,120,xyz,10"""
         finally:
             temp_path.unlink()
 
+    def test_parse_csv_with_zero_values(self):
+        """0件のデータを含むCSVのパース - 時系列グラフの連続性のため0も含める"""
+        csv_content = """集計対象期間,2025年第1週,,,
+性別,男性,,,
+疾病名,男性,女性,男女合計,定点数
+インフルエンザ,0,0,0,10
+COVID-19,50,60,110,10
+RSウイルス,0,0,0,5"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, encoding="shift_jis") as f:
+            f.write(csv_content)
+            temp_path = Path(f.name)
+
+        try:
+            result = parse_sentinel_weekly_gender(temp_path)
+
+            # 時系列グラフの連続性のため、0の値も含まれる
+            assert "インフルエンザ" in result
+            assert result["インフルエンザ"] == 0.0  # 0/10
+            # 正の値も正しく記録される
+            assert "COVID-19" in result
+            assert result["COVID-19"] == 11.0  # 110/10
+            # 別の0の値も含まれる
+            assert "RSウイルス" in result
+            assert result["RSウイルス"] == 0.0  # 0/5
+        finally:
+            temp_path.unlink()
+
 
 class TestParseNotifiableWeekly:
     """parse_notifiable_weekly()関数のテスト"""
@@ -346,7 +374,7 @@ class TestParseNotifiableWeekly:
             temp_path.unlink()
 
     def test_parse_csv_with_zero_values(self):
-        """0件のデータを含むCSVのパース"""
+        """0件のデータを含むCSVのパース - 時系列グラフの連続性のため0も含める"""
         csv_content = """集計対象期間,2025年第1週,,,
 ,,,,
 ,東京都
@@ -361,9 +389,10 @@ class TestParseNotifiableWeekly:
         try:
             result = parse_notifiable_weekly(temp_path)
 
-            # 0はスキップされるので含まれない
-            assert "腸管出血性大腸菌感染症" not in result
-            # 5は正しく記録される
+            # 時系列グラフの連続性のため、0の値も含まれる
+            assert "腸管出血性大腸菌感染症" in result
+            assert result["腸管出血性大腸菌感染症"] == 0.0
+            # 正の値も正しく記録される
             assert "デング熱" in result
             assert result["デング熱"] == 5.0
         finally:
