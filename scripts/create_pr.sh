@@ -522,10 +522,10 @@ if [ -z "$PR_NUMBER" ]; then
 else
   echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
-  # 自動マージを有効化（squashマージを使用）
+  # 自動マージを有効化（squashマージを使用、マージ後にブランチを自動削除）
   echo "🔄 自動マージを設定中..."
-  if gh pr merge "$PR_NUMBER" --auto --squash; then
-    echo "✅ Auto-merge configured successfully"
+  if gh pr merge "$PR_NUMBER" --auto --squash --delete-branch; then
+    echo "✅ Auto-merge configured successfully (branch will be deleted after merge)"
   else
     echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
     echo "   Manual merge may be required." >&2
