@@ -315,12 +315,12 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
     # 既知のエラー/警告の解説
     KNOWN_DESCRIPTIONS = {
         # verification.warnings
-        "[csv_format] Inconsistent column count": "💡 CSVファイル内で行ごとにカラム数が異なります。東京都IDSCの元データには注釈行や集計期間情報が含まれており、データ行と異なるカラム数を持つため発生します。データ処理時に適切にフィルタリングされるため、分析には影響しません。",
+        "[csv_format] Inconsistent column count": "💡 CSVファイル内で行ごとにカラム数が異なります。東京都IDSCの元データには注釈行や集計期間情報が含まれているため発生します。",
         # verification.errors (将来的に追加される可能性)
         "[file_size] File too large": "⚠️ ファイルサイズが上限を超えています。データ品質を確認してください。",
         "[encoding] Invalid encoding": "⚠️ ファイルのエンコーディングがShift_JISではありません。データ取得プロセスを確認してください。",
         # quality.issues
-        "gender_sum_consistency": "🔍 性別データの合計値検証で不整合が検出されました。男性+女性の合計が、元データの男女合計値と一致しません。データ提供元の確認が必要です。",
+        "gender_sum_consistency": "🔍 性別データの合計値検証で不整合が検出されました。男性+女性の合計が、元データの男女合計値と一致しません。",
     }
 
     # 異常の総数を計算
