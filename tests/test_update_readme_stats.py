@@ -409,3 +409,133 @@ Old stats
             assert result is False
         finally:
             os.chdir(original_cwd)
+
+
+class TestGetMetadataStatsWithLogs:
+    """get_metadata_stats()のログファイル読み込み機能のテスト"""
+
+    def test_reads_latest_fetch_time_from_logs(self, tmp_path):
+        """ログファイルから最新データ取得日時を正しく読み込む"""
+        # data/logs/stats_*.json を作成
+        logs_dir = tmp_path / "data" / "logs"
+        logs_dir.mkdir(parents=True)
+
+        # 新しいログファイル(データ変更あり)- UTC時刻を明示
+        log_data = {"new_files": 5, "updated_files": 0, "end_time": "2025-12-24T02:12:00+00:00"}
+        (logs_dir / "stats_20251224_021200.json").write_text(json.dumps(log_data), encoding="utf-8")
+
+        # 古いログファイル(データ変更あり)
+        old_log_data = {"new_files": 3, "updated_files": 0, "end_time": "2025-12-20T01:00:00+00:00"}
+        (logs_dir / "stats_20251220_010000.json").write_text(json.dumps(old_log_data), encoding="utf-8")
+
+        # メタデータディレクトリも作成
+        metadata_dir = tmp_path / "data" / "raw" / ".metadata"
+        metadata_dir.mkdir(parents=True)
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            result = get_metadata_stats()
+
+            # 最新のログファイルの日時が使用されることを確認 (UTC+9時間 = JST)
+            assert "2025-12-24" in result["latest_fetch"]
+            assert "11:12" in result["latest_fetch"]  # UTC 02:12 + 9h = JST 11:12
+            assert "JST" in result["latest_fetch"]
+        finally:
+            os.chdir(original_cwd)
+
+    def test_skips_logs_without_data_changes(self, tmp_path):
+        """データ変更がないログはスキップされる"""
+        logs_dir = tmp_path / "data" / "logs"
+        logs_dir.mkdir(parents=True)
+
+        # データ変更なしのログ(new_files=0, updated_files=0)- より新しい
+        no_change_log = {"new_files": 0, "updated_files": 0, "end_time": "2025-12-24T02:12:00+00:00"}
+        (logs_dir / "stats_20251224_021200.json").write_text(json.dumps(no_change_log), encoding="utf-8")
+
+        # データ変更ありのログ(古い)- UTC時刻を明示
+        change_log = {"new_files": 5, "updated_files": 0, "end_time": "2025-12-21T03:38:00+00:00"}
+        (logs_dir / "stats_20251221_033800.json").write_text(json.dumps(change_log), encoding="utf-8")
+
+        # メタデータディレクトリも作成
+        metadata_dir = tmp_path / "data" / "raw" / ".metadata"
+        metadata_dir.mkdir(parents=True)
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            result = get_metadata_stats()
+
+            # データ変更ありの古いログが使用されることを確認 (UTC+9時間 = JST)
+            assert "2025-12-21" in result["latest_fetch"]
+            assert "12:38" in result["latest_fetch"]  # UTC 03:38 + 9h = JST 12:38
+            assert "JST" in result["latest_fetch"]
+        finally:
+            os.chdir(original_cwd)
+
+    def test_handles_invalid_log_files(self, tmp_path):
+        """不正なログファイルを適切にスキップする"""
+        logs_dir = tmp_path / "data" / "logs"
+        logs_dir.mkdir(parents=True)
+
+        # 不正なJSONファイル - ファイル名がソート順で最初に来る
+        (logs_dir / "stats_20251225_000000.json").write_text("{ invalid json", encoding="utf-8")
+
+        # 正常なログファイル - ファイル名がソート順で2番目 - UTC時刻を明示
+        valid_log = {"new_files": 3, "updated_files": 0, "end_time": "2025-12-23T00:00:00+00:00"}
+        (logs_dir / "stats_20251223_000000.json").write_text(json.dumps(valid_log), encoding="utf-8")
+
+        # メタデータディレクトリも作成
+        metadata_dir = tmp_path / "data" / "raw" / ".metadata"
+        metadata_dir.mkdir(parents=True)
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            result = get_metadata_stats()
+
+            # 不正なファイルはスキップされ、正常なログファイルが使用されることを確認
+            assert "2025-12-23" in result["latest_fetch"]
+        finally:
+            os.chdir(original_cwd)
+
+    def test_no_logs_directory(self, tmp_path):
+        """ログディレクトリが存在しない場合"""
+        # メタデータディレクトリのみ作成
+        metadata_dir = tmp_path / "data" / "raw" / ".metadata"
+        metadata_dir.mkdir(parents=True)
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            result = get_metadata_stats()
+
+            # logsディレクトリがない場合、latest_fetchはN/Aになることを確認
+            assert result["latest_fetch"] == "N/A"
+        finally:
+            os.chdir(original_cwd)
+
+    def test_updated_files_triggers_fetch_time(self, tmp_path):
+        """updated_files > 0 の場合もデータ取得日時として認識される"""
+        logs_dir = tmp_path / "data" / "logs"
+        logs_dir.mkdir(parents=True)
+
+        # new_files=0 だが updated_files > 0 のログ - UTC時刻を明示
+        log_data = {"new_files": 0, "updated_files": 10, "end_time": "2025-12-22T15:30:00+00:00"}
+        (logs_dir / "stats_20251222_153000.json").write_text(json.dumps(log_data), encoding="utf-8")
+
+        # メタデータディレクトリも作成
+        metadata_dir = tmp_path / "data" / "raw" / ".metadata"
+        metadata_dir.mkdir(parents=True)
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            result = get_metadata_stats()
+
+            # updated_files > 0 の場合も取得日時として認識されることを確認 (UTC+9時間 = JST)
+            assert "2025-12-23" in result["latest_fetch"]  # UTC 2025-12-22 15:30 + 9h = JST 2025-12-23 00:30
+            assert "00:30" in result["latest_fetch"]
+            assert "JST" in result["latest_fetch"]
+        finally:
+            os.chdir(original_cwd)

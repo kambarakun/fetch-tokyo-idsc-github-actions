@@ -11,7 +11,7 @@ import random
 import re
 import sys
 import time
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -92,13 +92,13 @@ class DataCollector:
         self, data_types: list[str] | None = None, start_year: int | None = None, end_year: int | None = None
     ) -> dict[str, Any]:
         """データ収集のメイン処理"""
-        self.stats["start_time"] = datetime.now()
+        self.stats["start_time"] = datetime.now(UTC)
         self.logger.info(f"データ収集開始: {self.stats['start_time']}")
 
         # パラメータ設定
         data_types = data_types or self.config.collection.data_types_to_collect
         start_year = start_year or self.config.collection.start_year
-        end_year = end_year or datetime.now().year
+        end_year = end_year or datetime.now(UTC).year
 
         self.logger.info(f"収集パラメータ: データタイプ={data_types}, 期間={start_year}-{end_year}")
 
@@ -111,7 +111,7 @@ class DataCollector:
         if not self.dry_run and self.config.storage.auto_commit:
             self._commit_changes()
 
-        self.stats["end_time"] = datetime.now()
+        self.stats["end_time"] = datetime.now(UTC)
         self.logger.info(f"データ収集完了: {self.stats['end_time']}")
 
         # 統計情報を出力
@@ -263,7 +263,7 @@ class DataCollector:
     ) -> list[FetchParams]:
         """全期間のパラメータを生成"""
         params_list = []
-        current_date = datetime.now()
+        current_date = datetime.now(UTC)
 
         for year in range(start_year, end_year + 1):
             if is_monthly:
@@ -326,7 +326,7 @@ class DataCollector:
         if not self.stats["start_time"]:
             return False
 
-        elapsed = datetime.now() - self.stats["start_time"]
+        elapsed = datetime.now(UTC) - self.stats["start_time"]
         max_hours = self.config.collection.max_execution_time_hours
         return elapsed.total_seconds() > (max_hours * 3600)
 
@@ -334,7 +334,7 @@ class DataCollector:
         """変更をGitにコミット"""
         try:
             commit_result = self.storage.commit_changes(
-                data_type="epidemic_data", date_range=f"{datetime.now().strftime('%Y%m%d')}"
+                data_type="epidemic_data", date_range=f"{datetime.now(UTC).strftime('%Y%m%d')}"
             )
             if commit_result.success:
                 self.logger.info(f"変更をコミットしました: {commit_result.message}")
@@ -386,11 +386,11 @@ def save_stats_to_file(stats: dict[str, Any], logger: logging.Logger) -> None:
                 f"FETCH_TIMESTAMPの形式が不正です(期待: YYYYMMDD_HHMMSS、実際: {fetch_timestamp})。"
                 "現在時刻を使用します。"
             )
-            fetch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            fetch_timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         else:
             logger.info(f"環境変数FETCH_TIMESTAMPを使用: {fetch_timestamp}")
     else:
-        fetch_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fetch_timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         logger.info(f"FETCH_TIMESTAMPが未設定のため、現在時刻を使用: {fetch_timestamp}")
 
     stats_file = Path("data/logs") / f"stats_{fetch_timestamp}.json"
