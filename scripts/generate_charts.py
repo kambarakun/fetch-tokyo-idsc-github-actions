@@ -551,13 +551,28 @@ def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_f
         japanese_font: 日本語フォントプロパティ (None可)
     """
     if period_type == "week":
-        # 52週を約5週ごとに表示 (約10箇所)
-        tick_step = 5
-        tick_positions = list(range(0, len(all_periods), tick_step))
-        # 最後の週も必ず含める
-        if (len(all_periods) - 1) not in tick_positions:
-            tick_positions.append(len(all_periods) - 1)
-        tick_labels_list = [str(all_periods[i] % 100) for i in tick_positions]
+        # 週番号ベースで5の倍数を表示 (最小・最大は必ず含む)
+        week_numbers = [p % 100 for p in all_periods]
+        min_week = min(week_numbers)
+        max_week = max(week_numbers)
+
+        # 表示する週番号を決定 (5の倍数 + 最小・最大)
+        display_weeks = set()
+        display_weeks.add(min_week)  # 最小週
+        display_weeks.add(max_week)  # 最大週
+
+        # 5の倍数を追加
+        for week in range(0, 55, 5):  # 0, 5, 10, ..., 50
+            if min_week <= week <= max_week:
+                display_weeks.add(week)
+
+        # インデックスと週番号のマッピング
+        tick_positions = []
+        tick_labels_list = []
+        for i, week in enumerate(week_numbers):
+            if week in display_weeks:
+                tick_positions.append(i)
+                tick_labels_list.append(str(week))
     else:  # month
         # 12ヶ月を全て表示
         tick_positions = list(range(len(all_periods)))
