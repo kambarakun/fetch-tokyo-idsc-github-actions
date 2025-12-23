@@ -26,6 +26,25 @@ import requests
 import seaborn as sns
 
 
+def _copy_font_properties(base_fp, size: float):
+    """FontPropertiesをサイズ指定でコピー
+
+    @lru_cacheの副作用を回避するため、常に新しいインスタンスを返す
+
+    Args:
+        base_fp: 元のFontPropertiesオブジェクト (None可)
+        size: フォントサイズ (ポイント)
+
+    Returns:
+        サイズ設定済みのFontPropertiesコピー、またはNone
+    """
+    if not base_fp:
+        return None
+    fp = base_fp.copy()
+    fp.set_size(size)
+    return fp
+
+
 def setup_japanese_font():
     """日本語フォントを設定(Noto Sans CJK JPを使用)"""
     # フォントディレクトリ
@@ -240,11 +259,12 @@ def parse_notifiable_weekly(csv_path: Path) -> dict[str, float]:
         value_str = str(row[1]).strip()
 
         # 疾患名と報告数が有効な場合のみ追加
-        # 注: 0のデータも含める (線の連続性のため)
+        # 0のデータは除外 (統計的に意味がないため)
         if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 count = float(value_str)
-                disease_data[disease_name] = count
+                if count > 0:  # 0より大きい値のみ追加
+                    disease_data[disease_name] = count
             except ValueError:
                 continue
 
@@ -483,21 +503,12 @@ def calculate_deviation_rate(
 
             baseline_value = baseline[disease][period]
 
-            # 乖離率を計算
+            # 乖離率を計算 (ベースラインが0の場合は計算不可能なのでスキップ)
             if baseline_value > 0:
                 # 通常の計算
                 deviation = ((value - baseline_value) / baseline_value) * 100
                 rate_data[period] = deviation
-            elif baseline_value == 0:
-                # ベースラインが0の場合
-                if value == 0:
-                    # 実測値も0なら乖離率0% (変化なし)
-                    rate_data[period] = 0.0
-                else:
-                    # 実測値>0でベースライン0の場合は非常に大きな正の乖離
-                    # グラフの連続性のため、上限値として+999%を設定
-                    rate_data[period] = 999.0
-            # else: baseline_value < 0 は理論上ありえないのでスキップ
+            # baseline_value == 0 または < 0 の場合はスキップ (統計的に意味がない)
 
         deviation_rates[disease] = rate_data
 
@@ -586,7 +597,7 @@ def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_f
             label.set_fontproperties(japanese_font)
 
 
-def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text: str, japanese_font) -> None:
+def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, japanese_font) -> None:
     """チャートの軸ラベル、タイトル、凡例を設定
 
     Args:
@@ -594,24 +605,14 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
         xlabel_text: X軸ラベル
         ylabel: Y軸ラベル
         title: グラフタイトル
-        note_text: 注釈テキスト (未使用 - データソースと統合)
         japanese_font: 日本語フォントプロパティ (None可)
     """
-
-    def _fp(base_fp, size: float):
-        """FontPropertiesをサイズ指定でコピー (@lru_cacheの副作用回避)"""
-        if not base_fp:
-            return None
-        fp = base_fp.copy()
-        fp.set_size(size)
-        return fp
-
     if japanese_font:
         # FontPropertiesをサイズ別にcopyして渡す (fontsize引数の上書き問題を回避)
-        ax.set_xlabel(xlabel_text, fontproperties=_fp(japanese_font, 11))
-        ax.set_ylabel(ylabel, fontproperties=_fp(japanese_font, 12))
-        ax.set_title(title, fontweight="bold", fontproperties=_fp(japanese_font, 20), pad=10)
-        ax.legend(loc="upper left", prop=_fp(japanese_font, 12), frameon=False)
+        ax.set_xlabel(xlabel_text, fontproperties=_copy_font_properties(japanese_font, 11))
+        ax.set_ylabel(ylabel, fontproperties=_copy_font_properties(japanese_font, 12))
+        ax.set_title(title, fontweight="bold", fontproperties=_copy_font_properties(japanese_font, 20), pad=10)
+        ax.legend(loc="upper left", prop=_copy_font_properties(japanese_font, 12), frameon=False)
     else:
         ax.set_xlabel(xlabel_text, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=12)
@@ -687,8 +688,6 @@ def generate_absolute_chart(
                 if values[i] is not None:
                     # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
                     if JAPANESE_FONT:
-                        fp_annotate = JAPANESE_FONT.copy()
-                        fp_annotate.set_size(9)
                         ax.annotate(
                             value_format,
                             xy=(i, latest_value),
@@ -696,7 +695,7 @@ def generate_absolute_chart(
                             textcoords="offset points",
                             color=line[0].get_color(),
                             fontweight="bold",
-                            fontproperties=fp_annotate,
+                            fontproperties=_copy_font_properties(JAPANESE_FONT, 9),
                         )
                     else:
                         ax.annotate(
@@ -714,8 +713,7 @@ def generate_absolute_chart(
     xlabel_text = _format_period_label(min_period, max_period, period_type)
 
     # 軸ラベル、タイトル、凡例を設定
-    note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
-    _setup_chart_labels(ax, xlabel_text, ylabel, title, note_text, JAPANESE_FONT)
+    _setup_chart_labels(ax, xlabel_text, ylabel, title, JAPANESE_FONT)
 
     # CDCスタイルを適用
     _apply_cdc_styling(ax, fig)
@@ -727,12 +725,19 @@ def generate_absolute_chart(
     plt.tight_layout(rect=[0, 0.06, 1, 0.98])
 
     # データソースと注釈 (下側の確保したスペースに配置)
+    note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
         # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
-        fp_footer = JAPANESE_FONT.copy()
-        fp_footer.set_size(8)
-        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", color="#666666", fontproperties=fp_footer)
+        fig.text(
+            0.99,
+            0.01,
+            footer_text,
+            ha="right",
+            va="bottom",
+            color="#666666",
+            fontproperties=_copy_font_properties(JAPANESE_FONT, 8),
+        )
     else:
         fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
@@ -824,8 +829,6 @@ def generate_deviation_chart(
                 if values[i] is not None:
                     # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
                     if JAPANESE_FONT:
-                        fp_annotate = JAPANESE_FONT.copy()
-                        fp_annotate.set_size(9)
                         ax.annotate(
                             f"{latest_value:+.0f}%",
                             xy=(i, latest_value),
@@ -833,7 +836,7 @@ def generate_deviation_chart(
                             textcoords="offset points",
                             color=line[0].get_color(),
                             fontweight="bold",
-                            fontproperties=fp_annotate,
+                            fontproperties=_copy_font_properties(JAPANESE_FONT, 9),
                         )
                     else:
                         ax.annotate(
@@ -855,8 +858,7 @@ def generate_deviation_chart(
     xlabel_text = _format_period_label(min_period, max_period, period_type)
 
     # 軸ラベル、タイトル、凡例を設定
-    note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"
-    _setup_chart_labels(ax, xlabel_text, "季節性ベースラインからの乖離率 (%)", title, note_text, JAPANESE_FONT)
+    _setup_chart_labels(ax, xlabel_text, "季節性ベースラインからの乖離率 (%)", title, JAPANESE_FONT)
 
     # CDCスタイルを適用
     _apply_cdc_styling(ax, fig)
@@ -868,12 +870,19 @@ def generate_deviation_chart(
     plt.tight_layout(rect=[0, 0.06, 1, 0.98])
 
     # データソースと注釈 (下側の確保したスペースに配置)
+    note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
         # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
-        fp_footer = JAPANESE_FONT.copy()
-        fp_footer.set_size(8)
-        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", color="#666666", fontproperties=fp_footer)
+        fig.text(
+            0.99,
+            0.01,
+            footer_text,
+            ha="right",
+            va="bottom",
+            color="#666666",
+            fontproperties=_copy_font_properties(JAPANESE_FONT, 8),
+        )
     else:
         fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
 
