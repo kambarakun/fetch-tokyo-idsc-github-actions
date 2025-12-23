@@ -192,16 +192,18 @@ class TestCalculateDeviationRate:
         assert abs(rates["インフルエンザ"][202501] - (-50.0)) < 0.01
 
     def test_zero_baseline_with_positive_value(self):
-        """ベースラインが0で実測値が正の場合 (ゼロ除算回避)"""
+        """ベースラインが0で実測値が正の場合 - 新規発生として固定値100%"""
         data = {"インフルエンザ": {202501: 10.0}}
         baseline = {"インフルエンザ": {202501: 0.0}}
 
         rates = calculate_deviation_rate(data, baseline)
 
-        # ベースラインが0で実測値が正の場合はキーが設定されない
-        # (数学的に定義不可能 - 0で割れない)
+        # 「新規発生」として固定値100%を設定
+        # これにより、トップN選択で除外されず、グラフの連続性も保たれる
+        # CDCでは計算スキップだが、可視化目的では適度な警告レベルとして表示
         assert "インフルエンザ" in rates
-        assert 202501 not in rates["インフルエンザ"]
+        assert 202501 in rates["インフルエンザ"]
+        assert rates["インフルエンザ"][202501] == 100.0
 
     def test_zero_baseline_with_zero_value(self):
         """ベースラインと実測値の両方が0の場合 - グラフ連続性のため0%を設定"""

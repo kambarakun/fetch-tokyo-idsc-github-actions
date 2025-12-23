@@ -579,11 +579,14 @@ def calculate_deviation_rate(
                 deviation = ((value - baseline_value) / baseline_value) * 100
                 rate_data[period] = deviation
             elif baseline_value == 0 and value == 0:
-                # ベースラインも実測値も0の場合は乖離率0% (変化なし)
-                # グラフの連続性を保つため、0を明示的に設定
+                # ベースラインも実測値も0: 乖離率0%
                 rate_data[period] = 0.0
-            # else: ベースラインが0で実測値が正の場合はスキップ
-            #       (数学的に定義不可能 - 0で割れない)
+            elif baseline_value == 0 and value > 0:
+                # ベースライン0で実測値が正: 「新規発生」として固定値100%
+                # CDCでは計算スキップだが、可視化では連続性とトップN選択のため固定値を使用
+                # 100%は「ベースラインの2倍」に相当し、適度な警告レベルを示す
+                rate_data[period] = 100.0
+            # else: baseline_value < 0 の場合はスキップ (異常値)
 
         deviation_rates[disease] = rate_data
 
