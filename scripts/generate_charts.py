@@ -700,8 +700,8 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソースと注釈 (右下にまとめて配置、先頭に全角スペース5個+改行追加)
-    footer_text = f"　　　　　\n{note_text}\n{data_source}"
+    # データソースと注釈 (右下にまとめて配置、先頭に「全角スペース+改行」を5回繰り返し)
+    footer_text = f"　\n　\n　\n　\n　\n{note_text}\n{data_source}"
     if JAPANESE_FONT:
         fig.text(
             0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
@@ -825,8 +825,8 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソースと注釈 (右下にまとめて配置、先頭に全角スペース5個+改行追加)
-    footer_text = f"　　　　　\n{note_text}\n{data_source}"
+    # データソースと注釈 (右下にまとめて配置、先頭に「全角スペース+改行」を5回繰り返し)
+    footer_text = f"　\n　\n　\n　\n　\n{note_text}\n{data_source}"
     if JAPANESE_FONT:
         fig.text(
             0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
