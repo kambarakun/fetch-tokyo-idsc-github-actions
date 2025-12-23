@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+# 表示する項目数の上限
+MAX_DISPLAY_ITEMS = 50
+
 
 def _has_53_weeks(year: int) -> bool:
     """ISO 8601週番号で53週を持つ年かを判定
@@ -364,10 +367,10 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
             lines.append(f"<summary><strong>{error_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
             lines.append("```text")
-            for file in sorted(files, key=_extract_file_sort_key)[:50]:  # 新しい順にソート
+            for file in sorted(files, key=_extract_file_sort_key)[:MAX_DISPLAY_ITEMS]:  # 新しい順にソート
                 lines.append(file)
-            if len(files) > 50:
-                lines.append(f"... 他{len(files) - 50}件")
+            if len(files) > MAX_DISPLAY_ITEMS:
+                lines.append(f"... 他{len(files) - MAX_DISPLAY_ITEMS}件")
             lines.append("```")
             lines.append("")
             lines.append("</details>")
@@ -388,10 +391,10 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
             lines.append(f"<summary><strong>{warning_type}</strong> ({len(files)}件)</summary>")
             lines.append("")
             lines.append("```text")
-            for file in sorted(files, key=_extract_file_sort_key)[:50]:  # 新しい順にソート
+            for file in sorted(files, key=_extract_file_sort_key)[:MAX_DISPLAY_ITEMS]:  # 新しい順にソート
                 lines.append(file)
-            if len(files) > 50:
-                lines.append(f"... 他{len(files) - 50}件")
+            if len(files) > MAX_DISPLAY_ITEMS:
+                lines.append(f"... 他{len(files) - MAX_DISPLAY_ITEMS}件")
             lines.append("```")
             lines.append("")
             lines.append("</details>")
@@ -430,13 +433,15 @@ def format_anomalies_section(anomalies: dict[str, dict[str, Any]]) -> str:
 
             # ファイルごとの詳細を表示 (新しい順にソート)
             lines.append("```text")
-            for detail in sorted(details, key=lambda d: _extract_file_sort_key(d.get("filename", "")))[:50]:
+            for detail in sorted(details, key=lambda d: _extract_file_sort_key(d.get("filename", "")))[
+                :MAX_DISPLAY_ITEMS
+            ]:
                 if detail["affected_count"] > 0:
                     lines.append(f"{detail['filename']} (不整合: {detail['affected_count']}件)")
                 else:
                     lines.append(f"{detail['filename']}")
-            if len(details) > 50:
-                lines.append(f"... 他{len(details) - 50}ファイル")
+            if len(details) > MAX_DISPLAY_ITEMS:
+                lines.append(f"... 他{len(details) - MAX_DISPLAY_ITEMS}ファイル")
             lines.append("```")
             lines.append("")
             lines.append("</details>")

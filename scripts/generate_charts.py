@@ -45,6 +45,53 @@ def _copy_font_properties(base_fp, size: float):
     return fp
 
 
+def _add_annotation(ax, values: list, value_text: str, line_color: str, japanese_font, check_non_zero: bool = True):
+    """グラフにアノテーションを追加 (最新の非None値に対して)
+
+    Args:
+        ax: matplotlibのAxesオブジェクト
+        values: データ値のリスト (Noneを含む可能性あり)
+        value_text: 表示するテキスト (例: "123", "+45%")
+        line_color: アノテーションの色 (線の色と同じ)
+        japanese_font: 日本語フォント (FontPropertiesオブジェクト、またはNone)
+        check_non_zero: Trueの場合は最新値が0でないときのみ追加
+    """
+    # 最新値を取得 (Noneでない最後の値)
+    latest_value = next((v for v in reversed(values) if v is not None), None)
+
+    # 最新値がNoneの場合、またはcheck_non_zeroがTrueで値が0の場合はスキップ
+    if latest_value is None:
+        return
+    if check_non_zero and latest_value == 0:
+        return
+
+    # 最新値の位置を見つける (逆順で最初の非None値)
+    for i in range(len(values) - 1, -1, -1):
+        if values[i] is not None:
+            # アノテーションを追加
+            if japanese_font:
+                ax.annotate(
+                    value_text,
+                    xy=(i, latest_value),
+                    xytext=(5, 0),
+                    textcoords="offset points",
+                    color=line_color,
+                    fontweight="bold",
+                    fontproperties=_copy_font_properties(japanese_font, 9),
+                )
+            else:
+                ax.annotate(
+                    value_text,
+                    xy=(i, latest_value),
+                    xytext=(5, 0),
+                    textcoords="offset points",
+                    fontsize=9,
+                    color=line_color,
+                    fontweight="bold",
+                )
+            break
+
+
 def setup_japanese_font():
     """日本語フォントを設定(Noto Sans CJK JPを使用)"""
     # フォントディレクトリ
@@ -681,33 +728,8 @@ def generate_absolute_chart(
         label_with_value = f"{disease} (最新: {value_format})"
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
-        # 最新データポイントにアノテーションを追加(Noneでない最後のポイント)
-        if latest_value > 0:
-            # 最新値の位置を見つける
-            for i in range(len(values) - 1, -1, -1):
-                if values[i] is not None:
-                    # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
-                    if JAPANESE_FONT:
-                        ax.annotate(
-                            value_format,
-                            xy=(i, latest_value),
-                            xytext=(5, 0),
-                            textcoords="offset points",
-                            color=line[0].get_color(),
-                            fontweight="bold",
-                            fontproperties=_copy_font_properties(JAPANESE_FONT, 9),
-                        )
-                    else:
-                        ax.annotate(
-                            value_format,
-                            xy=(i, latest_value),
-                            xytext=(5, 0),
-                            textcoords="offset points",
-                            fontsize=9,
-                            color=line[0].get_color(),
-                            fontweight="bold",
-                        )
-                    break
+        # 最新データポイントにアノテーションを追加 (共通関数を使用)
+        _add_annotation(ax, values, value_format, line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
 
     # X軸ラベル (期間を明示)
     xlabel_text = _format_period_label(min_period, max_period, period_type)
@@ -822,33 +844,8 @@ def generate_deviation_chart(
         label_with_value = f"{disease} (最新: {latest_value:+.0f}%)"
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
-        # 最新データポイントにアノテーションを追加(Noneでない最後のポイント)
-        if latest_value != 0:
-            # 最新値の位置を見つける
-            for i in range(len(values) - 1, -1, -1):
-                if values[i] is not None:
-                    # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
-                    if JAPANESE_FONT:
-                        ax.annotate(
-                            f"{latest_value:+.0f}%",
-                            xy=(i, latest_value),
-                            xytext=(5, 0),
-                            textcoords="offset points",
-                            color=line[0].get_color(),
-                            fontweight="bold",
-                            fontproperties=_copy_font_properties(JAPANESE_FONT, 9),
-                        )
-                    else:
-                        ax.annotate(
-                            f"{latest_value:+.0f}%",
-                            xy=(i, latest_value),
-                            xytext=(5, 0),
-                            textcoords="offset points",
-                            fontsize=9,
-                            color=line[0].get_color(),
-                            fontweight="bold",
-                        )
-                    break
+        # 最新データポイントにアノテーションを追加 (共通関数を使用)
+        _add_annotation(ax, values, f"{latest_value:+.0f}%", line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
 
     # ベースライン (0%ライン) を表示
     if len(all_periods) > 0:
