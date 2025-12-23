@@ -67,6 +67,48 @@ def _has_53_weeks(year: int) -> bool:
     return iso_year == year and iso_week == 53
 
 
+def _get_latest_fetch_time_from_logs() -> datetime:
+    """ログファイルから最新のデータ取得日時を取得
+
+    data/logs/stats_*.json から、実際にデータ変更があった最新の
+    ログエントリのend_timeを返します。
+
+    Returns:
+        datetime: 最新のデータ取得日時 (UTC)。ログがない場合はdatetime.min
+    """
+    latest_fetch_time = datetime.min.replace(tzinfo=UTC)
+    logs_dir = Path("data/logs")
+
+    if not logs_dir.exists():
+        return latest_fetch_time
+
+    # stats_YYYYMMDD_HHMMSS.json 形式のファイル名を辞書順ソート (新しい順)
+    stats_files = sorted(logs_dir.glob("stats_*.json"), reverse=True)
+    for stats_file in stats_files:
+        try:
+            with stats_file.open(encoding="utf-8") as f:
+                stats_data = json.load(f)
+
+            # 実際にデータ変更があったログのみ対象
+            new_files = stats_data.get("new_files", 0)
+            updated_files = stats_data.get("updated_files", 0)
+
+            if new_files > 0 or updated_files > 0:
+                # end_time を取得
+                end_time_str = stats_data.get("end_time", "")
+                if end_time_str:
+                    # ISO形式のタイムスタンプをパース
+                    dt = datetime.fromisoformat(end_time_str)
+                    # タイムゾーン情報がない場合はUTCとして扱う、ある場合はUTCに変換
+                    latest_fetch_time = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+                    break
+        except (json.JSONDecodeError, ValueError, TypeError, OSError):
+            # 不正なファイルはスキップして次のファイルを試す
+            continue
+
+    return latest_fetch_time
+
+
 def get_metadata_stats() -> dict[str, Any]:
     """メタデータディレクトリから統計情報を取得
 
@@ -87,14 +129,24 @@ def get_metadata_stats() -> dict[str, Any]:
             - month_count (int): 月次データの総数
             - anomalies (dict): 異常データ情報
     """
+    # ログファイルから最新のデータ取得日時を取得(メタデータの有無に関係なく実行)
+    latest_fetch_time = _get_latest_fetch_time_from_logs()
+    tz, tz_name = _get_jst_zone()
+    latest_fetch_str = (
+        "N/A"
+        if latest_fetch_time == datetime.min.replace(tzinfo=UTC)
+        else latest_fetch_time.astimezone(tz).strftime(f"%Y-%m-%d %H:%M {tz_name}")
+    )
+    # スクリプト実行日時 (最終統計更新日時) を取得
+    last_stats_update_str = _get_current_jst_timestamp()
+
     metadata_dir = Path("data/raw/.metadata")
 
     if not metadata_dir.exists():
-        last_stats_update_str = _get_current_jst_timestamp()
         return {
             "total_files": 0,
             "date_range": "データなし",
-            "latest_fetch": "N/A",
+            "latest_fetch": latest_fetch_str,
             "last_stats_update": last_stats_update_str,
             "data_types": {},
             "year_range": "N/A",
@@ -204,11 +256,10 @@ def get_metadata_stats() -> dict[str, Any]:
 
     # 統計情報の集計
     if not all_files:
-        last_stats_update_str = _get_current_jst_timestamp()
         return {
             "total_files": 0,
             "date_range": "データなし",
-            "latest_fetch": "N/A",
+            "latest_fetch": latest_fetch_str,
             "last_stats_update": last_stats_update_str,
             "data_types": {},
             "year_range": "N/A",
@@ -216,33 +267,6 @@ def get_metadata_stats() -> dict[str, Any]:
             "latest_month": "N/A",
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
-
-    # 最新データ取得日時の取得 (data/logs/stats_*.json から)
-    latest_fetch_time = datetime.min.replace(tzinfo=UTC)
-    logs_dir = Path("data/logs")
-    if logs_dir.exists():
-        # stats_*.json ファイルを新しい順に探索
-        stats_files = sorted(logs_dir.glob("stats_*.json"), reverse=True)
-        for stats_file in stats_files:
-            try:
-                with stats_file.open(encoding="utf-8") as f:
-                    stats_data = json.load(f)
-
-                # 実際にデータ変更があったログのみ対象
-                new_files = stats_data.get("new_files", 0)
-                updated_files = stats_data.get("updated_files", 0)
-
-                if new_files > 0 or updated_files > 0:
-                    # end_time を取得
-                    end_time_str = stats_data.get("end_time", "")
-                    if end_time_str:
-                        # ISO形式のタイムスタンプをパース
-                        dt = datetime.fromisoformat(end_time_str)
-                        # タイムゾーン情報がない場合はUTCとして扱う
-                        latest_fetch_time = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-                        break
-            except (json.JSONDecodeError, ValueError, TypeError, OSError):
-                continue
 
     # 年の範囲
     min_year = min(years) if years else "N/A"
@@ -273,17 +297,6 @@ def get_metadata_stats() -> dict[str, Any]:
     # 週数・月数をカウント (重複を除外)
     unique_weeks = len(set(weekly_data))
     unique_months = len(set(monthly_data))
-
-    # datetime.min の場合は "N/A" と表示 (データなし)
-    # UTC から JST (Asia/Tokyo) に変換して表示
-    tz, tz_name = _get_jst_zone()
-    latest_fetch_str = (
-        "N/A"
-        if latest_fetch_time == datetime.min.replace(tzinfo=UTC)
-        else latest_fetch_time.astimezone(tz).strftime(f"%Y-%m-%d %H:%M {tz_name}")
-    )
-    # スクリプト実行日時 (最終統計更新日時) を取得
-    last_stats_update_str = _get_current_jst_timestamp()
 
     return {
         "total_files": len(all_files),
