@@ -598,12 +598,12 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, note_text
         japanese_font: 日本語フォントプロパティ (None可)
     """
     if japanese_font:
-        ax.set_xlabel(xlabel_text, fontsize=11, fontproperties=japanese_font, labelpad=-5)
+        ax.set_xlabel(xlabel_text, fontsize=11, fontproperties=japanese_font)
         ax.set_ylabel(ylabel, fontsize=12, fontproperties=japanese_font)
         ax.set_title(title, fontsize=16, fontweight="bold", fontproperties=japanese_font, pad=15)
         ax.legend(loc="upper left", fontsize=10, prop=japanese_font, frameon=False)
     else:
-        ax.set_xlabel(xlabel_text, fontsize=11, labelpad=-5)
+        ax.set_xlabel(xlabel_text, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=12)
         ax.set_title(title, fontsize=16, fontweight="bold", pad=15)
         ax.legend(loc="upper left", fontsize=10, frameon=False)
@@ -700,8 +700,8 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソースと注釈 (右下にまとめて配置)
-    footer_text = f"{note_text}\n{data_source}"
+    # データソースと注釈 (右下にまとめて配置、先頭に空行追加)
+    footer_text = f"\n{note_text}\n{data_source}"
     if JAPANESE_FONT:
         fig.text(
             0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
@@ -825,8 +825,8 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # データソースと注釈 (右下にまとめて配置)
-    footer_text = f"{note_text}\n{data_source}"
+    # データソースと注釈 (右下にまとめて配置、先頭に空行追加)
+    footer_text = f"\n{note_text}\n{data_source}"
     if JAPANESE_FONT:
         fig.text(
             0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666", fontproperties=JAPANESE_FONT
