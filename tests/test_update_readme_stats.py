@@ -11,6 +11,7 @@ tests/test_update_readme_stats.py - README統計情報更新機能のテスト
 
 import json
 import os
+import re
 from pathlib import Path
 
 from scripts.update_readme_stats import (
@@ -93,6 +94,11 @@ class TestGetMetadataStats:
             result = get_metadata_stats()
             assert result["total_files"] == 0
             assert result["date_range"] == "データなし"
+            # 最終統計更新日時が設定されていることを確認
+            assert "last_stats_update" in result
+            assert result["last_stats_update"] != "N/A"
+            # フォーマット検証: "YYYY-MM-DD HH:MM JST"
+            assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} JST", result["last_stats_update"])
         finally:
             os.chdir(original_cwd)
 
@@ -132,6 +138,11 @@ class TestGetMetadataStats:
             assert "sentinel_weekly_gender" in result["data_types"]
             assert result["data_types"]["sentinel_weekly_gender"] == 2
             assert 2025 in result["years"]
+            # 最終統計更新日時が設定されていることを確認
+            assert "last_stats_update" in result
+            assert result["last_stats_update"] != "N/A"
+            # フォーマット検証: "YYYY-MM-DD HH:MM JST"
+            assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} JST", result["last_stats_update"])
         finally:
             os.chdir(original_cwd)
 

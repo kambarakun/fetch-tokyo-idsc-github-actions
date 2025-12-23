@@ -17,6 +17,16 @@ from zoneinfo import ZoneInfo
 MAX_DISPLAY_ITEMS = 50
 
 
+def _get_current_jst_timestamp() -> str:
+    """現在のJST日時を統一フォーマットで取得
+
+    Returns:
+        str: "YYYY-MM-DD HH:MM JST" 形式の文字列
+    """
+    jst = ZoneInfo("Asia/Tokyo")
+    return datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
+
+
 def _has_53_weeks(year: int) -> bool:
     """ISO 8601週番号で53週を持つ年かを判定
 
@@ -39,8 +49,7 @@ def get_metadata_stats() -> dict:
     metadata_dir = Path("data/raw/.metadata")
 
     if not metadata_dir.exists():
-        jst = ZoneInfo("Asia/Tokyo")
-        last_stats_update_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
+        last_stats_update_str = _get_current_jst_timestamp()
         return {
             "total_files": 0,
             "date_range": "データなし",
@@ -154,8 +163,7 @@ def get_metadata_stats() -> dict:
 
     # 統計情報の集計
     if not all_files:
-        jst = ZoneInfo("Asia/Tokyo")
-        last_stats_update_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
+        last_stats_update_str = _get_current_jst_timestamp()
         return {
             "total_files": 0,
             "date_range": "データなし",
@@ -225,7 +233,7 @@ def get_metadata_stats() -> dict:
         else latest_created.astimezone(jst).strftime("%Y-%m-%d %H:%M JST")
     )
     # スクリプト実行日時 (最終統計更新日時) を取得
-    last_stats_update_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
+    last_stats_update_str = _get_current_jst_timestamp()
 
     return {
         "total_files": len(all_files),
