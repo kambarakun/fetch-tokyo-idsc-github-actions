@@ -481,8 +481,8 @@ class TestGetMetadataStatsWithLogs:
         # 不正なJSONファイル - ファイル名がソート順で最初に来る
         (logs_dir / "stats_20251225_000000.json").write_text("{ invalid json", encoding="utf-8")
 
-        # 正常なログファイル - ファイル名がソート順で2番目
-        valid_log = {"new_files": 3, "updated_files": 0, "end_time": "2025-12-23T00:00:00"}
+        # 正常なログファイル - ファイル名がソート順で2番目 - UTC時刻を明示
+        valid_log = {"new_files": 3, "updated_files": 0, "end_time": "2025-12-23T00:00:00+00:00"}
         (logs_dir / "stats_20251223_000000.json").write_text(json.dumps(valid_log), encoding="utf-8")
 
         # メタデータディレクトリも作成
