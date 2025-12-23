@@ -803,6 +803,36 @@ class TestMigrateV120ToV130:
         assert migrated["verification"]["warnings"] == [CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG]
         assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2, 28]
 
+    def test_migrate_v1_2_0_with_edge_case_warnings(self) -> None:
+        """エッジケース警告 (空セット、末尾スペース、余分なスペース) の処理を確認."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        # 空セット、末尾スペース、余分なスペースのエッジケースをテスト
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "verification": {
+                "status": "verified",
+                "warnings": [
+                    "[csv_format] Inconsistent column count: {}",  # 空セット
+                    "[csv_format] Inconsistent column count: {0, 1, 2, }",  # 末尾スペース
+                    "[csv_format] Inconsistent column count: {  0,  1  }",  # 余分なスペース
+                ],
+            },
+        }
+
+        migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # 全て統一メッセージに変換される
+        assert migrated["verification"]["warnings"] == [
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+        ]
+
+        # detailsには最後の警告のカラム数が保存される (3つの警告があるので上書きされる)
+        # 最後の警告: "{  0,  1  }" → [0, 1]
+        assert migrated["verification"]["details"]["column_counts"] == [0, 1]
+
 
 class TestMigrateMetadata:
     """migrate_metadata関数のテスト."""

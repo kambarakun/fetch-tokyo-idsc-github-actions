@@ -656,7 +656,8 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
 
             # 警告メッセージのパターン: "[csv_format] Inconsistent column count: {0, 1, 2, 10}"
             # 数値、カンマ、空白のみを許可する厳密なパターン
-            pattern = re.compile(r"\[csv_format\] Inconsistent column count: \{([0-9, ]+)\}")
+            # 空セット"{}"や末尾スペース"{0, 1, }"にも対応するため`*`を使用
+            pattern = re.compile(r"\[csv_format\] Inconsistent column count: \{([0-9, ]*)\}")
 
             for warning in warnings:
                 if not isinstance(warning, str):
@@ -672,15 +673,22 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
                     column_counts_str = match.group(1)
                     # "0, 1, 2, 10" のような文字列をパース
                     try:
-                        column_counts = sorted(int(x.strip()) for x in column_counts_str.split(","))
+                        # 空文字列の場合は空リスト
+                        if column_counts_str.strip():
+                            column_counts = sorted(int(x.strip()) for x in column_counts_str.split(",") if x.strip())
+                        else:
+                            column_counts = []
+
                         details["column_counts"] = column_counts
                         changes.append(
                             f"verification.warnings: normalized message, " f"details.column_counts: {column_counts}"
                         )
                         warnings_updated = True
                     except (ValueError, AttributeError) as e:
-                        # パース失敗時は元のメッセージを保持
-                        logger.debug(f"Failed to parse column counts from warning: {warning!r} - {e}")
+                        # パース失敗時は元のメッセージを保持し、warningログとchangesに記録
+                        warning_preview = warning[:50] + "..." if len(warning) > 50 else warning
+                        logger.warning(f"Failed to parse column counts from warning: {warning!r} - {e}")
+                        changes.append(f"verification.warnings: parse failed for '{warning_preview}', kept original")
                         new_warnings.append(warning)
                 else:
                     new_warnings.append(warning)
