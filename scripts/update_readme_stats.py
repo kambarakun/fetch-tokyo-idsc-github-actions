@@ -44,7 +44,7 @@ def _has_53_weeks(year: int) -> bool:
     return iso_year == year and iso_week == 53
 
 
-def get_metadata_stats() -> dict:
+def get_metadata_stats() -> dict[str, Any]:
     """メタデータディレクトリから統計情報を取得"""
     metadata_dir = Path("data/raw/.metadata")
 
