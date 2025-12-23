@@ -39,10 +39,13 @@ def get_metadata_stats() -> dict:
     metadata_dir = Path("data/raw/.metadata")
 
     if not metadata_dir.exists():
+        jst = ZoneInfo("Asia/Tokyo")
+        last_stats_update_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
         return {
             "total_files": 0,
             "date_range": "データなし",
-            "latest_update": "N/A",
+            "latest_fetch": "N/A",
+            "last_stats_update": last_stats_update_str,
             "data_types": {},
             "year_range": "N/A",
             "latest_week": "N/A",
@@ -151,37 +154,19 @@ def get_metadata_stats() -> dict:
 
     # 統計情報の集計
     if not all_files:
+        jst = ZoneInfo("Asia/Tokyo")
+        last_stats_update_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
         return {
             "total_files": 0,
             "date_range": "データなし",
-            "latest_update": "N/A",
+            "latest_fetch": "N/A",
+            "last_stats_update": last_stats_update_str,
             "data_types": {},
             "year_range": "N/A",
             "latest_week": "N/A",
             "latest_month": "N/A",
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
-
-    # 最終更新日時の取得 (タイムゾーン情報を維持してUTCに統一)
-
-    latest_modified_dates: list[datetime] = []
-    for file_data in all_files:
-        if file_data.get("modified"):
-            try:
-                # ISO形式のタイムスタンプをパース ('Z' を '+00:00' に変換)
-                timestamp_str = file_data["modified"].replace("Z", "+00:00")
-                dt = datetime.fromisoformat(timestamp_str)
-
-                # タイムゾーン情報がない場合はUTCとして扱う、他の場合はUTCに変換
-                dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
-
-                latest_modified_dates.append(dt)
-            except (ValueError, TypeError):
-                pass
-
-    # データがない場合は None を返すのではなく、デフォルトのUTC最小値を使用
-    # (ファイルがない場合は表示時に "N/A" となるように後続処理で対応)
-    latest_modified = max(latest_modified_dates) if latest_modified_dates else datetime.min.replace(tzinfo=UTC)
 
     # 最新データ取得日時の取得 (created フィールドから)
     latest_created_dates: list[datetime] = []
@@ -239,18 +224,15 @@ def get_metadata_stats() -> dict:
         if latest_created == datetime.min.replace(tzinfo=UTC)
         else latest_created.astimezone(jst).strftime("%Y-%m-%d %H:%M JST")
     )
-    latest_update_str = (
-        "N/A"
-        if latest_modified == datetime.min.replace(tzinfo=UTC)
-        else latest_modified.astimezone(jst).strftime("%Y-%m-%d %H:%M JST")
-    )
+    # スクリプト実行日時 (最終統計更新日時) を取得
+    last_stats_update_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
 
     return {
         "total_files": len(all_files),
         "week_range": week_range,
         "month_range": month_range,
         "latest_fetch": latest_fetch_str,
-        "latest_update": latest_update_str,
+        "last_stats_update": last_stats_update_str,
         "data_types": dict(data_type_counts.most_common()),
         "data_type_periods": data_type_periods,
         "year_range": f"{min_year}年-{max_year}年",
@@ -531,8 +513,12 @@ def update_readme(stats: dict) -> bool:
 |------|-----|
 | **最新週次データ** | {stats['latest_week']} |
 | **最新月次データ** | {stats['latest_month']} |
+| **最終統計更新日時** | {stats['last_stats_update']} |
 | **最新データ取得日時** | {stats['latest_fetch']} |
-| **ファイル最終更新日時** | {stats['latest_update']} |
+
+> 📝 **日時の説明**
+> - **最終統計更新日時**: この統計情報が最後に更新された日時 (毎日自動実行)
+> - **最新データ取得日時**: 東京都IDSCから新しいデータを取得した日時
 
 ### 📊 感染動向の可視化
 
@@ -651,7 +637,8 @@ def main():
     print(f"✅ {stats['total_files']}件のメタデータを読み込みました")
     print(f"   週次: {stats['week_range']}")
     print(f"   月次: {stats['month_range']}")
-    print(f"   最終更新: {stats['latest_update']}")
+    print(f"   最終統計更新: {stats['last_stats_update']}")
+    print(f"   最新データ取得: {stats['latest_fetch']}")
 
     # README.mdを更新
     print("\nREADME.mdを更新しています...")
