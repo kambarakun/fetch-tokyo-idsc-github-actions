@@ -700,8 +700,8 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # グラフエリアを縮めて下にフッター用スペースを確保
-    plt.tight_layout(rect=[0, 0.06, 1, 1])  # 下から6%のスペースを確保
+    # グラフエリアを縮めて上下にスペースを確保 (上: タイトル用4%, 下: フッター用6%)
+    plt.tight_layout(rect=[0, 0.06, 1, 0.96])
 
     # データソースと注釈 (下側の確保したスペースに配置)
     footer_text = f"{note_text}\n{data_source}"
@@ -827,8 +827,8 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # グラフエリアを縮めて下にフッター用スペースを確保
-    plt.tight_layout(rect=[0, 0.06, 1, 1])  # 下から6%のスペースを確保
+    # グラフエリアを縮めて上下にスペースを確保 (上: タイトル用4%, 下: フッター用6%)
+    plt.tight_layout(rect=[0, 0.06, 1, 0.96])
 
     # データソースと注釈 (下側の確保したスペースに配置)
     footer_text = f"{note_text}\n{data_source}"
