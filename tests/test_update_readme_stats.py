@@ -13,9 +13,11 @@ import json
 import os
 import re
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.update_readme_stats import (
     _detect_missing_periods,
+    _get_current_jst_timestamp,
     _has_53_weeks,
     format_data_type_table,
     get_metadata_stats,
@@ -41,6 +43,53 @@ class TestHas53Weeks:
     def test_2023_has_52_weeks(self):
         """2023年は52週のみ"""
         assert _has_53_weeks(2023) is False
+
+
+class TestGetCurrentJSTTimestamp:
+    """_get_current_jst_timestamp()関数のテスト"""
+
+    def test_timestamp_format_jst(self):
+        """JSTタイムスタンプの形式が正しいことを確認"""
+        timestamp = _get_current_jst_timestamp()
+        # フォーマット検証: "YYYY-MM-DD HH:MM JST" または "YYYY-MM-DD HH:MM UTC" (フォールバック時)
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} (JST|UTC)", timestamp)
+
+        # 通常はJSTが返される
+        if "JST" in timestamp:
+            # 日時の範囲検証
+            parts = timestamp.split()
+            date_str, time_str = parts[0], parts[1]
+
+            # 日付の検証 (YYYY-MM-DD)
+            year, month, day = map(int, date_str.split("-"))
+            assert 2000 <= year <= 2100  # 現実的な年の範囲
+            assert 1 <= month <= 12
+            assert 1 <= day <= 31
+
+            # 時刻の検証 (HH:MM)
+            hour, minute = map(int, time_str.split(":"))
+            assert 0 <= hour <= 23
+            assert 0 <= minute <= 59
+
+    def test_timestamp_consistency(self):
+        """連続して呼び出した場合の一貫性を確認"""
+        timestamp1 = _get_current_jst_timestamp()
+        timestamp2 = _get_current_jst_timestamp()
+
+        # 両方とも同じタイムゾーン (JST or UTC) を使用していることを確認
+        assert ("JST" in timestamp1 and "JST" in timestamp2) or ("UTC" in timestamp1 and "UTC" in timestamp2)
+
+    @patch("scripts.update_readme_stats.ZoneInfo")
+    def test_fallback_to_utc_on_error(self, mock_zoneinfo):
+        """ZoneInfo取得に失敗した場合のUTCフォールバックを確認"""
+        # ZoneInfoの初期化時に例外を発生させる
+        mock_zoneinfo.side_effect = Exception("ZoneInfo not available")
+
+        timestamp = _get_current_jst_timestamp()
+
+        # UTCフォールバックが機能していることを確認
+        assert "UTC" in timestamp
+        assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC", timestamp)
 
 
 class TestDetectMissingPeriods:

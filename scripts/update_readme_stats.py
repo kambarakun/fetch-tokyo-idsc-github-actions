@@ -20,11 +20,19 @@ MAX_DISPLAY_ITEMS = 50
 def _get_current_jst_timestamp() -> str:
     """現在のJST日時を統一フォーマットで取得
 
+    ZoneInfo取得に失敗した場合はUTCにフォールバックします。
+
     Returns:
-        str: "YYYY-MM-DD HH:MM JST" 形式の文字列
+        str: "YYYY-MM-DD HH:MM JST" 形式の文字列 (JSTが利用可能な場合)
+             "YYYY-MM-DD HH:MM UTC" 形式の文字列 (フォールバック時)
     """
-    jst = ZoneInfo("Asia/Tokyo")
-    return datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
+    try:
+        jst = ZoneInfo("Asia/Tokyo")
+        return datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
+    except Exception:
+        # フォールバック: UTCを使用
+        utc_time = datetime.now(UTC)
+        return utc_time.strftime("%Y-%m-%d %H:%M UTC")
 
 
 def _has_53_weeks(year: int) -> bool:
@@ -45,7 +53,25 @@ def _has_53_weeks(year: int) -> bool:
 
 
 def get_metadata_stats() -> dict[str, Any]:
-    """メタデータディレクトリから統計情報を取得"""
+    """メタデータディレクトリから統計情報を取得
+
+    Returns:
+        dict[str, Any]: 統計情報を含む辞書
+            - total_files (int): メタデータファイルの総数
+            - week_range (str): 週次データの期間範囲
+            - month_range (str): 月次データの期間範囲
+            - latest_fetch (str): 最新データ取得日時 (JST)
+            - last_stats_update (str): 最終統計更新日時 (JST)
+            - data_types (dict[str, int]): データ種別ごとのファイル数
+            - data_type_periods (dict[str, list[tuple[int, int]]]): データ種別ごとの期間リスト
+            - year_range (str): 年の範囲
+            - latest_week (str): 最新の週次データ
+            - latest_month (str): 最新の月次データ
+            - years (list[int]): 年のリスト
+            - week_count (int): 週次データの総数
+            - month_count (int): 月次データの総数
+            - anomalies (dict): 異常データ情報
+    """
     metadata_dir = Path("data/raw/.metadata")
 
     if not metadata_dir.exists():
