@@ -14,7 +14,12 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.managers.storage_manager import CommitResult, GitHandler, StorageManager
+from src.managers.storage_manager import (
+    CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+    CommitResult,
+    GitHandler,
+    StorageManager,
+)
 
 
 class TestGitHandler(unittest.TestCase):
@@ -336,7 +341,7 @@ class TestStorageManager(unittest.TestCase):
         # v1.1+形式: force_overwriteは_fetch内にネストされる
         self.assertEqual(metadata["_fetch"]["force_overwrite"], True)
         # メタデータバージョンを確認
-        self.assertEqual(metadata["metadata_version"], "1.2.0")
+        self.assertEqual(metadata["metadata_version"], "1.3.0")
 
     def test_force_overwrite_updates_hash_index(self):
         """force_overwriteでハッシュインデックスが更新されることのテスト"""
@@ -1032,8 +1037,8 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertTrue(result.success)
         metadata = self.storage.get_metadata(result.file_path)
         self.assertIsNotNone(metadata)
-        # v1.2.0形式
-        self.assertEqual(metadata.get("metadata_version"), "1.2.0")
+        # v1.3.0形式
+        self.assertEqual(metadata.get("metadata_version"), "1.3.0")
 
     def test_created_at_and_updated_at_set_on_new_file(self):
         """新規ファイル作成時にcreated_atとupdated_atが設定されることを確認"""
@@ -1443,7 +1448,7 @@ class TestMetadataEnhancements(unittest.TestCase):
 
     def test_csv_format_validation_with_inconsistent_columns(self):
         """_check_csv_format_validationが不整合なカラム数を検出することを確認"""
-        # カラム数が一致しないCSVデータ
+        # カラム数が一致しないCSVデータ (3列, 2列, 4列)
         csv_data = "col1,col2,col3\nval1,val2\nval1,val2,val3,val4\n"
         data = csv_data.encode("shift_jis")
 
@@ -1451,6 +1456,50 @@ class TestMetadataEnhancements(unittest.TestCase):
 
         # カラム数の不整合がwarningsに含まれることを確認
         self.assertTrue(len(result["warnings"]) > 0)
+        self.assertIn(CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, result["warnings"])
+
+        # detailsフィールドにcolumn_countsが含まれることを確認 (v1.3.0新機能)
+        self.assertIn("details", result)
+        self.assertIn("column_counts", result["details"])
+        # ソート済みリスト形式で保存されていることを確認
+        self.assertEqual(result["details"]["column_counts"], [2, 3, 4])
+
+    def test_save_with_metadata_includes_details_for_inconsistent_columns(self):
+        """カラム数不整合のCSVを保存したときにmetadata.verification.detailsが設定されることを確認"""
+        # カラム数が一致しないCSVデータ (数値データを含む)
+        csv_data = """"","header1","header2","header3"
+"row1","10","20","30"
+"row2","5","15"
+"row3","1","2","3","4"
+"合計","15","35","30"
+"""
+        data = csv_data.encode("shift_jis")
+
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="test_inconsistent",
+            year=2025,
+            period=1,
+            is_monthly=False,
+        )
+
+        self.assertTrue(result.success)
+
+        # メタデータを取得
+        metadata = self.storage.get_metadata(result.file_path)
+        self.assertIsNotNone(metadata)
+
+        # verification.warnings にカラム数不整合の警告があることを確認
+        self.assertIn("verification", metadata)
+        verification = metadata["verification"]
+        self.assertIn("warnings", verification)
+        self.assertIn(CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, verification["warnings"])
+
+        # verification.details.column_counts が正しく設定されていることを確認 (v1.3.0新機能)
+        self.assertIn("details", verification)
+        self.assertIn("column_counts", verification["details"])
+        # データは4列, 3列, 5列, 4列 → sorted([3, 4, 5])
+        self.assertEqual(verification["details"]["column_counts"], [3, 4, 5])
 
 
 if __name__ == "__main__":

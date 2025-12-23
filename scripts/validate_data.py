@@ -19,14 +19,14 @@ from typing import Any
 # プロジェクトのルートディレクトリをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# 検証設定
-MAX_FILE_SIZE_MB = 50  # 最大ファイルサイズ(MB)
-MIN_FILE_SIZE_BYTES = 100  # 最小ファイルサイズ(バイト)
-MAX_LINE_COUNT = 1000000  # 最大行数
-MIN_LINE_COUNT = 1  # 最小行数
-EXPECTED_ENCODING = "shift_jis"  # 期待されるエンコーディング
-MAX_COLUMN_COUNT = 100  # 最大カラム数
-MIN_COLUMN_COUNT = 2  # 最小カラム数
+# storage_manager から検証設定と統一メッセージ定数をインポート
+from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, EXPECTED_ENCODING
+from src.managers.storage_manager import VALIDATION_MAX_COLUMN_COUNT as MAX_COLUMN_COUNT
+from src.managers.storage_manager import VALIDATION_MAX_FILE_SIZE_MB as MAX_FILE_SIZE_MB
+from src.managers.storage_manager import VALIDATION_MAX_LINE_COUNT as MAX_LINE_COUNT
+from src.managers.storage_manager import VALIDATION_MIN_COLUMN_COUNT as MIN_COLUMN_COUNT
+from src.managers.storage_manager import VALIDATION_MIN_FILE_SIZE as MIN_FILE_SIZE_BYTES
+from src.managers.storage_manager import VALIDATION_MIN_LINE_COUNT as MIN_LINE_COUNT
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -69,6 +69,7 @@ class DataValidator:
             "warnings": [],
             "valid": True,
         }
+        details: dict[str, Any] = {}
 
         try:
             # ファイル存在チェック
@@ -83,12 +84,16 @@ class DataValidator:
             if not size_result["valid"]:
                 result["errors"].extend(size_result.get("errors", []))
                 result["warnings"].extend(size_result.get("warnings", []))
+            if size_result.get("details"):
+                details.update(size_result["details"])
 
             # エンコーディングチェック
             encoding_result = self._check_encoding(file_path)
             result["checks"]["encoding"] = encoding_result
             if not encoding_result["valid"]:
                 result["errors"].extend(encoding_result.get("errors", []))
+            if encoding_result.get("details"):
+                details.update(encoding_result["details"])
 
             # CSVフォーマットチェック
             if file_path.suffix.lower() == ".csv":
@@ -97,12 +102,20 @@ class DataValidator:
                 if not csv_result["valid"]:
                     result["errors"].extend(csv_result.get("errors", []))
                     result["warnings"].extend(csv_result.get("warnings", []))
+                if csv_result.get("details"):
+                    details.update(csv_result["details"])
 
             # パストラバーサルチェック
             path_result = self._check_path_safety(file_path)
             result["checks"]["path_safety"] = path_result
             if not path_result["valid"]:
                 result["errors"].extend(path_result.get("errors", []))
+            if path_result.get("details"):
+                details.update(path_result["details"])
+
+            # 詳細情報がある場合のみdetailsフィールドを追加
+            if details:
+                result["details"] = details
 
             # 結果の集計
             if result["errors"]:
@@ -170,7 +183,7 @@ class DataValidator:
 
     def _check_csv_format(self, file_path: Path) -> dict[str, Any]:
         """CSVフォーマットをチェック"""
-        result = {"valid": True, "errors": [], "warnings": []}
+        result = {"valid": True, "errors": [], "warnings": [], "details": {}}
 
         try:
             with file_path.open("r", encoding=EXPECTED_ENCODING) as f:
@@ -211,7 +224,10 @@ class DataValidator:
 
                 # カラム数の一貫性チェック
                 if len(column_counts) > 1:
-                    result["warnings"].append(f"Inconsistent column count: {column_counts}")
+                    # 警告メッセージは統一形式 (v1.3.0: storage_managerと共通化)
+                    result["warnings"].append(CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG)
+                    # 詳細情報はdetailsフィールドに保存 (ソート済みリスト形式)
+                    result["details"]["column_counts"] = sorted(column_counts)
 
         except csv.Error as e:
             result["errors"].append(f"CSV format error: {e!s}")
@@ -393,7 +409,7 @@ class DataValidator:
             for result in report["results"]:
                 file_name = self._escape_markdown(Path(result["file"]).name)
                 size = result.get("checks", {}).get("file_size", {}).get("size_mb", "N/A")
-                if isinstance(size, (int, float)):
+                if isinstance(size, int | float):
                     size = f"{size:.2f} MB"
                 line_count = result.get("checks", {}).get("csv_format", {}).get("line_count", "N/A")
                 status = "✅" if result["valid"] else "❌"

@@ -18,7 +18,7 @@ from scripts.migrate_metadata import (
     needs_migration,
     run_migration,
 )
-from src.managers.storage_manager import METADATA_VERSION
+from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, METADATA_VERSION
 
 
 class TestCountLines:
@@ -294,7 +294,7 @@ class TestNeedsMigration:
     def test_partial_migration_needs_migration(self) -> None:
         """一部フィールドが欠けている場合はマイグレーションが必要."""
         partial_metadata = {
-            "metadata_version": METADATA_VERSION,
+            "metadata_version": "1.0",
             "name": "test",
             "filename": "test.csv",
             # path, profile, data_type, temporal, bytes, hash, encoding, created, modified が欠けている
@@ -560,9 +560,9 @@ class TestMigrateV110ToV120:
         migrated, _ = migrate_v1_1_0_to_v1_2_0(v1_1_metadata, None)
 
         # 全てのフィールドが保持されている
-        for key in v1_1_metadata:
+        for key, value in v1_1_metadata.items():
             if key != "metadata_version":
-                assert migrated[key] == v1_1_metadata[key]
+                assert migrated[key] == value
 
         # quality が追加されている
         assert "quality" in migrated
@@ -598,6 +598,241 @@ class TestMigrateV110ToV120:
         assert migrated["quality"] == original_quality
         # qualityの追加は記録されない
         assert not any("quality" in c for c in changes)
+
+
+class TestMigrateV120ToV130:
+    """migrate_v1_2_0_to_v1_3_0関数のテスト."""
+
+    def test_migrate_v1_2_0_basic(self) -> None:
+        """v1.2.0からv1.3.0への基本変換."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "name": "sentinel_weekly_age_2024_01",
+            "filename": "sentinel_weekly_age_2024_01.csv",
+            "path": "raw/sentinel_weekly_age_2024_01.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_age",
+            "temporal": {"year": 2024, "period": 1, "period_type": "weekly"},
+            "bytes": 2796,
+            "lines": 22,
+            "hash": {"algorithm": "sha256", "value": "abc123..."},
+            "encoding": "shift_jis",
+            "created": "2025-12-18T07:33:02.713186+00:00",
+            "modified": "2025-12-18T07:33:02.713186+00:00",
+            "verification": {
+                "status": "verified",
+                "verified_at": "2025-12-18T07:33:02.713186+00:00",
+                "method": "automated",
+                "checks": {"file_size": True, "encoding": True, "csv_format": True, "path_safety": True},
+                "errors": [],
+                "warnings": ["[csv_format] Inconsistent column count: {0, 1, 2, 28}"],
+            },
+        }
+        migrated, changes = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # v1.3形式の検証
+        assert migrated["metadata_version"] == "1.3.0"
+        # 警告メッセージが統一形式に変換されている
+        assert migrated["verification"]["warnings"] == [CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG]
+        # カラム数情報がdetailsに保存されている
+        assert "details" in migrated["verification"]
+        assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2, 28]
+        # 変更が記録されている
+        assert len(changes) == 2
+        assert any("metadata_version" in c for c in changes)
+        assert any("details.column_counts" in c for c in changes)
+
+    def test_migrate_v1_2_0_without_warnings(self) -> None:
+        """警告がない場合は何も変更しない."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "name": "test",
+            "filename": "test.csv",
+            "path": "raw/test.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_gender",
+            "temporal": {"year": 2025, "period": 1, "period_type": "weekly"},
+            "bytes": 1000,
+            "lines": 50,
+            "hash": {"algorithm": "sha256", "value": "hash123"},
+            "encoding": "shift_jis",
+            "created": "2025-01-01T00:00:00+00:00",
+            "modified": "2025-01-01T00:00:00+00:00",
+            "verification": {
+                "status": "verified",
+                "verified_at": "2025-01-01T00:00:00+00:00",
+                "method": "automated",
+                "checks": {"file_size": True, "encoding": True, "csv_format": True, "path_safety": True},
+                "errors": [],
+                "warnings": [],
+            },
+        }
+        migrated, changes = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # バージョンのみ更新される
+        assert migrated["metadata_version"] == "1.3.0"
+        assert migrated["verification"]["warnings"] == []
+        # detailsは追加されない
+        assert "details" not in migrated["verification"]
+        # バージョン変更のみ記録される
+        assert len(changes) == 1
+        assert "metadata_version" in changes[0]
+
+    def test_migrate_v1_2_0_with_multiple_warnings(self) -> None:
+        """複数の警告がある場合、該当するものだけ変換される."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "name": "test",
+            "filename": "test.csv",
+            "path": "raw/test.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_gender",
+            "temporal": {"year": 2025, "period": 1, "period_type": "weekly"},
+            "bytes": 1000,
+            "lines": 50,
+            "hash": {"algorithm": "sha256", "value": "hash123"},
+            "encoding": "shift_jis",
+            "created": "2025-01-01T00:00:00+00:00",
+            "modified": "2025-01-01T00:00:00+00:00",
+            "verification": {
+                "status": "verified",
+                "verified_at": "2025-01-01T00:00:00+00:00",
+                "method": "automated",
+                "checks": {"file_size": True, "encoding": True, "csv_format": True, "path_safety": True},
+                "errors": [],
+                "warnings": [
+                    "[csv_format] Inconsistent column count: {0, 10}",
+                    "[file_size] File is large",
+                ],
+            },
+        }
+        migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # カラム数警告のみ変換される
+        assert migrated["verification"]["warnings"] == [
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+            "[file_size] File is large",
+        ]
+        assert migrated["verification"]["details"]["column_counts"] == [0, 10]
+
+    def test_migrate_v1_2_0_preserves_all_fields(self) -> None:
+        """v1.2.0の全フィールドが保持される."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "name": "test",
+            "filename": "test.csv",
+            "path": "raw/test.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_gender",
+            "temporal": {"year": 2025, "period": 1, "period_type": "weekly"},
+            "bytes": 1000,
+            "lines": 50,
+            "hash": {"algorithm": "sha256", "value": "hash123"},
+            "encoding": "shift_jis",
+            "created": "2025-01-01T00:00:00+00:00",
+            "modified": "2025-01-01T00:00:00+00:00",
+            "_fetch": {
+                "source_url": "https://example.com",
+                "fetch_time_seconds": 1.23,
+                "force_overwrite": False,
+                "save_all_zero": False,
+            },
+        }
+        migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # 全てのフィールドが保持されている
+        for key, value in v1_2_metadata.items():
+            if key != "metadata_version":
+                assert migrated[key] == value
+
+    def test_migrate_v1_2_0_does_not_mutate_original(self) -> None:
+        """マイグレーションが元のmetadataを変更しないことを確認 (deepcopyのテスト)."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "name": "test",
+            "filename": "test.csv",
+            "path": "raw/test.csv",
+            "profile": "tokyo-idsc-raw",
+            "data_type": "sentinel_weekly_age",
+            "temporal": {"year": 2024, "period": 1, "period_type": "weekly"},
+            "bytes": 2796,
+            "lines": 22,
+            "hash": {"algorithm": "sha256", "value": "abc123..."},
+            "encoding": "shift_jis",
+            "created": "2025-12-18T07:33:02.713186+00:00",
+            "modified": "2025-12-18T07:33:02.713186+00:00",
+            "verification": {
+                "status": "verified",
+                "verified_at": "2025-12-18T07:33:02.713186+00:00",
+                "method": "automated",
+                "checks": {"file_size": True, "encoding": True, "csv_format": True, "path_safety": True},
+                "errors": [],
+                "warnings": ["[csv_format] Inconsistent column count: {0, 1, 2, 28}"],
+            },
+        }
+
+        # 元のmetadataのコピーを保存
+        import copy
+
+        original_copy = copy.deepcopy(v1_2_metadata)
+
+        # マイグレーション実行
+        migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # 元のmetadataが変更されていないことを確認
+        assert v1_2_metadata == original_copy
+
+        # ネストされた辞書も独立していることを確認
+        verification = v1_2_metadata["verification"]
+        assert isinstance(verification, dict)
+        assert verification["warnings"] == ["[csv_format] Inconsistent column count: {0, 1, 2, 28}"]
+        assert "details" not in verification
+
+        # migratedは正しく変換されていることを確認
+        assert migrated["metadata_version"] == "1.3.0"
+        assert migrated["verification"]["warnings"] == [CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG]
+        assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2, 28]
+
+    def test_migrate_v1_2_0_with_edge_case_warnings(self) -> None:
+        """エッジケース警告 (空セット、末尾スペース、余分なスペース) の処理を確認."""
+        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+
+        # 空セット、末尾スペース、余分なスペースのエッジケースをテスト
+        v1_2_metadata = {
+            "metadata_version": "1.2.0",
+            "verification": {
+                "status": "verified",
+                "warnings": [
+                    "[csv_format] Inconsistent column count: {}",  # 空セット
+                    "[csv_format] Inconsistent column count: {0, 1, 2, }",  # 末尾スペース
+                    "[csv_format] Inconsistent column count: {  0,  1  }",  # 余分なスペース
+                ],
+            },
+        }
+
+        migrated, _ = migrate_v1_2_0_to_v1_3_0(v1_2_metadata, None)
+
+        # 全て統一メッセージに変換される
+        assert migrated["verification"]["warnings"] == [
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+            CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
+        ]
+
+        # detailsには全ての警告からカラム数が収集される (重複除去してソート)
+        # "{}" → [], "{0, 1, 2, }" → [0, 1, 2], "{  0,  1  }" → [0, 1]
+        # 全てマージ: [0, 1, 2]
+        assert migrated["verification"]["details"]["column_counts"] == [0, 1, 2]
 
 
 class TestMigrateMetadata:

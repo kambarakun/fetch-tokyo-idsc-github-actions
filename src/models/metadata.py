@@ -16,7 +16,7 @@ from typing import Any, Literal, TypedDict, cast
 logger = logging.getLogger(__name__)
 
 # メタデータスキーマバージョン (Semantic Versioning)
-METADATA_VERSION = "1.2.0"
+METADATA_VERSION = "1.3.0"
 
 # プロファイル定義
 PROFILE_RAW = "tokyo-idsc-raw"
@@ -114,6 +114,7 @@ class Verification:
         checks: 各検証項目の結果
         errors: エラーメッセージリスト
         warnings: 警告メッセージリスト
+        details: 構造化詳細情報 (v1.3.0+)
     """
 
     status: Literal["verified", "failed", "pending"]
@@ -122,6 +123,10 @@ class Verification:
     checks: dict[str, bool] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # v1.3.0: 構造化詳細情報
+    # 現在サポートされているフィールド:
+    #   - column_counts: list[int] - CSVカラム数の一覧 (不整合検出時)
+    details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """辞書形式に変換"""
@@ -137,6 +142,7 @@ class Verification:
             checks=data.get("checks", {}),
             errors=data.get("errors", []),
             warnings=data.get("warnings", []),
+            details=data.get("details", {}),  # v1.3.0: 詳細情報
         )
 
 
