@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.2.0",
+  "metadata_version": "1.3.0",
   "name": "notifiable_weekly_2025_01",
   "filename": "notifiable_weekly_2025_01.csv",
   "path": "notifiable_weekly_2025_01.csv",
@@ -38,7 +38,14 @@
     },
     "errors": [],
     "warnings": [
-      "[csv_format] Inconsistent column count: {0, 1, 2}"
-    ]
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2
+      ]
+    }
   }
 }
