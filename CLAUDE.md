@@ -638,7 +638,41 @@ open htmlcov/index.html
   - `uv run ruff check` でコミット前に検出可能
   - 例: `# データを処理 (オプション)` ✅ / `# データを処理（オプション）` ❌
 
-### 5.2 ファイル命名規則
+### 5.2 データ可視化ガイドライン
+
+#### グラフの連続性原則 (重要)
+
+**時系列グラフでは0の値を除外してはいけません。**
+
+- **理由**: 0の値を除外すると折れ線グラフに欠損が生じ、視覚的な連続性が損なわれる
+- **適用箇所**: `scripts/generate_charts.py`の全データパーサー関数
+  - `parse_sentinel_weekly_gender()`: ✅ 0を含める (正しい実装)
+  - `parse_notifiable_weekly()`: ✅ 0を含める (修正済み)
+  - `parse_sentinel_monthly_gender()`: ✅ 0を含める (正しい実装)
+
+**コード例**:
+
+```python
+# ❌ 間違った実装 (0を除外)
+if count > 0:
+    disease_data[disease_name] = count
+
+# ✅ 正しい実装 (0も含める)
+# 注: 0のデータも含める (時系列グラフの連続性を保つため)
+disease_data[disease_name] = count
+```
+
+**確認方法**:
+
+```bash
+# グラフを生成して視覚的に確認
+uv run python scripts/generate_charts.py
+
+# 生成されたグラフを確認
+open docs/images/notifiable_weekly_absolute.png
+```
+
+### 5.3 ファイル命名規則
 
 ```python
 # データファイル（新形式：タイムスタンプなし、ゼロパディングあり）
@@ -657,7 +691,7 @@ f"{data_type}_{period_type}_{year}_{period:02d}.json"
 f"fetch_log_{date}.txt"
 ```
 
-### 5.3 ディレクトリ構造
+### 5.4 ディレクトリ構造
 
 ```bash
 # フラット構造（新形式）
@@ -675,7 +709,7 @@ data/
 └── logs/
 ```
 
-### 5.4 Mermaidによるフロー図の作成規約（必須）
+### 5.5 Mermaidによるフロー図の作成規約（必須）
 
 **基本原則**: MDファイル内でフロー、シーケンス、状態遷移などを記述する場合は、**必ずMermaid記法を使用すること**。
 

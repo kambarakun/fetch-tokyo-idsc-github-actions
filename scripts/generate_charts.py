@@ -326,12 +326,12 @@ def parse_notifiable_weekly(csv_path: Path) -> dict[str, float]:
         value_str = str(row[1]).strip()
 
         # 疾患名と報告数が有効な場合のみ追加
-        # 0のデータは除外 (統計的に意味がないため)
+        # 注: 0のデータも含める (時系列グラフの連続性を保つため)
+        # 0を除外すると、折れ線グラフに欠損が生じ、視覚的な連続性が損なわれる
         if disease_name and value_str and value_str not in ["*", "-", ""]:
             try:
                 count = float(value_str)
-                if count > 0:  # 0より大きい値のみ追加
-                    disease_data[disease_name] = count
+                disease_data[disease_name] = count
             except ValueError:
                 continue
 
