@@ -326,6 +326,8 @@ data/
 - 詳細情報を `verification.details` フィールドに構造化（例: `details.column_counts`）
 - 検索性と集計性の向上
 
+> **💡 既存ユーザー向け注意**: v1.2.0以前のメタデータをv1.3.0に移行する場合は、`scripts/migrate_metadata.py`を使用してください。詳細は[CLAUDE.md](CLAUDE.md#83-メタデータスキーマ-v130)を参照。
+
 **主要フィールドの概要:**
 
 ここでは v1.3.0 の主要フィールドを示します。各フィールドの詳細な定義・仕様は以下を参照してください：
@@ -415,9 +417,12 @@ flowchart TD
     CheckResult -->|不一致| RecordIssue[quality フィールドに記録]
     RecordIssue --> Output
 
+    style Start fill:#f9f,stroke:#333,stroke-width:2px
     style Input fill:#f9f,stroke:#333,stroke-width:2px
     style Output fill:#bfb,stroke:#333,stroke-width:2px
     style Validate fill:#bbf,stroke:#333,stroke-width:2px
+    style RecordIssue fill:#ffb,stroke:#333,stroke-width:2px
+    style Split fill:#ddf,stroke:#333,stroke-width:2px
 ```
 
 #### 処理ステップの詳細
