@@ -253,33 +253,9 @@ sentinel_weekly_medical_district_2025_01.csv (不整合: 13件)
 
 ## 📊 データ構造とダウンロード内容
 
-### 📝 メタデータ管理 (v1.3.0)
+### 📁 データ構造
 
-本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
-
-### メタデータの2つの検証フィールド
-
-| フィールド       | 用途                 | 例                                          |
-| ---------------- | -------------------- | ------------------------------------------- |
-| **verification** | ファイル形式の検証   | CSVカラム数の不整合                         |
-| **quality**      | データ内容の品質検証 | 性別合計値の不整合 (male + female != total) |
-
-### verification (ファイル形式検証)
-
-- **目的**: ファイル自体の構造的な問題を検出
-- **検証項目**: ファイルサイズ、エンコーディング、CSV形式、パス安全性
-- **v1.3.0の改善**: 警告メッセージを統一形式化し、詳細情報を`details`フィールドに構造化
-  - 例: カラム数不整合の場合、`details.column_counts`に観測された全カラム数を記録
-
-### quality (データ品質検証)
-
-- **目的**: データ内容の品質問題を検出
-- **検証項目**: 性別データの合計値検証 (`male + female = total`)
-- **実装**: `src/validators/gender_sum_validator.py`
-
-詳細は [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130) を参照してください。
-
-### 収集データタイプ（9種類）
+#### 収集データタイプ（9種類）
 
 本システムは以下の9種類のデータを自動収集します：
 
@@ -295,7 +271,7 @@ sentinel_weekly_medical_district_2025_01.csv (不整合: 13件)
 | **sentinel_monthly_health_center**    | 定点     | 月次 | 保健所別         | 月別定点あたり患者報告数（保健所別）         |
 | **sentinel_monthly_medical_district** | 定点     | 月次 | 二次保健医療圏別 | 月別定点あたり患者報告数（二次保健医療圏別） |
 
-### データディレクトリ構造
+#### データディレクトリ構造
 
 ```text
 data/
@@ -320,7 +296,7 @@ data/
 └── logs/                                       # ログファイル
 ```
 
-### ファイル命名規則
+#### ファイル命名規則
 
 **生データ（data/raw/）:**
 
@@ -339,9 +315,66 @@ data/
 - **定点監視（分割なし）**: `normalized_{data_type}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_gender_2000_01.csv`
 
+#### 📝 メタデータ管理 (v1.3.0)
+
+本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
+メタデータは `data/raw/.metadata/` に保存されます。
+ここでは v1.3.0 の全体構造（概要）と代表的な検証項目を示します。全フィールドの定義は後述のスキーマを参照してください。
+
+**代表的なメタデータファイル:**
+
+- `data/raw/.metadata/hash_index.json`: 重複検出用のSHA256ハッシュインデックス
+- `data/processed/.metadata/processing_log.json`: UTF-8変換や正規化の処理履歴
+
+メタデータ構造の詳細は [`docs/data_structure_design.md`](docs/data_structure_design.md#メタデータ構造) を参照してください。
+
+##### v1.3.0 全体構造（概要）
+
+- **metadata_version**: メタデータのスキーマバージョン（例: `1.3.0`）
+- **name / filename / path**: 識別子・ファイル名・相対パス
+- **profile**: `tokyo-idsc-raw` / `tokyo-idsc-processed`
+- **data_type**: データタイプ（例: `sentinel_weekly_gender`）
+- **temporal**: 対象期間（年・週/月・period_type）
+- **bytes / lines**: ファイルサイズ・行数
+- **hash / encoding**: ハッシュ情報・文字エンコーディング
+- **created / modified**: 作成・更新日時
+- **sources**: データソース情報
+- **verification**: ファイル形式の検証結果
+- **quality**: データ内容の品質検証結果
+- **_fetch**: 取得情報（raw用: source_url 等）
+- **_process**: 処理情報（processed用: source_name 等）
+
+##### メタデータの2つの検証フィールド
+
+| フィールド       | 用途                 | 例                                          |
+| ---------------- | -------------------- | ------------------------------------------- |
+| **verification** | ファイル形式の検証   | CSVカラム数の不整合                         |
+| **quality**      | データ内容の品質検証 | 性別合計値の不整合 (male + female != total) |
+
+##### verification (ファイル形式検証)
+
+- **目的**: ファイル自体の構造的な問題を検出
+- **検証項目**: ファイルサイズ、エンコーディング、CSV形式、パス安全性
+- **v1.3.0の改善**: 警告メッセージを統一形式化し、詳細情報を`details`フィールドに構造化
+  - 例: カラム数不整合の場合、`details.column_counts`に観測された全カラム数を記録
+
+##### quality (データ品質検証)
+
+- **目的**: データ内容の品質問題を検出
+- **検証項目**: 性別データの合計値検証 (`male + female = total`)
+- **実装**: `src/validators/gender_sum_validator.py`
+
+検証スキーマの詳細は [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130) を参照してください。
+
 ### 🔄 データ処理の詳細
 
 `data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理を施したファイルが格納されます：
+
+**処理済みデータの前提:**
+
+- UTF-8 エンコーディング
+- メタデータ・注釈行を除去済み
+- 性別セクションは分割（最大3ファイル）
 
 **処理内容:**
 
