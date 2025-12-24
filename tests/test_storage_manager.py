@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -1500,6 +1501,141 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertIn("column_counts", verification["details"])
         # データは4列, 3列, 5列, 4列 → sorted([3, 4, 5])
         self.assertEqual(verification["details"]["column_counts"], [3, 4, 5])
+
+
+class TestErrorHandling(unittest.TestCase):
+    """エラーハンドリングのテスト (未カバー箇所対応)"""
+
+    def setUp(self):
+        """テストの前処理"""
+        self.test_dir = tempfile.mkdtemp()
+        self.base_path = Path(self.test_dir) / "data" / "raw"
+        self.base_path.mkdir(parents=True, exist_ok=True)
+        self.config = {"auto_commit": False}
+        self.storage = StorageManager(self.base_path, self.config)
+        self.git_handler = GitHandler(auto_commit=False)
+
+    def tearDown(self):
+        """テストの後処理"""
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    @patch("subprocess.run")
+    def test_is_git_repo_exception(self, mock_run):
+        """is_git_repo()で例外が発生した場合にFalseを返すことを確認"""
+        # Arrange: subprocess.runで例外を発生
+        mock_run.side_effect = Exception("Subprocess error")
+
+        # Act
+        result = self.git_handler.is_git_repo()
+
+        # Assert: 例外をキャッチしてFalseを返す (lines 120-121)
+        self.assertFalse(result)
+
+    def test_is_all_zero_data_unicode_decode_error(self):
+        """_is_all_zero_data()でUnicodeDecodeErrorが発生した場合の処理を確認"""
+        # Arrange
+        invalid_data = b"test_data"
+
+        # Act: storage_manager.py内のcsv.readerをモックしてUnicodeDecodeErrorを発生させる (lines 732-735)
+        with patch(
+            "src.managers.storage_manager.csv.reader",
+            side_effect=UnicodeDecodeError("shift_jis", b"", 0, 1, "invalid sequence"),
+        ):
+            result = self.storage._is_all_zero_data(invalid_data)
+
+        # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
+        self.assertFalse(result, "UnicodeDecodeError発生時はFalseを返すべき")
+
+    def test_cleanup_old_files_basic(self):
+        """cleanup_old_files()の基本動作を確認"""
+        # Arrange: 古いファイルと新しいファイルを作成
+        # 古いファイル (31日以上前)
+        old_csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        old_data = old_csv_data.encode("shift_jis")
+        old_result = self.storage.save_with_metadata(
+            data=old_data,
+            data_type="test_cleanup",
+            year=2024,
+            period=1,
+            is_monthly=False,
+        )
+        self.assertTrue(old_result.success)
+
+        # メタデータのタイムスタンプを古い日付に変更
+        old_timestamp = (datetime.now(UTC) - timedelta(days=40)).isoformat()
+        metadata = self.storage.get_metadata(old_result.file_path)
+        metadata["timestamp"] = old_timestamp
+        metadata_path = self.storage.metadata_dir / f"{old_result.file_path.stem}.json"
+        with metadata_path.open("w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+        # 新しいファイル
+        new_csv_data = """"テスト"
+"","疾病B"
+"地域2","10"
+"""
+        new_data = new_csv_data.encode("shift_jis")
+        new_result = self.storage.save_with_metadata(
+            data=new_data,
+            data_type="test_cleanup",
+            year=2024,
+            period=2,
+            is_monthly=False,
+        )
+        self.assertTrue(new_result.success)
+
+        # Act: 30日より古いファイルを削除
+        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
+
+        # Assert: 古いファイルが削除され、新しいファイルは残る (lines 1403-1427)
+        self.assertEqual(deleted_count, 1)
+        self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
+        self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
+        self.assertTrue(new_result.file_path.exists(), "新しいファイルは残るべき")
+
+    def test_cleanup_old_files_no_metadata(self):
+        """cleanup_old_files()でメタデータがないファイルをスキップすることを確認"""
+        # Arrange: メタデータなしのファイルを作成
+        file_without_metadata = self.base_path / "test_no_metadata.csv"
+        file_without_metadata.write_bytes(b"test data")
+
+        # Act
+        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
+
+        # Assert: メタデータがないファイルはスキップされる
+        self.assertEqual(deleted_count, 0)
+        self.assertTrue(file_without_metadata.exists(), "メタデータなしのファイルは残るべき")
+
+    def test_cleanup_old_files_exception_handling(self):
+        """cleanup_old_files()で個別ファイル処理中の例外をキャッチすることを確認"""
+        # Arrange: ファイルを作成
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="test_exception",
+            year=2024,
+            period=3,
+            is_monthly=False,
+        )
+        self.assertTrue(result.success)
+
+        # メタデータを不正な形式に変更
+        metadata_path = self.storage.metadata_dir / f"{result.file_path.stem}.json"
+        with metadata_path.open("w", encoding="utf-8") as f:
+            f.write('{"timestamp": "invalid-date-format"}')
+
+        # Act: 例外が発生してもプロセスが継続される (lines 1423-1424)
+        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
+
+        # Assert: 例外がキャッチされ、プロセスは正常終了
+        self.assertEqual(deleted_count, 0)  # 不正なメタデータで削除できない
 
 
 if __name__ == "__main__":
