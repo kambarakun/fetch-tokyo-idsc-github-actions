@@ -318,12 +318,12 @@ data/
 #### 📝 メタデータ管理 (v1.3.0)
 
 本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
-メタデータは `data/raw/.metadata/` ディレクトリ（メタデータファイル保存用）に保存されます。
+メタデータは `data/raw/.metadata/` ディレクトリ (メタデータファイル保存用) に保存されます。
 
 **v1.3.0の主な変更点:**
 
-- 警告メッセージを統一形式化（例: `[csv_format] Inconsistent column count`）
-- 詳細情報を `verification.details` フィールドに構造化（例: `details.column_counts`）
+- 警告メッセージを統一形式化 (例: `[csv_format] Inconsistent column count`)
+- 詳細情報を `verification.details` フィールドに構造化 (例: `details.column_counts`)
 - 検索性と集計性の向上
 
 > **💡 既存ユーザー向け注意**: v1.2.0以前のメタデータをv1.3.0に移行する場合は、`scripts/migrate_metadata.py`を使用してください。詳細は[CLAUDE.md](CLAUDE.md#83-メタデータスキーマ-v130)を参照。
@@ -340,36 +340,36 @@ data/
 - `data/raw/.metadata/hash_index.json`: 重複検出用のSHA256ハッシュインデックス
 - `data/processed/.metadata/processing_log.json`: UTF-8変換や正規化の処理履歴
 
-##### v1.3.0 全体構造（概要）
+##### v1.3.0 メタデータフィールド一覧
 
 **基本情報:**
 
-- `metadata_version`: スキーマバージョン（例: `1.3.0`）
+- `metadata_version`: スキーマバージョン (例: `1.3.0`)
 - `name` / `filename` / `path`: 識別子・ファイル名・相対パス
-- `profile`: プロファイル種別（`tokyo-idsc-raw` / `tokyo-idsc-processed`）
+- `profile`: プロファイル種別 (`tokyo-idsc-raw` / `tokyo-idsc-processed`)
 
 **データ特性:**
 
-- `data_type`: データタイプ（例: `sentinel_weekly_gender`）
-- `temporal`: 対象期間（`year` / `week` or `month` / `period_type`）
+- `data_type`: データタイプ (例: `sentinel_weekly_gender`)
+- `temporal`: 対象期間 (`year` / `week` or `month` / `period_type`)
 
 **ファイル属性:**
 
 - `bytes` / `lines`: ファイルサイズ・行数
 - `hash`: SHA256ハッシュ情報
-- `encoding`: 文字エンコーディング（Shift_JIS / UTF-8）
-- `created` / `modified`: 作成・更新日時（ISO 8601形式）
+- `encoding`: 文字エンコーディング (Shift_JIS / UTF-8)
+- `created` / `modified`: 作成・更新日時 (ISO 8601形式)
 
 **検証・品質:**
 
-- `verification`: ファイル形式の検証結果（CSV構造、エンコーディング等）
-- `quality`: データ内容の品質検証結果（性別合計の一致等）
+- `verification`: ファイル形式の検証結果 (CSV構造、エンコーディング等)
+- `quality`: データ内容の品質検証結果 (性別合計の一致等)
 
 **ソース・処理履歴:**
 
 - `sources`: データソース情報
-- `_fetch`: データ取得情報（raw用: `source_url`、`fetch_timestamp` 等）
-- `_process`: データ処理情報（processed用: `source_name`、`processing_timestamp` 等）
+- `_fetch`: データ取得情報 (raw用: `source_url`、`fetch_timestamp` 等)
+- `_process`: データ処理情報 (processed用: `source_name`、`processing_timestamp` 等)
 
 ##### メタデータの2つの検証フィールド
 
@@ -419,10 +419,13 @@ flowchart TD
 
     style Start fill:#f9f,stroke:#333,stroke-width:2px
     style Input fill:#f9f,stroke:#333,stroke-width:2px
-    style Output fill:#bfb,stroke:#333,stroke-width:2px
-    style Validate fill:#bbf,stroke:#333,stroke-width:2px
-    style RecordIssue fill:#ffb,stroke:#333,stroke-width:2px
+    style Step1 fill:#ddf,stroke:#333,stroke-width:2px
+    style Step2 fill:#ddf,stroke:#333,stroke-width:2px
     style Split fill:#ddf,stroke:#333,stroke-width:2px
+    style Validate fill:#bbf,stroke:#333,stroke-width:2px
+    style CheckResult fill:#ffd,stroke:#333,stroke-width:2px
+    style RecordIssue fill:#ffb,stroke:#333,stroke-width:2px
+    style Output fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
 #### 処理ステップの詳細
