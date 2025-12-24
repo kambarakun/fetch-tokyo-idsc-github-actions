@@ -320,8 +320,15 @@ data/
 本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
 メタデータは `data/raw/.metadata/` ディレクトリ（メタデータファイル保存用）に保存されます。
 
-ここでは v1.3.0 の**主要フィールド一覧（概要）**を示します。
-各フィールドの詳細な定義・仕様は以下を参照してください：
+**v1.3.0の主な変更点:**
+
+- 警告メッセージを統一形式化（例: `[csv_format] Inconsistent column count`）
+- 詳細情報を `verification.details` フィールドに構造化（例: `details.column_counts`）
+- 検索性と集計性の向上
+
+**主要フィールドの概要:**
+
+ここでは v1.3.0 の主要フィールドを示します。各フィールドの詳細な定義・仕様は以下を参照してください：
 
 - 完全なスキーマ定義: [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130)
 - 実装例: [`docs/data_structure_design.md`](docs/data_structure_design.md#メタデータ構造)
@@ -388,7 +395,32 @@ data/
 
 `data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理フローで変換したファイルが格納されます。
 
-#### 処理フロー
+#### 処理フロー図
+
+```mermaid
+flowchart TD
+    Start[data/raw/<br/>生データ] --> Input[入力データ<br/>Shift_JIS<br/>メタデータ含む<br/>性別混在]
+    Input --> Step1[1. エンコーディング変換<br/>Shift_JIS → UTF-8]
+    Step1 --> Step2[2. メタデータ除去<br/>ヘッダー・注釈行を削除]
+    Step2 --> Step3{3. 性別分割<br/>必要?}
+
+    Step3 -->|Yes| Split[性別セクション分割<br/>male/female/total]
+    Step3 -->|No| NoSplit[分割なし]
+
+    Split --> Validate[4. 品質検証<br/>male + female = total]
+    NoSplit --> Output
+
+    Validate --> CheckResult{検証結果}
+    CheckResult -->|一致| Output[data/processed/<br/>UTF-8<br/>純粋データ<br/>性別分割済み]
+    CheckResult -->|不一致| RecordIssue[quality フィールドに記録]
+    RecordIssue --> Output
+
+    style Input fill:#f9f,stroke:#333,stroke-width:2px
+    style Output fill:#bfb,stroke:#333,stroke-width:2px
+    style Validate fill:#bbf,stroke:#333,stroke-width:2px
+```
+
+#### 処理ステップの詳細
 
 **入力（data/raw/）:**
 
