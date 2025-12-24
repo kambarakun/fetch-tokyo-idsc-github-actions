@@ -297,7 +297,7 @@ sentinel_weekly_medical_district_2025_01.csv (不整合: 13件)
 
 ### データディレクトリ構造
 
-````text
+```text
 data/
 ├── raw/                                        # 生データ（Shift_JIS エンコーディング）
 │   ├── .metadata/                             # メタデータ保存用
@@ -318,7 +318,7 @@ data/
 │   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv # 定点・医療圏・女性（UTF-8）
 │   └── normalized_sentinel_weekly_gender_2000_01.csv         # 定点・性別（UTF-8、性別列形式のため分割なし）
 └── logs/                                       # ログファイル
-```text
+```
 
 ### ファイル命名規則
 
@@ -458,7 +458,7 @@ data/
 # フォークまたはクローン
 git clone https://github.com/kambarakun/fetch-tokyo-idsc-github-actions.git
 cd fetch-tokyo-idsc-github-actions
-```text
+```
 
 上記の**GitHub Actions権限設定**を行った後、自動実行ワークフローが動作を開始します。
 
@@ -482,7 +482,7 @@ uv sync
 
 # 開発用依存関係も含める場合
 uv sync --all-extras
-```text
+```
 
 #### ローカルでのデータ取得
 
@@ -498,7 +498,7 @@ uv run python scripts/fetch_data.py --dry-run
 
 # 欠番チェック
 uv run python scripts/check_missing.py data/raw
-```text
+```
 
 #### 開発者向けコマンド
 
@@ -517,7 +517,7 @@ uv run pytest --cov=src --cov-report=html
 
 # 特定のテストのみ
 uv run pytest tests/test_enhanced_fetcher.py
-```text
+```
 
 ### 🛠️ 設定ファイル
 
@@ -569,7 +569,7 @@ PR_BODY: |
 PR_LABELS:
   - data-update # データ更新PR用
   - automated # 自動生成PR用
-```text
+```
 
 カスタマイズが必要な場合は、`.github/workflows/fetch-data.yml` の該当箇所を直接編集してください。
 
@@ -630,4 +630,7 @@ Issues や Pull Requests を歓迎します。大きな変更を行う場合は�
 ## 📧 連絡先
 
 問題や質問がある場合は、[GitHub Issues](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues) でお知らせください。
-````
+
+```
+
+```
