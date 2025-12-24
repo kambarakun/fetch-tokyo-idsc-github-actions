@@ -630,7 +630,3 @@ Issues や Pull Requests を歓迎します。大きな変更を行う場合は�
 ## 📧 連絡先
 
 問題や質問がある場合は、[GitHub Issues](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues) でお知らせください。
-
-```
-
-```
