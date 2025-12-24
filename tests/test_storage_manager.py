@@ -1531,18 +1531,18 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_is_all_zero_data_unicode_decode_error(self):
         """_is_all_zero_data()でUnicodeDecodeErrorが発生した場合の処理を確認"""
-        # Arrange: デコードに失敗するデータをモック
-        with patch.object(self.storage, "_is_all_zero_data") as mock_check:
-            # 実際の実装を呼び出すが、内部でUnicodeDecodeErrorを発生させる
-            def raise_unicode_error(data):
-                raise UnicodeDecodeError("shift_jis", b"", 0, 1, "invalid sequence")
+        # Arrange
+        invalid_data = b"test_data"
 
-            mock_check.side_effect = raise_unicode_error
+        # Act: storage_manager.py内のcsv.readerをモックしてUnicodeDecodeErrorを発生させる (lines 732-735)
+        with patch(
+            "src.managers.storage_manager.csv.reader",
+            side_effect=UnicodeDecodeError("shift_jis", b"", 0, 1, "invalid sequence"),
+        ):
+            result = self.storage._is_all_zero_data(invalid_data)
 
-            # Act & Assert: 例外がキャッチされて処理が継続される
-            # (実際の実装ではlogger.exceptionが呼ばれFalseを返す)
-            with self.assertRaises(UnicodeDecodeError):
-                self.storage._is_all_zero_data(b"test")
+        # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
+        self.assertFalse(result, "UnicodeDecodeError発生時はFalseを返すべき")
 
     def test_cleanup_old_files_basic(self):
         """cleanup_old_files()の基本動作を確認"""
