@@ -18,8 +18,8 @@ data/
 │   └── *.csv                     # 元データ（複雑な構造のまま）
 │
 ├── processed/                    # 処理済み（UTF-8、フラット配置）
-│   ├── .metadata/
-│   │   └── processing_log.json
+│   ├── .metadata/                # 処理済みファイルのメタデータ
+│   │   └── normalized_*.json     # 各ファイルの個別メタデータ
 │   │
 │   # 全数報告
 │   ├── notifiable_weekly_normalized_YYYY_WW.csv

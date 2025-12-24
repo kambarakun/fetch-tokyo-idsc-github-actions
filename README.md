@@ -253,33 +253,9 @@ sentinel_weekly_medical_district_2025_01.csv (不整合: 13件)
 
 ## 📊 データ構造とダウンロード内容
 
-### 📝 メタデータ管理 (v1.3.0)
+### 📁 データ構造
 
-本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
-
-### メタデータの2つの検証フィールド
-
-| フィールド       | 用途                 | 例                                          |
-| ---------------- | -------------------- | ------------------------------------------- |
-| **verification** | ファイル形式の検証   | CSVカラム数の不整合                         |
-| **quality**      | データ内容の品質検証 | 性別合計値の不整合 (male + female != total) |
-
-### verification (ファイル形式検証)
-
-- **目的**: ファイル自体の構造的な問題を検出
-- **検証項目**: ファイルサイズ、エンコーディング、CSV形式、パス安全性
-- **v1.3.0の改善**: 警告メッセージを統一形式化し、詳細情報を`details`フィールドに構造化
-  - 例: カラム数不整合の場合、`details.column_counts`に観測された全カラム数を記録
-
-### quality (データ品質検証)
-
-- **目的**: データ内容の品質問題を検出
-- **検証項目**: 性別データの合計値検証 (`male + female = total`)
-- **実装**: `src/validators/gender_sum_validator.py`
-
-詳細は [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130) を参照してください。
-
-### 収集データタイプ（9種類）
+#### 収集データタイプ（9種類）
 
 本システムは以下の9種類のデータを自動収集します：
 
@@ -295,32 +271,32 @@ sentinel_weekly_medical_district_2025_01.csv (不整合: 13件)
 | **sentinel_monthly_health_center**    | 定点     | 月次 | 保健所別         | 月別定点あたり患者報告数（保健所別）         |
 | **sentinel_monthly_medical_district** | 定点     | 月次 | 二次保健医療圏別 | 月別定点あたり患者報告数（二次保健医療圏別） |
 
-### データディレクトリ構造
+#### データディレクトリ構造
 
 ```text
 data/
-├── raw/                                        # 生データ（Shift_JIS エンコーディング）
-│   ├── .metadata/                             # メタデータ保存用
+├── raw/                                        # 生データ (Shift_JIS エンコーディング)
+│   ├── .metadata/                             # メタデータファイル保存用
 │   │   ├── hash_index.json                    # 重複チェック用ハッシュインデックス
 │   │   └── *.json                             # 各データファイルのメタデータ
 │   ├── sentinel_weekly_gender_2025_01.csv     # 2025年第1週の性別データ
 │   ├── sentinel_weekly_age_2025_01.csv        # 2025年第1週の年齢群データ
 │   ├── notifiable_weekly_2025_01.csv          # 2025年第1週の全数把握データ
 │   └── sentinel_monthly_age_2025_01.csv       # 2025年1月の月次年齢群データ
-├── processed/                                  # 処理済みデータ（UTF-8、性別分割済み）
-│   ├── .metadata/                             # 処理ログ
-│   │   └── processing_log.json                # 処理履歴
-│   ├── normalized_notifiable_weekly_2000_01.csv              # 全数報告（UTF-8、メタデータ除去）
-│   ├── normalized_sentinel_weekly_age_male_2000_01.csv       # 定点・年齢群・男性（UTF-8）
-│   ├── normalized_sentinel_weekly_age_female_2000_01.csv     # 定点・年齢群・女性（UTF-8）
-│   ├── normalized_sentinel_weekly_age_total_2000_01.csv      # 定点・年齢群・合計（UTF-8、元データの値を検証済み）
-│   ├── normalized_sentinel_weekly_medical_district_male_2000_01.csv   # 定点・医療圏・男性（UTF-8）
-│   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv # 定点・医療圏・女性（UTF-8）
-│   └── normalized_sentinel_weekly_gender_2000_01.csv         # 定点・性別（UTF-8、性別列形式のため分割なし）
+├── processed/                                  # 処理済みデータ (UTF-8、性別分割済み)
+│   ├── .metadata/                             # 処理済みファイルのメタデータ
+│   │   └── normalized_*.json                  # 各ファイルの個別メタデータ
+│   ├── normalized_notifiable_weekly_2000_01.csv              # 全数報告 (UTF-8、メタデータ除去)
+│   ├── normalized_sentinel_weekly_age_male_2000_01.csv       # 定点・年齢群・男性 (UTF-8)
+│   ├── normalized_sentinel_weekly_age_female_2000_01.csv     # 定点・年齢群・女性 (UTF-8)
+│   ├── normalized_sentinel_weekly_age_total_2000_01.csv      # 定点・年齢群・合計 (UTF-8、元データの値を検証済み)
+│   ├── normalized_sentinel_weekly_medical_district_male_2000_01.csv   # 定点・医療圏・男性 (UTF-8)
+│   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv # 定点・医療圏・女性 (UTF-8)
+│   └── normalized_sentinel_weekly_gender_2000_01.csv         # 定点・性別 (UTF-8、性別列形式のため分割なし)
 └── logs/                                       # ログファイル
 ```
 
-### ファイル命名規則
+#### ファイル命名規則
 
 **生データ（data/raw/）:**
 
@@ -335,39 +311,161 @@ data/
   - 例: `normalized_notifiable_weekly_2000_01.csv`
 - **定点監視（性別分割あり）**: `normalized_{data_type}_{gender}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_age_male_2000_01.csv`
-  - gender: `male` (男性), `female` (女性), `total` (男女合計、ただし`medical_district`は出力されない）
+  - **gender パラメータ**: `male` (男性)、`female` (女性)、`total` (男女合計。ただし `medical_district` は出力されない)
 - **定点監視（分割なし）**: `normalized_{data_type}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_gender_2000_01.csv`
 
+#### 📝 メタデータ管理 (v1.3.0)
+
+本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
+メタデータは `data/raw/.metadata/` ディレクトリ (メタデータファイル保存用) に保存されます。
+
+**v1.3.0の主な変更点:**
+
+- 警告メッセージを統一形式化 (例: `[csv_format] Inconsistent column count`)
+- 詳細情報を `verification.details` フィールドに構造化 (例: `details.column_counts`)
+- 検索性と集計性の向上
+
+> **💡 既存ユーザー向け注意**: v1.2.0以前のメタデータをv1.3.0に移行する場合は、`scripts/migrate_metadata.py`を使用してください。詳細は[CLAUDE.md](CLAUDE.md#83-メタデータスキーマ-v130)を参照。
+
+**主要フィールドの概要:**
+
+ここでは v1.3.0 の主要フィールドを示します。各フィールドの詳細な定義・仕様は以下を参照してください：
+
+- 完全なスキーマ定義: [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130)
+- 実装例: [`docs/data_structure_design.md`](docs/data_structure_design.md#メタデータ構造)
+
+**代表的なメタデータファイル:**
+
+- `data/raw/.metadata/hash_index.json`: 重複検出用のSHA256ハッシュインデックス
+- `data/raw/.metadata/sentinel_weekly_age_2025_01.json`: 各データファイルの個別メタデータ
+- `data/processed/.metadata/normalized_notifiable_weekly_2000_01.json`: 処理済みファイルの個別メタデータ
+
+##### v1.3.0 メタデータフィールド一覧
+
+**基本情報:**
+
+- `metadata_version`: スキーマバージョン (例: `1.3.0`)
+- `name` / `filename` / `path`: 識別子・ファイル名・相対パス
+- `profile`: プロファイル種別 (`tokyo-idsc-raw` / `tokyo-idsc-processed`)
+
+**データ特性:**
+
+- `data_type`: データタイプ (例: `sentinel_weekly_gender`)
+- `temporal`: 対象期間 (`year` / `week` or `month` / `period_type`)
+
+**ファイル属性:**
+
+- `bytes` / `lines`: ファイルサイズ・行数
+- `hash`: SHA256ハッシュ情報
+- `encoding`: 文字エンコーディング (Shift_JIS / UTF-8)
+- `created` / `modified`: 作成・更新日時 (ISO 8601形式)
+
+**検証・品質:**
+
+- `verification`: ファイル形式の検証結果 (CSV構造、エンコーディング等)
+- `quality`: データ内容の品質検証結果 (性別合計の一致等)
+
+**ソース・処理履歴:**
+
+- `sources`: データソース情報
+- `_fetch`: データ取得情報 (raw用: `source_url`、`fetch_timestamp` 等)
+- `_process`: データ処理情報 (processed用: `source_name`、`processing_timestamp` 等)
+
+##### メタデータの2つの検証フィールド
+
+| フィールド       | 用途                 | 例                                          |
+| ---------------- | -------------------- | ------------------------------------------- |
+| **verification** | ファイル形式の検証   | CSVカラム数の不整合                         |
+| **quality**      | データ内容の品質検証 | 性別合計値の不整合 (male + female != total) |
+
+##### verification (ファイル形式検証)
+
+- **目的**: ファイル自体の構造的な問題を検出
+- **検証項目**: ファイルサイズ、エンコーディング、CSV形式、パス安全性
+- **v1.3.0の改善**: 警告メッセージを統一形式化し、詳細情報を`details`フィールドに構造化
+  - 例: カラム数不整合の場合、`details.column_counts`に観測された全カラム数を記録
+
+##### quality (データ品質検証)
+
+- **目的**: データ内容の品質問題を検出
+- **検証項目**: 性別データの合計値検証 (`male + female = total`)
+- **実装**: `src/validators/gender_sum_validator.py`
+
+検証スキーマの詳細は [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130) を参照してください。
+
 ### 🔄 データ処理の詳細
 
-`data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理を施したファイルが格納されます：
+`data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理フローで変換したファイルが格納されます。
 
-**処理内容:**
+#### 処理フロー図
+
+```mermaid
+flowchart TD
+    Start[data/raw/<br/>生データ] --> Input[入力データ<br/>Shift_JIS<br/>メタデータ含む<br/>性別混在]
+    Input --> Step1[1. エンコーディング変換<br/>Shift_JIS → UTF-8]
+    Step1 --> Step2[2. メタデータ除去<br/>ヘッダー・注釈行を削除]
+    Step2 --> Step3{3. 性別分割<br/>必要?}
+
+    Step3 -->|Yes| Split[性別セクション分割<br/>male/female/total]
+    Step3 -->|No| NoSplit[分割なし]
+
+    Split --> Validate[4. 品質検証<br/>male + female = total]
+    NoSplit --> Output
+
+    Validate --> CheckResult{検証結果}
+    CheckResult -->|一致| Output[data/processed/<br/>UTF-8<br/>純粋データ<br/>性別分割済み]
+    CheckResult -->|不一致| RecordIssue[quality フィールドに記録]
+    RecordIssue --> Output
+
+    style Start fill:#f9f,stroke:#333,stroke-width:2px
+    style Input fill:#f9f,stroke:#333,stroke-width:2px
+    style Step1 fill:#ddf,stroke:#333,stroke-width:2px
+    style Step2 fill:#ddf,stroke:#333,stroke-width:2px
+    style Split fill:#ddf,stroke:#333,stroke-width:2px
+    style Validate fill:#bbf,stroke:#333,stroke-width:2px
+    style CheckResult fill:#ffd,stroke:#333,stroke-width:2px
+    style RecordIssue fill:#ffb,stroke:#333,stroke-width:2px
+    style Output fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+#### 処理ステップの詳細
+
+**入力（data/raw/）:**
+
+- Shift_JIS エンコーディング（東京都IDSCの元データ形式）
+- ヘッダー情報・注釈行を含む完全な生データ
+- 性別セクション（男性・女性・男女合計）が混在した単一ファイル
+
+**処理ステップ:**
 
 1. **エンコーディング変換**: Shift_JIS → UTF-8
-   - **raw/**: Shift_JIS エンコーディング（東京都IDSCの元データ形式を維持）
-   - **processed/**: UTF-8 エンコーディング（Python、R、Excel等の解析ツールで扱いやすい形式）
-2. **メタデータ除去**: ヘッダー情報（集計期間等）や注釈行（`*` で始まる行）を除去し、純粋なデータ部分のみを抽出
+   - Python、R、Excel等の解析ツールで扱いやすい形式に変換
+2. **メタデータ除去**: ヘッダー情報（集計期間等）や注釈行（`*` で始まる行）を除去
+   - 純粋なデータ部分（ヘッダー行 + データ行）のみを抽出
 3. **性別データ分割**: 性別セクション（男性・女性・男女合計）がある場合、最大3つのファイルに分割
-   - 例: `sentinel_weekly_age_2000_01.csv` → `normalized_sentinel_weekly_age_male_2000_01.csv`, `normalized_sentinel_weekly_age_female_2000_01.csv`, `normalized_sentinel_weekly_age_total_2000_01.csv`
-   - `medical_district`の場合: 元データにtotalセクションが含まれないため、male と female のみ出力
-4. **男女合計の検証**:
+   - 例: `sentinel_weekly_age_2000_01.csv` →
+     - `normalized_sentinel_weekly_age_male_2000_01.csv`
+     - `normalized_sentinel_weekly_age_female_2000_01.csv`
+     - `normalized_sentinel_weekly_age_total_2000_01.csv`
+   - **例外**: `medical_district`の場合、元データにtotalセクションが含まれないため、male と female のみ出力
+4. **データ品質検証**:
    - 元データにtotalセクションがある場合: male + female = total の一致を検証
-   - 生データを尊重し、totalの推定計算は行わない
+   - 不整合がある場合、メタデータの `quality` フィールドに記録
+   - **生データ至上主義**: totalの推定計算は行わず、元データをそのまま保存
 
-**ファイル形式:**
+**出力（data/processed/）:**
 
-- すべて UTF-8 エンコーディング
+- UTF-8 エンコーディング
 - CSV形式（ヘッダー行 + データ行）
 - メタデータ・注釈なし（純粋なデータのみ）
+- 性別ごとに分割されたファイル（該当する場合）
 
-**注意事項:**
+#### 重要な注意事項
 
 - **生データ至上主義**: 元データに存在しないデータは推定計算で生成しません
-- `sentinel_*_medical_district`: 元データにtotalセクションが含まれていないため、**totalファイルは出力されません**（male, female のみ）
-- 他のデータタイプ（`age`, `health_center` 等）: 元データのtotalを使用し、male + female との一致を検証
-- 検証時、定点数の列など加算が意味をなさない列は検証対象外です
+- **検証の範囲**: 定点数の列など加算が意味をなさない列は検証対象外です
+- **medical_districtの特殊性**: 元データにtotalセクションが含まれていないため、**totalファイルは出力されません**（male, female のみ）
 
 **年齢別データの注釈（2000年~現在、全期間共通）:**
 
