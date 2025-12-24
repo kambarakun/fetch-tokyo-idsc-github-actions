@@ -886,13 +886,13 @@ class TestStorageManager(unittest.TestCase):
         self.assertFalse(result, "負の値は0以外として検出されるべきです")
 
     def test_is_all_zero_data_with_invalid_bytes(self):
-        """不正なバイトシーケンスはerrors='replace'で置換され、空データとして扱われる"""
+        """不正なバイトシーケンスはUnicodeDecodeErrorを発生させ、安全側に倒してデータを保存する"""
         # 不正なShift_JISバイトシーケンス
-        # errors='replace'により置換文字に変換され、データ行がないためスキップ対象
+        # UnicodeDecodeErrorが発生し、安全側に倒してFalse (保存) を返す
         invalid_data = b"\xff\xfe\x00\x00"
 
         result = self.storage._is_all_zero_data(invalid_data)
-        self.assertTrue(result, "データ行がないためスキップ対象(True)になるべきです")
+        self.assertFalse(result, "デコードエラー時は安全側に倒してFalse (保存) を返すべき")
 
     def test_is_all_zero_data_with_malformed_csv(self):
         """不正なCSV形式でもエラーにならないことを確認"""
@@ -1533,15 +1533,12 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_is_all_zero_data_unicode_decode_error(self):
         """_is_all_zero_data()でUnicodeDecodeErrorが発生した場合の処理を確認"""
-        # Arrange
-        invalid_data = b"test_data"
+        # Arrange: Shift_JISとして無効なバイト列を使用
+        # 0xff, 0xfe はShift_JISで予約済みのため、デコード時にUnicodeDecodeErrorが発生
+        invalid_shift_jis_data = b"\xff\xfe\x00\x00Invalid Shift-JIS bytes"
 
-        # Act: storage_manager.py内のcsv.readerをモックしてUnicodeDecodeErrorを発生させる (lines 732-735)
-        with patch(
-            "src.managers.storage_manager.csv.reader",
-            side_effect=UnicodeDecodeError("shift_jis", b"", 0, 1, "invalid sequence"),
-        ):
-            result = self.storage._is_all_zero_data(invalid_data)
+        # Act: 実際に_is_all_zero_data()を呼び出してUnicodeDecodeErrorを発生させる (lines 732-735)
+        result = self.storage._is_all_zero_data(invalid_shift_jis_data)
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
         self.assertFalse(result, "UnicodeDecodeError発生時はFalseを返すべき")

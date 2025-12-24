@@ -705,7 +705,7 @@ class StorageManager:
         """
         try:
             # Shift_JISでデコードしてStringIOオブジェクトを作成
-            content = data.decode("shift_jis", errors="replace")
+            content = data.decode("shift_jis")
             csv_reader = csv.reader(io.StringIO(content))
 
             for row in csv_reader:
