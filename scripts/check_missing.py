@@ -22,7 +22,8 @@ PAT_MONTH = re.compile(r"(?P<base>.+?_monthly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<i
 
 def collect(data_dir: Path):
     """ファイルを収集して解析"""
-    weekly, monthly = defaultdict(set), defaultdict(set)
+    weekly: defaultdict[tuple[str, int], set[int]] = defaultdict(set)
+    monthly: defaultdict[tuple[str, int], set[int]] = defaultdict(set)
 
     for p in data_dir.rglob("*.csv"):
         m = PAT_WEEK.search(p.name)
@@ -72,10 +73,7 @@ def report(title, info):
 
 def main():
     """メイン処理"""
-    if len(sys.argv) != 2:
-        data_dir = Path("data/raw")  # デフォルトディレクトリ
-    else:
-        data_dir = Path(sys.argv[1])
+    data_dir = Path("data/raw") if len(sys.argv) != 2 else Path(sys.argv[1])
 
     data_dir = data_dir.expanduser().resolve()
 

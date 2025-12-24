@@ -167,7 +167,7 @@ class TestDataCollectorOptions(unittest.TestCase):
         ]
 
         with (
-            patch("sys.argv", ["fetch_data.py"] + test_args),
+            patch("sys.argv", ["fetch_data.py", *test_args]),
             patch("sys.exit") as mock_exit,
             patch("scripts.fetch_data.setup_logging") as mock_logging,
         ):
