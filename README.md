@@ -330,19 +330,34 @@ data/
 
 ##### v1.3.0 全体構造（概要）
 
-- **metadata_version**: メタデータのスキーマバージョン（例: `1.3.0`）
-- **name / filename / path**: 識別子・ファイル名・相対パス
-- **profile**: `tokyo-idsc-raw` / `tokyo-idsc-processed`
-- **data_type**: データタイプ（例: `sentinel_weekly_gender`）
-- **temporal**: 対象期間（年・週/月・period_type）
-- **bytes / lines**: ファイルサイズ・行数
-- **hash / encoding**: ハッシュ情報・文字エンコーディング
-- **created / modified**: 作成・更新日時
-- **sources**: データソース情報
-- **verification**: ファイル形式の検証結果
-- **quality**: データ内容の品質検証結果
-- **_fetch**: 取得情報（raw用: source_url 等）
-- **_process**: 処理情報（processed用: source_name 等）
+**基本情報:**
+
+- `metadata_version`: スキーマバージョン（例: `1.3.0`）
+- `name` / `filename` / `path`: 識別子・ファイル名・相対パス
+- `profile`: プロファイル種別（`tokyo-idsc-raw` / `tokyo-idsc-processed`）
+
+**データ特性:**
+
+- `data_type`: データタイプ（例: `sentinel_weekly_gender`）
+- `temporal`: 対象期間（`year` / `week` or `month` / `period_type`）
+
+**ファイル属性:**
+
+- `bytes` / `lines`: ファイルサイズ・行数
+- `hash`: SHA256ハッシュ情報
+- `encoding`: 文字エンコーディング（Shift_JIS / UTF-8）
+- `created` / `modified`: 作成・更新日時（ISO 8601形式）
+
+**検証・品質:**
+
+- `verification`: ファイル形式の検証結果（CSV構造、エンコーディング等）
+- `quality`: データ内容の品質検証結果（性別合計の一致等）
+
+**ソース・処理履歴:**
+
+- `sources`: データソース情報
+- `_fetch`: データ取得情報（raw用: `source_url`、`fetch_timestamp` 等）
+- `_process`: データ処理情報（processed用: `source_name`、`processing_timestamp` 等）
 
 ##### メタデータの2つの検証フィールド
 
@@ -368,39 +383,45 @@ data/
 
 ### 🔄 データ処理の詳細
 
-`data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理を施したファイルが格納されます：
+`data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理フローで変換したファイルが格納されます。
 
-**処理済みデータの前提:**
+#### 処理フロー
 
-- UTF-8 エンコーディング
-- メタデータ・注釈行を除去済み
-- 性別セクションは分割（最大3ファイル）
+**入力（data/raw/）:**
 
-**処理内容:**
+- Shift_JIS エンコーディング（東京都IDSCの元データ形式）
+- ヘッダー情報・注釈行を含む完全な生データ
+- 性別セクション（男性・女性・男女合計）が混在した単一ファイル
+
+**処理ステップ:**
 
 1. **エンコーディング変換**: Shift_JIS → UTF-8
-   - **raw/**: Shift_JIS エンコーディング（東京都IDSCの元データ形式を維持）
-   - **processed/**: UTF-8 エンコーディング（Python、R、Excel等の解析ツールで扱いやすい形式）
-2. **メタデータ除去**: ヘッダー情報（集計期間等）や注釈行（`*` で始まる行）を除去し、純粋なデータ部分のみを抽出
+   - Python、R、Excel等の解析ツールで扱いやすい形式に変換
+2. **メタデータ除去**: ヘッダー情報（集計期間等）や注釈行（`*` で始まる行）を除去
+   - 純粋なデータ部分（ヘッダー行 + データ行）のみを抽出
 3. **性別データ分割**: 性別セクション（男性・女性・男女合計）がある場合、最大3つのファイルに分割
-   - 例: `sentinel_weekly_age_2000_01.csv` → `normalized_sentinel_weekly_age_male_2000_01.csv`, `normalized_sentinel_weekly_age_female_2000_01.csv`, `normalized_sentinel_weekly_age_total_2000_01.csv`
-   - `medical_district`の場合: 元データにtotalセクションが含まれないため、male と female のみ出力
-4. **男女合計の検証**:
+   - 例: `sentinel_weekly_age_2000_01.csv` →
+     - `normalized_sentinel_weekly_age_male_2000_01.csv`
+     - `normalized_sentinel_weekly_age_female_2000_01.csv`
+     - `normalized_sentinel_weekly_age_total_2000_01.csv`
+   - **例外**: `medical_district`の場合、元データにtotalセクションが含まれないため、male と female のみ出力
+4. **データ品質検証**:
    - 元データにtotalセクションがある場合: male + female = total の一致を検証
-   - 生データを尊重し、totalの推定計算は行わない
+   - 不整合がある場合、メタデータの `quality` フィールドに記録
+   - **生データ至上主義**: totalの推定計算は行わず、元データをそのまま保存
 
-**ファイル形式:**
+**出力（data/processed/）:**
 
-- すべて UTF-8 エンコーディング
+- UTF-8 エンコーディング
 - CSV形式（ヘッダー行 + データ行）
 - メタデータ・注釈なし（純粋なデータのみ）
+- 性別ごとに分割されたファイル（該当する場合）
 
-**注意事項:**
+#### 重要な注意事項
 
 - **生データ至上主義**: 元データに存在しないデータは推定計算で生成しません
-- `sentinel_*_medical_district`: 元データにtotalセクションが含まれていないため、**totalファイルは出力されません**（male, female のみ）
-- 他のデータタイプ（`age`, `health_center` 等）: 元データのtotalを使用し、male + female との一致を検証
-- 検証時、定点数の列など加算が意味をなさない列は検証対象外です
+- **検証の範囲**: 定点数の列など加算が意味をなさない列は検証対象外です
+- **medical_districtの特殊性**: 元データにtotalセクションが含まれていないため、**totalファイルは出力されません**（male, female のみ）
 
 **年齢別データの注釈（2000年~現在、全期間共通）:**
 
