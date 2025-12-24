@@ -311,7 +311,7 @@ data/
   - 例: `normalized_notifiable_weekly_2000_01.csv`
 - **定点監視（性別分割あり）**: `normalized_{data_type}_{gender}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_age_male_2000_01.csv`
-  - gender: `male` (男性), `female` (女性), `total` (男女合計、ただし`medical_district`は出力されない）
+  - gender: `male` (男性), `female` (女性), `total` (男女合計、ただし `medical_district` は出力されない)
 - **定点監視（分割なし）**: `normalized_{data_type}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_gender_2000_01.csv`
 
