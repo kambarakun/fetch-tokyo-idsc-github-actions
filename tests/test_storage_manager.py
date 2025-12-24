@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -1509,6 +1510,7 @@ class TestErrorHandling(unittest.TestCase):
         """テストの前処理"""
         self.test_dir = tempfile.mkdtemp()
         self.base_path = Path(self.test_dir) / "data" / "raw"
+        self.base_path.mkdir(parents=True, exist_ok=True)
         self.config = {"auto_commit": False}
         self.storage = StorageManager(self.base_path, self.config)
         self.git_handler = GitHandler(auto_commit=False)
@@ -1547,8 +1549,6 @@ class TestErrorHandling(unittest.TestCase):
     def test_cleanup_old_files_basic(self):
         """cleanup_old_files()の基本動作を確認"""
         # Arrange: 古いファイルと新しいファイルを作成
-        from datetime import UTC, datetime, timedelta
-
         # 古いファイル (31日以上前)
         old_csv_data = """"テスト"
 "","疾病A"
