@@ -116,25 +116,18 @@ jobs:
       - name: Install linting tools
         run: uv sync --all-extras
 
-      - name: Run flake8
+      - name: Run Ruff linter
         run: |
-          # E501: line too long (設定ファイルで調整可能)
-          # W503: line break before binary operator (PEP8で許可)
-          uv run flake8 src/ scripts/ tests/ \
-            --exclude=__pycache__,.git,build,dist \
-            --max-line-length=120 \
-            --ignore=E501,W503 \
-            --statistics \
-            --count || true
+          uv run ruff check src/ scripts/ tests/
 
       - name: Check black formatting
         run: |
-          uv run black --check --diff src/ scripts/ tests/ --line-length=120 || true
+          uv run black --check --diff src/ scripts/ tests/ --line-length=120
 
       - name: Check import sorting
         run: |
-          uv run isort --check-only --diff src/ scripts/ tests/ || true
+          uv run isort --check-only --diff src/ scripts/ tests/
 
       - name: Run mypy type checking
         run: |
-          uv run mypy src/ scripts/ --ignore-missing-imports --no-strict-optional || true
+          uv run mypy src/ scripts/ --ignore-missing-imports --no-strict-optional

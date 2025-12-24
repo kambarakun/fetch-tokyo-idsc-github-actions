@@ -56,12 +56,14 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         """エラーがある場合のMarkdownレポート生成"""
         validator = DataValidator()
         # 手動で結果を追加してテスト
-        validator.validation_results.append({
-            "file": "/test/file.csv",
-            "valid": False,
-            "errors": ["File not found"],
-            "warnings": [],
-        })
+        validator.validation_results.append(
+            {
+                "file": "/test/file.csv",
+                "valid": False,
+                "errors": ["File not found"],
+                "warnings": [],
+            }
+        )
         validator.has_errors = True
         report = validator.generate_markdown_report()
 
@@ -73,12 +75,14 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
     def test_generate_markdown_report_with_warnings(self):
         """警告がある場合のMarkdownレポート生成"""
         validator = DataValidator()
-        validator.validation_results.append({
-            "file": "/test/file.csv",
-            "valid": True,
-            "errors": [],
-            "warnings": ["Inconsistent column count"],
-        })
+        validator.validation_results.append(
+            {
+                "file": "/test/file.csv",
+                "valid": True,
+                "errors": [],
+                "warnings": ["Inconsistent column count"],
+            }
+        )
         validator.has_warnings = True
         report = validator.generate_markdown_report()
 
@@ -113,12 +117,14 @@ class TestMarkdownEscaping(unittest.TestCase):
     def test_markdown_report_with_special_chars_in_error(self):
         """エラーメッセージに特殊文字が含まれる場合"""
         validator = DataValidator()
-        validator.validation_results.append({
-            "file": "/test/file|special.csv",
-            "valid": False,
-            "errors": ["Error with | pipe and ` backtick"],
-            "warnings": [],
-        })
+        validator.validation_results.append(
+            {
+                "file": "/test/file|special.csv",
+                "valid": False,
+                "errors": ["Error with | pipe and ` backtick"],
+                "warnings": [],
+            }
+        )
         validator.has_errors = True
         report = validator.generate_markdown_report()
 
@@ -183,10 +189,7 @@ class TestDataValidatorFormatOption(unittest.TestCase):
         )
 
         # 出力ファイルが作成されることを確認
-        self.assertTrue(
-            output_file.exists(),
-            "JSON出力ファイルが作成されるべき"
-        )
+        self.assertTrue(output_file.exists(), "JSON出力ファイルが作成されるべき")
 
         # JSONとして読み込めることを確認
         with output_file.open() as f:
@@ -226,10 +229,7 @@ class TestDataValidatorFormatOption(unittest.TestCase):
         )
 
         # 出力ファイルが作成されることを確認
-        self.assertTrue(
-            output_file.exists(),
-            "Markdown出力ファイルが作成されるべき"
-        )
+        self.assertTrue(output_file.exists(), "Markdown出力ファイルが作成されるべき")
 
         # Markdownの内容を確認
         content = output_file.read_text()
