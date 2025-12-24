@@ -284,8 +284,8 @@ data/
 │   ├── notifiable_weekly_2025_01.csv          # 2025年第1週の全数把握データ
 │   └── sentinel_monthly_age_2025_01.csv       # 2025年1月の月次年齢群データ
 ├── processed/                                  # 処理済みデータ (UTF-8、性別分割済み)
-│   ├── .metadata/                             # メタデータファイル (処理ログ)
-│   │   └── processing_log.json                # 処理履歴
+│   ├── .metadata/                             # 処理済みファイルのメタデータ
+│   │   └── normalized_*.json                  # 各ファイルの個別メタデータ
 │   ├── normalized_notifiable_weekly_2000_01.csv              # 全数報告 (UTF-8、メタデータ除去)
 │   ├── normalized_sentinel_weekly_age_male_2000_01.csv       # 定点・年齢群・男性 (UTF-8)
 │   ├── normalized_sentinel_weekly_age_female_2000_01.csv     # 定点・年齢群・女性 (UTF-8)
@@ -338,7 +338,8 @@ data/
 **代表的なメタデータファイル:**
 
 - `data/raw/.metadata/hash_index.json`: 重複検出用のSHA256ハッシュインデックス
-- `data/processed/.metadata/processing_log.json`: UTF-8変換や正規化の処理履歴
+- `data/raw/.metadata/sentinel_weekly_age_2025_01.json`: 各データファイルの個別メタデータ
+- `data/processed/.metadata/normalized_notifiable_weekly_2000_01.json`: 処理済みファイルの個別メタデータ
 
 ##### v1.3.0 メタデータフィールド一覧
 
