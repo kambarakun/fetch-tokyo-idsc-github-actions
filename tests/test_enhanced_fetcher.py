@@ -2,13 +2,14 @@
 拡張フェッチャーのユニットテスト
 """
 
-import asyncio
 import hashlib
 import sys
 import unittest
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
+
+from requests.exceptions import ConnectionError
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -23,7 +24,7 @@ from src.fetchers.enhanced_fetcher import (
 )
 
 
-class TestRetryHandler(unittest.TestCase):
+class TestRetryHandler(unittest.IsolatedAsyncioTestCase):
     """RetryHandlerのテスト"""
 
     def setUp(self):
@@ -49,70 +50,70 @@ class TestRetryHandler(unittest.TestCase):
         self.assertGreaterEqual(delay, 2.0)
         self.assertLessEqual(delay, 2.5)
 
-    @patch("asyncio.sleep")
-    async def test_execute_with_retry_success(self, mock_sleep):
+    async def test_execute_with_retry_success(self):
         """成功時のリトライ処理テスト"""
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
-        async def success_func():
-            return "success"
+            async def success_func():
+                return "success"
 
-        result = await self.handler.execute_with_retry(success_func)
-        self.assertEqual(result, "success")
-        mock_sleep.assert_not_called()
+            result = await self.handler.execute_with_retry(success_func)
+            self.assertEqual(result, "success")
+            mock_sleep.assert_not_called()
 
-    @patch("asyncio.sleep")
-    async def test_execute_with_retry_eventual_success(self, mock_sleep):
+    async def test_execute_with_retry_eventual_success(self):
         """最終的に成功するリトライ処理のテスト"""
-        call_count = 0
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            call_count = 0
 
-        async def eventual_success_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise ConnectionError("Connection failed")
-            return "success"
+            async def eventual_success_func():
+                nonlocal call_count
+                call_count += 1
+                if call_count < 3:
+                    raise ConnectionError("Connection failed")
+                return "success"
 
-        result = await self.handler.execute_with_retry(eventual_success_func)
-        self.assertEqual(result, "success")
-        self.assertEqual(mock_sleep.call_count, 2)
+            result = await self.handler.execute_with_retry(eventual_success_func)
+            self.assertEqual(result, "success")
+            self.assertEqual(mock_sleep.call_count, 2)
 
-    @patch("asyncio.sleep")
-    async def test_execute_with_retry_max_exceeded(self, mock_sleep):
+    async def test_execute_with_retry_max_exceeded(self):
         """最大リトライ回数超過のテスト"""
+        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
 
-        async def always_fail_func():
-            raise ConnectionError("Always fails")
+            async def always_fail_func():
+                raise ConnectionError("Always fails")
 
-        with self.assertRaises(ConnectionError):
-            await self.handler.execute_with_retry(always_fail_func)
+            with self.assertRaises(ConnectionError):
+                await self.handler.execute_with_retry(always_fail_func)
 
-        self.assertEqual(mock_sleep.call_count, 3)
+            self.assertEqual(mock_sleep.call_count, 3)
 
 
-class TestRateLimiter(unittest.TestCase):
+class TestRateLimiter(unittest.IsolatedAsyncioTestCase):
     """RateLimiterのテスト"""
 
-    @patch("time.time")
-    @patch("asyncio.sleep")
-    async def test_rate_limiting(self, mock_sleep, mock_time):
+    async def test_rate_limiting(self):
         """レート制限のテスト"""
-        # 時刻をモック
-        mock_time.side_effect = [0, 0.5, 1.5]
+        with patch("time.time") as mock_time, patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            # 時刻をモック
+            mock_time.side_effect = [0, 0, 0.5, 0.5, 1.5, 1.5]
 
-        limiter = RateLimiter(min_delay=1.0)
+            limiter = RateLimiter(min_delay=1.0)
 
-        # 最初のリクエスト
-        await limiter.wait_if_needed()
-        mock_sleep.assert_not_called()
+            # 最初のリクエスト
+            await limiter.wait_if_needed()
+            mock_sleep.assert_called_once_with(1.0)  # last_request_time=0なので待機
 
-        # 2回目のリクエスト(0.5秒後)
-        await limiter.wait_if_needed()
-        mock_sleep.assert_called_once_with(0.5)
+            # 2回目のリクエスト(0.5秒後)
+            mock_sleep.reset_mock()
+            await limiter.wait_if_needed()
+            mock_sleep.assert_called_once_with(0.5)
 
-        # 3回目のリクエスト(1.5秒後)
-        mock_sleep.reset_mock()
-        await limiter.wait_if_needed()
-        mock_sleep.assert_not_called()
+            # 3回目のリクエスト(1.5秒後)
+            mock_sleep.reset_mock()
+            await limiter.wait_if_needed()
+            mock_sleep.assert_not_called()
 
 
 class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
@@ -351,26 +352,4 @@ class TestFileMetadata(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    # 非同期テストのサポート
-    def async_test(coro):
-        def wrapper(*args, **kwargs):
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(coro(*args, **kwargs))
-            finally:
-                loop.close()
-
-        return wrapper
-
-    # 非同期テストメソッドをラップ
-    for attr_name in dir(TestRetryHandler):
-        attr = getattr(TestRetryHandler, attr_name)
-        if callable(attr) and attr_name.startswith("test_") and asyncio.iscoroutinefunction(attr):
-            setattr(TestRetryHandler, attr_name, async_test(attr))
-
-    for attr_name in dir(TestRateLimiter):
-        attr = getattr(TestRateLimiter, attr_name)
-        if callable(attr) and attr_name.startswith("test_") and asyncio.iscoroutinefunction(attr):
-            setattr(TestRateLimiter, attr_name, async_test(attr))
-
     unittest.main()
