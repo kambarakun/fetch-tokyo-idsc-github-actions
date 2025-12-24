@@ -276,7 +276,7 @@ sentinel_weekly_medical_district_2025_01.csv (不整合: 13件)
 ```text
 data/
 ├── raw/                                        # 生データ（Shift_JIS エンコーディング）
-│   ├── .metadata/                             # メタデータ保存用
+│   ├── .metadata/                             # メタデータファイル保存用
 │   │   ├── hash_index.json                    # 重複チェック用ハッシュインデックス
 │   │   └── *.json                             # 各データファイルのメタデータ
 │   ├── sentinel_weekly_gender_2025_01.csv     # 2025年第1週の性別データ
@@ -284,7 +284,7 @@ data/
 │   ├── notifiable_weekly_2025_01.csv          # 2025年第1週の全数把握データ
 │   └── sentinel_monthly_age_2025_01.csv       # 2025年1月の月次年齢群データ
 ├── processed/                                  # 処理済みデータ（UTF-8、性別分割済み）
-│   ├── .metadata/                             # 処理ログ
+│   ├── .metadata/                             # メタデータファイル（処理ログ）
 │   │   └── processing_log.json                # 処理履歴
 │   ├── normalized_notifiable_weekly_2000_01.csv              # 全数報告（UTF-8、メタデータ除去）
 │   ├── normalized_sentinel_weekly_age_male_2000_01.csv       # 定点・年齢群・男性（UTF-8）
@@ -318,15 +318,18 @@ data/
 #### 📝 メタデータ管理 (v1.3.0)
 
 本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
-メタデータは `data/raw/.metadata/` に保存されます。
-ここでは v1.3.0 の全体構造（概要）と代表的な検証項目を示します。全フィールドの定義は後述のスキーマを参照してください。
+メタデータは `data/raw/.metadata/` ディレクトリ（メタデータファイル保存用）に保存されます。
+
+ここでは v1.3.0 の**主要フィールド一覧（概要）**を示します。
+各フィールドの詳細な定義・仕様は以下を参照してください：
+
+- 完全なスキーマ定義: [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130)
+- 実装例: [`docs/data_structure_design.md`](docs/data_structure_design.md#メタデータ構造)
 
 **代表的なメタデータファイル:**
 
 - `data/raw/.metadata/hash_index.json`: 重複検出用のSHA256ハッシュインデックス
 - `data/processed/.metadata/processing_log.json`: UTF-8変換や正規化の処理履歴
-
-メタデータ構造の詳細は [`docs/data_structure_design.md`](docs/data_structure_design.md#メタデータ構造) を参照してください。
 
 ##### v1.3.0 全体構造（概要）
 
