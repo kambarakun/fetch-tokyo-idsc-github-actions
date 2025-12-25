@@ -1529,7 +1529,7 @@ class TestErrorHandling(unittest.TestCase):
         # Act
         result = self.git_handler.is_git_repo()
 
-        # Assert: 例外をキャッチしてFalseを返す (lines 120-121)
+        # Assert: 例外をキャッチしてFalseを返す
         self.assertFalse(result)
 
     def test_is_all_zero_data_unicode_decode_error(self):
@@ -1538,7 +1538,7 @@ class TestErrorHandling(unittest.TestCase):
         # 0xff, 0xfe はShift_JISで予約済みのため、デコード時にUnicodeDecodeErrorが発生
         invalid_shift_jis_data = b"\xff\xfe\x00\x00Invalid Shift-JIS bytes"
 
-        # Act: 実際に_is_all_zero_data()を呼び出してUnicodeDecodeErrorを発生させる (lines 732-737)
+        # Act: 実際に_is_all_zero_data()を呼び出してUnicodeDecodeErrorを発生させる
         result = self.storage._is_all_zero_data(invalid_shift_jis_data)
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
@@ -1552,7 +1552,7 @@ class TestErrorHandling(unittest.TestCase):
 
         # csv.readerがcsv.Errorを発生させるようにモック
         with patch("src.managers.storage_manager.csv.reader", side_effect=csv.Error("Test CSV error")):
-            # Act: _is_all_zero_data()を呼び出してcsv.Errorを発生させる (lines 739-741)
+            # Act: _is_all_zero_data()を呼び出してcsv.Errorを発生させる
             result = self.storage._is_all_zero_data(csv_data)
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
@@ -1567,7 +1567,7 @@ class TestErrorHandling(unittest.TestCase):
         with patch.object(
             self.storage, "_is_skippable_row", side_effect=RuntimeError("Unexpected error in processing")
         ):
-            # Act: _is_all_zero_data()を呼び出して予期しない例外を発生させる (lines 742-748)
+            # Act: _is_all_zero_data()を呼び出して予期しない例外を発生させる
             result = self.storage._is_all_zero_data(valid_csv_data)
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
@@ -1619,7 +1619,7 @@ class TestErrorHandling(unittest.TestCase):
         # Act: 30日より古いファイルを削除
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
-        # Assert: 古いファイルが削除され、新しいファイルは残る (lines 1408-1441)
+        # Assert: 古いファイルが削除され、新しいファイルは残る
         self.assertEqual(deleted_count, 1)
         self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
         self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
@@ -1660,7 +1660,7 @@ class TestErrorHandling(unittest.TestCase):
         with metadata_path.open("w", encoding="utf-8") as f:
             f.write('{"timestamp": "invalid-date-format"}')
 
-        # Act: 例外が発生してもプロセスが継続される (lines 1437-1438)
+        # Act: 例外が発生してもプロセスが継続される
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
         # Assert: 例外がキャッチされ、プロセスは正常終了
@@ -1701,7 +1701,7 @@ class TestErrorHandling(unittest.TestCase):
         # Act: 30日より古いファイルを削除
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
-        # Assert: 古いファイルが削除される (lines 1411-1441)
+        # Assert: 古いファイルが削除される
         self.assertEqual(deleted_count, 1)
         self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
         self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
@@ -1732,7 +1732,7 @@ class TestErrorHandling(unittest.TestCase):
         # Act: cleanup_old_files を実行
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
-        # Assert: created_at がないためスキップされる (lines 1418-1423)
+        # Assert: created_at がないためスキップされる
         self.assertEqual(deleted_count, 0)
         self.assertTrue(result.file_path.exists(), "created_at がないファイルはスキップされるべき")
 
