@@ -62,10 +62,14 @@ def check_comment_alignment(tree_lines: list[str], start_line: int, filename: st
 
     for i, line in enumerate(tree_lines, start=start_line):
         # コメント記号 # の位置を検出
-        match = re.search(r"\s#\s", line)
+        # tree構造内のコメントのみを対象(2つ以上のスペース + # + スペース)
+        # これにより、URLのアンカー (#anchor) や見出し (###) を誤検出しない
+        match = re.search(r"\s{2,}#\s", line)
         if match:
             # # の位置 (0始まりのインデックス)
-            pos = match.start() + 1  # スペースの次の # の位置
+            # match.start()はスペース列の開始位置なので、
+            # 最後のスペースの次(#の位置)を計算
+            pos = match.end() - 2  # "  # " の # の位置
             comment_positions.append((i, pos, line))
 
     if not comment_positions:
@@ -106,7 +110,7 @@ def check_file(filepath: Path) -> bool:
     try:
         content = filepath.read_text(encoding="utf-8")
     except UnicodeDecodeError:
-        print(f"警告: {filepath} を読み込めませんでした（エンコーディングエラー）")
+        print(f"警告: {filepath} を読み込めませんでした(エンコーディングエラー)")
         return True
 
     tree_blocks = extract_tree_blocks(content, str(filepath))
