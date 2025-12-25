@@ -1413,7 +1413,15 @@ class StorageManager:
 
             if metadata:
                 try:
-                    file_date = datetime.fromisoformat(metadata["timestamp"])
+                    # 正規化済みメタデータから created_at を取得
+                    created_at = metadata.get("created_at")
+                    if not created_at:
+                        logger.error(
+                            f"Invalid metadata for {file_path}: missing created_at field. " "Skipping cleanup."
+                        )
+                        continue
+
+                    file_date = datetime.fromisoformat(created_at)
                     if file_date < cutoff_date:
                         file_path.unlink()
 
