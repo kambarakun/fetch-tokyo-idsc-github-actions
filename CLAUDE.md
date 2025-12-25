@@ -429,12 +429,26 @@ dev = [
    - テスト間の依存関係を排除
    - setUp/tearDownで状態を管理
 
-4. **テスト名は仕様書**
+4. **テスト名の命名規則**
+
+   **このプロジェクトでは英語のスネークケース命名規則を使用します。**
+
    ```python
-   def test_重複データは保存されない(self):
-   def test_エラー時は最大3回リトライする(self):
-   def test_レート制限に達したら待機する(self):
+   # ✅ 正しい例(英語スネークケース)
+   def test_duplicate_data_is_not_saved(self):
+   def test_retry_three_times_on_error(self):
+   def test_wait_when_rate_limit_reached(self):
+
+   # ❌ このプロジェクトでは使用しない(日本語命名)
+   # def test_重複データは保存されない(self):
+   # def test_エラー時は最大3回リトライする(self):
    ```
+
+   理由:
+
+   - プロジェクト全体で一貫した英語のスネークケースを使用
+   - Python標準のPEP 8スタイルガイドに準拠
+   - CI/CDツールやIDEとの互換性を保証
 
 ### 3.2 テストの実行方法
 
