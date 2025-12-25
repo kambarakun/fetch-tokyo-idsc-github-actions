@@ -731,15 +731,20 @@ class StorageManager:
 
         except UnicodeDecodeError:
             # Shift_JISデコードエラー - 安全側に倒して保存する
-            logger.exception("Failed to decode CSV data as Shift_JIS")
+            logger.exception(
+                "Failed to decode CSV data as Shift_JIS. " "Saving data as-is for safety (fail-safe behavior)."
+            )
             return False
         except csv.Error:
             # CSV解析エラー - 安全側に倒して保存する
-            logger.exception("Failed to parse CSV data")
+            logger.exception("Failed to parse CSV data. " "Saving data as-is for safety (fail-safe behavior).")
             return False
         except Exception:
             # その他の予期しないエラー - 安全側に倒して保存する
-            logger.exception("Unexpected error while checking for all-zero data")
+            logger.exception(
+                "Unexpected error while checking for all-zero data. "
+                "Saving data as-is for safety (fail-safe behavior)."
+            )
             return False
 
     def _count_lines(self, data: bytes) -> int | None:
