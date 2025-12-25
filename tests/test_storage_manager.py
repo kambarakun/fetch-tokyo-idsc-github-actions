@@ -2,6 +2,7 @@
 ストレージ管理のユニットテスト
 """
 
+import csv
 import hashlib
 import json
 import shutil
@@ -1537,11 +1538,40 @@ class TestErrorHandling(unittest.TestCase):
         # 0xff, 0xfe はShift_JISで予約済みのため、デコード時にUnicodeDecodeErrorが発生
         invalid_shift_jis_data = b"\xff\xfe\x00\x00Invalid Shift-JIS bytes"
 
-        # Act: 実際に_is_all_zero_data()を呼び出してUnicodeDecodeErrorを発生させる (lines 732-735)
+        # Act: 実際に_is_all_zero_data()を呼び出してUnicodeDecodeErrorを発生させる (lines 732-737)
         result = self.storage._is_all_zero_data(invalid_shift_jis_data)
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
         self.assertFalse(result, "UnicodeDecodeError発生時はFalseを返すべき")
+
+    def test_is_all_zero_data_csv_error(self):
+        """_is_all_zero_data()でcsv.Errorが発生した場合の処理を確認"""
+        # Arrange: CSV形式として不正なデータを用意
+        # 引用符が閉じていないCSVデータ (csv.Errorを発生させる)
+        malformed_csv_data = '"unclosed quote\n'.encode("shift_jis")
+
+        # csv.readerがエラーを発生させるようにモック
+        with patch("csv.reader", side_effect=csv.Error("Test CSV error")):
+            # Act: _is_all_zero_data()を呼び出してcsv.Errorを発生させる (lines 739-741)
+            result = self.storage._is_all_zero_data(malformed_csv_data)
+
+        # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
+        self.assertFalse(result, "csv.Error発生時はFalseを返すべき")
+
+    def test_is_all_zero_data_unexpected_exception(self):
+        """_is_all_zero_data()で予期しない例外が発生した場合の処理を確認"""
+        # Arrange: 予期しない例外を発生させるためにモックを使用
+        valid_csv_data = "col1,col2\n1,2\n".encode("shift_jis")
+
+        # _is_skippable_rowが予期しない例外を発生させるようにモック
+        with patch.object(
+            self.storage, "_is_skippable_row", side_effect=RuntimeError("Unexpected error in processing")
+        ):
+            # Act: _is_all_zero_data()を呼び出して予期しない例外を発生させる (lines 742-748)
+            result = self.storage._is_all_zero_data(valid_csv_data)
+
+        # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
+        self.assertFalse(result, "予期しない例外発生時はFalseを返すべき")
 
     def test_cleanup_old_files_basic(self):
         """cleanup_old_files()の基本動作を確認"""
