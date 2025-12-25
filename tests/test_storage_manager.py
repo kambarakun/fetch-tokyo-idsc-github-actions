@@ -1619,7 +1619,7 @@ class TestErrorHandling(unittest.TestCase):
         # Act: 30日より古いファイルを削除
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
-        # Assert: 古いファイルが削除され、新しいファイルは残る (lines 1403-1427)
+        # Assert: 古いファイルが削除され、新しいファイルは残る (lines 1408-1441)
         self.assertEqual(deleted_count, 1)
         self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
         self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
@@ -1660,7 +1660,7 @@ class TestErrorHandling(unittest.TestCase):
         with metadata_path.open("w", encoding="utf-8") as f:
             f.write('{"timestamp": "invalid-date-format"}')
 
-        # Act: 例外が発生してもプロセスが継続される (lines 1423-1424)
+        # Act: 例外が発生してもプロセスが継続される (lines 1437-1438)
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
         # Assert: 例外がキャッチされ、プロセスは正常終了
@@ -1701,7 +1701,7 @@ class TestErrorHandling(unittest.TestCase):
         # Act: 30日より古いファイルを削除
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
-        # Assert: 古いファイルが削除される (lines 1411-1435)
+        # Assert: 古いファイルが削除される (lines 1411-1441)
         self.assertEqual(deleted_count, 1)
         self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
         self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
@@ -1732,7 +1732,7 @@ class TestErrorHandling(unittest.TestCase):
         # Act: cleanup_old_files を実行
         deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
 
-        # Assert: created_at がないためスキップされる (lines 1417-1422)
+        # Assert: created_at がないためスキップされる (lines 1418-1423)
         self.assertEqual(deleted_count, 0)
         self.assertTrue(result.file_path.exists(), "created_at がないファイルはスキップされるべき")
 

@@ -1416,7 +1416,9 @@ class StorageManager:
                     # 正規化済みメタデータから created_at を取得
                     created_at = metadata.get("created_at")
                     if not created_at:
-                        logger.warning(f"Skipping {file_path}: no created_at field in metadata")
+                        logger.error(
+                            f"Invalid metadata for {file_path}: missing created_at field. " f"Skipping cleanup."
+                        )
                         continue
 
                     file_date = datetime.fromisoformat(created_at)
