@@ -21,7 +21,7 @@ class TestFixFullwidthSymbols:
     def test_fix_fullwidth_parentheses(self, tmp_path):
         """全角括弧を半角に変換"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("# テスト関数(全角括弧)\n", encoding="utf-8")
+        test_file.write_text("# テスト関数\uff08全角括弧\uff09\n", encoding="utf-8")
 
         result = fix_fullwidth_symbols(test_file)
         assert result is True
@@ -29,37 +29,37 @@ class TestFixFullwidthSymbols:
         content = test_file.read_text(encoding="utf-8")
         assert "(" in content
         assert ")" in content
-        assert "(" not in content
-        assert ")" not in content
+        assert "\uff08" not in content
+        assert "\uff09" not in content
 
     def test_fix_fullwidth_colon(self, tmp_path):
         """全角コロンを半角に変換"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("説明:これは全角コロンです\n", encoding="utf-8")
+        test_file.write_text("説明\uff1aこれは全角コロンです\n", encoding="utf-8")
 
         result = fix_fullwidth_symbols(test_file)
         assert result is True
 
         content = test_file.read_text(encoding="utf-8")
         assert ":" in content
-        assert ":" not in content
+        assert "\uff1a" not in content
 
     def test_fix_fullwidth_tilde(self, tmp_path):
         """全角チルダを半角に変換"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("範囲~100まで\n", encoding="utf-8")
+        test_file.write_text("範囲\uff5e100まで\n", encoding="utf-8")
 
         result = fix_fullwidth_symbols(test_file)
         assert result is True
 
         content = test_file.read_text(encoding="utf-8")
         assert "~" in content
-        assert "~" not in content
+        assert "\uff5e" not in content
 
     def test_fix_multiple_symbols(self, tmp_path):
         """複数の全角記号を一度に変換"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("def test():  # テスト関数(全角)~範囲\n", encoding="utf-8")
+        test_file.write_text("def test\uff08\uff09\uff1a  # テスト関数\uff08全角\uff09\uff5e範囲\n", encoding="utf-8")
 
         result = fix_fullwidth_symbols(test_file)
         assert result is True
@@ -69,10 +69,10 @@ class TestFixFullwidthSymbols:
         assert "(" in content
         assert ")" in content
         assert "~" in content
-        assert ":" not in content
-        assert "(" not in content
-        assert ")" not in content
-        assert "~" not in content
+        assert "\uff1a" not in content
+        assert "\uff08" not in content
+        assert "\uff09" not in content
+        assert "\uff5e" not in content
 
     def test_no_fullwidth_symbols(self, tmp_path):
         """全角記号がない場合は変更なし"""
@@ -89,7 +89,7 @@ class TestFixFullwidthSymbols:
     def test_preserve_utf8_encoding(self, tmp_path):
         """UTF-8エンコーディングを維持"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("# 日本語コメント(テスト)🎉\n", encoding="utf-8")
+        test_file.write_text("# 日本語コメント\uff08テスト\uff09🎉\n", encoding="utf-8")
 
         fix_fullwidth_symbols(test_file)
 
@@ -101,7 +101,7 @@ class TestFixFullwidthSymbols:
     def test_idempotency(self, tmp_path):
         """複数回実行しても結果が変わらない"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("# テスト(全角)\n", encoding="utf-8")
+        test_file.write_text("# テスト\uff08全角\uff09\n", encoding="utf-8")
 
         # 1回目の実行
         result1 = fix_fullwidth_symbols(test_file)
@@ -130,7 +130,7 @@ class TestFixFullwidthSymbols:
     def test_markdown_file(self, tmp_path):
         """Markdownファイルも処理"""
         test_file = tmp_path / "README.md"
-        test_file.write_text("# タイトル\n\n説明(全角括弧)\n", encoding="utf-8")
+        test_file.write_text("# タイトル\n\n説明\uff08全角括弧\uff09\n", encoding="utf-8")
 
         result = fix_fullwidth_symbols(test_file)
         assert result is True
@@ -142,8 +142,8 @@ class TestFixFullwidthSymbols:
         """複数行の構造を保持"""
         test_file = tmp_path / "test.py"
         original_lines = [
-            "def test():\n",
-            "    # コメント(全角)\n",
+            "def test\uff08\uff09\uff1a\n",
+            "    # コメント\uff08全角\uff09\n",
             "    pass\n",
         ]
         test_file.write_text("".join(original_lines), encoding="utf-8")
@@ -172,7 +172,7 @@ class TestMain:
     def test_main_with_valid_file(self, tmp_path, capsys):
         """修正が必要なファイルで成功"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("# テスト(全角)\n", encoding="utf-8")
+        test_file.write_text("# テスト\uff08全角\uff09\n", encoding="utf-8")
 
         with patch("sys.argv", ["fix_fullwidth_symbols.py", str(test_file)]):
             result = main()
@@ -208,8 +208,8 @@ class TestMain:
         file1 = tmp_path / "test1.py"
         file2 = tmp_path / "test2.md"
 
-        file1.write_text("# テスト(全角)\n", encoding="utf-8")
-        file2.write_text("# Markdown(全角)\n", encoding="utf-8")
+        file1.write_text("# テスト\uff08全角\uff09\n", encoding="utf-8")
+        file2.write_text("# Markdown\uff08全角\uff09\n", encoding="utf-8")
 
         with patch("sys.argv", ["fix_fullwidth_symbols.py", str(file1), str(file2)]):
             result = main()
@@ -221,7 +221,7 @@ class TestMain:
     def test_main_skips_non_target_files(self, tmp_path):
         """Python・Markdown以外のファイルはスキップ"""
         test_file = tmp_path / "test.txt"
-        test_file.write_text("テスト(全角)\n", encoding="utf-8")
+        test_file.write_text("テスト\uff08全角\uff09\n", encoding="utf-8")
 
         with patch("sys.argv", ["fix_fullwidth_symbols.py", str(test_file)]):
             result = main()
@@ -229,7 +229,7 @@ class TestMain:
 
         # ファイルは変更されていない
         content = test_file.read_text(encoding="utf-8")
-        assert "(" in content  # 全角のまま
+        assert "\uff08" in content  # 全角のまま
 
 
 class TestFullwidthToHalfwidthMap:
@@ -269,7 +269,7 @@ class TestEdgeCases:
         """大きなファイルを処理"""
         test_file = tmp_path / "large.py"
         # 1000行のファイル
-        lines = ["# テスト(全角)\n"] * 1000
+        lines = ["# テスト\uff08全角\uff09\n"] * 1000
         test_file.write_text("".join(lines), encoding="utf-8")
 
         result = fix_fullwidth_symbols(test_file)
@@ -281,19 +281,19 @@ class TestEdgeCases:
     def test_mixed_fullwidth_halfwidth(self, tmp_path):
         """全角と半角が混在"""
         test_file = tmp_path / "mixed.py"
-        test_file.write_text("# Test (half) and(full)\n", encoding="utf-8")
+        test_file.write_text("# Test (half) and\uff08full\uff09\n", encoding="utf-8")
 
         fix_fullwidth_symbols(test_file)
 
         content = test_file.read_text(encoding="utf-8")
         assert "(half)" in content
         assert "(full)" in content
-        assert "(" not in content
+        assert "\uff08" not in content
 
     def test_consecutive_fullwidth_symbols(self, tmp_path):
         """連続する全角記号"""
         test_file = tmp_path / "test.py"
-        test_file.write_text("((テスト))\n", encoding="utf-8")
+        test_file.write_text("\uff08\uff08テスト\uff09\uff09\n", encoding="utf-8")
 
         fix_fullwidth_symbols(test_file)
 
@@ -303,7 +303,7 @@ class TestEdgeCases:
     def test_fullwidth_in_string_literals(self, tmp_path):
         """文字列リテラル内の全角記号も変換"""
         test_file = tmp_path / "test.py"
-        test_file.write_text('message = "エラー(全角)"\n', encoding="utf-8")
+        test_file.write_text('message = "エラー\uff08全角\uff09"\n', encoding="utf-8")
 
         fix_fullwidth_symbols(test_file)
 
@@ -314,8 +314,8 @@ class TestEdgeCases:
         """docstring内の全角記号も変換"""
         test_file = tmp_path / "test.py"
         test_file.write_text(
-            '''def test():
-    """テスト関数(全角)"""
+            '''def test\uff08\uff09\uff1a
+    """テスト関数\uff08全角\uff09"""
     pass
 ''',
             encoding="utf-8",
@@ -325,4 +325,4 @@ class TestEdgeCases:
 
         content = test_file.read_text(encoding="utf-8")
         assert "(全角)" in content
-        assert "(" not in content
+        assert "\uff08" not in content
