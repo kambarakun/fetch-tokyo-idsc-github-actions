@@ -275,7 +275,7 @@ sentinel_weekly_medical_district_2025_01.csv (不整合: 13件)
 
 ```text
 data/
-├── raw/                                                                  # 生データ (Shift_JIS エンコーディング)
+├── raw/                                                                 # 生データ (Shift_JIS エンコーディング)
 │   ├── .metadata/                                                       # メタデータファイル保存用
 │   │   ├── hash_index.json                                              # 重複チェック用ハッシュインデックス
 │   │   └── *.json                                                       # 各データファイルのメタデータ
@@ -283,7 +283,7 @@ data/
 │   ├── sentinel_weekly_age_2025_01.csv                                  # 2025年第1週の年齢群データ
 │   ├── notifiable_weekly_2025_01.csv                                    # 2025年第1週の全数把握データ
 │   └── sentinel_monthly_age_2025_01.csv                                 # 2025年1月の月次年齢群データ
-├── processed/                                                            # 処理済みデータ (UTF-8、性別分割済み)
+├── processed/                                                           # 処理済みデータ (UTF-8、性別分割済み)
 │   ├── .metadata/                                                       # 処理済みファイルのメタデータ
 │   │   └── normalized_*.json                                            # 各ファイルの個別メタデータ
 │   ├── normalized_notifiable_weekly_2000_01.csv                         # 全数報告 (UTF-8、メタデータ除去)
@@ -293,7 +293,7 @@ data/
 │   ├── normalized_sentinel_weekly_medical_district_male_2000_01.csv     # 定点・医療圏・男性 (UTF-8)
 │   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv   # 定点・医療圏・女性 (UTF-8)
 │   └── normalized_sentinel_weekly_gender_2000_01.csv                    # 定点・性別 (UTF-8、性別列形式のため分割なし)
-└── logs/                                                                 # ログファイル
+└── logs/                                                                # ログファイル
 ```
 
 #### ファイル命名規則
