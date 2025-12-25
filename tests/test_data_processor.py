@@ -305,6 +305,28 @@ class TestDataProcessor(unittest.TestCase):
         self.assertEqual(metadata["year"], "2025")
         self.assertEqual(metadata["period"], "01")
 
+    def test_extract_metadata_from_short_filenames(self):
+        """短いファイル名でIndexErrorが発生せずNoneを返すことを確認"""
+        # 短いnotifiableファイル名(3要素未満)
+        metadata = self.processor._extract_metadata_from_filename("notifiable_weekly.csv")
+        self.assertIsNone(metadata, "Short notifiable filename should return None")
+
+        # 短いsentinelファイル名(3要素未満)
+        metadata = self.processor._extract_metadata_from_filename("sentinel_weekly.csv")
+        self.assertIsNone(metadata, "Short sentinel filename should return None")
+
+        # さらに短いsentinelファイル名(2要素未満)
+        metadata = self.processor._extract_metadata_from_filename("sentinel.csv")
+        self.assertIsNone(metadata, "Very short sentinel filename should return None")
+
+        # 1要素のみ
+        metadata = self.processor._extract_metadata_from_filename("notifiable.csv")
+        self.assertIsNone(metadata, "Single element filename should return None")
+
+        # 空のファイル名
+        metadata = self.processor._extract_metadata_from_filename(".csv")
+        self.assertIsNone(metadata, "Empty filename should return None")
+
     def test_detect_gender_sections(self):
         """性別セクション検出のテスト"""
         lines = [

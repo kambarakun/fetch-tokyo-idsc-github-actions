@@ -532,12 +532,20 @@ class DataProcessor:
             # notifiable_weekly_2025_01.csv
             if filename.startswith("notifiable_"):
                 parts = filename.replace(".csv", "").split("_")
+                # 最低4要素必要: notifiable, frequency, year, period
+                if len(parts) < 4:
+                    logger.warning(f"Invalid notifiable filename format (too short): {filename}")
+                    return None
                 return {"category": "notifiable", "frequency": parts[1], "year": parts[2], "period": parts[3]}
 
             # sentinel_weekly_gender_2025_01.csv
             # sentinel_monthly_health_center_2025_01.csv (aggregationが2単語の場合もある)
             if filename.startswith("sentinel_"):
                 parts = filename.replace(".csv", "").split("_")
+                # 最低4要素必要: sentinel, frequency, year, period (aggregationは空でもよい)
+                if len(parts) < 4:
+                    logger.warning(f"Invalid sentinel filename format (too short): {filename}")
+                    return None
                 # 最後の2つは必ず year と period
                 year = parts[-2]
                 period = parts[-1]
@@ -556,7 +564,7 @@ class DataProcessor:
 
             return None
 
-        except (KeyError, ValueError, AttributeError):
+        except (KeyError, ValueError, AttributeError, IndexError):
             logger.exception(f"メタデータ抽出失敗: {filename}")
             return None
 
