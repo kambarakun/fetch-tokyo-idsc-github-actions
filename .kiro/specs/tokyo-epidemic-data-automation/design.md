@@ -1074,35 +1074,35 @@ class DataCache:
 
 fetch-tokyo-idsc-github-actions/
 ├── .github/
-│ └── workflows/
-│ └── fetch-data.yml # ✅ メインワークフロー実装済み
+│   └── workflows/
+│       └── fetch-data.yml                      # ✅ メインワークフロー実装済み
 ├── src/
-│ ├── fetchers/ # ✅ 実装済み
-│ │ ├── **init**.py
-│ │ ├── base*fetcher.py # ✅ TokyoEpidemicSurveillanceFetcher
-│ │ └── enhanced_fetcher.py # ✅ 拡張版フェッチャー
-│ └── managers/ # ✅ 実装済み
-│ ├── **init**.py
-│ ├── config_manager.py # ✅ 設定管理実装済み
-│ └── storage_manager.py # ✅ ストレージ管理実装済み
+│   ├── fetchers/                               # ✅ 実装済み
+│   │   ├── **init**.py
+│   │   ├── base*fetcher.py                     # ✅ TokyoEpidemicSurveillanceFetcher
+│   │   └── enhanced_fetcher.py                 # ✅ 拡張版フェッチャー
+│   └── managers/                               # ✅ 実装済み
+│       ├── **init**.py
+│       ├── config_manager.py                   # ✅ 設定管理実装済み
+│       └── storage_manager.py                  # ✅ ストレージ管理実装済み
 ├── config/
-│ └── config.yml # ✅ 包括的設定ファイル（ソース・オブ・トゥルース）
-├── scripts/ # ✅ 実装済み
-│ ├── fetch_data.py # ✅ メインスクリプト
-│ ├── validate_data.py # ✅ データ検証
-│ ├── validate_continuity.py # ✅ 連続性検証
-│ └── check_missing.py # ✅ 欠損チェック
+│   └── config.yml                              # ✅ 包括的設定ファイル（ソース・オブ・トゥルース）
+├── scripts/                                    # ✅ 実装済み
+│   ├── fetch_data.py                           # ✅ メインスクリプト
+│   ├── validate_data.py                        # ✅ データ検証
+│   ├── validate_continuity.py                  # ✅ 連続性検証
+│   └── check_missing.py                        # ✅ 欠損チェック
 ├── data/
-│ ├── raw/ # ✅ CSVファイル保存（フラット構造）
-│ └── logs/ # ✅ メタデータログ
-├── tests/ # ✅ テスト構造
-│ ├── test*\*.py
-│ └── fixtures/
-├── pyproject.toml # ✅ プロジェクト設定
-├── .gitignore # ✅ 設定済み
-├── .pre-commit-config.yaml # ✅ 品質管理
-├── README.md # ✅ 基本ドキュメント
-└── CLAUDE.md # ✅ 開発ドキュメント
+│   ├── raw/                                    # ✅ CSVファイル保存（フラット構造）
+│   └── logs/                                   # ✅ メタデータログ
+├── tests/                                      # ✅ テスト構造
+│   ├── test*\*.py
+│   └── fixtures/
+├── pyproject.toml                              # ✅ プロジェクト設定
+├── .gitignore                                  # ✅ 設定済み
+├── .pre-commit-config.yaml                     # ✅ 品質管理
+├── README.md                                   # ✅ 基本ドキュメント
+└── CLAUDE.md                                   # ✅ 開発ドキュメント
 
 ````
 
@@ -1117,13 +1117,13 @@ fetch-tokyo-idsc-github-actions/
 
 ```bash
 # GitHub Actions Secrets
-GITHUB_TOKEN          # リポジトリアクセス用
-NOTIFICATION_TOKEN    # Issue作成用（必要に応じて）
+GITHUB_TOKEN                # リポジトリアクセス用
+NOTIFICATION_TOKEN          # Issue作成用（必要に応じて）
 
 # Optional Configuration
-DATA_COLLECTION_CONFIG # 設定ファイルパスのオーバーライド
-LOG_LEVEL             # ログレベル設定
-DRY_RUN               # テスト実行モード
+DATA_COLLECTION_CONFIG      # 設定ファイルパスのオーバーライド
+LOG_LEVEL                   # ログレベル設定
+DRY_RUN                     # テスト実行モード
 ```
 
 ### Continuous Integration
