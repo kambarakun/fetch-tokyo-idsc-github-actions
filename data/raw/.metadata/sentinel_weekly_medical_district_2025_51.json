@@ -1,0 +1,160 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "sentinel_weekly_medical_district_2025_51",
+  "filename": "sentinel_weekly_medical_district_2025_51.csv",
+  "path": "sentinel_weekly_medical_district_2025_51.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2025,
+    "period": 51,
+    "period_type": "weekly"
+  },
+  "bytes": 8042,
+  "lines": 69,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "dcdb035372f7b9dc939850a42d289f772a428920a683a51d24e8e6d0e0b6e9b3"
+  },
+  "encoding": "shift_jis",
+  "created": "2025-12-25T16:32:07.967680+00:00",
+  "modified": "2025-12-25T16:32:07.967680+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.7050542831420898,
+    "force_overwrite": true,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2025-12-25T16:32:07.967938+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2,
+        32
+      ]
+    }
+  },
+  "quality": {
+    "validation_timestamp": "2025-12-25T16:32:07.967943+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 13 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2025_51.csv",
+          "affected_count": 13,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "咽頭結膜熱",
+              "row_index": 3,
+              "male": 4,
+              "female": 4,
+              "total": 4,
+              "expected": 8
+            },
+            {
+              "location": "区南部",
+              "column": "水痘",
+              "row_index": 4,
+              "male": 4,
+              "female": 4,
+              "total": 4,
+              "expected": 8
+            },
+            {
+              "location": "区西南部",
+              "column": "突発性発しん",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "RSウイルス感染症",
+              "row_index": 6,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "区西北部",
+              "column": "手足口病",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "手足口病",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東部",
+              "column": "不明発しん症",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "マイコプラズマ肺炎",
+              "row_index": 10,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "南多摩",
+              "column": "咽頭結膜熱",
+              "row_index": 11,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "新型コロナウイルス感染症（COVID-19）",
+              "row_index": 12,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
