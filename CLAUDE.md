@@ -1020,17 +1020,17 @@ python3 scripts/check_tree_comment_alignment.py README.md CLAUDE.md
 
 **エラー例**:
 
-```
+```text
 README.md: コメント位置が統一されていません
   検出された位置: [47, 74] カラム
   詳細:
 
   47カラム目 (2行):
-    L278: ├── raw/                                        # 生データ
-    L286: ├── processed/                                  # 処理済みデータ
+    L278: ├── raw/                                                             # 生データ
+    L286: ├── processed/                                                       # 処理済みデータ
 
-  74カラム目 (5行):
-    L279: │   ├── .metadata/                                                       # メタデータ
+  74カラム目 (1行):
+    L279: │   ├── .metadata/                                                   # メタデータ
     ...
 ```
 
