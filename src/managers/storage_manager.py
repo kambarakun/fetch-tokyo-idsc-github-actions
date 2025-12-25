@@ -1417,7 +1417,7 @@ class StorageManager:
                     created_at = metadata.get("created_at")
                     if not created_at:
                         logger.error(
-                            f"Invalid metadata for {file_path}: missing created_at field. " f"Skipping cleanup."
+                            f"Invalid metadata for {file_path}: missing created_at field. " "Skipping cleanup."
                         )
                         continue
 
