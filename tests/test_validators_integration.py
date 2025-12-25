@@ -182,7 +182,7 @@ class TestGenderSumValidatorEdgeCases:
         """Test that _extract_gender_sections correctly handles section starting at line 0."""
         import tempfile
 
-        # Arrange: CSVデータで最初の行(index 0)に性別セクションがある場合
+        # Arrange: CSVデータで最初の行 (index 0) に性別セクションがある場合
         # 実際のデータフォーマットに近い形式
         csv_content = """"性別","男性"
 ""
@@ -220,9 +220,17 @@ class TestGenderSumValidatorEdgeCases:
             assert "male" in sections
             assert "female" in sections
             assert "total" in sections
+            # 開始行が0でもセクションが抽出されることを確認
             assert len(sections["male"]) > 0, "男性セクションが抽出されるべき"
             assert len(sections["female"]) > 0, "女性セクションが抽出されるべき"
             assert len(sections["total"]) > 0, "合計セクションが抽出されるべき"
+            # 実際のデータ内容も検証
+            assert sections["male"][0][0] == "地域1", "最初の行の地域名が正しいこと"
+            assert sections["male"][0][1] == "10", "男性データ値が正しく抽出されていること"
+            assert sections["female"][0][0] == "地域1", "女性セクションの地域名が正しいこと"
+            assert sections["female"][0][1] == "8", "女性データ値が正しく抽出されていること"
+            assert sections["total"][0][0] == "地域1", "合計セクションの地域名が正しいこと"
+            assert sections["total"][0][1] == "18", "合計データ値が正しく抽出されていること"
 
         finally:
             # クリーンアップ
