@@ -26,6 +26,16 @@ repos:
         name: 改行コードの統一
         args: ["--fix=lf"]
 
+  # プロジェクト固有のチェック (フォーマット前に実行)
+  - repo: local
+    hooks:
+      - id: fix-fullwidth-symbols
+        name: 全角記号を半角に自動修正
+        entry: python3 scripts/fix_fullwidth_symbols.py
+        language: system
+        types_or: [python, markdown]
+        pass_filenames: true
+
   # Pythonコードフォーマット (isort)
   - repo: https://github.com/PyCQA/isort
     rev: 5.13.2
