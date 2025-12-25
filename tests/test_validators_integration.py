@@ -178,6 +178,65 @@ class TestGenderSumValidatorEdgeCases:
         # and is covered by the existing test suite
         assert hasattr(GenderSumValidator, "_extract_section_data")
 
+    def test_extract_gender_sections_with_zero_start_line(self) -> None:
+        """Test that _extract_gender_sections correctly handles section starting at line 0."""
+        import tempfile
+
+        # Arrange: CSVデータで最初の行 (index 0) に性別セクションがある場合
+        # 実際のデータフォーマットに近い形式
+        csv_content = """"性別","男性"
+""
+"","疾病A","疾病B"
+"地域1","10","5"
+"地域2","8","3"
+"性別","女性"
+""
+"","疾病A","疾病B"
+"地域1","8","4"
+"地域2","6","2"
+"性別","男女合計"
+""
+"","疾病A","疾病B"
+"地域1","18","9"
+"地域2","14","5"
+"""
+        # 一時ファイルを作成
+        temp_file = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                delete=False,
+                suffix=".csv",
+                dir=self.temp_dir if self.temp_dir.exists() else None,
+            ) as f:
+                # Shift_JIS でエンコード
+                f.write(csv_content.encode("shift_jis"))
+                temp_file = Path(f.name)
+
+            # Act: _extract_gender_sections を呼び出す
+            sections = self.validator._extract_gender_sections(temp_file)
+
+            # Assert: 0が開始行でも正しく抽出される
+            assert "male" in sections
+            assert "female" in sections
+            assert "total" in sections
+            # 開始行が0でもセクションが抽出されることを確認
+            assert len(sections["male"]) > 0, "男性セクションが抽出されるべき"
+            assert len(sections["female"]) > 0, "女性セクションが抽出されるべき"
+            assert len(sections["total"]) > 0, "合計セクションが抽出されるべき"
+            # 実際のデータ内容も検証
+            assert sections["male"][0][0] == "地域1", "最初の行の地域名が正しいこと"
+            assert sections["male"][0][1] == "10", "男性データ値が正しく抽出されていること"
+            assert sections["female"][0][0] == "地域1", "女性セクションの地域名が正しいこと"
+            assert sections["female"][0][1] == "8", "女性データ値が正しく抽出されていること"
+            assert sections["total"][0][0] == "地域1", "合計セクションの地域名が正しいこと"
+            assert sections["total"][0][1] == "18", "合計データ値が正しく抽出されていること"
+
+        finally:
+            # クリーンアップ
+            if temp_file and temp_file.exists():
+                temp_file.unlink()
+
 
 class TestQualityValidatorIntegration:
     """Integration tests for QualityValidator."""

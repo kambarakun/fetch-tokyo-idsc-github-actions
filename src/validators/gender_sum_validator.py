@@ -296,7 +296,8 @@ class GenderSumValidator:
                 elif row[1] == "男女合計":
                     total_start = i
 
-        if not all([male_start, female_start, total_start]):
+        # None 判定: 0 は有効な開始行のため、is None で判定する
+        if any(x is None for x in (male_start, female_start, total_start)):
             return {"male": [], "female": [], "total": []}
 
         # 各セクションのデータ行を個別に抽出
