@@ -760,7 +760,7 @@ def generate_absolute_chart(
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
         # 最新データポイントにアノテーションを追加 (共通関数を使用)
-        _add_annotation(ax, values, value_format, str(line[0].get_color()), JAPANESE_FONT, check_non_zero=True)
+        _add_annotation(ax, values, value_format, line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
 
     # X軸ラベル (期間を明示)
     xlabel_text = _format_period_label(min_period, max_period, period_type)
@@ -876,9 +876,7 @@ def generate_deviation_chart(
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
         # 最新データポイントにアノテーションを追加 (共通関数を使用)
-        _add_annotation(
-            ax, values, f"{latest_value:+.0f}%", str(line[0].get_color()), JAPANESE_FONT, check_non_zero=True
-        )
+        _add_annotation(ax, values, f"{latest_value:+.0f}%", line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
 
     # ベースライン (0%ライン) を表示
     if len(all_periods) > 0:
