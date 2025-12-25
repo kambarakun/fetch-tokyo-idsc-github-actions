@@ -1548,12 +1548,12 @@ class TestErrorHandling(unittest.TestCase):
         """_is_all_zero_data()でcsv.Errorが発生した場合の処理を確認"""
         # Arrange: csv.Errorをテストするためにcsv.readerをモック
         # (実際のcsv.readerは寛容な実装のため、不正なCSVでも例外を発生させないことが多い)
-        malformed_csv_data = '"unclosed quote\n'.encode("shift_jis")
+        csv_data = '"unclosed quote\n'.encode("shift_jis")
 
         # csv.readerがcsv.Errorを発生させるようにモック
-        with patch("csv.reader", side_effect=csv.Error("Test CSV error")):
+        with patch("src.managers.storage_manager.csv.reader", side_effect=csv.Error("Test CSV error")):
             # Act: _is_all_zero_data()を呼び出してcsv.Errorを発生させる (lines 739-741)
-            result = self.storage._is_all_zero_data(malformed_csv_data)
+            result = self.storage._is_all_zero_data(csv_data)
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
         self.assertFalse(result, "csv.Error発生時はFalseを返すべき")
