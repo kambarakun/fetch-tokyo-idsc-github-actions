@@ -137,6 +137,38 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         # has_warningsがTrueになる
         self.assertTrue(validator.has_warnings, "has_warnings should be True")
 
+    def test_encoding_option_utf8(self):
+        """UTF-8エンコーディングオプションが正しく動作することを確認 (issue #222)"""
+        # UTF-8でテスト用CSVファイルを作成
+        test_file = self.data_dir / "test_utf8.csv"
+        content = "col1,col2,col3\nval1,val2,val3\n" * 10  # 100バイト以上
+        test_file.write_text(content, encoding="utf-8")
+
+        # UTF-8エンコーディング指定
+        validator = DataValidator(strict_mode=False, encoding="utf-8")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングチェックが成功することを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertTrue(encoding_result["valid"], "UTF-8 encoding should be valid")
+        self.assertEqual(encoding_result["encoding"], "utf-8", "Encoding should be utf-8")
+
+    def test_encoding_option_shift_jis(self):
+        """Shift_JISエンコーディング(デフォルト)が正しく動作することを確認 (issue #222)"""
+        # Shift_JISでテスト用CSVファイルを作成
+        test_file = self.data_dir / "test_sjis.csv"
+        content = "col1,col2,col3\nval1,val2,val3\n" * 10  # 100バイト以上
+        test_file.write_bytes(content.encode("shift_jis"))
+
+        # Shift_JISエンコーディング指定(デフォルト)
+        validator = DataValidator(strict_mode=False, encoding="shift_jis")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングチェックが成功することを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertTrue(encoding_result["valid"], "Shift_JIS encoding should be valid")
+        self.assertEqual(encoding_result["encoding"], "shift_jis", "Encoding should be shift_jis")
+
 
 class TestMarkdownEscaping(unittest.TestCase):
     """Markdown特殊文字のエスケープテスト"""

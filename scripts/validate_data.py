@@ -20,7 +20,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # storage_manager から検証設定と統一メッセージ定数をインポート
-from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, EXPECTED_ENCODING
+from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG
 from src.managers.storage_manager import VALIDATION_MAX_COLUMN_COUNT as MAX_COLUMN_COUNT
 from src.managers.storage_manager import VALIDATION_MAX_FILE_SIZE_MB as MAX_FILE_SIZE_MB
 from src.managers.storage_manager import VALIDATION_MAX_LINE_COUNT as MAX_LINE_COUNT
@@ -41,12 +41,14 @@ def setup_logging(log_level: str = "INFO"):
 class DataValidator:
     """データ検証クラス"""
 
-    def __init__(self, strict_mode: bool = False):
+    def __init__(self, strict_mode: bool = False, encoding: str = "shift_jis"):
         """
         Args:
             strict_mode: 厳格モード(警告もエラーとして扱う)
+            encoding: ファイルエンコーディング (デフォルト: shift_jis)
         """
         self.strict_mode = strict_mode
+        self.encoding = encoding
         self.logger = logging.getLogger(__name__)
         self.validation_results: list[dict[str, Any]] = []
         self.has_errors = False
@@ -168,16 +170,16 @@ class DataValidator:
         result = {"valid": True, "errors": []}
 
         try:
-            # Shift_JISで読み込みを試みる
-            with file_path.open("r", encoding=EXPECTED_ENCODING) as f:
+            # 指定されたエンコーディングで読み込みを試みる
+            with file_path.open("r", encoding=self.encoding) as f:
                 # 最初の数行を読んで確認
                 for i, _line in enumerate(f):
                     if i >= 10:  # 最初の10行のみチェック
                         break
-                result["encoding"] = EXPECTED_ENCODING
+                result["encoding"] = self.encoding
 
         except UnicodeDecodeError as e:
-            result["errors"].append(f"Encoding error (expected {EXPECTED_ENCODING}): {e!s}")
+            result["errors"].append(f"Encoding error (expected {self.encoding}): {e!s}")
             result["valid"] = False
         except Exception as e:
             result["errors"].append(f"Failed to check encoding: {e!s}")
@@ -190,7 +192,7 @@ class DataValidator:
         result = {"valid": True, "errors": [], "warnings": [], "details": {}}
 
         try:
-            with file_path.open("r", encoding=EXPECTED_ENCODING) as f:
+            with file_path.open("r", encoding=self.encoding) as f:
                 # CSVリーダーで読み込み
                 reader = csv.reader(f)
 
@@ -457,6 +459,12 @@ def main():
         help="出力形式 (json または markdown)",
     )
     parser.add_argument(
+        "--encoding",
+        type=str,
+        default="shift_jis",
+        help="ファイルエンコーディング (デフォルト: shift_jis, processed データには utf-8 を指定)",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -470,7 +478,7 @@ def main():
     logger = setup_logging(args.log_level)
 
     # バリデーター作成
-    validator = DataValidator(strict_mode=args.strict)
+    validator = DataValidator(strict_mode=args.strict, encoding=args.encoding)
 
     # パスの処理
     path = Path(args.path)
