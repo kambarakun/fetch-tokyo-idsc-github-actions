@@ -2,6 +2,7 @@
 ストレージ管理のユニットテスト
 """
 
+import csv
 import hashlib
 import json
 import shutil
@@ -886,13 +887,13 @@ class TestStorageManager(unittest.TestCase):
         self.assertFalse(result, "負の値は0以外として検出されるべきです")
 
     def test_is_all_zero_data_with_invalid_bytes(self):
-        """不正なバイトシーケンスはerrors='replace'で置換され、空データとして扱われる"""
+        """不正なバイトシーケンスはUnicodeDecodeErrorを発生させ、安全側に倒してデータを保存する"""
         # 不正なShift_JISバイトシーケンス
-        # errors='replace'により置換文字に変換され、データ行がないためスキップ対象
+        # UnicodeDecodeErrorが発生し、安全側に倒してFalse (保存) を返す
         invalid_data = b"\xff\xfe\x00\x00"
 
         result = self.storage._is_all_zero_data(invalid_data)
-        self.assertTrue(result, "データ行がないためスキップ対象(True)になるべきです")
+        self.assertFalse(result, "デコードエラー時は安全側に倒してFalse (保存) を返すべき")
 
     def test_is_all_zero_data_with_malformed_csv(self):
         """不正なCSV形式でもエラーにならないことを確認"""
@@ -1533,18 +1534,44 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_is_all_zero_data_unicode_decode_error(self):
         """_is_all_zero_data()でUnicodeDecodeErrorが発生した場合の処理を確認"""
-        # Arrange
-        invalid_data = b"test_data"
+        # Arrange: Shift_JISとして無効なバイト列を使用
+        # 0xff, 0xfe はShift_JISで予約済みのため、デコード時にUnicodeDecodeErrorが発生
+        invalid_shift_jis_data = b"\xff\xfe\x00\x00Invalid Shift-JIS bytes"
 
-        # Act: storage_manager.py内のcsv.readerをモックしてUnicodeDecodeErrorを発生させる (lines 732-735)
-        with patch(
-            "src.managers.storage_manager.csv.reader",
-            side_effect=UnicodeDecodeError("shift_jis", b"", 0, 1, "invalid sequence"),
-        ):
-            result = self.storage._is_all_zero_data(invalid_data)
+        # Act: 実際に_is_all_zero_data()を呼び出してUnicodeDecodeErrorを発生させる (lines 732-737)
+        result = self.storage._is_all_zero_data(invalid_shift_jis_data)
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
         self.assertFalse(result, "UnicodeDecodeError発生時はFalseを返すべき")
+
+    def test_is_all_zero_data_csv_error(self):
+        """_is_all_zero_data()でcsv.Errorが発生した場合の処理を確認"""
+        # Arrange: csv.Errorをテストするためにcsv.readerをモック
+        # (実際のcsv.readerは寛容な実装のため、不正なCSVでも例外を発生させないことが多い)
+        csv_data = '"unclosed quote\n'.encode("shift_jis")
+
+        # csv.readerがcsv.Errorを発生させるようにモック
+        with patch("src.managers.storage_manager.csv.reader", side_effect=csv.Error("Test CSV error")):
+            # Act: _is_all_zero_data()を呼び出してcsv.Errorを発生させる (lines 739-741)
+            result = self.storage._is_all_zero_data(csv_data)
+
+        # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
+        self.assertFalse(result, "csv.Error発生時はFalseを返すべき")
+
+    def test_is_all_zero_data_unexpected_exception(self):
+        """_is_all_zero_data()で予期しない例外が発生した場合の処理を確認"""
+        # Arrange: 予期しない例外を発生させるためにモックを使用
+        valid_csv_data = "col1,col2\n1,2\n".encode("shift_jis")
+
+        # _is_skippable_rowが予期しない例外を発生させるようにモック
+        with patch.object(
+            self.storage, "_is_skippable_row", side_effect=RuntimeError("Unexpected error in processing")
+        ):
+            # Act: _is_all_zero_data()を呼び出して予期しない例外を発生させる (lines 742-748)
+            result = self.storage._is_all_zero_data(valid_csv_data)
+
+        # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
+        self.assertFalse(result, "予期しない例外発生時はFalseを返すべき")
 
     def test_cleanup_old_files_basic(self):
         """cleanup_old_files()の基本動作を確認"""

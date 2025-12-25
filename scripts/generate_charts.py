@@ -760,7 +760,7 @@ def generate_absolute_chart(
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
         # 最新データポイントにアノテーションを追加 (共通関数を使用)
-        _add_annotation(ax, values, value_format, line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
+        _add_annotation(ax, values, value_format, str(line[0].get_color()), JAPANESE_FONT, check_non_zero=True)
 
     # X軸ラベル (期間を明示)
     xlabel_text = _format_period_label(min_period, max_period, period_type)
@@ -775,7 +775,7 @@ def generate_absolute_chart(
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
     # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
-    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
+    plt.tight_layout(rect=(0, 0.06, 1, 0.98))
 
     # データソースと注釈 (下側の確保したスペースに配置)
     note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
@@ -876,7 +876,9 @@ def generate_deviation_chart(
         line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
 
         # 最新データポイントにアノテーションを追加 (共通関数を使用)
-        _add_annotation(ax, values, f"{latest_value:+.0f}%", line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
+        _add_annotation(
+            ax, values, f"{latest_value:+.0f}%", str(line[0].get_color()), JAPANESE_FONT, check_non_zero=True
+        )
 
     # ベースライン (0%ライン) を表示
     if len(all_periods) > 0:
@@ -895,7 +897,7 @@ def generate_deviation_chart(
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
     # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
-    plt.tight_layout(rect=[0, 0.06, 1, 0.98])
+    plt.tight_layout(rect=(0, 0.06, 1, 0.98))
 
     # データソースと注釈 (下側の確保したスペースに配置)
     note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"

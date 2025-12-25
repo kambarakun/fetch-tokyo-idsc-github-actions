@@ -199,9 +199,7 @@ def run_verification(
 
 def main() -> int:
     """メイン関数."""
-    parser = argparse.ArgumentParser(
-        description="メタデータの検証フィールドを更新する"
-    )
+    parser = argparse.ArgumentParser(description="メタデータの検証フィールドを更新する")
     parser.add_argument(
         "--dry-run",
         action="store_true",
