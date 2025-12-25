@@ -46,14 +46,16 @@ def _copy_font_properties(base_fp, size: float):
     return fp
 
 
-def _add_annotation(ax, values: list, value_text: str, line_color: str, japanese_font, check_non_zero: bool = True):
+def _add_annotation(
+    ax, values: list, value_text: str, line_color: str | tuple, japanese_font, check_non_zero: bool = True
+):
     """グラフにアノテーションを追加 (最新の非None値に対して)
 
     Args:
         ax: matplotlibのAxesオブジェクト
         values: データ値のリスト (Noneを含む可能性あり)
         value_text: 表示するテキスト (例: "123", "+45%")
-        line_color: アノテーションの色 (線の色と同じ)
+        line_color: アノテーションの色 (文字列またはRGBタプル)
         japanese_font: 日本語フォント (FontPropertiesオブジェクト、またはNone)
         check_non_zero: Trueの場合は最新値が0でないときのみ追加
     """
