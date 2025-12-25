@@ -1546,11 +1546,11 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_is_all_zero_data_csv_error(self):
         """_is_all_zero_data()でcsv.Errorが発生した場合の処理を確認"""
-        # Arrange: CSV形式として不正なデータを用意
-        # 引用符が閉じていないCSVデータ (csv.Errorを発生させる)
+        # Arrange: csv.Errorをテストするためにcsv.readerをモック
+        # (実際のcsv.readerは寛容な実装のため、不正なCSVでも例外を発生させないことが多い)
         malformed_csv_data = '"unclosed quote\n'.encode("shift_jis")
 
-        # csv.readerがエラーを発生させるようにモック
+        # csv.readerがcsv.Errorを発生させるようにモック
         with patch("csv.reader", side_effect=csv.Error("Test CSV error")):
             # Act: _is_all_zero_data()を呼び出してcsv.Errorを発生させる (lines 739-741)
             result = self.storage._is_all_zero_data(malformed_csv_data)
