@@ -83,7 +83,8 @@ class DataValidator:
             result["checks"]["file_size"] = size_result
             if not size_result["valid"]:
                 result["errors"].extend(size_result.get("errors", []))
-                result["warnings"].extend(size_result.get("warnings", []))
+            # warningsはvalidに関係なく常に収集
+            result["warnings"].extend(size_result.get("warnings", []))
             if size_result.get("details"):
                 details.update(size_result["details"])
 
@@ -101,7 +102,8 @@ class DataValidator:
                 result["checks"]["csv_format"] = csv_result
                 if not csv_result["valid"]:
                     result["errors"].extend(csv_result.get("errors", []))
-                    result["warnings"].extend(csv_result.get("warnings", []))
+                # warningsはvalidに関係なく常に収集
+                result["warnings"].extend(csv_result.get("warnings", []))
                 if csv_result.get("details"):
                     details.update(csv_result["details"])
 
@@ -121,9 +123,11 @@ class DataValidator:
             if result["errors"]:
                 result["valid"] = False
                 self.has_errors = True
-            elif result["warnings"] and self.strict_mode:
-                result["valid"] = False
+            # warningsは常に記録し、strictモード時はinvalidにする
+            if result["warnings"]:
                 self.has_warnings = True
+                if self.strict_mode:
+                    result["valid"] = False
 
         except Exception as e:
             self.logger.exception(f"Unexpected error validating {file_path}")

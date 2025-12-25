@@ -90,6 +90,53 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         self.assertIn("## ⚠️ 警告", report)
         self.assertIn("Inconsistent column count", report)
 
+    def test_warnings_collected_even_when_valid(self):
+        """CSVフォーマットチェックでvalidでもwarningsが収集されることを確認 (issue #218)"""
+        # テスト用CSVファイルを作成 (不整合な列数のwarningが出る)
+        test_file = self.data_dir / "test_warning.csv"
+        # 1行目は3列、2行目は2列で不整合
+        # ファイルサイズチェックをクリアするため、十分なデータを追加
+        content = "col1,col2,col3\n" + "val1,val2\n" * 10  # 100バイト以上になるように
+        test_file.write_bytes(content.encode("shift_jis"))
+
+        # 通常モード (strict=False)
+        validator = DataValidator(strict_mode=False)
+        result = validator.validate_file(test_file)
+
+        # 修正前: csv_formatがvalidの場合、warningsが収集されなかった
+        # 修正後: csv_formatがvalidでも、warningsは収集される
+        csv_result = result["checks"]["csv_format"]
+        self.assertTrue(csv_result["valid"], "CSV format should be valid (no errors)")
+        self.assertTrue(len(csv_result["warnings"]) > 0, "CSV format should have warnings")
+
+        # warningsは全体のresultにも収集される
+        self.assertTrue(len(result["warnings"]) > 0, "warnings should be collected in result")
+        self.assertIn(
+            "[csv_format] Inconsistent column count", result["warnings"], "CSV warnings should be in result['warnings']"
+        )
+
+        # has_warningsがTrueになる(strictモードでなくても)
+        self.assertTrue(validator.has_warnings, "has_warnings should be True even in normal mode")
+
+    def test_warnings_make_invalid_in_strict_mode(self):
+        """strictモード時にwarningsがあるとinvalidになることを確認 (issue #218)"""
+        # テスト用CSVファイルを作成 (不整合な列数のwarningが出る)
+        test_file = self.data_dir / "test_warning_strict.csv"
+        # ファイルサイズチェックをクリアするため、十分なデータを追加
+        content = "col1,col2,col3\n" + "val1,val2\n" * 10  # 100バイト以上になるように
+        test_file.write_bytes(content.encode("shift_jis"))
+
+        # strictモード (strict=True)
+        validator = DataValidator(strict_mode=True)
+        result = validator.validate_file(test_file)
+
+        # warningsは収集される
+        self.assertTrue(len(result["warnings"]) > 0, "warnings should be collected")
+        # strictモードではwarningsでinvalidになる
+        self.assertFalse(result["valid"], "valid should be False in strict mode with warnings")
+        # has_warningsがTrueになる
+        self.assertTrue(validator.has_warnings, "has_warnings should be True")
+
 
 class TestMarkdownEscaping(unittest.TestCase):
     """Markdown特殊文字のエスケープテスト"""
