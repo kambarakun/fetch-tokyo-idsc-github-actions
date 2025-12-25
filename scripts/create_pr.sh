@@ -166,8 +166,35 @@ NEW_FILES="${NEW_FILES:-}"
 MODIFIED_FILES="${MODIFIED_FILES:-}"
 CHANGED_FILES="${CHANGED_FILES:-}"
 
-# 環境変数が設定されているか確認
-if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
+# 優先順位1: stats.jsonから読み取る（最も正確）
+# データ取得スクリプトが記録した実際の処理結果を使用
+STATS_JSON_PATH="data/logs/stats_${FETCH_TIMESTAMP}.json"
+if [ -f "$STATS_JSON_PATH" ] && command -v jq >/dev/null 2>&1; then
+  echo "Reading file counts from stats.json..." >&2
+  if jq -e . "$STATS_JSON_PATH" >/dev/null 2>&1; then
+    STATS_NEW=$(jq -r '.new_files // 0' "$STATS_JSON_PATH" 2>/dev/null || echo "0")
+    STATS_UPDATED=$(jq -r '.updated_files // 0' "$STATS_JSON_PATH" 2>/dev/null || echo "0")
+
+    # 数値検証
+    if [[ "$STATS_NEW" =~ ^[0-9]+$ ]] && [[ "$STATS_UPDATED" =~ ^[0-9]+$ ]]; then
+      NEW_FILES="$STATS_NEW"
+      MODIFIED_FILES="$STATS_UPDATED"
+      echo "✓ Using stats.json: new=$NEW_FILES, updated=$MODIFIED_FILES (source: stats.json)" >&2
+      STATS_READ_SUCCESS=true
+    else
+      echo "⚠️ Warning: Invalid numbers in stats.json, falling back to other methods" >&2
+      STATS_READ_SUCCESS=false
+    fi
+  else
+    echo "⚠️ Warning: stats.json is not valid JSON, falling back to other methods" >&2
+    STATS_READ_SUCCESS=false
+  fi
+else
+  STATS_READ_SUCCESS=false
+fi
+
+# 優先順位2: 環境変数が設定されているか確認
+if [ "$STATS_READ_SUCCESS" != "true" ] && { [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; }; then
   echo "Calculating file counts from git diff..." >&2
   # 一度のgit diffで全ての変更情報を取得（パフォーマンス最適化）
   GIT_STATUS=$(git diff --cached --name-status)
@@ -197,7 +224,7 @@ if [ -z "$NEW_FILES" ] || [ -z "$MODIFIED_FILES" ]; then
       ;;
   esac
   echo "✓ Using git diff data: new=$NEW_FILES, updated=$MODIFIED_FILES (source: git diff)" >&2
-else
+elif [ "$STATS_READ_SUCCESS" != "true" ]; then
   echo "✓ Using environment variables: new=$NEW_FILES, updated=$MODIFIED_FILES (source: environment)" >&2
 fi
 
