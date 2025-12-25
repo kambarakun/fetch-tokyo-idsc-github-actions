@@ -55,7 +55,7 @@ def main() -> int:
     """メイン処理
 
     Returns:
-        終了コード (0: 成功、1: エラー検出)
+        終了コード (0: 成功、1: 修正またはエラー検出)
     """
     if len(sys.argv) < 2:
         print("使用方法: fix_fullwidth_symbols.py <file1> [file2] ...")
@@ -63,10 +63,12 @@ def main() -> int:
 
     files = [Path(arg) for arg in sys.argv[1:]]
     modified_count = 0
+    all_ok = True
 
     for filepath in files:
         if not filepath.exists():
             print(f"エラー: {filepath} が見つかりません")
+            all_ok = False
             continue
 
         # Python・Markdownファイルのみ処理
@@ -79,6 +81,9 @@ def main() -> int:
     if modified_count > 0:
         print(f"\n{modified_count}個のファイルを修正しました")
         return 1  # 修正があった場合は1を返す (pre-commitが再チェックするため)
+
+    if not all_ok:
+        return 1  # エラーがあった場合も1を返す
 
     return 0
 

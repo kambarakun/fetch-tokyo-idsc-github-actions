@@ -162,8 +162,11 @@ class TestCheckCommentAlignment:
         ]
         errors = check_comment_alignment(lines, 1, "test.md")
         assert len(errors) > 0
-        # 3つの異なる位置が検出されることを確認
-        assert "3" in "\n".join(errors) or len({9, 12, 15}) == 3
+        # エラーメッセージに複数の位置が含まれることを確認
+        error_text = "\n".join(errors)
+        assert "検出された位置" in error_text
+        # 実際に3つの異なる位置が検出されることを確認
+        assert "[9, 11, 13]" in error_text
 
     def test_detailed_error_message(self):
         """詳細なエラーメッセージを出力"""

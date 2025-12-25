@@ -197,11 +197,10 @@ class TestMain:
 
         with patch("sys.argv", ["fix_fullwidth_symbols.py", str(test_file)]):
             result = main()
-            # ファイルが存在しないので処理されない
-            # エラーメッセージが表示される
+            assert result == 1  # エラーがあった場合は1を返す
 
         captured = capsys.readouterr()
-        assert "見つかりません" in captured.out or result >= 0
+        assert "見つかりません" in captured.out
 
     def test_main_with_multiple_files(self, tmp_path, capsys):
         """複数ファイルを処理"""
