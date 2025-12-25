@@ -910,19 +910,17 @@ data/
 
 #### 良い例 ✅
 
-```markdown
-\`\`\`text
+```text
 data/
-├── raw/ # 生データ (Shift*JIS エンコーディング)
-│ ├── .metadata/ # メタデータファイル保存用
-│ │ ├── hash_index.json # 重複チェック用ハッシュインデックス
-│ │ └── \*.json # 各データファイルのメタデータ
-│ ├── sentinel_weekly_gender_2025_01.csv # 2025年第1週の性別データ
-│ └── notifiable_weekly_2025_01.csv # 2025年第1週の全数把握データ
-├── processed/ # 処理済みデータ (UTF-8、性別分割済み)
-│ └── normalized*\*.csv # 正規化済みデータ
-└── logs/ # ログファイル
-\`\`\`
+├── raw/                                                      # 生データ (Shift_JIS エンコーディング)
+│   ├── .metadata/                                            # メタデータファイル保存用
+│   │   ├── hash_index.json                                   # 重複チェック用ハッシュインデックス
+│   │   └── *.json                                            # 各データファイルのメタデータ
+│   ├── sentinel_weekly_gender_2025_01.csv                    # 2025年第1週の性別データ
+│   └── notifiable_weekly_2025_01.csv                         # 2025年第1週の全数把握データ
+├── processed/                                                # 処理済みデータ (UTF-8、性別分割済み)
+│   └── normalized_*.csv                                      # 正規化済みデータ
+└── logs/                                                     # ログファイル
 ```
 
 **ポイント**: 全ての `#` が63カラム目に統一されている
