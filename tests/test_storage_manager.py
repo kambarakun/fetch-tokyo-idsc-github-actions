@@ -1594,7 +1594,9 @@ class TestErrorHandling(unittest.TestCase):
         # メタデータのタイムスタンプを古い日付に変更
         old_timestamp = (datetime.now(UTC) - timedelta(days=40)).isoformat()
         metadata = self.storage.get_metadata(old_result.file_path)
+        # v1.0形式との互換性のため、timestamp と created_at の両方を設定
         metadata["timestamp"] = old_timestamp
+        metadata["created_at"] = old_timestamp
         metadata_path = self.storage.metadata_dir / f"{old_result.file_path.stem}.json"
         with metadata_path.open("w", encoding="utf-8") as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
@@ -1663,6 +1665,76 @@ class TestErrorHandling(unittest.TestCase):
 
         # Assert: 例外がキャッチされ、プロセスは正常終了
         self.assertEqual(deleted_count, 0)  # 不正なメタデータで削除できない
+
+    def test_cleanup_old_files_with_v1_1_metadata(self):
+        """cleanup_old_files()がv1.1形式のメタデータ (created フィールド) を正しく処理することを確認"""
+        # Arrange: 古いファイルを作成
+        old_csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        old_data = old_csv_data.encode("shift_jis")
+        old_result = self.storage.save_with_metadata(
+            data=old_data,
+            data_type="test_cleanup_v1_1",
+            year=2024,
+            period=1,
+            is_monthly=False,
+        )
+        self.assertTrue(old_result.success)
+
+        # メタデータをv1.1形式に変更 (created フィールド)
+        old_timestamp = (datetime.now(UTC) - timedelta(days=40)).isoformat()
+        metadata_path = self.storage.metadata_dir / f"{old_result.file_path.stem}.json"
+        v1_1_metadata = {
+            "version": "1.1.0",
+            "created": old_timestamp,
+            "modified": old_timestamp,
+            "bytes": len(old_data),
+            "lines": old_data.count(b"\n"),
+            "hash": {"algorithm": "sha256", "value": "dummy_hash"},
+            "temporal": {"year": 2024, "period": 1, "period_type": "weekly"},
+        }
+        with metadata_path.open("w", encoding="utf-8") as f:
+            json.dump(v1_1_metadata, f, ensure_ascii=False, indent=2)
+
+        # Act: 30日より古いファイルを削除
+        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
+
+        # Assert: 古いファイルが削除される (lines 1411-1435)
+        self.assertEqual(deleted_count, 1)
+        self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
+        self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
+
+    def test_cleanup_old_files_with_missing_created_at(self):
+        """cleanup_old_files()で created_at フィールドがない場合にスキップすることを確認"""
+        # Arrange: ファイルを作成
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        data = csv_data.encode("shift_jis")
+        result = self.storage.save_with_metadata(
+            data=data,
+            data_type="test_missing_created_at",
+            year=2024,
+            period=1,
+            is_monthly=False,
+        )
+        self.assertTrue(result.success)
+
+        # メタデータから created_at を削除 (異常なケース)
+        metadata_path = self.storage.metadata_dir / f"{result.file_path.stem}.json"
+        metadata = {}  # 空のメタデータ
+        with metadata_path.open("w", encoding="utf-8") as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+        # Act: cleanup_old_files を実行
+        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
+
+        # Assert: created_at がないためスキップされる (lines 1417-1422)
+        self.assertEqual(deleted_count, 0)
+        self.assertTrue(result.file_path.exists(), "created_at がないファイルはスキップされるべき")
 
 
 if __name__ == "__main__":
