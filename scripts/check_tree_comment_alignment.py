@@ -2,22 +2,21 @@
 """
 tree形式のコメント位置統一をチェックするスクリプト
 
-Markdownファイル内のtree構造（```text ブロック）において、
-インラインコメント（#）の位置が統一されているかを検証します。
+Markdownファイル内のtree構造 (```text ブロック) において、
+インラインコメント (#) の位置が統一されているかを検証します。
 """
 
 import re
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 
-def extract_tree_blocks(content: str, filename: str) -> List[Tuple[int, List[str]]]:
+def extract_tree_blocks(content: str, filename: str) -> list[tuple[int, list[str]]]:
     """Markdownファイルからtree構造のコードブロックを抽出
 
     Args:
         content: ファイルの内容
-        filename: ファイル名（エラーメッセージ用）
+        filename: ファイル名 (エラーメッセージ用)
 
     Returns:
         (開始行番号, tree構造の行リスト) のタプルのリスト
@@ -25,7 +24,7 @@ def extract_tree_blocks(content: str, filename: str) -> List[Tuple[int, List[str
     blocks = []
     lines = content.split("\n")
     in_tree_block = False
-    current_block = []
+    current_block: list[str] = []
     block_start_line = 0
 
     for i, line in enumerate(lines, start=1):
@@ -34,13 +33,11 @@ def extract_tree_blocks(content: str, filename: str) -> List[Tuple[int, List[str
             in_tree_block = True
             block_start_line = i + 1  # コードブロック内の最初の行番号
             current_block = []
-        elif in_tree_block and line.strip() == "```":
-            # コードブロック終了
+        elif in_tree_block and line.strip().startswith("```"):
+            # コードブロック終了 (3つ以上のバッククォート)
             in_tree_block = False
-            # tree構造かどうかを判定（├──, └──, │ などが含まれるか）
-            if any(
-                any(char in line for char in ["├", "└", "│"]) for line in current_block
-            ):
+            # tree構造かどうかを判定 (├──, └──, │ などが含まれるか)
+            if any(any(char in line for char in ["├", "└", "│"]) for line in current_block):
                 blocks.append((block_start_line, current_block))
             current_block = []
         elif in_tree_block:
@@ -49,18 +46,16 @@ def extract_tree_blocks(content: str, filename: str) -> List[Tuple[int, List[str
     return blocks
 
 
-def check_comment_alignment(
-    tree_lines: List[str], start_line: int, filename: str
-) -> List[str]:
+def check_comment_alignment(tree_lines: list[str], start_line: int, filename: str) -> list[str]:
     """tree構造のコメント位置統一をチェック
 
     Args:
         tree_lines: tree構造の行リスト
-        start_line: 開始行番号（エラーメッセージ用）
-        filename: ファイル名（エラーメッセージ用）
+        start_line: 開始行番号 (エラーメッセージ用)
+        filename: ファイル名 (エラーメッセージ用)
 
     Returns:
-        エラーメッセージのリスト（問題がなければ空リスト）
+        エラーメッセージのリスト (問題がなければ空リスト)
     """
     errors = []
     comment_positions = []
@@ -69,7 +64,7 @@ def check_comment_alignment(
         # コメント記号 # の位置を検出
         match = re.search(r"\s#\s", line)
         if match:
-            # # の位置（0始まりのインデックス）
+            # # の位置 (0始まりのインデックス)
             pos = match.start() + 1  # スペースの次の # の位置
             comment_positions.append((i, pos, line))
 
@@ -89,11 +84,7 @@ def check_comment_alignment(
 
         # 各位置ごとにグループ化
         for pos in sorted(unique_positions):
-            matching_lines = [
-                (line_no, line)
-                for line_no, p, line in comment_positions
-                if p == pos
-            ]
+            matching_lines = [(line_no, line) for line_no, p, line in comment_positions if p == pos]
             errors.append(f"\n  {pos}カラム目 ({len(matching_lines)}行):")
             for line_no, line in matching_lines[:3]:  # 最初の3行のみ表示
                 errors.append(f"    L{line_no}: {line.rstrip()}")
@@ -145,7 +136,7 @@ def main() -> int:
     """メイン処理
 
     Returns:
-        終了コード（0: 成功、1: エラー検出）
+        終了コード (0: 成功、1: エラー検出)
     """
     if len(sys.argv) < 2:
         print("使用方法: check_tree_comment_alignment.py <file1> [file2] ...")
@@ -160,7 +151,7 @@ def main() -> int:
             all_ok = False
             continue
 
-        if not filepath.suffix.lower() in [".md", ".markdown"]:
+        if filepath.suffix.lower() not in [".md", ".markdown"]:
             # Markdownファイル以外はスキップ
             continue
 
