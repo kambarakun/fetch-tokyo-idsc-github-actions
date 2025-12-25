@@ -71,6 +71,16 @@ repos:
         types_or: [markdown, yaml, json]
         args: ["--print-width", "120", "--prose-wrap", "preserve"]
 
+  # プロジェクト固有のチェック
+  - repo: local
+    hooks:
+      - id: check-tree-comment-alignment
+        name: tree形式コメント位置統一チェック
+        entry: python3 scripts/check_tree_comment_alignment.py
+        language: system
+        types: [markdown]
+        pass_filenames: true
+
 # 設定
 default_language_version:
   python: python3.11
