@@ -169,6 +169,28 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         self.assertTrue(encoding_result["valid"], "Shift_JIS encoding should be valid")
         self.assertEqual(encoding_result["encoding"], "shift_jis", "Encoding should be shift_jis")
 
+    def test_encoding_option_invalid_encoding(self):
+        """無効なエンコーディングを指定した場合のエラー処理を確認 (issue #222)"""
+        # UTF-8でテスト用CSVファイルを作成
+        test_file = self.data_dir / "test_invalid.csv"
+        content = "col1,col2,col3\nval1,val2,val3\n" * 10  # 100バイト以上
+        test_file.write_text(content, encoding="utf-8")
+
+        # 無効なエンコーディングを指定
+        validator = DataValidator(strict_mode=False, encoding="invalid-encoding")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングチェックでエラーが発生することを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertFalse(encoding_result["valid"], "Invalid encoding should fail validation")
+        self.assertTrue(len(encoding_result["errors"]) > 0, "Should have encoding errors")
+        # エラーメッセージに "unknown encoding" または "Decoding error" が含まれることを確認
+        error_message = " ".join(encoding_result["errors"])
+        self.assertTrue(
+            "unknown encoding" in error_message.lower() or "decoding error" in error_message.lower(),
+            f"Error message should mention encoding issue: {error_message}",
+        )
+
 
 class TestMarkdownEscaping(unittest.TestCase):
     """Markdown特殊文字のエスケープテスト"""

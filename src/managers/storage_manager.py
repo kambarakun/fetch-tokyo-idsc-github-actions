@@ -40,7 +40,7 @@ VALIDATION_MIN_LINE_COUNT = 1  # 最小行数
 VALIDATION_MAX_LINE_COUNT = 1000000  # 最大行数
 VALIDATION_MIN_COLUMN_COUNT = 2  # 最小カラム数
 VALIDATION_MAX_COLUMN_COUNT = 100  # 最大カラム数
-EXPECTED_ENCODING = "shift_jis"  # 期待されるエンコーディング
+EXPECTED_ENCODING = "shift_jis"  # raw dataのデフォルトエンコーディング (Tokyo IDSCからの取得データ)
 
 logger = logging.getLogger(__name__)
 

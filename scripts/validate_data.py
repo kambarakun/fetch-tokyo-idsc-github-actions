@@ -4,6 +4,10 @@
 
 セキュリティとデータ品質の観点から、取得したCSVファイルを検証し、
 悪意のあるデータや破損データがmainブランチに入ることを防ぐ。
+
+エンコーディング:
+- raw データ: Shift_JIS (デフォルト、Tokyo IDSCからの取得データ)
+- processed データ: UTF-8 (--encoding utf-8 を指定)
 """
 # mypy: ignore-errors
 
