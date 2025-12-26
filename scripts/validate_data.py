@@ -50,8 +50,18 @@ class DataValidator:
         Args:
             strict_mode: 厳格モード(警告もエラーとして扱う)
             encoding: ファイルエンコーディング (デフォルト: shift_jis)
+
+        Raises:
+            LookupError: 無効なエンコーディング名が指定された場合
         """
         self.strict_mode = strict_mode
+
+        # エンコーディングの妥当性を検証 (fail-fast)
+        try:
+            "".encode(encoding)
+        except LookupError as e:
+            raise LookupError(f"Invalid encoding: {encoding}") from e
+
         self.encoding = encoding
         self.logger = logging.getLogger(__name__)
         self.validation_results: list[dict[str, Any]] = []
@@ -183,7 +193,7 @@ class DataValidator:
                 result["encoding"] = self.encoding
 
         except UnicodeDecodeError as e:
-            result["errors"].append(f"Encoding error (expected {self.encoding}): {e!s}")
+            result["errors"].append(f"Encoding error (using {self.encoding}): {e!s}")
             result["valid"] = False
         except Exception as e:
             result["errors"].append(f"Failed to check encoding: {e!s}")
