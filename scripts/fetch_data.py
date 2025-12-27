@@ -12,6 +12,7 @@ import re
 import sys
 import time
 from datetime import UTC, date, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,23 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchParams
 from src.managers.config_manager import ConfigurationManager, DataCollectionConfig
 from src.managers.storage_manager import StorageManager
+
+
+class CollectionMode(str, Enum):
+    """データ収集モード
+
+    Attributes:
+        INCREMENTAL: 欠損データのみ取得 (既存ファイルをスキップ)
+        FULL: 全期間のデータを取得し、既存ファイルも更新チェック
+        FORCE: 全データを強制的に再取得 (既存ファイルも上書き)
+    """
+
+    INCREMENTAL = "incremental"
+    FULL = "full"
+    FORCE = "force"
+
+    def __str__(self) -> str:
+        return self.value
 
 
 # ロギング設定
@@ -46,21 +64,51 @@ class DataCollector:
     def __init__(
         self,
         config: DataCollectionConfig,
+        mode: CollectionMode | str | None = None,
         dry_run: bool = False,
-        skip_existing: bool = False,
-        force_update: bool = False,
         save_all_zero: bool = False,
         target_weeks: list[int] | None = None,
         target_months: list[int] | None = None,
+        # 後方互換性のため残す (非推奨)
+        skip_existing: bool | None = None,
+        force_update: bool | None = None,
     ):
         self.config = config
         self.dry_run = dry_run
-        self.skip_existing = skip_existing
-        self.force_update = force_update
         self.save_all_zero = save_all_zero
         self.target_weeks = target_weeks
         self.target_months = target_months
         self.logger = logging.getLogger(__name__)
+
+        # モードの決定 (優先順位: mode引数 > 旧フラグ > config > デフォルト)
+        if mode is not None:
+            # modeが文字列の場合はenumに変換
+            self.mode = CollectionMode(mode) if isinstance(mode, str) else mode
+        elif force_update:
+            # 後方互換性: --force-updateはFORCEモードにマップ
+            self.logger.warning("--force-update は非推奨です。--mode=force を使用してください。")
+            self.mode = CollectionMode.FORCE
+        elif skip_existing:
+            # 後方互換性: --skip-existingはINCREMENTALモードにマップ
+            self.logger.warning("--skip-existing は非推奨です。--mode=incremental を使用してください。")
+            self.mode = CollectionMode.INCREMENTAL
+        elif skip_existing is False:
+            # 後方互換性: --skip-existing が明示的にFalseの場合はFULLモード
+            self.mode = CollectionMode.FULL
+        else:
+            # config.ymlから読み取る (デフォルトはINCREMENTAL)
+            config_mode = getattr(config.collection, "mode", None)
+            if config_mode:
+                self.mode = CollectionMode(config_mode)
+            elif hasattr(config.collection, "incremental_mode") and config.collection.incremental_mode:
+                # 旧設定との互換性: incremental_mode=TrueならINCREMENTAL
+                self.logger.warning("config.collection.incremental_mode は非推奨です。mode を使用してください。")
+                self.mode = CollectionMode.INCREMENTAL
+            else:
+                # デフォルトはINCREMENTAL (既存ファイルをスキップ)
+                self.mode = CollectionMode.INCREMENTAL
+
+        self.logger.info(f"データ収集モード: {self.mode.value}")
 
         # フェッチャー初期化
         fetcher_config = DataFetcherConfig(max_retries=3, base_delay=1.0, timeout=30, rate_limit_delay=1.5)
@@ -120,23 +168,28 @@ class DataCollector:
         return self.stats
 
     def _collect_data_type(self, data_type: str, start_year: int, end_year: int):
-        """特定のデータタイプを収集"""
+        """特定のデータタイプを収集
+
+        モードに応じてデータ収集戦略を変更:
+        - FORCE: 全データを強制的に再取得
+        - FULL: 全期間のデータを取得し、既存も更新チェック
+        - INCREMENTAL: 欠損データのみ取得 (既存ファイルをスキップ)
+        """
         is_monthly = "monthly" in data_type
 
-        # 強制更新モードの場合、すべてのデータを再取得
-        if self.force_update:
-            self.logger.info(f"強制更新モード: {data_type}の全データを再取得")
-            # 全パラメータを生成(target_weeks/monthsも考慮)
+        # モードに応じてパラメータを生成
+        if self.mode == CollectionMode.FORCE:
+            # FORCEモード: 全データを強制的に再取得
+            self.logger.info(f"[{self.mode.value}] {data_type}の全データを強制再取得")
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-        # skip_existingが明示的にFalseの場合は全期間取得(ワークフローパラメータを優先)
-        elif not self.skip_existing:
-            # 全期間のパラメータ生成(既存ファイルも再取得して更新チェック)
+
+        elif self.mode == CollectionMode.FULL:
+            # FULLモード: 全期間のデータを取得、既存も更新チェック
             missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-            self.logger.info(
-                f"全期間取得モード: {data_type}の{len(missing_params)}件のデータを取得(既存も更新チェック)"
-            )
-        # skip_existingがTrueまたはconfig.incremental_modeがTrueの場合は増分取得
-        elif self.skip_existing or self.config.collection.incremental_mode:
+            self.logger.info(f"[{self.mode.value}] {data_type}の{len(missing_params)}件を取得 (既存も更新チェック)")
+
+        elif self.mode == CollectionMode.INCREMENTAL:
+            # INCREMENTALモード: 欠損データのみ取得
             existing_files = self.storage.get_existing_files(data_type=data_type)
             missing_params = self.fetcher.get_missing_data(
                 data_type,
@@ -146,15 +199,11 @@ class DataCollector:
                 self.target_weeks,
                 self.target_months,
             )
+            self.logger.info(f"[{self.mode.value}] {data_type}の欠損データ {len(missing_params)}件のみ取得")
 
-            if self.skip_existing:
-                self.logger.info(f"増分取得モード: {data_type}の欠損データ {len(missing_params)}件のみ取得")
-            else:
-                self.logger.info(f"増分収集モード(config設定): {data_type}の欠損データ {len(missing_params)}件")
         else:
-            # フォールバック:全期間のパラメータ生成
-            missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-            self.logger.info(f"全期間取得モード(フォールバック): {data_type}の{len(missing_params)}件")
+            # 未知のモード (通常は発生しない)
+            raise ValueError(f"Unknown collection mode: {self.mode}")
 
         # バッチ処理
         batch_size = self.config.collection.batch_size
@@ -210,14 +259,14 @@ class DataCollector:
                         int(params.start_sub_period),
                         is_monthly,
                         additional_metadata,
-                        force_overwrite=self.force_update,  # 強制更新フラグを渡す
+                        force_overwrite=(self.mode == CollectionMode.FORCE),  # FORCEモード時のみ強制上書き
                         save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
 
                     # 統計カウント優先順位: duplicate > skipped > success
                     # - duplicateとskippedはsuccessの一種だが、別カウントで追跡
-                    # - force_updateの有無に関わらず、is_duplicate/is_skippedを優先
-                    # - これにより、force_update=Trueでも全ゼロデータがスキップされた場合、
+                    # - モードに関わらず、is_duplicate/is_skippedを優先
+                    # - これにより、FORCEモードでも全ゼロデータがスキップされた場合、
                     #   updated_filesではなくskippedとして正確にカウントされる
                     if save_result.is_duplicate:
                         self.stats["duplicates"] += 1
@@ -423,9 +472,30 @@ def main():
 
     parser.add_argument("--dry-run", action="store_true", help="テスト実行(データ保存・コミットをスキップ)")
 
-    parser.add_argument("--skip-existing", action="store_true", help="既存ファイルをスキップし、新規ファイルのみ取得")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["incremental", "full", "force"],
+        help=(
+            "データ収集モード: "
+            "incremental(欠損のみ取得/既存スキップ), "
+            "full(全期間取得/既存も更新チェック), "
+            "force(全データ強制再取得)"
+        ),
+    )
 
-    parser.add_argument("--force-update", action="store_true", help="既存ファイルも含めてすべて再取得(更新チェック)")
+    # 後方互換性のため残す (非推奨)
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="(非推奨: --mode=incremental を使用) 既存ファイルをスキップし、新規ファイルのみ取得",
+    )
+
+    parser.add_argument(
+        "--force-update",
+        action="store_true",
+        help="(非推奨: --mode=force を使用) 既存ファイルも含めてすべて再取得",
+    )
 
     parser.add_argument(
         "--save-all-zero",
@@ -467,6 +537,14 @@ def main():
             logger.info(f"対象月を指定: {target_months}")
 
         # オプションの互換性チェック
+        mode_specified = args.mode is not None
+        legacy_specified = args.skip_existing or args.force_update
+
+        if mode_specified and legacy_specified:
+            logger.error("--mode と旧オプション (--skip-existing, --force-update) は同時に指定できません")
+            logger.error("--mode を使用することを推奨します")
+            sys.exit(1)
+
         if args.skip_existing and args.force_update:
             logger.error("--skip-existing と --force-update は同時に指定できません")
             sys.exit(1)
@@ -481,12 +559,14 @@ def main():
         # データ収集実行
         collector = DataCollector(
             config=config,
+            mode=args.mode,  # 新しいmode引数
             dry_run=args.dry_run,
-            skip_existing=args.skip_existing,
-            force_update=args.force_update,
             save_all_zero=args.save_all_zero,
             target_weeks=target_weeks,
             target_months=target_months,
+            # 後方互換性のため残す
+            skip_existing=args.skip_existing if args.skip_existing else None,
+            force_update=args.force_update if args.force_update else None,
         )
         stats = collector.collect_data(data_types=data_types, start_year=args.start_year, end_year=args.end_year)
 

@@ -7,11 +7,15 @@ on:
     - cron: "30 8 * * 4"
   workflow_dispatch:
     inputs:
-      force_update:
-        description: "既存ファイルも強制的に再取得（デフォルト: true）"
+      mode:
+        description: "データ収集モード (デフォルト: force)"
         required: false
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - incremental
+          - full
+          - force
+        default: "force"
       check_previous_year:
         description: "前年のデータもチェック（1月のみ推奨）"
         required: false
@@ -82,13 +86,13 @@ jobs:
         id: params
         run: |
           # 入力パラメータの処理
-          FORCE_UPDATE="${{ github.event.inputs.force_update }}"
+          MODE="${{ github.event.inputs.mode }}"
           CHECK_PREVIOUS_YEAR="${{ github.event.inputs.check_previous_year }}"
           DRY_RUN="${{ github.event.inputs.dry_run }}"
 
           # デフォルト値の設定（schedule実行時）
-          if [ -z "$FORCE_UPDATE" ]; then
-            FORCE_UPDATE="true"  # 週次実行では既存ファイルも再チェック
+          if [ -z "$MODE" ]; then
+            MODE="force"  # 週次実行では全データを強制再取得
           fi
 
           if [ -z "$CHECK_PREVIOUS_YEAR" ]; then
@@ -116,7 +120,7 @@ jobs:
           # 環境変数として設定
           echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
           echo "END_YEAR=$CURRENT_YEAR" >> $GITHUB_ENV
-          echo "FORCE_UPDATE=$FORCE_UPDATE" >> $GITHUB_ENV
+          echo "MODE=$MODE" >> $GITHUB_ENV
           echo "CHECK_PREVIOUS_YEAR=$CHECK_PREVIOUS_YEAR" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
 
@@ -124,7 +128,7 @@ jobs:
           echo "  Start year: $START_YEAR"
           echo "  End year: $CURRENT_YEAR"
           echo "  Current week: $CURRENT_WEEK"
-          echo "  Force update: $FORCE_UPDATE"
+          echo "  Collection mode: $MODE"
           echo "  Check previous year: $CHECK_PREVIOUS_YEAR"
           echo "  Dry run: $DRY_RUN"
 
@@ -150,10 +154,8 @@ jobs:
           FETCH_CMD+=(--start-year "$START_YEAR")
           FETCH_CMD+=(--end-year "$END_YEAR")
 
-          # 強制更新モード（既存ファイルも再取得）
-          if [ "$FORCE_UPDATE" = "true" ]; then
-            FETCH_CMD+=(--force-update)
-          fi
+          # モードを指定
+          FETCH_CMD+=(--mode "$MODE")
 
           # DRY_RUNがtrueの場合
           if [ "$DRY_RUN" = "true" ]; then
