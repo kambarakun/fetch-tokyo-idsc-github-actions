@@ -392,7 +392,7 @@ jobs:
           echo "- **対象年**: $CURRENT_YEAR" >> $GITHUB_STEP_SUMMARY
           echo "- **対象週**: 第${TWO_WEEKS_AGO}週, 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週（木曜更新考慮）" >> $GITHUB_STEP_SUMMARY
           echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月" >> $GITHUB_STEP_SUMMARY
-          echo "- **既存ファイルスキップ**: ${SKIP_EXISTING:-true}" >> $GITHUB_STEP_SUMMARY
+          echo "- **収集モード**: ${MODE:-incremental}" >> $GITHUB_STEP_SUMMARY
           echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 

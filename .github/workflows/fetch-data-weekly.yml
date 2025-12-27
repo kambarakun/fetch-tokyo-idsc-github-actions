@@ -458,7 +458,7 @@ jobs:
           echo "- **曜日**: 木曜日" >> $GITHUB_STEP_SUMMARY
           echo "- **対象期間**: $START_YEAR - $END_YEAR" >> $GITHUB_STEP_SUMMARY
           echo "- **現在の週**: 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
-          echo "- **強制更新**: ${FORCE_UPDATE:-true}" >> $GITHUB_STEP_SUMMARY
+          echo "- **収集モード**: ${MODE:-force}" >> $GITHUB_STEP_SUMMARY
           echo "- **前年チェック**: ${CHECK_PREVIOUS_YEAR:-false}" >> $GITHUB_STEP_SUMMARY
           echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
