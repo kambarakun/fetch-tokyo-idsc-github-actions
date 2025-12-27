@@ -169,16 +169,45 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         self.assertTrue(encoding_result["valid"], "Shift_JIS encoding should be valid")
         self.assertEqual(encoding_result["encoding"], "shift_jis", "Encoding should be shift_jis")
 
+    def test_encoding_option_cp932(self):
+        """cp932エンコーディングが正しく動作することを確認 (CodeRabbit提案)"""
+        # cp932でテスト用CSVファイルを作成
+        test_file = self.data_dir / "test_cp932.csv"
+        content = "col1,col2,col3\nval1,val2,val3\n" * 10  # 100バイト以上
+        test_file.write_bytes(content.encode("cp932"))
+
+        # cp932エンコーディング指定
+        validator = DataValidator(strict_mode=False, encoding="cp932")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングチェックが成功することを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertTrue(encoding_result["valid"], "cp932 encoding should be valid")
+        self.assertEqual(encoding_result["encoding"], "cp932", "Encoding should be cp932")
+
+    def test_invalid_encoding_name_lookup_error(self):
+        """無効なエンコーディング名でLookupErrorが発生することを確認 (CodeRabbit提案)"""
+        # Pythonが認識しない完全に無効なエンコーディング名
+        # (SUPPORTED_ENCODINGSチェックの前にLookupErrorが発生する)
+        with self.assertRaises(LookupError) as context:
+            DataValidator(strict_mode=False, encoding="completely-invalid-encoding-xyz")
+
+        # エラーメッセージに無効なエンコーディング名が含まれることを確認
+        self.assertIn("Invalid encoding", str(context.exception))
+        self.assertIn("completely-invalid-encoding-xyz", str(context.exception))
+
     def test_encoding_option_invalid_encoding(self):
         """無効なエンコーディングを指定した場合のエラー処理を確認 (issue #222)"""
         # サポートされていないエンコーディングでDataValidatorを作成しようとするとValueErrorが発生する
-        # (エンコーディング名の妥当性チェックよりも、サポート確認が先に実行される)
+        # (妥当性チェック (LookupError) をパスした後、サポート確認 (ValueError) が実行される)
+        # "invalid-encoding"は無効なエンコーディング名だが、LookupErrorチェックをパスする可能性があるため、
+        # 確実にValueErrorを発生させるために有効なエンコーディング名 "ascii" を使用する
         with self.assertRaises(ValueError) as context:
-            DataValidator(strict_mode=False, encoding="invalid-encoding")
+            DataValidator(strict_mode=False, encoding="ascii")
 
         # エラーメッセージにサポートされていないエンコーディング名が含まれることを確認
         self.assertIn("Unsupported encoding", str(context.exception))
-        self.assertIn("invalid-encoding", str(context.exception))
+        self.assertIn("ascii", str(context.exception))
 
     def test_encoding_mismatch_error_message(self):
         """エンコーディング不一致時のエラーメッセージを確認 (Claude Review提案)"""

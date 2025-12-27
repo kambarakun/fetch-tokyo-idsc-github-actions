@@ -63,12 +63,20 @@ class DataValidator:
                      サポート: utf-8, shift_jis, cp932
 
         Raises:
-            ValueError: サポートされていないエンコーディングが指定された場合
             LookupError: 無効なエンコーディング名が指定された場合
+            ValueError: サポートされていないエンコーディングが指定された場合
         """
         self.strict_mode = strict_mode
 
+        # エンコーディングの妥当性を検証 (fail-fast)
+        # Pythonが認識しないエンコーディング名を早期に検出
+        try:
+            "".encode(encoding)
+        except LookupError as e:
+            raise LookupError(f"Invalid encoding: {encoding}") from e
+
         # エンコーディングのサポート確認 (プロジェクト制約)
+        # Pythonが認識する有効なエンコーディングの中から、プロジェクトで使用するものを制限
         if encoding not in SUPPORTED_ENCODINGS:
             supported = ", ".join(sorted(SUPPORTED_ENCODINGS))
             raise ValueError(
@@ -76,12 +84,6 @@ class DataValidator:
                 f"This project only supports: {supported}. "
                 f"Use 'shift_jis' for raw data or 'utf-8' for processed data."
             )
-
-        # エンコーディングの妥当性を検証 (fail-fast)
-        try:
-            "".encode(encoding)
-        except LookupError as e:
-            raise LookupError(f"Invalid encoding: {encoding}") from e
 
         self.encoding = encoding
         self.logger = logging.getLogger(__name__)
