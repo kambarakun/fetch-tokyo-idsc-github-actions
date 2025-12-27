@@ -4,6 +4,10 @@
 
 セキュリティとデータ品質の観点から、取得したCSVファイルを検証し、
 悪意のあるデータや破損データがmainブランチに入ることを防ぐ。
+
+エンコーディング:
+- raw データ: Shift_JIS (デフォルト、Tokyo IDSCからの取得データ)
+- processed データ: UTF-8 (--encoding utf-8 を指定)
 """
 # mypy: ignore-errors
 
@@ -20,13 +24,23 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # storage_manager から検証設定と統一メッセージ定数をインポート
-from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG, EXPECTED_ENCODING
+from src.managers.storage_manager import CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG
 from src.managers.storage_manager import VALIDATION_MAX_COLUMN_COUNT as MAX_COLUMN_COUNT
 from src.managers.storage_manager import VALIDATION_MAX_FILE_SIZE_MB as MAX_FILE_SIZE_MB
 from src.managers.storage_manager import VALIDATION_MAX_LINE_COUNT as MAX_LINE_COUNT
 from src.managers.storage_manager import VALIDATION_MIN_COLUMN_COUNT as MIN_COLUMN_COUNT
 from src.managers.storage_manager import VALIDATION_MIN_FILE_SIZE as MIN_FILE_SIZE_BYTES
 from src.managers.storage_manager import VALIDATION_MIN_LINE_COUNT as MIN_LINE_COUNT
+
+# サポートするエンコーディング
+# プロジェクトで使用する文字エンコーディングを明示的に制限
+SUPPORTED_ENCODINGS = frozenset(
+    [
+        "utf-8",  # processed データ用
+        "shift_jis",  # raw データ用 (Tokyo IDSCからの取得データ)
+        "cp932",  # shift_jis の Windows実装 (互換性のため)
+    ]
+)
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -41,12 +55,37 @@ def setup_logging(log_level: str = "INFO"):
 class DataValidator:
     """データ検証クラス"""
 
-    def __init__(self, strict_mode: bool = False):
+    def __init__(self, strict_mode: bool = False, encoding: str = "shift_jis"):
         """
         Args:
             strict_mode: 厳格モード(警告もエラーとして扱う)
+            encoding: ファイルエンコーディング (デフォルト: shift_jis)
+                     サポート: utf-8, shift_jis, cp932
+
+        Raises:
+            LookupError: 無効なエンコーディング名が指定された場合
+            ValueError: サポートされていないエンコーディングが指定された場合
         """
         self.strict_mode = strict_mode
+
+        # エンコーディングの妥当性を検証 (fail-fast)
+        # Pythonが認識しないエンコーディング名を早期に検出
+        try:
+            "".encode(encoding)
+        except LookupError as e:
+            raise LookupError(f"Invalid encoding: {encoding}") from e
+
+        # エンコーディングのサポート確認 (プロジェクト制約)
+        # Pythonが認識する有効なエンコーディングの中から、プロジェクトで使用するものを制限
+        if encoding not in SUPPORTED_ENCODINGS:
+            supported = ", ".join(sorted(SUPPORTED_ENCODINGS))
+            raise ValueError(
+                f"Unsupported encoding: {encoding}. "
+                f"This project only supports: {supported}. "
+                f"Use 'shift_jis' for raw data or 'utf-8' for processed data."
+            )
+
+        self.encoding = encoding
         self.logger = logging.getLogger(__name__)
         self.validation_results: list[dict[str, Any]] = []
         self.has_errors = False
@@ -168,16 +207,16 @@ class DataValidator:
         result = {"valid": True, "errors": []}
 
         try:
-            # Shift_JISで読み込みを試みる
-            with file_path.open("r", encoding=EXPECTED_ENCODING) as f:
+            # 指定されたエンコーディングで読み込みを試みる
+            with file_path.open("r", encoding=self.encoding) as f:
                 # 最初の数行を読んで確認
                 for i, _line in enumerate(f):
                     if i >= 10:  # 最初の10行のみチェック
                         break
-                result["encoding"] = EXPECTED_ENCODING
+                result["encoding"] = self.encoding
 
         except UnicodeDecodeError as e:
-            result["errors"].append(f"Encoding error (expected {EXPECTED_ENCODING}): {e!s}")
+            result["errors"].append(f"Encoding error (using {self.encoding}): {e!s}")
             result["valid"] = False
         except Exception as e:
             result["errors"].append(f"Failed to check encoding: {e!s}")
@@ -190,7 +229,7 @@ class DataValidator:
         result = {"valid": True, "errors": [], "warnings": [], "details": {}}
 
         try:
-            with file_path.open("r", encoding=EXPECTED_ENCODING) as f:
+            with file_path.open("r", encoding=self.encoding) as f:
                 # CSVリーダーで読み込み
                 reader = csv.reader(f)
 
@@ -457,6 +496,12 @@ def main():
         help="出力形式 (json または markdown)",
     )
     parser.add_argument(
+        "--encoding",
+        type=str,
+        default="shift_jis",
+        help="ファイルエンコーディング (サポート: utf-8, shift_jis, cp932) (デフォルト: shift_jis、processed データには utf-8 を指定)",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default="INFO",
@@ -470,7 +515,7 @@ def main():
     logger = setup_logging(args.log_level)
 
     # バリデーター作成
-    validator = DataValidator(strict_mode=args.strict)
+    validator = DataValidator(strict_mode=args.strict, encoding=args.encoding)
 
     # パスの処理
     path = Path(args.path)

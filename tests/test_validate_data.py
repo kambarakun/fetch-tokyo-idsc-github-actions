@@ -137,6 +137,113 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         # has_warningsがTrueになる
         self.assertTrue(validator.has_warnings, "has_warnings should be True")
 
+    def test_encoding_option_utf8(self):
+        """UTF-8エンコーディングオプションが正しく動作することを確認 (issue #222)"""
+        # UTF-8でテスト用CSVファイルを作成
+        test_file = self.data_dir / "test_utf8.csv"
+        content = "col1,col2,col3\nval1,val2,val3\n" * 10  # 100バイト以上
+        test_file.write_text(content, encoding="utf-8")
+
+        # UTF-8エンコーディング指定
+        validator = DataValidator(strict_mode=False, encoding="utf-8")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングチェックが成功することを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertTrue(encoding_result["valid"], "UTF-8 encoding should be valid")
+        self.assertEqual(encoding_result["encoding"], "utf-8", "Encoding should be utf-8")
+
+    def test_encoding_option_shift_jis(self):
+        """Shift_JISエンコーディング(デフォルト)が正しく動作することを確認 (issue #222)"""
+        # Shift_JISでテスト用CSVファイルを作成
+        test_file = self.data_dir / "test_sjis.csv"
+        content = "col1,col2,col3\nval1,val2,val3\n" * 10  # 100バイト以上
+        test_file.write_bytes(content.encode("shift_jis"))
+
+        # Shift_JISエンコーディング指定(デフォルト)
+        validator = DataValidator(strict_mode=False, encoding="shift_jis")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングチェックが成功することを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertTrue(encoding_result["valid"], "Shift_JIS encoding should be valid")
+        self.assertEqual(encoding_result["encoding"], "shift_jis", "Encoding should be shift_jis")
+
+    def test_encoding_option_cp932(self):
+        """cp932エンコーディングが正しく動作することを確認 (CodeRabbit提案)"""
+        # cp932でテスト用CSVファイルを作成
+        test_file = self.data_dir / "test_cp932.csv"
+        content = "col1,col2,col3\nval1,val2,val3\n" * 10  # 100バイト以上
+        test_file.write_bytes(content.encode("cp932"))
+
+        # cp932エンコーディング指定
+        validator = DataValidator(strict_mode=False, encoding="cp932")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングチェックが成功することを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertTrue(encoding_result["valid"], "cp932 encoding should be valid")
+        self.assertEqual(encoding_result["encoding"], "cp932", "Encoding should be cp932")
+
+    def test_invalid_encoding_name_lookup_error(self):
+        """無効なエンコーディング名でLookupErrorが発生することを確認 (CodeRabbit提案)"""
+        # Pythonが認識しない完全に無効なエンコーディング名
+        # (SUPPORTED_ENCODINGSチェックの前にLookupErrorが発生する)
+        with self.assertRaises(LookupError) as context:
+            DataValidator(strict_mode=False, encoding="completely-invalid-encoding-xyz")
+
+        # エラーメッセージに無効なエンコーディング名が含まれることを確認
+        self.assertIn("Invalid encoding", str(context.exception))
+        self.assertIn("completely-invalid-encoding-xyz", str(context.exception))
+
+    def test_encoding_option_invalid_encoding(self):
+        """無効なエンコーディングを指定した場合のエラー処理を確認 (issue #222)"""
+        # サポートされていないエンコーディングでDataValidatorを作成しようとするとValueErrorが発生する
+        # (妥当性チェック (LookupError) をパスした後、サポート確認 (ValueError) が実行される)
+        # "invalid-encoding"は無効なエンコーディング名だが、LookupErrorチェックをパスする可能性があるため、
+        # 確実にValueErrorを発生させるために有効なエンコーディング名 "ascii" を使用する
+        with self.assertRaises(ValueError) as context:
+            DataValidator(strict_mode=False, encoding="ascii")
+
+        # エラーメッセージにサポートされていないエンコーディング名が含まれることを確認
+        self.assertIn("Unsupported encoding", str(context.exception))
+        self.assertIn("ascii", str(context.exception))
+
+    def test_encoding_mismatch_error_message(self):
+        """エンコーディング不一致時のエラーメッセージを確認 (Claude Review提案)"""
+        # UTF-8でファイル作成
+        test_file = self.data_dir / "test_utf8_mismatch.csv"
+        content = "col1,col2,日本語\nval1,val2,データ\n" * 10  # 100バイト以上、日本語を含む
+        test_file.write_text(content, encoding="utf-8")
+
+        # Shift_JISで検証を試みる (エンコーディング不一致)
+        validator = DataValidator(strict_mode=False, encoding="shift_jis")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングエラーが適切に報告されることを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertFalse(encoding_result["valid"], "Encoding mismatch should be detected")
+        self.assertTrue(len(encoding_result["errors"]) > 0, "Should have encoding errors")
+
+        # エラーメッセージに "Encoding error (using shift_jis)" が含まれることを確認
+        error_message = " ".join(encoding_result["errors"])
+        self.assertIn("Encoding error", error_message)
+        self.assertIn("using shift_jis", error_message)
+
+    def test_unsupported_encoding(self):
+        """サポートされていないエンコーディングを指定した場合のエラー処理を確認 (Claude Review提案)"""
+        # サポートされていないが有効なエンコーディング (ascii, latin1等)でDataValidatorを作成しようとするとValueErrorが発生する
+        with self.assertRaises(ValueError) as context:
+            DataValidator(strict_mode=False, encoding="ascii")
+
+        # エラーメッセージにサポートされているエンコーディング一覧が含まれることを確認
+        error_msg = str(context.exception)
+        self.assertIn("Unsupported encoding", error_msg)
+        self.assertIn("ascii", error_msg)
+        self.assertIn("utf-8", error_msg)
+        self.assertIn("shift_jis", error_msg)
+        self.assertIn("cp932", error_msg)
+
 
 class TestMarkdownEscaping(unittest.TestCase):
     """Markdown特殊文字のエスケープテスト"""
