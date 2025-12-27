@@ -32,6 +32,16 @@ from src.managers.storage_manager import VALIDATION_MIN_COLUMN_COUNT as MIN_COLU
 from src.managers.storage_manager import VALIDATION_MIN_FILE_SIZE as MIN_FILE_SIZE_BYTES
 from src.managers.storage_manager import VALIDATION_MIN_LINE_COUNT as MIN_LINE_COUNT
 
+# サポートするエンコーディング
+# プロジェクトで使用する文字エンコーディングを明示的に制限
+SUPPORTED_ENCODINGS = frozenset(
+    [
+        "utf-8",  # processed データ用
+        "shift_jis",  # raw データ用 (Tokyo IDSCからの取得データ)
+        "cp932",  # shift_jis の Windows実装 (互換性のため)
+    ]
+)
+
 
 def setup_logging(log_level: str = "INFO"):
     """ロギングのセットアップ"""
@@ -50,11 +60,22 @@ class DataValidator:
         Args:
             strict_mode: 厳格モード(警告もエラーとして扱う)
             encoding: ファイルエンコーディング (デフォルト: shift_jis)
+                     サポート: utf-8, shift_jis, cp932
 
         Raises:
+            ValueError: サポートされていないエンコーディングが指定された場合
             LookupError: 無効なエンコーディング名が指定された場合
         """
         self.strict_mode = strict_mode
+
+        # エンコーディングのサポート確認 (プロジェクト制約)
+        if encoding not in SUPPORTED_ENCODINGS:
+            supported = ", ".join(sorted(SUPPORTED_ENCODINGS))
+            raise ValueError(
+                f"Unsupported encoding: {encoding}. "
+                f"This project only supports: {supported}. "
+                f"Use 'shift_jis' for raw data or 'utf-8' for processed data."
+            )
 
         # エンコーディングの妥当性を検証 (fail-fast)
         try:

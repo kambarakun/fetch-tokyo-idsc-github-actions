@@ -171,12 +171,13 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
 
     def test_encoding_option_invalid_encoding(self):
         """無効なエンコーディングを指定した場合のエラー処理を確認 (issue #222)"""
-        # 無効なエンコーディングでDataValidatorを作成しようとするとLookupErrorが発生する
-        with self.assertRaises(LookupError) as context:
+        # サポートされていないエンコーディングでDataValidatorを作成しようとするとValueErrorが発生する
+        # (エンコーディング名の妥当性チェックよりも、サポート確認が先に実行される)
+        with self.assertRaises(ValueError) as context:
             DataValidator(strict_mode=False, encoding="invalid-encoding")
 
-        # エラーメッセージに無効なエンコーディング名が含まれることを確認
-        self.assertIn("Invalid encoding", str(context.exception))
+        # エラーメッセージにサポートされていないエンコーディング名が含まれることを確認
+        self.assertIn("Unsupported encoding", str(context.exception))
         self.assertIn("invalid-encoding", str(context.exception))
 
     def test_encoding_mismatch_error_message(self):
@@ -199,6 +200,20 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         error_message = " ".join(encoding_result["errors"])
         self.assertIn("Encoding error", error_message)
         self.assertIn("using shift_jis", error_message)
+
+    def test_unsupported_encoding(self):
+        """サポートされていないエンコーディングを指定した場合のエラー処理を確認 (Claude Review提案)"""
+        # サポートされていないが有効なエンコーディング (ascii, latin1等)でDataValidatorを作成しようとするとValueErrorが発生する
+        with self.assertRaises(ValueError) as context:
+            DataValidator(strict_mode=False, encoding="ascii")
+
+        # エラーメッセージにサポートされているエンコーディング一覧が含まれることを確認
+        error_msg = str(context.exception)
+        self.assertIn("Unsupported encoding", error_msg)
+        self.assertIn("ascii", error_msg)
+        self.assertIn("utf-8", error_msg)
+        self.assertIn("shift_jis", error_msg)
+        self.assertIn("cp932", error_msg)
 
 
 class TestMarkdownEscaping(unittest.TestCase):
