@@ -48,8 +48,10 @@ permissions:
   pull-requests: write # PR作成と自動マージに必要
 
 concurrency:
+  # 手動実行も日次/週次と同じグループを共有し、データ競合を防ぐ
   group: fetch-data
-  cancel-in-progress: true
+  # 既存の実行をキャンセルしない (データ欠落を防ぐ)
+  cancel-in-progress: false
 
 jobs:
   fetch-data:
