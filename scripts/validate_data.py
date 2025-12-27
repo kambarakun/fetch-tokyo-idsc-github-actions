@@ -497,7 +497,7 @@ def main():
         "--encoding",
         type=str,
         default="shift_jis",
-        help="ファイルエンコーディング (デフォルト: shift_jis, processed データには utf-8 を指定)",
+        help="ファイルエンコーディング (サポート: utf-8, shift_jis, cp932) (デフォルト: shift_jis、processed データには utf-8 を指定)",
     )
     parser.add_argument(
         "--log-level",
