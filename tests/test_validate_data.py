@@ -179,6 +179,27 @@ class TestDataValidatorMarkdownReport(unittest.TestCase):
         self.assertIn("Invalid encoding", str(context.exception))
         self.assertIn("invalid-encoding", str(context.exception))
 
+    def test_encoding_mismatch_error_message(self):
+        """エンコーディング不一致時のエラーメッセージを確認 (Claude Review提案)"""
+        # UTF-8でファイル作成
+        test_file = self.data_dir / "test_utf8_mismatch.csv"
+        content = "col1,col2,日本語\nval1,val2,データ\n" * 10  # 100バイト以上、日本語を含む
+        test_file.write_text(content, encoding="utf-8")
+
+        # Shift_JISで検証を試みる (エンコーディング不一致)
+        validator = DataValidator(strict_mode=False, encoding="shift_jis")
+        result = validator.validate_file(test_file)
+
+        # エンコーディングエラーが適切に報告されることを確認
+        encoding_result = result["checks"]["encoding"]
+        self.assertFalse(encoding_result["valid"], "Encoding mismatch should be detected")
+        self.assertTrue(len(encoding_result["errors"]) > 0, "Should have encoding errors")
+
+        # エラーメッセージに "Encoding error (using shift_jis)" が含まれることを確認
+        error_message = " ".join(encoding_result["errors"])
+        self.assertIn("Encoding error", error_message)
+        self.assertIn("using shift_jis", error_message)
+
 
 class TestMarkdownEscaping(unittest.TestCase):
     """Markdown特殊文字のエスケープテスト"""
