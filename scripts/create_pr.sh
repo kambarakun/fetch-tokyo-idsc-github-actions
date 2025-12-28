@@ -22,6 +22,9 @@ set -e
 #   - GITHUB_RUN_ID     : GitHub ActionsのRun ID (数値)
 #
 # オプション環境変数（ワークフロー別）:
+#   共通:
+#     - AUTO_MERGE (true|false) - PR自動マージを有効化 (デフォルト: false)
+#     - FORCE_MERGE_ON_FAILURE (true|false) - 検証失敗時も強制マージ (デフォルト: false)
 #   fetch-data-daily:
 #     - CURRENT_YEAR, CURRENT_WEEK, CURRENT_MONTH
 #     - PREVIOUS_WEEK, PREVIOUS_MONTH
@@ -31,7 +34,7 @@ set -e
 #     - VALIDATION_SUCCESS (true|false)
 #   fetch-data:
 #     - START_YEAR, END_YEAR
-#     - DATA_TYPES, SKIP_EXISTING
+#     - DATA_TYPES, MODE
 #     - VERIFY_CONTINUITY, CONTINUITY_VALID
 #     - NEW_FILES, MODIFIED_FILES, CHANGED_FILES (CSVカウント用)
 #   process-data:
@@ -559,19 +562,63 @@ if [ -z "$PR_NUMBER" ]; then
 else
   echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
 
-  # 自動マージを有効化（squashマージを使用、マージ後にブランチを自動削除）
-  echo "🔄 自動マージを設定中..."
-  if gh pr merge "$PR_NUMBER" --auto --squash --delete-branch; then
-    echo "✅ Auto-merge configured successfully (branch will be deleted after merge)"
-  else
-    EXIT_CODE=$?
-    echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
-    echo "   Manual merge may be required." >&2
-    echo "   Error code: $EXIT_CODE" >&2
-    echo "   Attempted command: gh pr merge $PR_NUMBER --auto --squash --delete-branch" >&2
-    if [ $EXIT_CODE -eq 1 ]; then
-      echo "💡 If auto-merge succeeds but branch deletion fails, you may need to delete the branch manually:" >&2
-      echo "   git push origin --delete $BRANCH_NAME" >&2
+  # 自動マージ有効化の判定
+  # AUTO_MERGE_EFFECTIVE = AUTO_MERGE && (検証成功 OR FORCE_MERGE_ON_FAILURE)
+  AUTO_MERGE_REQUESTED="${AUTO_MERGE:-false}"
+  FORCE_MERGE="${FORCE_MERGE_ON_FAILURE:-false}"
+
+  # ワークフロー別の検証結果を取得
+  VALIDATIONS_PASSED="true"  # デフォルトは検証成功
+  case "$WORKFLOW_NAME" in
+    fetch-data-weekly)
+      if [ "${VALIDATION_SUCCESS:-}" = "false" ]; then
+        VALIDATIONS_PASSED="false"
+      fi
+      ;;
+    fetch-data)
+      if [ "${CONTINUITY_VALID:-}" = "false" ] && [ "${VERIFY_CONTINUITY:-}" = "true" ]; then
+        VALIDATIONS_PASSED="false"
+      fi
+      ;;
+    process-data)
+      if [ "${VALIDATION_PASSED:-}" = "false" ]; then
+        VALIDATIONS_PASSED="false"
+      fi
+      ;;
+  esac
+
+  # AUTO_MERGE_EFFECTIVE の計算
+  AUTO_MERGE_EFFECTIVE="false"
+  if [ "$AUTO_MERGE_REQUESTED" = "true" ]; then
+    if [ "$VALIDATIONS_PASSED" = "true" ] || [ "$FORCE_MERGE" = "true" ]; then
+      AUTO_MERGE_EFFECTIVE="true"
+    else
+      echo "ℹ️ Auto-merge requested but validations failed. Skipping auto-merge." >&2
+      echo "   Set FORCE_MERGE_ON_FAILURE=true to override this behavior." >&2
     fi
+  fi
+
+  # 自動マージの実行
+  if [ "$AUTO_MERGE_EFFECTIVE" = "true" ]; then
+    echo "🔄 自動マージを設定中..."
+    if gh pr merge "$PR_NUMBER" --auto --squash --delete-branch; then
+      echo "✅ Auto-merge configured successfully (branch will be deleted after merge)"
+      if [ "$FORCE_MERGE" = "true" ] && [ "$VALIDATIONS_PASSED" = "false" ]; then
+        echo "⚠️ Warning: Force merge enabled despite validation failures" >&2
+      fi
+    else
+      EXIT_CODE=$?
+      echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
+      echo "   Manual merge may be required." >&2
+      echo "   Error code: $EXIT_CODE" >&2
+      echo "   Attempted command: gh pr merge $PR_NUMBER --auto --squash --delete-branch" >&2
+      if [ $EXIT_CODE -eq 1 ]; then
+        echo "💡 If auto-merge succeeds but branch deletion fails, you may need to delete the branch manually:" >&2
+        echo "   git push origin --delete $BRANCH_NAME" >&2
+      fi
+    fi
+  else
+    echo "ℹ️ Auto-merge disabled (AUTO_MERGE=$AUTO_MERGE_REQUESTED, VALIDATIONS_PASSED=$VALIDATIONS_PASSED, FORCE_MERGE=$FORCE_MERGE)"
+    echo "   Manual merge is required."
   fi
 fi
