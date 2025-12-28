@@ -1,0 +1,595 @@
+name: 🔄 Common Fetch Data Workflow
+
+on:
+  workflow_call:
+    inputs:
+      workflow_type:
+        description: "ワークフロータイプ"
+        required: true
+        type: string # "manual" | "weekly" | "daily"
+      workflow_display_name:
+        description: "ワークフロー表示名"
+        required: true
+        type: string
+      mode:
+        description: "データ収集モード"
+        required: false
+        type: string
+        default: "full" # "incremental" | "full" | "force"
+      data_types:
+        description: "取得するデータ種別 (カンマ区切り)"
+        required: false
+        type: string
+        default: ""
+      start_year:
+        description: "開始年"
+        required: false
+        type: string
+        default: ""
+      end_year:
+        description: "終了年"
+        required: false
+        type: string
+        default: ""
+      target_weeks:
+        description: "対象週 (カンマ区切り)"
+        required: false
+        type: string
+        default: ""
+      target_months:
+        description: "対象月 (カンマ区切り)"
+        required: false
+        type: string
+        default: ""
+      verify_lockfile:
+        description: "uv.lockが最新かチェック"
+        required: false
+        type: boolean
+        default: false
+      verify_continuity:
+        description: "データ連続性を検証"
+        required: false
+        type: boolean
+        default: false
+      validate_before:
+        description: "データ取得前に既存データを検証"
+        required: false
+        type: boolean
+        default: false
+      validate_after:
+        description: "データ取得後に検証"
+        required: false
+        type: boolean
+        default: false
+      check_previous_year:
+        description: "前年のデータもチェック (1月のみ推奨)"
+        required: false
+        type: boolean
+        default: false
+      continue_on_failure:
+        description: "処理失敗時も継続"
+        required: false
+        type: boolean
+        default: false
+      auto_merge:
+        description: "PR自動マージを有効化"
+        required: false
+        type: boolean
+        default: false
+      force_merge_on_failure:
+        description: "処理失敗時も強制マージ"
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: "テスト実行 (データ取得のみでコミットしない)"
+        required: false
+        type: boolean
+        default: false
+      timeout_minutes:
+        description: "タイムアウト時間 (分)"
+        required: false
+        type: number
+        default: 180
+      log_retention_days:
+        description: "ログ保存期間 (日)"
+        required: false
+        type: number
+        default: 30
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Python
+        run: uv python install 3.11
+
+      - name: Verify lockfile is up-to-date
+        if: inputs.verify_lockfile
+        run: uv lock --check
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create directories
+        run: |
+          mkdir -p data/raw/.metadata data/processed data/logs data/quarantine
+          mkdir -p config
+
+      - name: Set environment variables
+        run: |
+          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+          echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
+          echo "PREVIOUS_YEAR=$(date -d 'last year' +'%Y')" >> $GITHUB_ENV
+          echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
+          echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
+          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+
+      - name: Prepare fetch parameters
+        id: params
+        run: |
+          # 入力パラメータの処理
+          MODE="${{ inputs.mode }}"
+          START_YEAR="${{ inputs.start_year }}"
+          END_YEAR="${{ inputs.end_year }}"
+          CHECK_PREVIOUS_YEAR="${{ inputs.check_previous_year }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+
+          # workflow_type別のデフォルト値設定
+          case "${{ inputs.workflow_type }}" in
+            manual)
+              # 手動実行: 入力値をそのまま使用
+              if [ -z "$START_YEAR" ]; then
+                START_YEAR="$CURRENT_YEAR"
+              fi
+              if [ -z "$END_YEAR" ]; then
+                END_YEAR="$CURRENT_YEAR"
+              fi
+              ;;
+            weekly)
+              # 週次実行: 前年チェックの自動判定
+              if [ "$CHECK_PREVIOUS_YEAR" = "true" ] || [ "$CURRENT_MONTH" = "01" ]; then
+                START_YEAR="$PREVIOUS_YEAR"
+                echo "ℹ️ January detected or previous year check enabled: Including $PREVIOUS_YEAR"
+              else
+                START_YEAR="$CURRENT_YEAR"
+              fi
+              END_YEAR="$CURRENT_YEAR"
+              ;;
+            daily)
+              # 日次実行: start_yearは呼び出し側で設定済み
+              if [ -z "$START_YEAR" ]; then
+                START_YEAR="$CURRENT_YEAR"
+              fi
+              END_YEAR="$CURRENT_YEAR"
+              ;;
+          esac
+
+          # 環境変数として設定
+          echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
+          echo "END_YEAR=$END_YEAR" >> $GITHUB_ENV
+          echo "MODE=$MODE" >> $GITHUB_ENV
+          echo "CHECK_PREVIOUS_YEAR=$CHECK_PREVIOUS_YEAR" >> $GITHUB_ENV
+          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+
+          echo "${{ inputs.workflow_display_name }} parameters:"
+          echo "  Start year: $START_YEAR"
+          echo "  End year: $END_YEAR"
+          echo "  Current week: $CURRENT_WEEK"
+          echo "  Collection mode: $MODE"
+          echo "  Check previous year: $CHECK_PREVIOUS_YEAR"
+          echo "  Dry run: $DRY_RUN"
+
+      - name: Validate existing data before fetch
+        id: validate-before
+        if: inputs.validate_before
+        run: |
+          echo "データ取得前の既存データ検証..."
+          if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
+            uv run python scripts/validate_data.py data/raw --pattern "*.csv" || true
+          else
+            echo "No existing data to validate"
+          fi
+
+      - name: Fetch epidemic data
+        id: fetch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # ログファイル名の決定 (workflow_typeベース)
+          case "${{ inputs.workflow_type }}" in
+            manual) LOG_PREFIX="fetch" ;;
+            weekly) LOG_PREFIX="weekly" ;;
+            daily)  LOG_PREFIX="daily" ;;
+          esac
+
+          echo "Starting ${{ inputs.workflow_display_name }} at $FETCH_TIMESTAMP"
+
+          # コマンドの構築
+          FETCH_CMD=(uv run python scripts/fetch_data.py)
+
+          # 年範囲の指定
+          FETCH_CMD+=(--start-year "$START_YEAR")
+          FETCH_CMD+=(--end-year "$END_YEAR")
+
+          # モードを指定
+          FETCH_CMD+=(--mode "$MODE")
+
+          # データ種別の指定 (指定された場合のみ)
+          if [ -n "${{ inputs.data_types }}" ]; then
+            FETCH_CMD+=(--data-types "${{ inputs.data_types }}")
+          fi
+
+          # 対象週の指定 (指定された場合のみ)
+          if [ -n "${{ inputs.target_weeks }}" ]; then
+            FETCH_CMD+=(--target-weeks "${{ inputs.target_weeks }}")
+          fi
+
+          # 対象月の指定 (指定された場合のみ)
+          if [ -n "${{ inputs.target_months }}" ]; then
+            FETCH_CMD+=(--target-months "${{ inputs.target_months }}")
+          fi
+
+          # DRY_RUNがtrueの場合
+          if [ "$DRY_RUN" = "true" ]; then
+            FETCH_CMD+=(--dry-run)
+          fi
+
+          FETCH_CMD+=(--log-file "data/logs/${LOG_PREFIX}_${FETCH_TIMESTAMP}.log")
+
+          echo "Executing: ${FETCH_CMD[@]}"
+
+          # メインスクリプトの実行
+          "${FETCH_CMD[@]}" 2>&1 | tee "data/logs/console_${LOG_PREFIX}_${FETCH_TIMESTAMP}.log"
+
+          # 実行結果の保存 (PIPESTATUS[0]でパイプライン内の最初のコマンドの終了コードを取得)
+          echo "FETCH_RESULT=${PIPESTATUS[0]}" >> $GITHUB_ENV
+
+      - name: Process epidemic data
+        id: process
+        if: inputs.dry_run != true
+        run: |
+          # パイプラインの終了コードを正しく伝播 (pipefailオプション)
+          set -o pipefail
+
+          echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
+
+          # 変更されたdata/raw/*.csvファイルのみを取得 (working treeから)
+          # git statusを使用してunstaged/staged両方の変更を検出
+          # POSIX準拠の空白クラス [[:space:]] を使用
+          mapfile -t CHANGED_RAW_FILES < <(git status --porcelain | grep -E '^[[:space:]]*[AM].*data/raw/.*\.csv$' | sed 's/^...//')
+
+          if [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
+            echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
+            echo "PROCESS_RESULT=skipped" >> "$GITHUB_ENV"
+          else
+            # 変更ファイル数を表示
+            FILE_COUNT=${#CHANGED_RAW_FILES[@]}
+            echo "📊 処理対象: ${FILE_COUNT}ファイル"
+            for file in "${CHANGED_RAW_FILES[@]}"; do
+              echo "  - $file"
+            done
+
+            # データ処理の実行 (変更されたファイルのみ)
+            # 配列を安全に展開してスペースを含むファイル名にも対応
+            # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
+            if uv run python scripts/process_data.py --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
+              echo "✅ データ処理: 成功"
+              echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
+
+              # stats.jsonから処理結果を抽出
+              if [ -f "data/processed/stats.json" ]; then
+                # JSON形式を事前検証 (jq -eで検証し、不正な場合は警告)
+                if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
+                  echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
+                  STATS_TOTAL="0"
+                  STATS_SUCCEEDED="0"
+                  STATS_FAILED="0"
+                else
+                  STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
+                  STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
+                  STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
+                fi
+
+                # 環境変数を一括設定 (shellcheck SC2129対応)
+                {
+                  echo "STATS_TOTAL=${STATS_TOTAL}"
+                  echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
+                  echo "STATS_FAILED=${STATS_FAILED}"
+                } >> "$GITHUB_ENV"
+
+                echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
+
+                # エラー詳細を表示 (最大5件)
+                ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
+                if [ "${ERROR_COUNT}" -gt 0 ]; then
+                  echo "⚠️ エラー詳細:"
+                  jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
+                  if [ "${ERROR_COUNT}" -gt 5 ]; then
+                    echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
+                  fi
+                fi
+              fi
+            else
+              echo "❌ データ処理: 失敗"
+              echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
+
+              # 処理失敗時の動作制御
+              if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
+                echo "⚠️ 警告: データ処理に失敗しましたが、ワークフローを継続します。"
+              else
+                # force_merge_on_failureがfalseの場合は終了
+                if [ "${{ inputs.force_merge_on_failure }}" = "false" ]; then
+                  exit 1
+                else
+                  echo "⚠️ 警告: データ処理に失敗しましたが、force_merge_on_failureが有効のため継続します。"
+                fi
+              fi
+            fi
+          fi
+
+      - name: Create issue on processing failure
+        id: create_issue
+        if: env.PROCESS_RESULT == 'failed'
+        run: |
+          echo "📝 処理失敗のGitHub Issueを作成します..."
+
+          ISSUE_TITLE="[自動/${{ inputs.workflow_type }}] データ処理失敗: $(date +'%Y-%m-%d %H:%M')"
+          ISSUE_BODY="データ処理ステップが失敗しました (${{ inputs.workflow_display_name }})。
+
+          発生日時: $(date +'%Y-%m-%d %H:%M:%S %Z')
+          ワークフロー実行: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          コミット: ${GITHUB_SHA:0:7}
+          Branch: ${GITHUB_REF}
+          Actor: ${GITHUB_ACTOR}
+
+          対応方法:
+          1. ワークフローログで具体的なエラーメッセージを確認
+          2. 処理ログファイル: data/logs/process_${FETCH_TIMESTAMP}.log
+          3. 問題を修正後、手動で再実行してください"
+
+          gh issue create \
+            --title "${ISSUE_TITLE}" \
+            --body "${ISSUE_BODY}" \
+            --label "bug,automated,data-processing,${{ inputs.workflow_type }}" \
+            --assignee "${GITHUB_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
+
+      - name: Validate fetched data
+        id: validate-after
+        if: inputs.validate_after && inputs.dry_run != true
+        run: |
+          echo "取得したデータの検証..."
+          VALIDATION_REPORT="data/logs/validation_${FETCH_TIMESTAMP}.json"
+
+          if uv run python scripts/validate_data.py data/raw --pattern "*.csv" --output "$VALIDATION_REPORT"; then
+            echo "✅ データ検証成功"
+            echo "VALIDATION_SUCCESS=true" >> $GITHUB_ENV
+          else
+            echo "❌ データ検証失敗"
+            echo "VALIDATION_SUCCESS=false" >> $GITHUB_ENV
+
+            # 検証レポートの内容を表示
+            if [ -f "$VALIDATION_REPORT" ]; then
+              echo "検証レポート:"
+              cat "$VALIDATION_REPORT" | jq .summary
+            fi
+
+            # 検証失敗でもPR作成は続行 (レビューで確認)
+          fi
+
+      - name: Verify data continuity
+        if: inputs.verify_continuity && inputs.dry_run != true
+        run: |
+          echo "データ連続性を検証しています..."
+          uv run python scripts/check_missing.py data/raw || true
+
+      - name: Generate visualization charts
+        if: inputs.dry_run != true
+        run: |
+          echo "📈 感染動向グラフを生成しています..."
+          uv run python scripts/generate_charts.py
+
+          # グラフファイルをステージング
+          if ! git diff --quiet docs/images/; then
+            git add docs/images/
+            echo "✅ Charts updated"
+          fi
+
+      - name: Update README statistics
+        if: inputs.dry_run != true
+        run: |
+          echo "📊 README統計情報を更新しています..."
+          uv run python scripts/update_readme_stats.py
+
+          # 変更があればステージング
+          if ! git diff --quiet README.md; then
+            git add README.md
+            echo "✅ README.md updated with latest statistics"
+          else
+            echo "ℹ️ No README changes needed"
+          fi
+
+      - name: Check for changes
+        id: changes
+        if: inputs.dry_run != true
+        run: |
+          # 変更の有無をチェック
+          git add data/
+
+          if git diff --cached --quiet; then
+            echo "No changes detected"
+            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+          else
+            echo "Changes detected"
+            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+
+            # 新規ファイルと変更ファイルを分けて集計 (他のワークフローと統一)
+            # POSIX準拠の空白クラス [[:space:]] と拡張正規表現 -E を使用
+
+            # 新規rawファイル数 (data/raw/*.csv)
+            NEW_RAW_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 変更されたrawファイル数
+            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep -E '^M[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 処理済みファイル数 (data/processed/normalized_*.csv)
+            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 合計CSVファイル数
+            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
+
+            # 空文字列や非数値の場合のフォールバック
+            if ! [[ "$NEW_RAW_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_RAW_FILES="0"
+            fi
+            if ! [[ "$MODIFIED_RAW_FILES" =~ ^[0-9]+$ ]]; then
+              MODIFIED_RAW_FILES="0"
+            fi
+            if ! [[ "$NEW_PROCESSED_FILES" =~ ^[0-9]+$ ]]; then
+              NEW_PROCESSED_FILES="0"
+            fi
+            if ! [[ "$TOTAL_CSV_FILES" =~ ^[0-9]+$ ]]; then
+              TOTAL_CSV_FILES="0"
+            fi
+
+            # 環境変数を設定
+            # サマリーとPR作成スクリプトの両方で使用できるよう、2つの命名規則で設定
+            NEW_CSV_FILES=$NEW_RAW_FILES
+            MODIFIED_CSV_FILES=$MODIFIED_RAW_FILES
+
+            echo "NEW_CSV_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
+            echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
+            echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
+            echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+
+            # サマリー用の変数名も設定 (後方互換性)
+            echo "NEW_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
+            echo "MODIFIED_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
+            echo "CHANGED_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+
+            echo "📊 変更統計:"
+            echo "  - 新規rawファイル: $NEW_RAW_FILES"
+            echo "  - 更新rawファイル: $MODIFIED_RAW_FILES"
+            echo "  - 処理済みファイル: $NEW_PROCESSED_FILES"
+            echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
+          fi
+
+      - name: Create Pull Request
+        if: env.HAS_CHANGES == 'true' && inputs.dry_run != true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 共通スクリプトで使用する環境変数
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # 詳細統計 (他のワークフローと統一)
+          NEW_FILES: ${{ env.NEW_CSV_FILES }}
+          MODIFIED_FILES: ${{ env.MODIFIED_CSV_FILES }}
+          CHANGED_FILES: ${{ env.CSV_FILES }}
+          NEW_PROCESSED_FILES: ${{ env.NEW_PROCESSED_FILES }}
+          # auto_merge設定
+          AUTO_MERGE: ${{ inputs.auto_merge }}
+        run: |
+          # workflow_type別のブランチ名プレフィックス
+          case "${{ inputs.workflow_type }}" in
+            manual) BRANCH_PREFIX="data-update-manual" ;;
+            weekly) BRANCH_PREFIX="data-update-weekly" ;;
+            daily)  BRANCH_PREFIX="data-update-daily" ;;
+          esac
+
+          # 共通スクリプトを呼び出し
+          bash scripts/create_pr.sh "$BRANCH_PREFIX" "${{ inputs.workflow_display_name }}"
+
+      - name: Create issue on error
+        if: failure() && inputs.dry_run != true
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const date = new Date().toISOString().split('T')[0];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            const issueBody = `## ${{ inputs.workflow_display_name }}エラー
+
+            ${{ inputs.workflow_display_name }}処理でエラーが発生しました。
+
+            ### エラー情報
+            - **日時**: ${date}
+            - **ワークフロー実行**: ${runUrl}
+            - **開始年**: ${process.env.START_YEAR || 'N/A'}
+            - **終了年**: ${process.env.END_YEAR || 'N/A'}
+            - **モード**: ${process.env.MODE || 'N/A'}
+
+            ### 対応方法
+            1. 上記のワークフロー実行リンクからログを確認
+            2. エラー内容を特定
+            3. 必要に応じて手動で再実行
+
+            ### 自動ラベル
+            - ${{ inputs.workflow_type }}
+            - data-collection
+            - error
+            - automated`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[${{ inputs.workflow_type }}] データ取得エラー - ${date}`,
+              body: issueBody,
+              labels: ['${{ inputs.workflow_type }}', 'data-collection', 'error', 'automated']
+            });
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.workflow_type }}-logs-${{ env.FETCH_TIMESTAMP }}
+          path: data/logs/
+          retention-days: ${{ inputs.log_retention_days }}
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## 📊 ${{ inputs.workflow_display_name }}サマリー" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **対象期間**: $START_YEAR - $END_YEAR" >> $GITHUB_STEP_SUMMARY
+          echo "- **現在の週**: 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
+          echo "- **収集モード**: ${MODE}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$HAS_CHANGES" = "true" ]; then
+            echo "### ✅ 変更検出" >> $GITHUB_STEP_SUMMARY
+            echo "- **総変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$NEW_FILES" ] && [ "$NEW_FILES" -gt 0 ]; then
+              echo "- **新規ファイル**: $NEW_FILES" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$MODIFIED_FILES" ] && [ "$MODIFIED_FILES" -gt 0 ]; then
+              echo "- **更新ファイル**: $MODIFIED_FILES" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$PR_URL" ]; then
+              echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ℹ️ 変更なし" >> $GITHUB_STEP_SUMMARY
+            echo "${{ inputs.workflow_display_name }}で変更は検出されませんでした。" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -35,374 +35,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  fetch-data:
+  # 日付計算用 (workflow_call内でdate実行不可のため)
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # 毎日実行なので短めに設定
-
+    outputs:
+      start_year: ${{ steps.calc.outputs.start_year }}
+      target_weeks: ${{ steps.calc.outputs.target_weeks }}
+      target_months: ${{ steps.calc.outputs.target_months }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Setup Python
-        run: uv python install 3.11
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Configure git
+      - name: Calculate date ranges
+        id: calc
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # 2週前、前週、当週の週番号を計算
+          TWO_WEEKS_AGO=$(date -d '2 weeks ago' +'%V')
+          TWO_WEEKS_AGO_YEAR=$(date -d '2 weeks ago' +'%G')
+          PREVIOUS_WEEK=$(date -d 'last week' +'%V')
+          CURRENT_WEEK=$(date +'%V')
+          CURRENT_YEAR=$(date +'%G')
 
-      - name: Create directories
-        run: |
-          mkdir -p data/raw/.metadata data/processed data/logs
-          mkdir -p config
+          # 開始年を計算 (最小値)
+          START_YEAR=$(echo -e "$TWO_WEEKS_AGO_YEAR\n$CURRENT_YEAR" | sort -n | head -1)
 
-      - name: Set environment variables
-        run: |
-          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
-          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
-          echo "CURRENT_YEAR=$(date +'%Y')" >> $GITHUB_ENV
-          echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
-          echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
-          # ISO週番号とISO週年を取得（年境界での正確な処理のため）
-          # 木曜更新を考慮: 1週前と2週前のデータを取得
-          echo "PREVIOUS_WEEK=$(date -d 'last week' +'%V')" >> $GITHUB_ENV
-          echo "PREVIOUS_WEEK_YEAR=$(date -d 'last week' +'%G')" >> $GITHUB_ENV
-          # 2週前のデータ（木曜更新を考慮して確実に利用可能なデータ）
-          echo "TWO_WEEKS_AGO=$(date -d '2 weeks ago' +'%V')" >> $GITHUB_ENV
-          echo "TWO_WEEKS_AGO_YEAR=$(date -d '2 weeks ago' +'%G')" >> $GITHUB_ENV
-          # 前月とその年を取得
-          echo "PREVIOUS_MONTH=$(date -d 'last month' +'%m')" >> $GITHUB_ENV
-          echo "PREVIOUS_MONTH_YEAR=$(date -d 'last month' +'%Y')" >> $GITHUB_ENV
-          echo "CURRENT_DAY=$(date +'%u')" >> $GITHUB_ENV
-          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+          # 対象週・月をカンマ区切りで設定
+          TARGET_WEEKS="${TWO_WEEKS_AGO},${PREVIOUS_WEEK},${CURRENT_WEEK}"
+          TARGET_MONTHS="$(date -d 'last month' +'%m'),$(date +'%m')"
 
-      - name: Prepare fetch parameters
-        id: params
-        run: |
-          # 入力パラメータの処理
-          MODE="${{ github.event.inputs.mode }}"
-          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          echo "start_year=$START_YEAR" >> $GITHUB_OUTPUT
+          echo "target_weeks=$TARGET_WEEKS" >> $GITHUB_OUTPUT
+          echo "target_months=$TARGET_MONTHS" >> $GITHUB_OUTPUT
 
-          # デフォルト値の設定（schedule実行時）
-          if [ -z "$MODE" ]; then
-            MODE="incremental"  # 毎日実行なので欠損データのみ取得
-          fi
+  # 共通ワークフロー呼び出し
+  fetch-data:
+    needs: prepare
+    uses: ./.github/workflows/_fetch-data-common.yml
+    with:
+      workflow_type: "daily"
+      workflow_display_name: "毎日簡易チェック"
 
-          if [ -z "$DRY_RUN" ]; then
-            DRY_RUN="false"
-          fi
+      # prepare jobで計算した値
+      start_year: ${{ needs.prepare.outputs.start_year }}
+      target_weeks: ${{ needs.prepare.outputs.target_weeks }}
+      target_months: ${{ needs.prepare.outputs.target_months }}
 
-          # 環境変数として設定
-          echo "MODE=$MODE" >> $GITHUB_ENV
-          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+      # 入力パラメータ (デフォルト値設定)
+      mode: ${{ inputs.mode || 'incremental' }}
+      dry_run: ${{ inputs.dry_run || false }}
 
-          echo "Daily simple check parameters:"
-          echo "  Current year: $CURRENT_YEAR"
-          echo "  Current week: $CURRENT_WEEK / Previous week: $PREVIOUS_WEEK (year: $PREVIOUS_WEEK_YEAR)"
-          echo "  Two weeks ago: $TWO_WEEKS_AGO (year: $TWO_WEEKS_AGO_YEAR)"
-          echo "  Current month: $CURRENT_MONTH / Previous month: $PREVIOUS_MONTH (year: $PREVIOUS_MONTH_YEAR)"
-          echo "  Collection mode: $MODE"
-          echo "  Dry run: $DRY_RUN"
+      # daily固有設定
+      validate_before: true
+      continue_on_failure: true
 
-      - name: Validate existing data before fetch
-        id: validate-before
-        run: |
-          echo "データ取得前の既存データ検証..."
-          if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
-            uv run python scripts/validate_data.py data/raw --pattern "*.csv" || true
-          else
-            echo "No existing data to validate"
-          fi
-
-      - name: Fetch epidemic data (recent weeks and months only)
-        id: fetch
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Starting daily simple data check at $FETCH_TIMESTAMP"
-
-          # コマンドの構築（週次データと月次データを対象週・月を絞って取得）
-          FETCH_CMD=(uv run python scripts/fetch_data.py)
-
-          # 年の範囲を適切に設定（2週前/前週/前月の年と現在年をカバー）
-          START_YEAR=$(echo "$TWO_WEEKS_AGO_YEAR $PREVIOUS_WEEK_YEAR $PREVIOUS_MONTH_YEAR $CURRENT_YEAR" | tr ' ' '\n' | sort -n | head -1)
-          END_YEAR="$CURRENT_YEAR"
-          FETCH_CMD+=(--start-year "$START_YEAR")
-          FETCH_CMD+=(--end-year "$END_YEAR")
-
-          # 対象週を2週前、前週、現在週に拡張（木曜更新を考慮）
-          FETCH_CMD+=(--target-weeks "$TWO_WEEKS_AGO,$PREVIOUS_WEEK,$CURRENT_WEEK")
-
-          # 対象月を当月と前月に限定
-          FETCH_CMD+=(--target-months "$PREVIOUS_MONTH,$CURRENT_MONTH")
-
-          # モードを指定
-          FETCH_CMD+=(--mode "$MODE")
-
-          # DRY_RUNがtrueの場合
-          if [ "$DRY_RUN" = "true" ]; then
-            FETCH_CMD+=(--dry-run)
-          fi
-
-          FETCH_CMD+=(--log-file "data/logs/daily_${FETCH_TIMESTAMP}.log")
-
-          echo "Executing: ${FETCH_CMD[@]}"
-          echo "Checking weeks: $TWO_WEEKS_AGO, $PREVIOUS_WEEK, $CURRENT_WEEK (木曜更新考慮)"
-          echo "Checking months: $PREVIOUS_MONTH, $CURRENT_MONTH"
-
-          # メインスクリプトの実行
-          "${FETCH_CMD[@]}" 2>&1 | tee data/logs/console_daily_${FETCH_TIMESTAMP}.log
-
-          # 実行結果の保存（PIPESTATUS[0]でパイプライン内の最初のコマンドの終了コードを取得）
-          echo "FETCH_RESULT=${PIPESTATUS[0]}" >> $GITHUB_ENV
-
-      - name: Process epidemic data
-        id: process
-        if: env.DRY_RUN != 'true'
-        run: |
-          # パイプラインの終了コードを正しく伝播（pipefailオプション）
-          set -o pipefail
-
-          echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
-
-          # 変更されたdata/raw/*.csvファイルのみを取得（working treeから）
-          # git statusを使用してunstaged/staged両方の変更を検出
-          # POSIX準拠の空白クラス [[:space:]] を使用
-          mapfile -t CHANGED_RAW_FILES < <(git status --porcelain | grep -E '^[[:space:]]*[AM].*data/raw/.*\.csv$' | sed 's/^...//')
-
-          if [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
-            echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
-            echo "PROCESS_RESULT=skipped" >> "$GITHUB_ENV"
-          else
-            # 変更ファイル数を表示
-            FILE_COUNT=${#CHANGED_RAW_FILES[@]}
-            echo "📊 処理対象: ${FILE_COUNT}ファイル"
-            for file in "${CHANGED_RAW_FILES[@]}"; do
-              echo "  - $file"
-            done
-
-            # データ処理の実行（変更されたファイルのみ）
-            # 配列を安全に展開してスペースを含むファイル名にも対応
-            # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
-            if uv run python scripts/process_data.py --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
-              echo "✅ データ処理: 成功"
-              echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
-
-              # stats.jsonから処理結果を抽出
-              if [ -f "data/processed/stats.json" ]; then
-                # JSON形式を事前検証（jq -eで検証し、不正な場合は警告）
-                if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
-                  echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
-                  STATS_TOTAL="0"
-                  STATS_SUCCEEDED="0"
-                  STATS_FAILED="0"
-                else
-                  STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
-                  STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
-                  STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
-                fi
-
-                # 環境変数を一括設定（shellcheck SC2129対応）
-                {
-                  echo "STATS_TOTAL=${STATS_TOTAL}"
-                  echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
-                  echo "STATS_FAILED=${STATS_FAILED}"
-                } >> "$GITHUB_ENV"
-
-                echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
-
-                # エラー詳細を表示（最大5件）
-                ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
-                if [ "${ERROR_COUNT}" -gt 0 ]; then
-                  echo "⚠️ エラー詳細:"
-                  jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
-                  if [ "${ERROR_COUNT}" -gt 5 ]; then
-                    echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
-                  fi
-                fi
-              fi
-            else
-              echo "❌ データ処理: 失敗"
-              echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
-
-              # 毎日実行では処理失敗時も警告のみでワークフローを継続
-              echo "⚠️ 警告: データ処理に失敗しましたが、ワークフローを継続します（毎日実行）。"
-            fi
-          fi
-
-      - name: Create issue on processing failure
-        id: create_issue
-        if: env.PROCESS_RESULT == 'failed'
-        run: |
-          echo "📝 処理失敗のGitHub Issueを作成します..."
-
-          ISSUE_TITLE="[自動/毎日] データ処理失敗: $(date +'%Y-%m-%d %H:%M')"
-          ISSUE_BODY="データ処理ステップが失敗しました（毎日実行）。
-
-          発生日時: $(date +'%Y-%m-%d %H:%M:%S %Z')
-          ワークフロー実行: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          コミット: ${GITHUB_SHA:0:7}
-          Branch: ${GITHUB_REF}
-          Actor: ${GITHUB_ACTOR}
-
-          対応方法:
-          1. ワークフローログで具体的なエラーメッセージを確認
-          2. 処理ログファイル: data/logs/process_${FETCH_TIMESTAMP}.log
-          3. 問題を修正後、手動で再実行してください"
-
-          gh issue create \
-            --title "${ISSUE_TITLE}" \
-            --body "${ISSUE_BODY}" \
-            --label "bug,automated,data-processing,daily-check" \
-            --assignee "${GITHUB_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
-
-      - name: Generate visualization charts
-        if: env.DRY_RUN != 'true'
-        run: |
-          echo "📈 感染動向グラフを生成しています..."
-          uv run python scripts/generate_charts.py
-
-          # グラフファイルをステージング
-          if ! git diff --quiet docs/images/; then
-            git add docs/images/
-            echo "✅ Charts updated"
-          fi
-
-      - name: Update README statistics
-        if: env.DRY_RUN != 'true'
-        run: |
-          echo "📊 README統計情報を更新しています..."
-          uv run python scripts/update_readme_stats.py
-
-          # 変更があればステージング
-          if ! git diff --quiet README.md; then
-            git add README.md
-            echo "✅ README.md updated with latest statistics"
-          else
-            echo "ℹ️ No README changes needed"
-          fi
-
-      - name: Check for changes
-        id: changes
-        if: env.DRY_RUN != 'true'
-        run: |
-          # 変更の有無をチェック
-          git add data/
-
-          if git diff --cached --quiet; then
-            echo "No changes detected"
-            echo "HAS_CHANGES=false" >> $GITHUB_ENV
-          else
-            echo "Changes detected"
-            echo "HAS_CHANGES=true" >> $GITHUB_ENV
-
-            # 新規ファイルと変更ファイルを分けて集計（週次実行と統一）
-            # POSIX準拠の空白クラス [[:space:]] と拡張正規表現 -E を使用
-
-            # 新規rawファイル数（data/raw/*.csv）
-            NEW_RAW_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
-
-            # 変更されたrawファイル数
-            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep -E '^M[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
-
-            # 処理済みファイル数（data/processed/normalized_*.csv）
-            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
-
-            # 合計CSVファイル数
-            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
-
-            # 空文字列や非数値の場合のフォールバック
-            if ! [[ "$NEW_RAW_FILES" =~ ^[0-9]+$ ]]; then
-              NEW_RAW_FILES="0"
-            fi
-            if ! [[ "$MODIFIED_RAW_FILES" =~ ^[0-9]+$ ]]; then
-              MODIFIED_RAW_FILES="0"
-            fi
-            if ! [[ "$NEW_PROCESSED_FILES" =~ ^[0-9]+$ ]]; then
-              NEW_PROCESSED_FILES="0"
-            fi
-            if ! [[ "$TOTAL_CSV_FILES" =~ ^[0-9]+$ ]]; then
-              TOTAL_CSV_FILES="0"
-            fi
-
-            # 環境変数を設定
-            # サマリーとPR作成スクリプトの両方で使用できるよう、2つの命名規則で設定
-            NEW_CSV_FILES=$NEW_RAW_FILES
-            MODIFIED_CSV_FILES=$MODIFIED_RAW_FILES
-
-            echo "NEW_CSV_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
-            echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
-            echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
-            echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
-
-            # サマリー用の変数名も設定（後方互換性）
-            echo "NEW_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
-            echo "MODIFIED_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
-            echo "CHANGED_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
-
-            echo "📊 変更統計:"
-            echo "  - 新規rawファイル: $NEW_RAW_FILES"
-            echo "  - 更新rawファイル: $MODIFIED_RAW_FILES"
-            echo "  - 処理済みファイル: $NEW_PROCESSED_FILES"
-            echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
-          fi
-
-      - name: Create Pull Request
-        if: env.HAS_CHANGES == 'true' && env.DRY_RUN != 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 共通スクリプトで使用する環境変数
-          GITHUB_SERVER_URL: ${{ github.server_url }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          # 詳細統計（週次実行と統一）
-          NEW_FILES: ${{ env.NEW_CSV_FILES }}
-          MODIFIED_FILES: ${{ env.MODIFIED_CSV_FILES }}
-          CHANGED_FILES: ${{ env.CSV_FILES }}
-          NEW_PROCESSED_FILES: ${{ env.NEW_PROCESSED_FILES }}
-        run: |
-          # 共通スクリプトを呼び出し
-          bash scripts/create_pr.sh "fetch-data-daily" "毎日簡易チェック"
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-check-logs-${{ env.FETCH_TIMESTAMP }}
-          path: data/logs/
-          retention-days: 7 # 毎日実行なので短めに
-
-      - name: Generate summary
-        if: always()
-        run: |
-          echo "## 📊 毎日データ簡易チェックサマリー" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **曜日**: $(date +'%A')" >> $GITHUB_STEP_SUMMARY
-          echo "- **対象年**: $CURRENT_YEAR" >> $GITHUB_STEP_SUMMARY
-          echo "- **対象週**: 第${TWO_WEEKS_AGO}週, 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週（木曜更新考慮）" >> $GITHUB_STEP_SUMMARY
-          echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月" >> $GITHUB_STEP_SUMMARY
-          echo "- **収集モード**: ${MODE:-incremental}" >> $GITHUB_STEP_SUMMARY
-          echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$HAS_CHANGES" = "true" ]; then
-            echo "### ✅ 新規データ検出" >> $GITHUB_STEP_SUMMARY
-            echo "- **変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
-            if [ -n "$PR_URL" ]; then
-              echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "### ℹ️ 新規データなし" >> $GITHUB_STEP_SUMMARY
-            echo "本日は新規データは検出されませんでした。" >> $GITHUB_STEP_SUMMARY
-          fi
+      # タイムアウトとログ
+      timeout_minutes: 60
+      log_retention_days: 7
+    secrets: inherit
