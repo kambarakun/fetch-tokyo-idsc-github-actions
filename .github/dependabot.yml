@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # GitHub Actionsの依存関係を更新
+  # 🔄 GitHub Actionsの依存関係を更新
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -21,7 +21,7 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
 
-  # Python依存関係を更新 (uvネイティブサポート)
+  # 📦 Python依存関係を更新 (uvネイティブサポート)
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
@@ -46,7 +46,7 @@ updates:
         update-types: ["version-update:semver-major"]
     # 依存関係のグループ化（関連する更新をまとめる）
     groups:
-      # 本番依存関係をまとめる（慎重にレビュー）
+      # 🏭 本番依存関係をまとめる（慎重にレビュー）
       production:
         patterns:
           - "requests"
@@ -54,12 +54,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # テスト関連の依存関係をまとめる
+      # 🧪 テスト関連の依存関係をまとめる
       testing:
         patterns:
           - "pytest*"
           - "pytest-cov"
-      # ビルドツール関連をまとめる（リンター・フォーマッター）
+      # 🔧 ビルドツール関連をまとめる（リンター・フォーマッター）
       build-tools:
         patterns:
           - "ruff"
@@ -67,7 +67,7 @@ updates:
           - "isort"
           - "mypy"
           - "pre-commit"
-      # 型定義ファイルをまとめる
+      # 📝 型定義ファイルをまとめる
       type-stubs:
         patterns:
           - "types-*"
