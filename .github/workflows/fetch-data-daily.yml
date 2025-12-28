@@ -7,11 +7,15 @@ on:
     - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
-      skip_existing:
-        description: "既存ファイルをスキップ（デフォルト: true）"
+      mode:
+        description: "データ収集モード (デフォルト: incremental)"
         required: false
-        type: boolean
-        default: true
+        type: choice
+        options:
+          - incremental
+          - full
+          - force
+        default: "incremental"
       dry_run:
         description: "テスト実行（データ取得のみでコミットしない）"
         required: false
@@ -87,12 +91,12 @@ jobs:
         id: params
         run: |
           # 入力パラメータの処理
-          SKIP_EXISTING="${{ github.event.inputs.skip_existing }}"
+          MODE="${{ github.event.inputs.mode }}"
           DRY_RUN="${{ github.event.inputs.dry_run }}"
 
           # デフォルト値の設定（schedule実行時）
-          if [ -z "$SKIP_EXISTING" ]; then
-            SKIP_EXISTING="true"  # 毎日実行なので既存ファイルはスキップ
+          if [ -z "$MODE" ]; then
+            MODE="incremental"  # 毎日実行なので欠損データのみ取得
           fi
 
           if [ -z "$DRY_RUN" ]; then
@@ -100,7 +104,7 @@ jobs:
           fi
 
           # 環境変数として設定
-          echo "SKIP_EXISTING=$SKIP_EXISTING" >> $GITHUB_ENV
+          echo "MODE=$MODE" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
 
           echo "Daily simple check parameters:"
@@ -108,7 +112,7 @@ jobs:
           echo "  Current week: $CURRENT_WEEK / Previous week: $PREVIOUS_WEEK (year: $PREVIOUS_WEEK_YEAR)"
           echo "  Two weeks ago: $TWO_WEEKS_AGO (year: $TWO_WEEKS_AGO_YEAR)"
           echo "  Current month: $CURRENT_MONTH / Previous month: $PREVIOUS_MONTH (year: $PREVIOUS_MONTH_YEAR)"
-          echo "  Skip existing: $SKIP_EXISTING"
+          echo "  Collection mode: $MODE"
           echo "  Dry run: $DRY_RUN"
 
       - name: Validate existing data before fetch
@@ -143,10 +147,8 @@ jobs:
           # 対象月を当月と前月に限定
           FETCH_CMD+=(--target-months "$PREVIOUS_MONTH,$CURRENT_MONTH")
 
-          # 既存ファイルをスキップする場合
-          if [ "$SKIP_EXISTING" = "true" ]; then
-            FETCH_CMD+=(--skip-existing)
-          fi
+          # モードを指定
+          FETCH_CMD+=(--mode "$MODE")
 
           # DRY_RUNがtrueの場合
           if [ "$DRY_RUN" = "true" ]; then
@@ -390,7 +392,7 @@ jobs:
           echo "- **対象年**: $CURRENT_YEAR" >> $GITHUB_STEP_SUMMARY
           echo "- **対象週**: 第${TWO_WEEKS_AGO}週, 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週（木曜更新考慮）" >> $GITHUB_STEP_SUMMARY
           echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月" >> $GITHUB_STEP_SUMMARY
-          echo "- **既存ファイルスキップ**: ${SKIP_EXISTING:-true}" >> $GITHUB_STEP_SUMMARY
+          echo "- **収集モード**: ${MODE:-incremental}" >> $GITHUB_STEP_SUMMARY
           echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 

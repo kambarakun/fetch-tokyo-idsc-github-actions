@@ -20,11 +20,15 @@ on:
         required: false
         type: boolean
         default: false
-      skip_existing:
-        description: "⏭️ 増分取得モード (ON=欠損期間のみ取得 / OFF=既存期間も再取得して更新チェック)"
+      mode:
+        description: "📊 データ収集モード: incremental(欠損のみ), full(全期間+更新チェック), force(強制再取得)"
         required: false
-        type: boolean
-        default: false
+        type: choice
+        options:
+          - incremental
+          - full
+          - force
+        default: "full"
       verify_continuity:
         description: "🔍 データ連続性検証 (欠損データの有無をチェック)"
         required: false
@@ -106,7 +110,7 @@ jobs:
           START_YEAR="${{ github.event.inputs.start_year }}"
           END_YEAR="${{ github.event.inputs.end_year }}"
           DRY_RUN="${{ github.event.inputs.dry_run }}"
-          SKIP_EXISTING="${{ github.event.inputs.skip_existing }}"
+          MODE="${{ github.event.inputs.mode }}"
           VERIFY_CONTINUITY="${{ github.event.inputs.verify_continuity }}"
           AUTO_MERGE="${{ github.event.inputs.auto_merge }}"
           FORCE_MERGE_ON_FAILURE="${{ github.event.inputs.force_merge_on_failure }}"
@@ -125,9 +129,9 @@ jobs:
             DRY_RUN="false"
           fi
 
-          # SKIP_EXISTINGのデフォルト値（デフォルトはfalse: 既存期間も再取得して更新チェック）
-          if [ -z "$SKIP_EXISTING" ]; then
-            SKIP_EXISTING="false"
+          # MODEのデフォルト値（デフォルトはfull: 全期間取得、既存も更新チェック）
+          if [ -z "$MODE" ]; then
+            MODE="full"
           fi
 
           # VERIFY_CONTINUITYのデフォルト値
@@ -150,7 +154,7 @@ jobs:
           echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
           echo "END_YEAR=$END_YEAR" >> $GITHUB_ENV
           echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
-          echo "SKIP_EXISTING=$SKIP_EXISTING" >> $GITHUB_ENV
+          echo "MODE=$MODE" >> $GITHUB_ENV
           echo "VERIFY_CONTINUITY=$VERIFY_CONTINUITY" >> $GITHUB_ENV
           echo "AUTO_MERGE=$AUTO_MERGE" >> $GITHUB_ENV
           echo "FORCE_MERGE_ON_FAILURE=$FORCE_MERGE_ON_FAILURE" >> $GITHUB_ENV
@@ -160,7 +164,7 @@ jobs:
           echo "  Start year: $START_YEAR"
           echo "  End year: $END_YEAR"
           echo "  Dry run: $DRY_RUN"
-          echo "  Incremental mode (skip existing): $SKIP_EXISTING"
+          echo "  Collection mode: $MODE"
           echo "  Verify continuity: $VERIFY_CONTINUITY"
           echo "  Auto merge: $AUTO_MERGE"
           echo "  Force merge on failure: $FORCE_MERGE_ON_FAILURE"
@@ -186,10 +190,8 @@ jobs:
             FETCH_CMD+=(--dry-run)
           fi
 
-          # SKIP_EXISTINGがtrueの場合のみ--skip-existingフラグを追加
-          if [ "$SKIP_EXISTING" = "true" ]; then
-            FETCH_CMD+=(--skip-existing)
-          fi
+          # MODEを指定
+          FETCH_CMD+=(--mode "$MODE")
 
           FETCH_CMD+=(--log-file "data/logs/fetch_${FETCH_TIMESTAMP}.log")
 

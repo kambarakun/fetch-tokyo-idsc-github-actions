@@ -8,7 +8,12 @@ schedule:
 
 # データ収集設定
 collection:
-  incremental_mode: true # 増分収集モード（既存データをスキップ）
+  # データ収集モード (incremental | full | force)
+  # - incremental: 欠損データのみ取得 (既存ファイルをスキップ) - デフォルト
+  # - full: 全期間のデータを取得し、既存も更新チェック
+  # - force: 全データを強制的に再取得
+  mode: "incremental"
+  # incremental_mode: true  # (非推奨) mode を使用してください
   batch_size: 50 # 一度に処理するファイル数
   start_year: 2024 # デフォルトの開始年（初回は2000年から実行推奨）
   end_year: null # null の場合は現在年
