@@ -601,18 +601,22 @@ else
   # 自動マージの実行
   if [ "$AUTO_MERGE_EFFECTIVE" = "true" ]; then
     echo "🔄 自動マージを設定中..."
-    if gh pr merge "$PR_NUMBER" --auto --squash --delete-branch; then
+    # コマンド実行と終了コード取得 (ifの外で実行して正しい終了コードを取得)
+    gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
+    MERGE_EXIT_CODE=$?
+
+    # 終了コードで結果を判定
+    if [ $MERGE_EXIT_CODE -eq 0 ]; then
       echo "✅ Auto-merge configured successfully (branch will be deleted after merge)"
       if [ "$FORCE_MERGE" = "true" ] && [ "$VALIDATIONS_PASSED" = "false" ]; then
         echo "⚠️ Warning: Force merge enabled despite validation failures" >&2
       fi
     else
-      EXIT_CODE=$?
       echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
       echo "   Manual merge may be required." >&2
-      echo "   Error code: $EXIT_CODE" >&2
+      echo "   Error code: $MERGE_EXIT_CODE" >&2
       echo "   Attempted command: gh pr merge $PR_NUMBER --auto --squash --delete-branch" >&2
-      if [ $EXIT_CODE -eq 1 ]; then
+      if [ $MERGE_EXIT_CODE -eq 1 ]; then
         echo "💡 If auto-merge succeeds but branch deletion fails, you may need to delete the branch manually:" >&2
         echo "   git push origin --delete $BRANCH_NAME" >&2
       fi
