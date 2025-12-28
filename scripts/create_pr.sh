@@ -580,10 +580,25 @@ else
         VALIDATIONS_PASSED="false"
       fi
       ;;
+    fetch-data-daily)
+      # 日次チェックワークフロー
+      # 現時点では検証結果を環境変数に設定していないため、デフォルト (true) を使用
+      # TODO: 将来的にAUTO_MERGEを追加する場合は、検証結果の環境変数設定が必要
+      ;;
     process-data)
       if [ "${VALIDATION_PASSED:-}" = "false" ]; then
         VALIDATIONS_PASSED="false"
       fi
+      ;;
+    migrate-metadata)
+      # メタデータマイグレーションワークフロー
+      # 現時点では検証結果を環境変数に設定していないため、デフォルト (true) を使用
+      # TODO: 将来的にAUTO_MERGEを追加する場合は、VERIFIED_COUNT/FAILED_COUNTの環境変数設定が必要
+      ;;
+    *)
+      # 未知のワークフロー: 安全のため警告を出力
+      echo "⚠️  Warning: Unknown workflow '$WORKFLOW_NAME' - using default validation status (true)" >&2
+      echo "   If this workflow has validations, please add it to the case statement." >&2
       ;;
   esac
 
