@@ -1,4 +1,4 @@
-name: 🔄 メタデータマイグレーション
+name: 🔀 メタデータマイグレーション
 
 on:
   # 手動実行
@@ -268,7 +268,7 @@ jobs:
           FAILED_COUNT="${{ steps.verify.outputs.failed_count }}"
           FAILED_COUNT="${FAILED_COUNT:-0}"
 
-          echo "## 🔄 メタデータマイグレーションサマリー" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔀 メタデータマイグレーションサマリー" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **目標バージョン**: $TARGET_VERSION" >> $GITHUB_STEP_SUMMARY
           echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル" >> $GITHUB_STEP_SUMMARY

@@ -1,4 +1,4 @@
-name: 🔄 データ処理（raw→processed変換・手動実行）
+name: ⚙️ データ処理（raw→processed変換・手動実行）
 
 on:
   workflow_dispatch:
@@ -340,7 +340,7 @@ jobs:
       - name: Generate summary
         if: always()
         run: |
-          echo "## 🔄 データ処理サマリー" >> $GITHUB_STEP_SUMMARY
+          echo "## ⚙️ データ処理サマリー" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **実行日時**: $CURRENT_DATE ${{ env.PROCESS_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
           echo "- **対象ファイル**: ${TARGET_FILES:-ALL raw/*.csv}" >> $GITHUB_STEP_SUMMARY
