@@ -209,9 +209,25 @@ jobs:
         run: |
           echo "データ取得前の既存データ検証..."
           if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
-            uv run python scripts/validate_data.py data/raw --pattern "*.csv" || true
+            VALIDATION_REPORT_BEFORE="data/logs/validation_before_${FETCH_TIMESTAMP}.json"
+            if uv run python scripts/validate_data.py data/raw --pattern "*.csv" --output "$VALIDATION_REPORT_BEFORE"; then
+              echo "✅ 事前データ検証成功"
+              echo "VALIDATION_BEFORE_SUCCESS=true" >> $GITHUB_ENV
+            else
+              echo "❌ 事前データ検証失敗"
+              echo "VALIDATION_BEFORE_SUCCESS=false" >> $GITHUB_ENV
+
+              # 検証レポートの内容を表示
+              if [ -f "$VALIDATION_REPORT_BEFORE" ]; then
+                echo "検証レポート:"
+                jq .summary "$VALIDATION_REPORT_BEFORE"
+              fi
+
+              # 検証失敗でもフェッチは続行 (既存データの問題を新規データで上書きする可能性もある)
+            fi
           else
-            echo "No existing data to validate"
+            echo "既存データなし - 検証スキップ"
+            echo "VALIDATION_BEFORE_SUCCESS=true" >> $GITHUB_ENV
           fi
 
       - name: Fetch epidemic data
