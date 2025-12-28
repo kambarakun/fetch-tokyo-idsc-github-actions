@@ -46,6 +46,9 @@ jobs:
       - name: Calculate date ranges
         id: calc
         run: |
+          # 注意: ISO週番号計算にはGNU dateを使用（ubuntu-latestで利用可能）
+          # POSIX準拠の週番号計算は複雑なため、GitHub Actions環境ではGNU dateに依存
+
           # 2週前、前週、当週の週番号を計算
           TWO_WEEKS_AGO=$(date -d '2 weeks ago' +'%V')
           TWO_WEEKS_AGO_YEAR=$(date -d '2 weeks ago' +'%G')
@@ -56,9 +59,17 @@ jobs:
           # 開始年を計算 (最小値)
           START_YEAR=$(echo -e "$TWO_WEEKS_AGO_YEAR\n$CURRENT_YEAR" | sort -n | head -1)
 
-          # 対象週・月をカンマ区切りで設定
+          # 対象週をカンマ区切りで設定
           TARGET_WEEKS="${TWO_WEEKS_AGO},${PREVIOUS_WEEK},${CURRENT_WEEK}"
-          TARGET_MONTHS="$(date -d 'last month' +'%m'),$(date +'%m')"
+
+          # 対象月をPOSIX準拠で計算
+          CURRENT_MONTH=$(date +'%m')
+          # 前月 = (現在月 - 1 + 11) % 12 + 1 をゼロパディング
+          # 注: (CURRENT_MONTH - 2 + 12) % 12 + 1 で前月を計算
+          # 例: 1月(01) -> (1-2+12)%12+1 = 11%12+1 = 12
+          #     2月(02) -> (2-2+12)%12+1 = 12%12+1 = 1
+          PREVIOUS_MONTH=$(printf "%02d" $(( (10#$CURRENT_MONTH - 2 + 12) % 12 + 1 )))
+          TARGET_MONTHS="${PREVIOUS_MONTH},${CURRENT_MONTH}"
 
           echo "start_year=$START_YEAR" >> $GITHUB_OUTPUT
           echo "target_weeks=$TARGET_WEEKS" >> $GITHUB_OUTPUT
