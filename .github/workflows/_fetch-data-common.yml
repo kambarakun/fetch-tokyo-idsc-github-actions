@@ -220,7 +220,7 @@ jobs:
               # 検証レポートの内容を表示
               if [ -f "$VALIDATION_REPORT_BEFORE" ]; then
                 echo "検証レポート:"
-                jq .summary "$VALIDATION_REPORT_BEFORE"
+                jq .summary "$VALIDATION_REPORT_BEFORE" || echo "⚠️ レポート解析に失敗しました"
               fi
 
               # 検証失敗でもフェッチは続行 (既存データの問題を新規データで上書きする可能性もある)
@@ -425,7 +425,7 @@ jobs:
             # 検証レポートの内容を表示
             if [ -f "$VALIDATION_REPORT" ]; then
               echo "検証レポート:"
-              jq .summary "$VALIDATION_REPORT"
+              jq .summary "$VALIDATION_REPORT" || echo "⚠️ レポート解析に失敗しました"
             fi
 
             # 検証失敗でもPR作成は続行 (レビューで確認)
