@@ -616,9 +616,11 @@ else
   # 自動マージの実行
   if [ "$AUTO_MERGE_EFFECTIVE" = "true" ]; then
     echo "🔄 自動マージを設定中..."
-    # コマンド実行と終了コード取得 (ifの外で実行して正しい終了コードを取得)
+    # set -e の影響を回避するため、一時的にerrexitを無効化
+    set +e
     gh pr merge "$PR_NUMBER" --auto --squash --delete-branch
     MERGE_EXIT_CODE=$?
+    set -e  # errexitを再度有効化
 
     # 終了コードで結果を判定
     if [ $MERGE_EXIT_CODE -eq 0 ]; then
