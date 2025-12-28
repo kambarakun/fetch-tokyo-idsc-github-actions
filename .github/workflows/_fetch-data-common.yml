@@ -212,6 +212,7 @@ jobs:
 
       - name: Fetch epidemic data
         id: fetch
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -267,6 +268,7 @@ jobs:
       - name: Process epidemic data
         id: process
         if: inputs.dry_run != true
+        shell: bash
         run: |
           # パイプラインの終了コードを正しく伝播 (pipefailオプション)
           set -o pipefail
@@ -334,6 +336,12 @@ jobs:
               echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
 
               # 処理失敗時の動作制御
+              # 真理値表:
+              # continue_on_failure | force_merge_on_failure | 動作
+              # -------------------|----------------------|------
+              # true               | (any)                | 継続
+              # false              | true                 | 継続（警告）
+              # false              | false                | 終了（exit 1）
               if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
                 echo "⚠️ 警告: データ処理に失敗しましたが、ワークフローを継続します。"
               else
@@ -350,17 +358,24 @@ jobs:
       - name: Create issue on processing failure
         id: create_issue
         if: env.PROCESS_RESULT == 'failed'
+        shell: bash
         run: |
           echo "📝 処理失敗のGitHub Issueを作成します..."
+
+          # セキュリティ: 環境変数をサニタイズ (インジェクション対策)
+          # 英数字、ハイフン、アンダースコア、スラッシュのみを許可
+          SAFE_ACTOR=$(echo "${GITHUB_ACTOR}" | tr -cd '[:alnum:]-_')
+          SAFE_REF=$(echo "${GITHUB_REF}" | tr -cd '[:alnum:]-_/')
+          SAFE_SHA=$(echo "${GITHUB_SHA:0:7}" | tr -cd '[:alnum:]')
 
           ISSUE_TITLE="[自動/${{ inputs.workflow_type }}] データ処理失敗: $(date +'%Y-%m-%d %H:%M')"
           ISSUE_BODY="データ処理ステップが失敗しました (${{ inputs.workflow_display_name }})。
 
           発生日時: $(date +'%Y-%m-%d %H:%M:%S %Z')
           ワークフロー実行: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          コミット: ${GITHUB_SHA:0:7}
-          Branch: ${GITHUB_REF}
-          Actor: ${GITHUB_ACTOR}
+          コミット: ${SAFE_SHA}
+          Branch: ${SAFE_REF}
+          Actor: ${SAFE_ACTOR}
 
           対応方法:
           1. ワークフローログで具体的なエラーメッセージを確認
@@ -371,7 +386,7 @@ jobs:
             --title "${ISSUE_TITLE}" \
             --body "${ISSUE_BODY}" \
             --label "bug,automated,data-processing,${{ inputs.workflow_type }}" \
-            --assignee "${GITHUB_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
+            --assignee "${SAFE_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
 
       - name: Validate fetched data
         id: validate-after
@@ -390,7 +405,7 @@ jobs:
             # 検証レポートの内容を表示
             if [ -f "$VALIDATION_REPORT" ]; then
               echo "検証レポート:"
-              cat "$VALIDATION_REPORT" | jq .summary
+              jq .summary "$VALIDATION_REPORT"
             fi
 
             # 検証失敗でもPR作成は続行 (レビューで確認)
