@@ -571,6 +571,10 @@ else
   VALIDATIONS_PASSED="true"  # デフォルトは検証成功
   case "$WORKFLOW_NAME" in
     fetch-data-weekly)
+      # 週次チェックワークフロー: 事前検証と事後検証の両方を確認
+      if [ "${VALIDATION_BEFORE_SUCCESS:-}" = "false" ]; then
+        VALIDATIONS_PASSED="false"
+      fi
       if [ "${VALIDATION_SUCCESS:-}" = "false" ]; then
         VALIDATIONS_PASSED="false"
       fi
@@ -581,9 +585,10 @@ else
       fi
       ;;
     fetch-data-daily)
-      # 日次チェックワークフロー
-      # 現時点では検証結果を環境変数に設定していないため、デフォルト (true) を使用
-      # TODO: 将来的にAUTO_MERGEを追加する場合は、検証結果の環境変数設定が必要
+      # 日次チェックワークフロー: 事前検証の結果を確認
+      if [ "${VALIDATION_BEFORE_SUCCESS:-}" = "false" ]; then
+        VALIDATIONS_PASSED="false"
+      fi
       ;;
     process-data)
       if [ "${VALIDATION_PASSED:-}" = "false" ]; then

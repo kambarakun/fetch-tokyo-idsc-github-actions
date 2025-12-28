@@ -95,6 +95,7 @@ jobs:
       # daily固有設定
       validate_before: true
       continue_on_failure: true
+      auto_merge: true # 日次チェックは問題なければ自動マージ
 
       # タイムアウトとログ
       timeout_minutes: 60

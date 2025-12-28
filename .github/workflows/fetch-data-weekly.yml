@@ -55,6 +55,7 @@ jobs:
       validate_before: true
       validate_after: true # weeklyのみ事後検証を実行
       continue_on_failure: true
+      auto_merge: true # 週次チェックは問題なければ自動マージ
 
       # タイムアウトとログ
       timeout_minutes: 180
