@@ -10,25 +10,25 @@
     "period": 52,
     "period_type": "weekly"
   },
-  "bytes": 13394,
+  "bytes": 13396,
   "lines": 99,
   "hash": {
     "algorithm": "sha256",
-    "value": "14576d78a98fedf29cdcb4911814d8ce10251d08d6e1db59bdd40d63905af454"
+    "value": "11386acd95e2b7af94aed8f53d410f5cd865cc3f179adfc9d86bf37e97b9e1de"
   },
   "encoding": "shift_jis",
   "created": "2026-01-07T08:10:09.092257+00:00",
-  "modified": "2026-01-08T08:47:55.080820+00:00",
+  "modified": "2026-01-15T08:48:03.012876+00:00",
   "sources": [],
   "_fetch": {
     "source_url": null,
-    "fetch_time_seconds": 0.6694028377532959,
+    "fetch_time_seconds": 0.9022893905639648,
     "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2026-01-08T08:47:55.081263+00:00",
+    "verified_at": "2026-01-15T08:48:03.013268+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -50,7 +50,7 @@
     }
   },
   "quality": {
-    "validation_timestamp": "2026-01-08T08:47:55.081269+00:00",
+    "validation_timestamp": "2026-01-15T08:48:03.013274+00:00",
     "validation_status": "completed",
     "issues": []
   }
