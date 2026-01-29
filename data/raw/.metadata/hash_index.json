@@ -1359,6 +1359,7 @@
   "fd816449a6add5fbc5d0df40b611075799c9f67a7bda3d5d8cf7540798f8b97e": "data/raw/notifiable_weekly_2026_01.csv",
   "a74293b7ea7f9d7d6acf710f46420ae94ad28727d593219dd6dd892096931684": "data/raw/notifiable_weekly_2026_02.csv",
   "a95b7d0c3e3aa62f32d5161ed0a2022fec0c30f62f8eba0a1c7ac728ca94e50b": "data/raw/notifiable_weekly_2026_03.csv",
+  "071817635eb44c8307d7c7d5eba3a96d36cbd754be1688d01c5e55592ed2b96f": "data/raw/notifiable_weekly_2026_04.csv",
   "7d76ed85cb13668cac442646b5524a2fde29c62dce1fc3f7098950f72a094092": "data/raw/sentinel_monthly_age_2000_01.csv",
   "178fe3a7202abee68d7a90a8709352aade4f7527eb113d7b08e2eaba9f57dcd3": "data/raw/sentinel_monthly_age_2000_02.csv",
   "18927f28930b6942f73383d008876793f89dc1f2c2165dd53f0f536c134cb8a5": "data/raw/sentinel_monthly_age_2000_03.csv",
@@ -3967,6 +3968,7 @@
   "46543d9b2f176afe1aa3d8d08c6fadb7f69d7209b0e0349844435ba91ea462db": "data/raw/sentinel_weekly_age_2026_01.csv",
   "cca4644b70226c6abebd20f1f1f22b0def2b9dba335e36f8895ea97ff64a3209": "data/raw/sentinel_weekly_age_2026_02.csv",
   "205789624714528472d01120595298006085ebec19dc8daa67435edb7b25f4b4": "data/raw/sentinel_weekly_age_2026_03.csv",
+  "e9aa763eade6ea65415a04c8f22fbef368e3ac440d44eb97a4252bd0eb360afd": "data/raw/sentinel_weekly_age_2026_04.csv",
   "e88f487b69a12b25a6570560d14aba6ccce5efb49e77b8637aa8930b88cd2ecb": "data/raw/sentinel_weekly_gender_2000_14.csv",
   "f1d1a6e857739804795297b608fae77f53cce1a127680aca02c5201f341346da": "data/raw/sentinel_weekly_gender_2000_15.csv",
   "bdcb5dc8ffb3cf639de7430c8b3e0d41085fa1d9053bf0636bb235f214b7de3c": "data/raw/sentinel_weekly_gender_2000_16.csv",
@@ -5313,6 +5315,7 @@
   "d7d9f6b33497006dde7d832b1a0ba005043b80038b055ff0b02a58f7d5ab8bfe": "data/raw/sentinel_weekly_gender_2026_01.csv",
   "38f72638baafb48871fcc0d04b90f1b38ccd8a7eebc1ce4435a81635563efb53": "data/raw/sentinel_weekly_gender_2026_02.csv",
   "35f9aed0a6494ce8805a5c999116ca06ffa576bca9cbed52752467235b69fa9e": "data/raw/sentinel_weekly_gender_2026_03.csv",
+  "07e901666a1aa3033f41422cc794eaef942ef487696686a91795dd11d2db50c5": "data/raw/sentinel_weekly_gender_2026_04.csv",
   "3d6bdd0c92e926dac54bf1f738d23e47ca272a7b12a9f7b83ab4a53d6314ac77": "data/raw/sentinel_weekly_health_center_2000_01.csv",
   "ab8792735ce7252dc90dbb6aeaae0fb039feb4ed527058ea3edfd670bbbd926b": "data/raw/sentinel_weekly_health_center_2000_02.csv",
   "522a6568d32aac65310bb538b3daa338ca1dfd7502c078d488cbf668e208abd9": "data/raw/sentinel_weekly_health_center_2000_03.csv",
@@ -6673,6 +6676,7 @@
   "749d378ca70b0f95d443bae854ea95a0ca639015a22bbdd8efe727055979680b": "data/raw/sentinel_weekly_health_center_2026_01.csv",
   "58c439da774f7ca4ed97832a6cfe157198d101820e2f53d37c5dca21734278fd": "data/raw/sentinel_weekly_health_center_2026_02.csv",
   "3770544169912c81a68419fc57ac0d6aeea33af8f2245a0f82a7e0ed6619ae03": "data/raw/sentinel_weekly_health_center_2026_03.csv",
+  "0cf3ab641d70cb5948a6df85484c757af1e9158c8124d5fecd84e79e04f9b8be": "data/raw/sentinel_weekly_health_center_2026_04.csv",
   "4eb41e966024713ebe5d786466dc2d8b1ce84687987a58cea2ac9c4022a09f6a": "data/raw/sentinel_weekly_medical_district_2000_01.csv",
   "39d91107439d75357c2ead41a24dcc92142b9edfc5020467f7bb8ddda066f043": "data/raw/sentinel_weekly_medical_district_2000_02.csv",
   "de48e41b1c1ff7c20c8ae70e8683026a157f05598fe1b716ae1f4e396285a928": "data/raw/sentinel_weekly_medical_district_2000_03.csv",
@@ -8032,5 +8036,6 @@
   "165263a41d5b97a6710fc450b85115efd8274b522722d68d025cc850c98cf502": "data/raw/sentinel_weekly_medical_district_2025_52.csv",
   "8ced583a529c8e2b8a54de2e3936a022bb081c753ff9b4b8261e7e8047e70f28": "data/raw/sentinel_weekly_medical_district_2026_01.csv",
   "400df1da659854a4cd7b34ab5c003b7fed1382fe580d7fe1d542ff6c82d2c4b6": "data/raw/sentinel_weekly_medical_district_2026_02.csv",
-  "1eacfa27a0176bec6d0e341a9ce4d4bfb698a506792709ac1516fa26f29f291f": "data/raw/sentinel_weekly_medical_district_2026_03.csv"
+  "1eacfa27a0176bec6d0e341a9ce4d4bfb698a506792709ac1516fa26f29f291f": "data/raw/sentinel_weekly_medical_district_2026_03.csv",
+  "657a43e892cf7c5e4cc587731e4718649adbd2ae789f6160c1a993e10e56da09": "data/raw/sentinel_weekly_medical_district_2026_04.csv"
 }
