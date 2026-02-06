@@ -1,0 +1,57 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "sentinel_monthly_gender_2026_01",
+  "filename": "sentinel_monthly_gender_2026_01.csv",
+  "path": "sentinel_monthly_gender_2026_01.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_monthly_gender",
+  "temporal": {
+    "year": 2026,
+    "period": 1,
+    "period_type": "monthly"
+  },
+  "bytes": 536,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "8866cfb6538bb2a707eb57d46521c33f79e3a972060bd14c1e47453e7e8e4d71"
+  },
+  "encoding": "shift_jis",
+  "created": "2026-02-06T08:17:17.505948+00:00",
+  "modified": "2026-02-06T08:17:17.505948+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.9201202392578125,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2026-02-06T08:17:17.506139+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2,
+        5
+      ]
+    }
+  },
+  "quality": {
+    "validation_timestamp": "2026-02-06T08:17:17.506146+00:00",
+    "validation_status": "completed",
+    "issues": []
+  }
+}
