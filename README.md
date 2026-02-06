@@ -19,9 +19,9 @@
 | 項目 | 値 |
 |------|-----|
 | **最新週次データ** | 2026年第5週 |
-| **最新月次データ** | 2025年12月 |
-| **最新データ取得日時** | 2026-02-05 17:50 JST |
-| **最終データ更新日時** | 2026-02-05 17:50 JST |
+| **最新月次データ** | 2026年1月 |
+| **最新データ取得日時** | 2026-02-06 17:17 JST |
+| **最終データ更新日時** | 2026-02-06 17:17 JST |
 
 > 📝 **日時の説明**
 > - **最新データ取得日時**: データ取得処理が最後に実行された日時 (毎日自動実行)
@@ -80,11 +80,11 @@
 
 | 項目 | 値 |
 |------|-----|
-| **総データ件数** | 8,024件 |
+| **総データ件数** | 8,028件 |
 | **週次データ期間** | 2000年第1週 - 2026年第5週 |
-| **月次データ期間** | 2000年1月 - 2025年12月 |
+| **月次データ期間** | 2000年1月 - 2026年1月 |
 | **収集週数** | 1,361週 |
-| **収集月数** | 312ヶ月 |
+| **収集月数** | 313ヶ月 |
 | **データ種別数** | 9種類 |
 
 ### 📋 データ種別内訳
@@ -96,21 +96,21 @@
 | 全数週次 | 1,361件 | 2000年第1週-2026年第5週 | なし |
 | 定点週次・医療圏別 | 1,348件 | 2000年第14週-2026年第5週 | なし |
 | 定点週次・性別 | 1,348件 | 2000年第14週-2026年第5週 | なし |
-| 定点月次・医療圏別 | 312件 | 2000年1月-2025年12月 | なし |
-| 定点月次・保健所別 | 312件 | 2000年1月-2025年12月 | なし |
-| 定点月次・年齢群 | 312件 | 2000年1月-2025年12月 | なし |
-| 定点月次・性別 | 309件 | 2000年4月-2025年12月 | なし |
+| 定点月次・医療圏別 | 313件 | 2000年1月-2026年1月 | なし |
+| 定点月次・保健所別 | 313件 | 2000年1月-2026年1月 | なし |
+| 定点月次・年齢群 | 313件 | 2000年1月-2026年1月 | なし |
+| 定点月次・性別 | 310件 | 2000年4月-2026年1月 | なし |
 
 ### 🔍 データ品質チェック
 
 #### 📁 生データ (raw) の検証
 
-##### ⚠️ 警告 (8024件)
+##### ⚠️ 警告 (8028件)
 
 > 💡 CSVファイル内で行ごとにカラム数が異なります。東京都IDSCの元データには注釈行や集計期間情報が含まれているため発生します。
 
 <details>
-<summary><strong>[csv_format] Inconsistent column count</strong> (8024件)</summary>
+<summary><strong>[csv_format] Inconsistent column count</strong> (8028件)</summary>
 
 ```text
 notifiable_weekly_2026_05.csv
@@ -134,6 +134,10 @@ sentinel_weekly_gender_2026_02.csv
 sentinel_weekly_health_center_2026_02.csv
 sentinel_weekly_medical_district_2026_02.csv
 notifiable_weekly_2026_01.csv
+sentinel_monthly_age_2026_01.csv
+sentinel_monthly_gender_2026_01.csv
+sentinel_monthly_health_center_2026_01.csv
+sentinel_monthly_medical_district_2026_01.csv
 sentinel_weekly_age_2026_01.csv
 sentinel_weekly_gender_2026_01.csv
 sentinel_weekly_health_center_2026_01.csv
@@ -159,11 +163,7 @@ sentinel_weekly_gender_2025_49.csv
 sentinel_weekly_health_center_2025_49.csv
 sentinel_weekly_medical_district_2025_49.csv
 notifiable_weekly_2025_48.csv
-sentinel_weekly_age_2025_48.csv
-sentinel_weekly_gender_2025_48.csv
-sentinel_weekly_health_center_2025_48.csv
-sentinel_weekly_medical_district_2025_48.csv
-... 他7974件
+... 他7978件
 ```
 
 </details>
