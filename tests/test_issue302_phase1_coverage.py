@@ -1,3 +1,25 @@
+"""Phase 1 coverage uplift tests for issue #302.
+
+This test module targets uncovered edge cases and error paths to raise
+test coverage from 87% to 93% with a focus on critical code paths:
+
+Coverage targets:
+- config_manager: Validation failures, I/O errors, default fallbacks
+- enhanced_fetcher: HTTP errors, retry logic, boundary conditions, edge cases
+- storage_manager: Hash index operations, validation limits, git integration
+- validators: Subprocess errors, timeout handling, data quality checks
+
+Test strategy:
+- Use AAA (Arrange-Act-Assert) pattern for clarity
+- Mock external dependencies (network, subprocess, file I/O)
+- Focus on error paths and boundary conditions
+- Test realistic failure scenarios
+
+Related:
+- Issue #302: Phase 1 coverage improvement plan
+- Target: 92% minimum coverage enforced in CI
+"""
+
 from __future__ import annotations
 
 import csv
@@ -19,6 +41,7 @@ from src.validators.quality_validator import QualityValidator
 
 
 def test_config_manager_load_config_raises_on_validation_error(tmp_path: Path) -> None:
+    """Test that load_config raises ValueError when configuration validation fails."""
     config_path = tmp_path / "config.yml"
     config_path.write_text(
         """
@@ -39,6 +62,7 @@ def test_config_manager_load_config_raises_on_validation_error(tmp_path: Path) -
 
 
 def test_config_manager_load_config_reraises_io_error() -> None:
+    """Test that load_config re-raises OSError when file I/O fails."""
     manager = ConfigurationManager(Path("dummy.yml"))
 
     with (
@@ -50,6 +74,7 @@ def test_config_manager_load_config_reraises_io_error() -> None:
 
 
 def test_config_manager_validate_config_detects_required_fields_and_future_year() -> None:
+    """Test that validation detects missing required fields and warns about future years."""
     manager = ConfigurationManager()
     config = manager._get_default_config()
     config.schedule.cron_expression = ""
@@ -65,6 +90,7 @@ def test_config_manager_validate_config_detects_required_fields_and_future_year(
 
 
 def test_config_manager_get_enabled_data_types_loads_config_when_missing() -> None:
+    """Test that get_enabled_data_types lazily loads config when not present."""
     manager = ConfigurationManager()
     config = manager._get_default_config()
     config.data_types[0].enabled = False
@@ -81,12 +107,14 @@ def test_config_manager_get_enabled_data_types_loads_config_when_missing() -> No
 
 
 def _make_http_error(status_code: int, headers: dict[str, str] | None = None) -> HTTPError:
+    """Helper to create HTTPError with specific status code and headers."""
     error = HTTPError("http error")
     error.response = SimpleNamespace(status_code=status_code, headers=headers or {})
     return error
 
 
 def test_retry_handler_rate_limit_detection_variants() -> None:
+    """Test rate limit detection for various HTTP status codes and headers."""
     handler = RetryHandler(DataFetcherConfig(enable_jitter=False))
 
     assert handler._is_rate_limit_error(_make_http_error(429)) is True
@@ -98,6 +126,7 @@ def test_retry_handler_rate_limit_detection_variants() -> None:
 
 @pytest.mark.asyncio
 async def test_retry_handler_reraises_unexpected_value_error() -> None:
+    """Test that retry handler re-raises ValueError that is not a parse error."""
     handler = RetryHandler(DataFetcherConfig(max_retries=1, enable_jitter=False))
 
     async def raise_value_error() -> None:
@@ -109,6 +138,7 @@ async def test_retry_handler_reraises_unexpected_value_error() -> None:
 
 @pytest.mark.asyncio
 async def test_retry_handler_returns_none_when_retry_loop_never_runs() -> None:
+    """Test that retry handler returns None when max_retries is negative."""
     handler = RetryHandler(DataFetcherConfig(max_retries=-1, enable_jitter=False))
 
     called = {"value": False}
@@ -123,6 +153,7 @@ async def test_retry_handler_returns_none_when_retry_loop_never_runs() -> None:
 
 
 def test_enhanced_fetcher_fetch_with_retry_handles_unexpected_exception() -> None:
+    """Test that fetch_with_retry handles unexpected RuntimeError gracefully."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
 
     with patch.object(fetcher.retry_handler, "execute_with_retry", new=AsyncMock(side_effect=RuntimeError("boom"))):
@@ -133,6 +164,7 @@ def test_enhanced_fetcher_fetch_with_retry_handles_unexpected_exception() -> Non
 
 
 def test_enhanced_fetcher_fetch_date_range_unknown_type_raises() -> None:
+    """Test that fetch_date_range raises ValueError for unknown data types."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
 
     with pytest.raises(ValueError, match="Unknown data type"):
@@ -140,6 +172,7 @@ def test_enhanced_fetcher_fetch_date_range_unknown_type_raises() -> None:
 
 
 def test_enhanced_fetcher_fetch_date_range_monthly_rollover() -> None:
+    """Test that fetch_date_range handles monthly year rollover correctly."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
 
     with (
@@ -155,6 +188,7 @@ def test_enhanced_fetcher_fetch_date_range_monthly_rollover() -> None:
 
 
 def test_enhanced_fetcher_get_missing_data_invalid_targets_raise() -> None:
+    """Test that get_missing_data raises ValueError for invalid week/month numbers."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
 
     with pytest.raises(ValueError, match="無効な週番号"):
@@ -165,6 +199,7 @@ def test_enhanced_fetcher_get_missing_data_invalid_targets_raise() -> None:
 
 
 def test_enhanced_fetcher_get_missing_data_uses_current_year_when_end_year_none() -> None:
+    """Test that get_missing_data defaults to current year when end_year is None."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
     current_year = datetime.now(UTC).year
 
@@ -182,6 +217,7 @@ def test_enhanced_fetcher_get_missing_data_uses_current_year_when_end_year_none(
 
 
 def test_enhanced_fetcher_create_metadata_includes_period_range_suffix() -> None:
+    """Test that _create_metadata correctly formats date_range with period suffix."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
 
     metadata = fetcher._create_metadata(
@@ -200,6 +236,7 @@ def test_enhanced_fetcher_create_metadata_includes_period_range_suffix() -> None
 
 
 def test_enhanced_fetcher_get_source_url_returns_none_when_endpoint_missing() -> None:
+    """Test that _get_source_url returns None when endpoint is not in map."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
 
     with patch.dict(fetcher.ENDPOINT_MAP, {}, clear=True):
@@ -207,6 +244,7 @@ def test_enhanced_fetcher_get_source_url_returns_none_when_endpoint_missing() ->
 
 
 def test_enhanced_fetcher_parse_existing_files_rejects_out_of_range_year() -> None:
+    """Test that _parse_existing_files filters out files with invalid years."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
 
     params = fetcher._parse_existing_files([Path("sentinel_weekly_gender_1800_01.csv")], "sentinel_weekly_gender")
@@ -214,6 +252,7 @@ def test_enhanced_fetcher_parse_existing_files_rejects_out_of_range_year() -> No
 
 
 def test_gender_sum_validator_read_source_file_handles_timeout_and_nonzero(tmp_path: Path) -> None:
+    """Test that _read_source_file handles subprocess timeout and non-zero exit codes."""
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     source_file = raw_dir / "sample.csv"
@@ -233,6 +272,7 @@ def test_gender_sum_validator_read_source_file_handles_timeout_and_nonzero(tmp_p
 
 
 def test_gender_sum_validator_header_and_section_fallbacks(tmp_path: Path) -> None:
+    """Test header detection and section extraction fallback behavior."""
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     source_file = raw_dir / "sample.csv"
@@ -257,6 +297,7 @@ def test_gender_sum_validator_header_and_section_fallbacks(tmp_path: Path) -> No
 
 
 def test_quality_validator_records_completed_result_with_affected_rows(tmp_path: Path) -> None:
+    """Test that quality validator properly records validation issues with affected rows."""
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
 
@@ -279,6 +320,7 @@ def test_quality_validator_records_completed_result_with_affected_rows(tmp_path:
 
 
 def test_metadata_from_legacy_raw_handles_verification_and_missing_source() -> None:
+    """Test that from_legacy_raw correctly migrates verification status and handles missing sources."""
     legacy = {
         "filename": "raw.csv",
         "year": 2025,
@@ -296,6 +338,7 @@ def test_metadata_from_legacy_raw_handles_verification_and_missing_source() -> N
 
 
 def test_metadata_from_legacy_processed_detects_female_and_total_gender() -> None:
+    """Test that from_legacy_processed correctly detects female and total gender markers."""
     source_meta = Metadata(
         name="source",
         filename="source.csv",
@@ -328,46 +371,98 @@ def test_metadata_from_legacy_processed_detects_female_and_total_gender() -> Non
         assert metadata._process.gender == marker
 
 
-def test_git_handler_and_storage_branch_paths(tmp_path: Path) -> None:
+def test_git_handler_add_files_skips_missing_files(tmp_path: Path) -> None:
+    """Test that add_files returns True without calling git for non-existent files."""
+    # Arrange
     git_handler = GitHandler(auto_commit=True)
+    missing_file = tmp_path / "missing.csv"
 
+    # Act & Assert
     with patch("subprocess.run") as mock_run:
-        assert git_handler.add_files([tmp_path / "missing.csv"]) is True
+        result = git_handler.add_files([missing_file])
+        assert result is True
         mock_run.assert_not_called()
 
-    existing = tmp_path / "exists.csv"
-    existing.write_text("x", encoding="utf-8")
 
+def test_git_handler_add_files_returns_false_on_git_error(tmp_path: Path) -> None:
+    """Test that add_files returns False when git add command fails."""
+    # Arrange
+    git_handler = GitHandler(auto_commit=True)
+    existing_file = tmp_path / "exists.csv"
+    existing_file.write_text("x", encoding="utf-8")
+
+    # Act & Assert
     with patch(
         "subprocess.run",
         side_effect=subprocess.CalledProcessError(1, ["git", "add"], stderr="fatal"),
     ):
-        assert git_handler.add_files([existing]) is False
+        result = git_handler.add_files([existing_file])
+        assert result is False
 
+
+def test_git_handler_commit_returns_failure_on_commit_error() -> None:
+    """Test that commit returns failure result when git commit fails."""
+    # Arrange
+    git_handler = GitHandler(auto_commit=True)
+
+    # Act
     with patch("subprocess.run") as mock_run:
         mock_run.side_effect = [
-            Mock(returncode=1),
+            Mock(returncode=1),  # git diff exits with 1 (changes exist)
             subprocess.CalledProcessError(1, ["git", "commit"], stderr="commit failed"),
         ]
         result = git_handler.commit("msg")
-        assert result.success is False
-        assert "commit failed" in (result.error or "")
 
+    # Assert
+    assert result.success is False
+    assert "commit failed" in (result.error or "")
+
+
+def test_git_handler_configure_user_returns_false_on_config_error() -> None:
+    """Test that configure_user returns False when git config fails."""
+    # Arrange
+    git_handler = GitHandler(auto_commit=True)
+
+    # Act & Assert
     with patch(
         "subprocess.run",
         side_effect=subprocess.CalledProcessError(1, ["git", "config"], stderr="config failed"),
     ):
-        assert git_handler.configure_user() is False
+        result = git_handler.configure_user()
+        assert result is False
 
+
+def test_storage_manager_commit_changes_skips_when_auto_commit_disabled(tmp_path: Path) -> None:
+    """Test that commit_changes returns early when auto_commit is disabled."""
+    # Arrange
     storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-    disabled = storage.commit_changes()
-    assert disabled.message == "Auto commit disabled"
 
-    storage.git_handler.auto_commit = True
+    # Act
+    result = storage.commit_changes()
+
+    # Assert
+    assert result.message == "Auto commit disabled"
+
+
+def test_storage_manager_commit_changes_skips_when_not_git_repo(tmp_path: Path) -> None:
+    """Test that commit_changes returns early when not in a git repository."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": True})
+
+    # Act
     with patch.object(storage.git_handler, "is_git_repo", return_value=False):
-        not_repo = storage.commit_changes()
-    assert not_repo.message == "Not a git repository"
+        result = storage.commit_changes()
 
+    # Assert
+    assert result.message == "Not a git repository"
+
+
+def test_storage_manager_commit_changes_creates_commit_with_japanese_message(tmp_path: Path) -> None:
+    """Test that commit_changes creates commit with Japanese message including データ更新."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": True})
+
+    # Act
     with (
         patch.object(storage.git_handler, "is_git_repo", return_value=True),
         patch.object(storage.git_handler, "add_files", return_value=True),
@@ -378,87 +473,233 @@ def test_git_handler_and_storage_branch_paths(tmp_path: Path) -> None:
         ) as mock_commit,
     ):
         storage.commit_changes()
+
+    # Assert
     assert "データ更新" in mock_commit.call_args.args[0]
 
 
-def test_storage_manager_hash_and_validation_edge_paths(tmp_path: Path) -> None:
+def test_storage_manager_load_hash_index_returns_empty_dict_on_invalid_json(tmp_path: Path) -> None:
+    """Test that _load_hash_index returns empty dict when JSON is invalid."""
+    # Arrange
     storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-
     storage.hash_index_file.write_text("{invalid", encoding="utf-8")
-    assert storage._load_hash_index() == {}
 
+    # Act
+    result = storage._load_hash_index()
+
+    # Assert
+    assert result == {}
+
+
+def test_storage_manager_remove_from_hash_index_deletes_single_path(tmp_path: Path) -> None:
+    """Test that _remove_from_hash_index removes entry when hash has single path."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
     storage.hash_index = {"hash1": str(tmp_path / "a.csv")}
+
+    # Act
     storage._remove_from_hash_index("hash1", str(tmp_path / "a.csv"))
+
+    # Assert
     assert "hash1" not in storage.hash_index
 
+
+def test_storage_manager_remove_from_hash_index_converts_list_to_string(tmp_path: Path) -> None:
+    """Test that _remove_from_hash_index converts list to string when one path remains."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
     storage.hash_index = {"hash2": ["a.csv", "b.csv"]}
+
+    # Act
     storage._remove_from_hash_index("hash2", "a.csv")
+
+    # Assert
     assert storage.hash_index["hash2"] == "b.csv"
 
+
+def test_storage_manager_remove_from_hash_index_deletes_last_item_in_list(tmp_path: Path) -> None:
+    """Test that _remove_from_hash_index removes entry when last item in list is removed."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
     storage.hash_index = {"hash3": ["x.csv"]}
+
+    # Act
     storage._remove_from_hash_index("hash3", "x.csv")
+
+    # Assert
     assert "hash3" not in storage.hash_index
 
+
+def test_storage_manager_remove_from_hash_index_raises_on_io_error(tmp_path: Path) -> None:
+    """Test that _remove_from_hash_index propagates OSError when file write fails."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
     storage.hash_index = {"hash4": ["z.csv"]}
+
+    # Act & Assert
     with patch.object(Path, "open", side_effect=OSError("disk error")), pytest.raises(OSError, match="disk error"):
         storage._remove_from_hash_index("hash4", "z.csv")
+
+
+def test_storage_manager_count_lines_returns_none_for_non_bytes_data(tmp_path: Path) -> None:
+    """Test that _count_lines returns None for data that is not bytes."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
 
     class BadLineData:
         def __bool__(self) -> bool:
             return True
 
-    assert storage._count_lines(BadLineData()) is None  # type: ignore[arg-type]
+    # Act
+    result = storage._count_lines(BadLineData())  # type: ignore[arg-type]
 
-    normalized = storage._normalize_timestamp("2025-01-01T00:00:00")
-    assert "T" in normalized
+    # Assert
+    assert result is None
 
-    fallback = storage._normalize_timestamp(123)  # type: ignore[arg-type]
-    assert "T" in fallback
 
+def test_storage_manager_normalize_timestamp_handles_string_input(tmp_path: Path) -> None:
+    """Test that _normalize_timestamp correctly handles string timestamps."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
+    result = storage._normalize_timestamp("2025-01-01T00:00:00")
+
+    # Assert
+    assert "T" in result
+
+
+def test_storage_manager_normalize_timestamp_falls_back_for_invalid_input(tmp_path: Path) -> None:
+    """Test that _normalize_timestamp falls back to current time for invalid input."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
+    result = storage._normalize_timestamp(123)  # type: ignore[arg-type]
+
+    # Assert
+    assert "T" in result
+
+
+def test_storage_manager_check_file_size_validation_warns_on_threshold(tmp_path: Path) -> None:
+    """Test that _check_file_size_validation issues warnings near size threshold."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
     with (
         patch("src.managers.storage_manager.VALIDATION_MAX_FILE_SIZE_MB", 0.001),
         patch("src.managers.storage_manager.VALIDATION_SIZE_WARNING_THRESHOLD", 0.5),
     ):
-        warning = storage._check_file_size_validation(b"x" * 700)
-        assert warning["valid"] is True
-        assert warning["warnings"]
+        result = storage._check_file_size_validation(b"x" * 700)
 
-        too_large = storage._check_file_size_validation(b"x" * 2000)
-        assert too_large["valid"] is False
-        assert too_large["errors"]
+    # Assert
+    assert result["valid"] is True
+    assert result["warnings"]
+
+
+def test_storage_manager_check_file_size_validation_fails_on_too_large(tmp_path: Path) -> None:
+    """Test that _check_file_size_validation fails when file exceeds maximum size."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
+    with (
+        patch("src.managers.storage_manager.VALIDATION_MAX_FILE_SIZE_MB", 0.001),
+        patch("src.managers.storage_manager.VALIDATION_SIZE_WARNING_THRESHOLD", 0.5),
+    ):
+        result = storage._check_file_size_validation(b"x" * 2000)
+
+    # Assert
+    assert result["valid"] is False
+    assert result["errors"]
+
+
+def test_storage_manager_check_encoding_validation_fails_on_decode_error(tmp_path: Path) -> None:
+    """Test that _check_encoding_validation fails when data cannot be decoded."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
 
     class BadData:
         def decode(self, *_args, **_kwargs):
             raise ValueError("bad")
 
-    encoding_result = storage._check_encoding_validation(BadData())  # type: ignore[arg-type]
-    assert encoding_result["valid"] is False
-    assert encoding_result["errors"]
+    # Act
+    result = storage._check_encoding_validation(BadData())  # type: ignore[arg-type]
 
+    # Assert
+    assert result["valid"] is False
+    assert result["errors"]
+
+
+def test_storage_manager_check_csv_format_validation_fails_on_too_many_lines(tmp_path: Path) -> None:
+    """Test that _check_csv_format_validation fails when line count exceeds maximum."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
     with patch("src.managers.storage_manager.VALIDATION_MAX_LINE_COUNT", 1):
-        too_many_lines = storage._check_csv_format_validation("h1\nh2\n".encode("shift_jis"))
-    assert too_many_lines["valid"] is False
-    assert any("Too many lines" in error for error in too_many_lines["errors"])
+        result = storage._check_csv_format_validation("h1\nh2\n".encode("shift_jis"))
 
+    # Assert
+    assert result["valid"] is False
+    assert any("Too many lines" in error for error in result["errors"])
+
+
+def test_storage_manager_check_csv_format_validation_fails_on_too_few_lines(tmp_path: Path) -> None:
+    """Test that _check_csv_format_validation fails when line count is below minimum."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
     with patch("src.managers.storage_manager.VALIDATION_MIN_LINE_COUNT", 3):
-        too_few_lines = storage._check_csv_format_validation("h1\n".encode("shift_jis"))
-    assert too_few_lines["valid"] is False
-    assert any("Too few lines" in error for error in too_few_lines["errors"])
+        result = storage._check_csv_format_validation("h1\n".encode("shift_jis"))
 
+    # Assert
+    assert result["valid"] is False
+    assert any("Too few lines" in error for error in result["errors"])
+
+
+def test_storage_manager_check_csv_format_validation_fails_on_too_many_columns(tmp_path: Path) -> None:
+    """Test that _check_csv_format_validation fails when column count exceeds maximum."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
     with patch("src.managers.storage_manager.VALIDATION_MAX_COLUMN_COUNT", 2):
-        too_many_columns = storage._check_csv_format_validation("a,b,c\n".encode("shift_jis"))
-    assert too_many_columns["valid"] is False
-    assert any("Too many columns" in error for error in too_many_columns["errors"])
+        result = storage._check_csv_format_validation("a,b,c\n".encode("shift_jis"))
 
+    # Assert
+    assert result["valid"] is False
+    assert any("Too many columns" in error for error in result["errors"])
+
+
+def test_storage_manager_check_csv_format_validation_fails_on_csv_error(tmp_path: Path) -> None:
+    """Test that _check_csv_format_validation handles csv.Error gracefully."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+
+    # Act
     with patch("src.managers.storage_manager.csv.reader", side_effect=csv.Error("bad csv")):
-        csv_error = storage._check_csv_format_validation(b"any")
-    assert csv_error["valid"] is False
-    assert any("CSV format error" in error for error in csv_error["errors"])
+        result = storage._check_csv_format_validation(b"any")
+
+    # Assert
+    assert result["valid"] is False
+    assert any("CSV format error" in error for error in result["errors"])
+
+
+def test_storage_manager_check_csv_format_validation_fails_on_os_error(tmp_path: Path) -> None:
+    """Test that _check_csv_format_validation handles OSError during decoding."""
+    # Arrange
+    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
 
     class OsErrorData:
         def decode(self, *_args, **_kwargs):
             raise OSError("decode failed")
 
-    os_error = storage._check_csv_format_validation(OsErrorData())  # type: ignore[arg-type]
-    assert os_error["valid"] is False
-    assert any("Failed to check CSV format" in error for error in os_error["errors"])
+    # Act
+    result = storage._check_csv_format_validation(OsErrorData())  # type: ignore[arg-type]
+
+    # Assert
+    assert result["valid"] is False
+    assert any("Failed to check CSV format" in error for error in result["errors"])
