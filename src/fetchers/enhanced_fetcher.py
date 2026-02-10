@@ -130,15 +130,11 @@ class RetryHandler:
 
     async def execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
         """リトライ機能付き実行"""
-        last_error = None
-
         for attempt in range(self.config.max_retries + 1):
             try:
                 return await func(*args, **kwargs)
 
             except (Timeout, ConnectionError, HTTPError) as e:
-                last_error = e
-
                 if isinstance(e, HTTPError):
                     # HTTPErrorのresponse属性を安全に取得
                     response = getattr(e, "response", None)
@@ -183,9 +179,8 @@ class RetryHandler:
                 logger.exception("Unexpected error during retry")
                 raise
 
-        if last_error:
-            raise last_error
-        return None
+        # `max_retries` が不正に書き換えられた場合など、想定外のループ未実行を明示的に失敗させる。
+        raise RuntimeError("Retry loop exited unexpectedly")
 
 
 class RateLimiter:

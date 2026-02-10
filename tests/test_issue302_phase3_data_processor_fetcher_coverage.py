@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import csv
 from pathlib import Path
 from typing import Any, SupportsIndex
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
-from requests.exceptions import ConnectionError
 
 from src.fetchers.base_fetcher import TokyoEpidemicSurveillanceFetcher
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, RetryHandler
@@ -632,21 +630,15 @@ def test_base_fetcher_post_request_covers_unreachable_guard() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_handler_raises_last_error_when_loop_ends_without_raise() -> None:
-    """execute_with_retry raises last_error via fallback when loop is forcibly shortened."""
+async def test_retry_handler_raises_when_retry_config_is_corrupted() -> None:
+    """execute_with_retry fails explicitly when max_retries is unexpectedly negative."""
     # Arrange
     handler = RetryHandler(DataFetcherConfig(max_retries=1, enable_jitter=False))
+    handler.config.max_retries = -1
 
-    async def always_fail() -> None:
-        raise ConnectionError("network failed")
+    async def noop() -> str:
+        return "ok"
 
     # Act / Assert
-    with (
-        patch("src.fetchers.enhanced_fetcher.range", return_value=[0], create=True),
-        patch("asyncio.sleep", new=AsyncMock(return_value=None)),
-        pytest.raises(ConnectionError, match="network failed"),
-    ):
-        await handler.execute_with_retry(always_fail)
-
-    # AsyncMock import is exercised explicitly to avoid accidental removal by linting.
-    assert asyncio.iscoroutinefunction(always_fail)
+    with pytest.raises(RuntimeError, match="Retry loop exited unexpectedly"):
+        await handler.execute_with_retry(noop)
