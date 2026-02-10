@@ -137,8 +137,8 @@ async def test_retry_handler_reraises_unexpected_value_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_handler_returns_none_when_retry_loop_never_runs() -> None:
-    """Test that retry handler returns None when max_retries is negative."""
+async def test_retry_handler_raises_when_retry_loop_never_runs() -> None:
+    """Test that retry handler fails explicitly when max_retries is negative."""
     handler = RetryHandler(DataFetcherConfig(max_retries=-1, enable_jitter=False))
 
     called = {"value": False}
@@ -146,9 +146,8 @@ async def test_retry_handler_returns_none_when_retry_loop_never_runs() -> None:
     async def should_not_be_called() -> None:
         called["value"] = True
 
-    result = await handler.execute_with_retry(should_not_be_called)
-
-    assert result is None
+    with pytest.raises(RuntimeError, match="Retry loop exited unexpectedly"):
+        await handler.execute_with_retry(should_not_be_called)
     assert called["value"] is False
 
 
