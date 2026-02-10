@@ -236,6 +236,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # パイプラインの終了コードを正しく伝播 (pipefailオプション)
+          set -o pipefail
+
           # ログファイル名の決定 (workflow_typeベース)
           case "${{ inputs.workflow_type }}" in
             manual) LOG_PREFIX="fetch" ;;
@@ -280,10 +283,52 @@ jobs:
           echo "Executing: ${FETCH_CMD[@]}"
 
           # メインスクリプトの実行
-          "${FETCH_CMD[@]}" 2>&1 | tee "data/logs/console_${LOG_PREFIX}_${FETCH_TIMESTAMP}.log"
+          if "${FETCH_CMD[@]}" 2>&1 | tee "data/logs/console_${LOG_PREFIX}_${FETCH_TIMESTAMP}.log"; then
+            FETCH_EXIT_CODE=0
+            FETCH_STATUS="success"
+            echo "✅ データ取得: 成功"
+          else
+            FETCH_EXIT_CODE=${PIPESTATUS[0]}
+            FETCH_STATUS="failed"
+            echo "❌ データ取得: 失敗 (exit code: ${FETCH_EXIT_CODE})"
+          fi
 
-          # 実行結果の保存 (PIPESTATUS[0]でパイプライン内の最初のコマンドの終了コードを取得)
-          echo "FETCH_RESULT=${PIPESTATUS[0]}" >> $GITHUB_ENV
+          # 実行結果を保存
+          {
+            echo "FETCH_RESULT=${FETCH_EXIT_CODE}"
+            echo "FETCH_STATUS=${FETCH_STATUS}"
+            echo "FETCH_CONTINUED_REASON=none"
+          } >> "$GITHUB_ENV"
+
+      - name: Fetch result gate
+        id: fetch-gate
+        if: env.FETCH_STATUS == 'failed'
+        shell: bash
+        run: |
+          echo "⚠️ データ取得に失敗しました (exit code: ${FETCH_RESULT})"
+
+          # 失敗時の動作制御
+          # 真理値表:
+          # continue_on_failure | force_merge_on_failure | 動作
+          # -------------------|----------------------|------
+          # true               | (any)                | 継続
+          # false              | true                 | 継続（警告）
+          # false              | false                | 終了（exit 1）
+          if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
+            REASON="continue_on_failure=true により継続"
+            echo "⚠️ 警告: ${REASON}"
+            echo "FETCH_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
+          else
+            if [ "${{ inputs.force_merge_on_failure }}" = "true" ]; then
+              REASON="force_merge_on_failure=true により継続"
+              echo "⚠️ 警告: ${REASON}"
+              echo "FETCH_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
+            else
+              echo "🚫 fetch失敗のためジョブを終了します。"
+              echo "::error::Fetch failed with exit code ${FETCH_RESULT}"
+              exit 1
+            fi
+          fi
 
       - name: Process epidemic data
         id: process
@@ -610,6 +655,13 @@ jobs:
           echo "- **現在の週**: 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
           echo "- **収集モード**: ${MODE}" >> $GITHUB_STEP_SUMMARY
           echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔄 データ取得結果" >> $GITHUB_STEP_SUMMARY
+          echo "- **取得ステータス**: ${FETCH_STATUS:-unknown}" >> $GITHUB_STEP_SUMMARY
+          echo "- **終了コード**: ${FETCH_RESULT:-N/A}" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${FETCH_CONTINUED_REASON:-}" ] && [ "${FETCH_CONTINUED_REASON}" != "none" ]; then
+            echo "- **継続理由**: ${FETCH_CONTINUED_REASON}" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "$HAS_CHANGES" = "true" ]; then
