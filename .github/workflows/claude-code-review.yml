@@ -24,13 +24,32 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 1
+          # Compare base/head commits to detect workflow self-modifications safely.
+          fetch-depth: 0
+
+      - name: Guard against workflow self-modification
+        id: workflow_guard
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          workflow_path=".github/workflows/claude-code-review.yml"
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+
+          diff_output="$(git diff --name-only "${base_sha}" "${head_sha}" -- "${workflow_path}" || true)"
+          if [[ -n "${diff_output}" ]]; then
+            echo "skip_review=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip_review=false" >> "${GITHUB_OUTPUT}"
+          fi
 
       - name: Run Claude Code Review
         id: claude-review
-        uses: anthropics/claude-code-action@v1
+        if: steps.workflow_guard.outputs.skip_review != 'true'
+        uses: anthropics/claude-code-action@b433f16b30d54063fd3bab6b12f46f3da00e41b6 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
@@ -48,3 +67,8 @@ jobs:
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/sdk#command-line for available options
           claude_args: '--allowed-tools "Bash(gh issue view:*),Bash(gh search:*),Bash(gh issue list:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr list:*)"'
+
+      - name: Skip reason
+        if: steps.workflow_guard.outputs.skip_review == 'true'
+        run: |
+          echo "::notice title=Claude review skipped::.github/workflows/claude-code-review.yml was modified in this pull request. OAuth validation requires this workflow file to be identical to the default branch."

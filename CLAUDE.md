@@ -378,6 +378,29 @@ source .venv/bin/activate
 - `build-tools`: リンター・フォーマッター (ruff, black, isort, mypy, pre-commit)
 - `type-stubs`: 型定義ファイル (types-\*)
 
+#### GitHub Actions の SHA Pin 運用
+
+外部Actionは `@vX` の可変タグではなく、`@<40桁SHA> # vX` 形式で管理する。
+
+**目的**:
+
+- ワークフロー実行の再現性を確保
+- サプライチェーンリスクを低減
+- 実行されたActionバージョンの監査性を向上
+
+**Dependabot PRレビュー手順(github-actions)**:
+
+1. Actionのリリースノートで変更内容を確認
+2. SHAが公式repoのタグ解決値と一致するか確認
+3. 権限・入力パラメータ・破壊的変更の有無を確認
+4. CI(lint/test/codecov など)成功を確認してマージ
+
+**運用ルール**:
+
+- GitHub Actions依存は自動マージしない(レビュー必須)
+- 緊急時は `git revert <commit>` でロールバック
+- 置換漏れ確認は `rg '^\\s*uses:\\s*[^.].*@v[0-9]+' .github/workflows/*.yml` を使用
+
 ### 2.2 依存関係の管理
 
 ```toml
