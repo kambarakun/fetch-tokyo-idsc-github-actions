@@ -12,7 +12,7 @@ import re
 import sys
 import time
 from datetime import UTC, date, datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +24,7 @@ from src.managers.config_manager import ConfigurationManager, DataCollectionConf
 from src.managers.storage_manager import StorageManager
 
 
-class CollectionMode(str, Enum):
+class CollectionMode(StrEnum):
     """データ収集モード
 
     Attributes:
