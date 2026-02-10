@@ -491,8 +491,8 @@ def test_timestamp(self, mock_time):
 
 #### カバレッジ目標
 
-- **全体カバレッジ**: 最低80%、理想は85%以上
-- **コアモジュール**: 90%以上を目指す
+- **全体カバレッジ(line + branch)**: **100%を維持する**
+- **コアモジュール**: 100%を維持する
   - `src/fetchers/`: HTTPエラー処理、リトライロジック
   - `src/managers/`: データ保存、設定管理
   - `src/processors/`: データ変換、検証
@@ -501,7 +501,7 @@ def test_timestamp(self, mock_time):
 
 ```bash
 # カバレッジレポート生成
-uv run pytest --cov=src --cov-report=term-missing --cov-report=html
+uv run pytest --cov=src --cov-report=term-missing --cov-report=html --cov-branch
 
 # HTMLレポート確認(詳細な未カバー行を表示)
 open htmlcov/index.html
@@ -559,10 +559,11 @@ open htmlcov/index.html
    - 🟢 通常: ユーティリティ関数、ログ出力
 
 3. **テスト追加後は必ず確認**
-   ```bash
-   # カバレッジが向上していることを確認
-   uv run pytest --cov=src --cov-report=term
-   ```
+
+```bash
+# カバレッジが向上していることを確認
+uv run pytest --cov=src --cov-report=term --cov-branch --cov-fail-under=100
+```
 
 #### 禁止事項
 
@@ -583,7 +584,7 @@ open htmlcov/index.html
 - [ ] 異常系(エラー)のテストを追加した
 - [ ] 境界値のテストを追加した
 - [ ] カバレッジレポートで未カバー行がないか確認した
-- [ ] カバレッジが目標値(80%以上)を維持している
+- [ ] カバレッジが目標値(100%)を維持している
 
 ## 4. 開発ワークフロー
 
@@ -638,7 +639,7 @@ open htmlcov/index.html
 - [ ] テストを先に書く(TDDアプローチ)
 - [ ] AAA パターンでテストを構造化
 - [ ] モックを使用して外部依存を排除
-- [ ] カバレッジ80%以上を維持
+- [ ] カバレッジ100%を維持
 - [ ] GitHub Actionsでテスト自動実行を確認
 
 ### 4.4 PR作成とブランチ管理

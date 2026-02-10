@@ -188,11 +188,14 @@ def test_validate_total_file_skips_on_empty_check_error(tmp_path: Path) -> None:
     total_file = tmp_path / "data" / "processed" / "total.csv"
 
     # Act
-    with patch.object(processor, "_is_empty_data_file", side_effect=OSError("io error")):
+    with (
+        patch.object(processor, "_is_empty_data_file", side_effect=OSError("io error")),
+        patch("src.processors.data_processor.logger.warning") as mock_warning,
+    ):
         processor._validate_total_file(total_file, tmp_path / "m.csv", tmp_path / "f.csv")
 
     # Assert
-    assert True
+    assert any("totalセクションの空判定に失敗しました" in str(call.args[0]) for call in mock_warning.call_args_list)
 
 
 def test_process_sentinel_returns_failure_when_no_output_file_created(tmp_path: Path) -> None:
@@ -376,10 +379,11 @@ def test_verify_total_calculation_logs_row_count_mismatch(tmp_path: Path) -> Non
     _write_csv(total_file, [["h", "x"], ["r1", "2"]])
 
     # Act
-    processor._verify_total_calculation(male_file, female_file, total_file)
+    with patch("src.processors.data_processor.logger.warning") as mock_warning:
+        processor._verify_total_calculation(male_file, female_file, total_file)
 
     # Assert
-    assert True
+    assert any("行数不一致" in str(call.args[0]) for call in mock_warning.call_args_list)
 
 
 def test_verify_total_calculation_handles_empty_total_data_header_branch(tmp_path: Path) -> None:
@@ -389,11 +393,14 @@ def test_verify_total_calculation_handles_empty_total_data_header_branch(tmp_pat
     file_path = tmp_path / "data" / "processed" / "any.csv"
 
     # Act
-    with patch.object(processor, "_read_csv_data", side_effect=[[], [], []]):
+    with (
+        patch.object(processor, "_read_csv_data", side_effect=[[], [], []]),
+        patch("src.processors.data_processor.logger.info") as mock_info,
+    ):
         processor._verify_total_calculation(file_path, file_path, file_path)
 
     # Assert
-    assert True
+    assert any("total検証OK" in str(call.args[0]) for call in mock_info.call_args_list)
 
 
 def test_verify_total_calculation_skips_zero_zero_positive_total(tmp_path: Path) -> None:
@@ -409,10 +416,11 @@ def test_verify_total_calculation_skips_zero_zero_positive_total(tmp_path: Path)
     _write_csv(total_file, [header, ["合計", "5"]])
 
     # Act
-    processor._verify_total_calculation(male_file, female_file, total_file)
+    with patch("src.processors.data_processor.logger.info") as mock_info:
+        processor._verify_total_calculation(male_file, female_file, total_file)
 
     # Assert
-    assert True
+    assert any("total検証OK" in str(call.args[0]) for call in mock_info.call_args_list)
 
 
 def test_verify_total_calculation_skips_value_error_cells(tmp_path: Path) -> None:
@@ -428,10 +436,15 @@ def test_verify_total_calculation_skips_value_error_cells(tmp_path: Path) -> Non
     _write_csv(total_file, [header, ["合計", "2"]])
 
     # Act
-    processor._verify_total_calculation(male_file, female_file, total_file)
+    with (
+        patch("src.processors.data_processor.logger.warning") as mock_warning,
+        patch("src.processors.data_processor.logger.info") as mock_info,
+    ):
+        processor._verify_total_calculation(male_file, female_file, total_file)
 
     # Assert
-    assert True
+    assert any("数値変換失敗" in str(call.args[0]) for call in mock_warning.call_args_list)
+    assert any("total検証OK" in str(call.args[0]) for call in mock_info.call_args_list)
 
 
 def test_verify_total_calculation_warns_when_many_mismatches(tmp_path: Path) -> None:
@@ -450,10 +463,11 @@ def test_verify_total_calculation_warns_when_many_mismatches(tmp_path: Path) -> 
     _write_csv(total_file, total_rows)
 
     # Act
-    processor._verify_total_calculation(male_file, female_file, total_file)
+    with patch("src.processors.data_processor.logger.warning") as mock_warning:
+        processor._verify_total_calculation(male_file, female_file, total_file)
 
     # Assert
-    assert True
+    assert any("10件の不一致" in str(call.args[0]) for call in mock_warning.call_args_list)
 
 
 def test_verify_total_calculation_handles_read_exception(tmp_path: Path) -> None:
@@ -463,11 +477,14 @@ def test_verify_total_calculation_handles_read_exception(tmp_path: Path) -> None
     file_path = tmp_path / "data" / "processed" / "missing.csv"
 
     # Act
-    with patch.object(processor, "_read_csv_data", side_effect=OSError("read failed")):
+    with (
+        patch.object(processor, "_read_csv_data", side_effect=OSError("read failed")),
+        patch("src.processors.data_processor.logger.exception") as mock_exception,
+    ):
         processor._verify_total_calculation(file_path, file_path, file_path)
 
     # Assert
-    assert True
+    assert any("total検証失敗" in str(call.args[0]) for call in mock_exception.call_args_list)
 
 
 def test_verify_cross_dataset_consistency_handles_missing_required_files(tmp_path: Path) -> None:
@@ -479,15 +496,18 @@ def test_verify_cross_dataset_consistency_handles_missing_required_files(tmp_pat
     missing = processor.processed_dir / "missing.csv"
 
     # Act
-    with patch.object(
-        processor,
-        "_collect_periods_for_verification",
-        return_value={"weekly_2025_01": {"age": existing, "health_center": missing}},
+    with (
+        patch.object(
+            processor,
+            "_collect_periods_for_verification",
+            return_value={"weekly_2025_01": {"age": existing, "health_center": missing}},
+        ),
+        patch.object(processor, "_extract_total_row") as mock_extract_total_row,
     ):
         processor._verify_cross_dataset_consistency()
 
     # Assert
-    assert True
+    mock_extract_total_row.assert_not_called()
 
 
 def test_verify_cross_dataset_consistency_skips_when_total_row_missing(tmp_path: Path) -> None:
@@ -507,11 +527,12 @@ def test_verify_cross_dataset_consistency_skips_when_total_row_missing(tmp_path:
             return_value={"weekly_2025_01": {"age": age, "health_center": hc}},
         ),
         patch.object(processor, "_extract_total_row", side_effect=[None, ["合計", "1"]]),
+        patch("src.processors.data_processor.logger.debug") as mock_debug,
     ):
         processor._verify_cross_dataset_consistency()
 
     # Assert
-    assert True
+    assert any("合計行が見つかりません" in str(call.args[0]) for call in mock_debug.call_args_list)
 
 
 def test_verify_cross_dataset_consistency_logs_column_length_mismatch_and_many_diffs(tmp_path: Path) -> None:
@@ -533,11 +554,14 @@ def test_verify_cross_dataset_consistency_logs_column_length_mismatch_and_many_d
             return_value={"weekly_2025_01": {"age": age, "health_center": hc}},
         ),
         patch.object(processor, "_extract_total_row", side_effect=[age_total, hc_total]),
+        patch("src.processors.data_processor.logger.debug") as mock_debug,
+        patch("src.processors.data_processor.logger.warning") as mock_warning,
     ):
         processor._verify_cross_dataset_consistency()
 
     # Assert
-    assert True
+    assert any("列数不一致" in str(call.args[0]) for call in mock_debug.call_args_list)
+    assert any("他1列で不一致" in str(call.args[0]) for call in mock_warning.call_args_list)
 
 
 def test_verify_cross_dataset_consistency_handles_exceptions_per_period(tmp_path: Path) -> None:
@@ -557,11 +581,12 @@ def test_verify_cross_dataset_consistency_handles_exceptions_per_period(tmp_path
             return_value={"weekly_2025_01": {"age": age, "health_center": hc}},
         ),
         patch.object(processor, "_extract_total_row", side_effect=OSError("boom")),
+        patch("src.processors.data_processor.logger.exception") as mock_exception,
     ):
         processor._verify_cross_dataset_consistency()
 
     # Assert
-    assert True
+    assert any("整合性チェックエラー" in str(call.args[0]) for call in mock_exception.call_args_list)
 
 
 def test_collect_periods_for_verification_skips_invalid_shape_and_unsupported_aggregation(tmp_path: Path) -> None:
