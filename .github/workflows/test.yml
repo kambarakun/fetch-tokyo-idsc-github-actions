@@ -43,6 +43,7 @@ jobs:
             --cov-report=html:coverage_html \
             --cov-report=xml \
             --cov-branch \
+            --cov-fail-under=92 \
             --verbose \
             -p no:warnings
 
