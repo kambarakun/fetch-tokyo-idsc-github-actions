@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -146,7 +147,7 @@ def test_update_hash_index_raises_when_write_fails(tmp_path: Path) -> None:
     storage = _build_storage(tmp_path)
     original_open = Path.open
 
-    def failing_open(path: Path, *args, **kwargs):
+    def failing_open(path: Path, *args: Any, **kwargs: Any) -> Any:
         if path == storage.hash_index_file:
             raise OSError("write failed")
         return original_open(path, *args, **kwargs)

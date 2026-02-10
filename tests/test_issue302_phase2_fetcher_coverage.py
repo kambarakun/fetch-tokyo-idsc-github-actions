@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -21,7 +22,7 @@ async def test_fetch_with_retry_async_restores_metadata_params() -> None:
     # Arrange
     fetcher = _build_fetcher()
 
-    def fake_fetch(**_params):
+    def fake_fetch(**_params: Any) -> bytes:
         return b"ok"
 
     # Act
