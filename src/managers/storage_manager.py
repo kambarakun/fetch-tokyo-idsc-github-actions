@@ -1369,12 +1369,12 @@ class StorageManager:
             # v1.1形式の互換フィールドを追加
             metadata.setdefault("bytes", metadata.get("file_size"))
             metadata.setdefault("lines", metadata.get("line_count"))
-            if "temporal" not in metadata:
-                metadata["temporal"] = {
-                    "year": metadata.get("year"),
-                    "period": metadata.get("period"),
-                    "period_type": metadata.get("period_type"),
-                }
+            # else分岐に入る時点でtemporalは未定義(v1.0形式の前提)なので、互換フィールドを必ず構築する
+            metadata["temporal"] = {
+                "year": metadata.get("year"),
+                "period": metadata.get("period"),
+                "period_type": metadata.get("period_type"),
+            }
             if "hash" not in metadata:
                 metadata["hash"] = {
                     "algorithm": metadata.get("checksum_algorithm", "sha256"),
