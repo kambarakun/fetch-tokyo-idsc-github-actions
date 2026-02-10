@@ -283,12 +283,20 @@ jobs:
           echo "Executing: ${FETCH_CMD[@]}"
 
           # メインスクリプトの実行
-          if "${FETCH_CMD[@]}" 2>&1 | tee "data/logs/console_${LOG_PREFIX}_${FETCH_TIMESTAMP}.log"; then
-            FETCH_EXIT_CODE=0
+          # NOTE:
+          # - pipefail: パイプライン全体の失敗を検出
+          # - PIPESTATUS: 各コマンドの終了コード配列
+          # PIPESTATUSは次のコマンド実行で上書きされるため、実行直後に退避する
+          set +e
+          "${FETCH_CMD[@]}" 2>&1 | tee "data/logs/console_${LOG_PREFIX}_${FETCH_TIMESTAMP}.log"
+          PIPE_EXIT_CODES=("${PIPESTATUS[@]}")
+          set -e
+
+          FETCH_EXIT_CODE="${PIPE_EXIT_CODES[0]}"
+          if [ "${FETCH_EXIT_CODE}" -eq 0 ]; then
             FETCH_STATUS="success"
             echo "✅ データ取得: 成功"
           else
-            FETCH_EXIT_CODE=${PIPESTATUS[0]}
             FETCH_STATUS="failed"
             echo "❌ データ取得: 失敗 (exit code: ${FETCH_EXIT_CODE})"
           fi
