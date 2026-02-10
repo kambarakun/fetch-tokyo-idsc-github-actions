@@ -452,6 +452,8 @@ dev = [
 
 ### 3.2 テストの実行方法
 
+> pytest設定は `pyproject.toml` の `[tool.pytest.ini_options]` を唯一の編集箇所とし、`pytest.ini` は使用しません。
+
 ```bash
 # 全テスト実行
 uv run pytest
