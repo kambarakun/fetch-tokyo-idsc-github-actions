@@ -51,6 +51,7 @@ no_strict_optional = true
 explicit_package_bases = true
 namespace_packages = true
 
+# pytest configuration is intentionally centralized here.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
