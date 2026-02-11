@@ -26,15 +26,21 @@ dev = [
 ]
 
 [project.scripts]
-fetch-data = "scripts.fetch_data:main"
-check-missing = "scripts.check_missing:main"
+fetch-data = "src.cli.fetch_data:main"
+process-data = "src.cli.process_data:main"
+validate-data = "src.cli.validate_data:main"
+verify-metadata = "src.cli.verify_metadata:main"
+migrate-metadata = "src.cli.migrate_metadata:main"
+check-data-status = "src.cli.check_data_status:main"
+cleanup-all-zero-data = "src.cli.cleanup_all_zero_data:main"
+check-missing = "src.cli.check_missing:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src", "scripts"]
+packages = ["src"]
 
 [tool.black]
 line-length = 120

@@ -119,7 +119,7 @@ jobs:
           echo "Starting data processing at $PROCESS_TIMESTAMP"
 
           # コマンドの構築
-          PROCESS_CMD=(uv run python scripts/process_data.py)
+          PROCESS_CMD=(uv run process-data)
 
           # ターゲットファイルの指定
           if [ -n "$TARGET_FILES" ]; then
@@ -216,7 +216,7 @@ jobs:
           echo "処理済みデータを検証しています..."
 
           # 検証スクリプトの実行 (processed データは UTF-8)
-          if uv run python scripts/validate_data.py data/processed \
+          if uv run validate-data data/processed \
               --encoding utf-8 \
               --format markdown \
               --output "data/logs/validation_report_${PROCESS_TIMESTAMP}.md"; then

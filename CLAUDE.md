@@ -211,16 +211,16 @@ uv run pytest
 uv run pytest --cov=src --cov-report=html
 
 # データ取得のドライラン
-uv run python scripts/fetch_data.py --dry-run
+uv run fetch-data --dry-run
 
 # 欠番チェック
-uv run python scripts/check_missing.py data/raw
+uv run check-missing data/raw
 
 # 全て0データの保存(特殊用途)
 # 通常は不要ですが、以下の場合に--save-all-zeroを使用:
 # - 未発表データの存在自体を記録したい場合
 # - データ収集システムのテスト時
-uv run python scripts/fetch_data.py --save-all-zero
+uv run fetch-data --save-all-zero
 ```
 
 ### 📦 デプロイとスケジューリング
@@ -341,7 +341,7 @@ uv add --dev pytest  # 開発用
 uv remove requests
 
 # スクリプトの実行
-uv run python scripts/fetch_data.py
+uv run fetch-data
 uv run pytest
 
 # 仮想環境のアクティベート(通常は不要)
@@ -1141,7 +1141,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
       - run: uv python install 3.11
       - run: uv sync
-      - run: uv run python scripts/fetch_data.py
+      - run: uv run fetch-data
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
@@ -1304,17 +1304,17 @@ def is_all_zero_data(data: bytes) -> bool:
 
 #### マイグレーション
 
-メタデータスキーマのバージョンアップ時は、`scripts/migrate_metadata.py` を使用:
+メタデータスキーマのバージョンアップ時は、`migrate-metadata` を使用:
 
 ```bash
 # ドライラン(変更内容を確認)
-uv run python scripts/migrate_metadata.py --dry-run
+uv run migrate-metadata --dry-run
 
 # 実際にマイグレーション実行
-uv run python scripts/migrate_metadata.py
+uv run migrate-metadata
 
 # 特定バージョンへ
-uv run python scripts/migrate_metadata.py --target-version 1.3.0
+uv run migrate-metadata --target-version 1.3.0
 ```
 
 **バージョン履歴**:

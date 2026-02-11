@@ -210,7 +210,7 @@ jobs:
           echo "データ取得前の既存データ検証..."
           if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
             VALIDATION_REPORT_BEFORE="data/logs/validation_before_${FETCH_TIMESTAMP}.json"
-            if uv run python scripts/validate_data.py data/raw --pattern "*.csv" --output "$VALIDATION_REPORT_BEFORE"; then
+            if uv run validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT_BEFORE"; then
               echo "✅ 事前データ検証成功"
               echo "VALIDATION_BEFORE_SUCCESS=true" >> $GITHUB_ENV
             else
@@ -249,7 +249,7 @@ jobs:
           echo "Starting ${{ inputs.workflow_display_name }} at $FETCH_TIMESTAMP"
 
           # コマンドの構築
-          FETCH_CMD=(uv run python scripts/fetch_data.py)
+          FETCH_CMD=(uv run fetch-data)
 
           # 年範囲の指定
           FETCH_CMD+=(--start-year "$START_YEAR")
@@ -367,7 +367,7 @@ jobs:
             # データ処理の実行 (変更されたファイルのみ)
             # 配列を安全に展開してスペースを含むファイル名にも対応
             # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
-            if uv run python scripts/process_data.py --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
+            if uv run process-data --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
               echo "✅ データ処理: 成功"
               echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
 
@@ -468,7 +468,7 @@ jobs:
           echo "取得したデータの検証..."
           VALIDATION_REPORT="data/logs/validation_${FETCH_TIMESTAMP}.json"
 
-          if uv run python scripts/validate_data.py data/raw --pattern "*.csv" --output "$VALIDATION_REPORT"; then
+          if uv run validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT"; then
             echo "✅ データ検証成功"
             echo "VALIDATION_SUCCESS=true" >> $GITHUB_ENV
           else
@@ -488,7 +488,7 @@ jobs:
         if: inputs.verify_continuity && inputs.dry_run != true
         run: |
           echo "データ連続性を検証しています..."
-          uv run python scripts/check_missing.py data/raw || true
+          uv run check-missing data/raw || true
 
       - name: Generate visualization charts
         if: inputs.dry_run != true
