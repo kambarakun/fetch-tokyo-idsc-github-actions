@@ -109,10 +109,10 @@ def main() -> int:
     """CLI entrypoint."""
     violations = run_check()
     if not violations:
-        print("No deprecated scripts/ usage found for issue #312 targets.")
+        print("No deprecated scripts/usage found for issue #312 targets.")
         return 0
 
-    print("Deprecated scripts/ usage detected (issue #312 targets):")
+    print("Deprecated scripts/usage detected (issue #312 targets):")
     for violation in violations:
         print(f"  {violation.path}:{violation.line_no}: {violation.line}")
     print("Use 'uv run <command>' or import from 'src.cli.<module>' instead.")

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import warnings
+from typing import Final
 
-DEFAULT_REMOVED_ON = "2026-03-15"
-DEFAULT_ISSUE_URL = "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues/312"
+DEFAULT_REMOVED_ON: Final[str] = "2026-03-15"
+DEFAULT_ISSUE_URL: Final[str] = "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues/312"
 
 
 def build_legacy_script_deprecation_message(
