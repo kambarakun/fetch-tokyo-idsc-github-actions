@@ -15,8 +15,13 @@ if __name__ == "__main__":
         FutureWarning,
         stacklevel=2,
     )
-    _cli_main()
-    raise SystemExit(0)
+    try:
+        _cli_main()
+        sys.exit(0)
+    except SystemExit:
+        raise
+    except Exception:
+        sys.exit(1)
 else:
     from src.cli import process_data as _impl
 
