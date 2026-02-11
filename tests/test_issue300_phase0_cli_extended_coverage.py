@@ -9,6 +9,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -18,24 +19,33 @@ from src.cli import migrate_metadata as mm
 from src.cli import validate_data as vd
 from src.cli import verify_metadata as vm
 from src.fetchers.enhanced_fetcher import FetchParams
+from src.managers.config_manager import CollectionConfig, DataCollectionConfig, StorageConfig
 
 
-def _config(base_dir: Path, *, auto_commit: bool = False, mode: str | None = None, incremental_mode: bool = False):
-    collection = SimpleNamespace(
-        mode=mode,
+def _config(
+    base_dir: Path,
+    *,
+    auto_commit: bool = False,
+    mode: str | None = None,
+    incremental_mode: bool = False,
+) -> DataCollectionConfig:
+    collection = CollectionConfig(
         incremental_mode=incremental_mode,
         batch_size=2,
-        data_types_to_collect=["sentinel_weekly_gender"],
         start_year=2025,
+        data_types_to_collect=["sentinel_weekly_gender"],
         max_execution_time_hours=5.5,
     )
-    storage = SimpleNamespace(
+    if mode is not None:
+        cast(Any, collection).mode = mode
+
+    storage = StorageConfig(
         auto_commit=auto_commit,
         base_directory=str(base_dir),
         commit_message_template="test {date_range}",
         keep_shift_jis=True,
     )
-    return SimpleNamespace(collection=collection, storage=storage)
+    return DataCollectionConfig(collection=collection, storage=storage)
 
 
 def _fetch_result(
@@ -45,7 +55,7 @@ def _fetch_result(
     fetch_time: float = 0.1,
     source_url: str | None = None,
     error: str | None = None,
-):
+) -> SimpleNamespace:
     return SimpleNamespace(
         success=success,
         data=data,
@@ -62,7 +72,7 @@ def _save_result(
     is_skipped: bool = False,
     is_new: bool = True,
     error: str | None = None,
-):
+) -> SimpleNamespace:
     return SimpleNamespace(
         success=success,
         is_duplicate=is_duplicate,
@@ -275,7 +285,10 @@ def test_fetch_main_branches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_validate_data_additional_branches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     data_root = tmp_path / "data" / "raw"
@@ -306,6 +319,45 @@ def test_validate_data_additional_branches(
     non_csv.write_text("hello\n", encoding="utf-8")
     non_csv_result = validator.validate_file(non_csv)
     assert "csv_format" not in non_csv_result["checks"]
+
+    assert vd.DataValidator._parse_count(None) is None
+    assert vd.DataValidator._parse_count("NA") is None
+    assert vd.DataValidator._parse_count("1,234") == 1234
+    assert vd.DataValidator._parse_count("5.0") == 5
+    assert vd.DataValidator._parse_count("5.5") is None
+    assert vd.DataValidator._parse_count("not-a-number") is None
+
+    male_col, female_col, total_col = vd.DataValidator._find_gender_columns(["male", "female", "total"])
+    assert (male_col, female_col, total_col) == ("male", "female", "total")
+    no_male, no_female, no_total = vd.DataValidator._find_gender_columns(["x", "y", "z"])
+    assert (no_male, no_female, no_total) == (None, None, None)
+
+    gender_ok = data_root / "gender_ok.csv"
+    gender_ok.write_text("male,female,total\n1,2,3\n,2,2\n,,\n", encoding="utf-8")
+    gender_ok_result = validator._check_gender_sum_consistency(gender_ok)
+    assert gender_ok_result["valid"] is True
+    assert any("Gender consistency skipped at row" in w for w in gender_ok_result["warnings"])
+
+    gender_bad = data_root / "gender_bad.csv"
+    gender_bad.write_text("male,female,total\n2,2,3\n", encoding="utf-8")
+    gender_bad_result = validator._check_gender_sum_consistency(gender_bad)
+    assert gender_bad_result["valid"] is False
+    assert any("Gender sum mismatch" in e for e in gender_bad_result["errors"])
+    assert gender_bad_result["details"]["gender_sum_mismatches"][0]["row"] == 2
+    gender_bad_validate_result = validator.validate_file(gender_bad)
+    assert "gender_sum_mismatches" in gender_bad_validate_result["details"]
+
+    no_header = data_root / "no_header.csv"
+    no_header.write_text("", encoding="utf-8")
+    no_header_result = validator._check_gender_sum_consistency(no_header)
+    assert no_header_result["valid"] is True
+    assert any("no header row" in w for w in no_header_result["warnings"])
+
+    no_gender = data_root / "no_gender.csv"
+    no_gender.write_text("x\n1\n", encoding="utf-8")
+    no_gender_columns = validator._check_gender_sum_consistency(no_gender)
+    assert no_gender_columns["valid"] is True
+    assert no_gender_columns["errors"] == []
 
     monkeypatch.setattr(validator, "_check_file_size", lambda _p: (_ for _ in ()).throw(RuntimeError("boom")))
     failed = validator.validate_file(valid_file)
@@ -368,6 +420,9 @@ def test_validate_data_additional_branches(
     assert enc_error["valid"] is False
     csv_error = validator._check_csv_format(valid_file)
     assert csv_error["valid"] is False
+    gender_error = validator._check_gender_sum_consistency(valid_file)
+    assert gender_error["valid"] is False
+    assert any("Failed to check gender sum consistency" in e for e in gender_error["errors"])
     monkeypatch.setattr(Path, "open", original_open)
 
     original_max_line_count = vd.MAX_LINE_COUNT
@@ -520,7 +575,7 @@ def test_validate_data_additional_branches(
     with pytest.raises(SystemExit) as exc:
         vd.main()
     assert exc.value.code == 1
-    assert "検証結果サマリー" in capsys.readouterr().out
+    assert any("検証結果サマリー" in r.message for r in caplog.records)
 
 
 def test_verify_metadata_main_and_extra_branches(
@@ -600,9 +655,8 @@ def test_migrate_metadata_additional_branches(tmp_path: Path, monkeypatch: pytes
 
     reg = mm.MigrationRegistry()
     metadata = {"metadata_version": "1.0", "filename": "x.csv"}
-    migrated, changes = reg.migrate(metadata, None, "2.0")
-    assert migrated == metadata
-    assert changes == []
+    with pytest.raises(ValueError, match="No migration path"):
+        reg.migrate(metadata, None, "2.0")
 
     csv_file = tmp_path / "sample.csv"
     csv_file.write_text("a,b\n1,2\n", encoding="utf-8")

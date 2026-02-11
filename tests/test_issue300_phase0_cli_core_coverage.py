@@ -134,7 +134,14 @@ def test_check_missing_collect_analyse_report_and_main(
     assert weekly[("sentinel_weekly_gender", 2025)] == {1, 3}
     assert monthly[("sentinel_monthly_age", 2025)] == {2}
 
-    current_year = datetime.now().year
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2025, 1, 1, tzinfo=tz)
+
+    monkeypatch.setattr(cm, "datetime", _FixedDateTime)
+    current_year = cm.datetime.now().year
+    assert cm.weeks_in_year(2020) == 53
     found = {("sentinel_weekly_gender", current_year): {1, 3}}
     missing = cm.analyse(found, current_limit=4, max_func=lambda _year: 52)
     assert missing["sentinel_weekly_gender"][current_year] == [2, 4]

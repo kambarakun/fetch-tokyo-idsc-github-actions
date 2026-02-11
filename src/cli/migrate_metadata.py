@@ -164,10 +164,7 @@ class MigrationRegistry:
             )
             raise ValueError(msg)
 
-        try:
-            path = self.get_migration_path(current_version, target_version)
-        except ValueError:
-            return metadata, []
+        path = self.get_migration_path(current_version, target_version)
 
         result = metadata.copy()
         for from_ver, to_ver in path:

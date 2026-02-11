@@ -72,7 +72,7 @@ def _process_single_file(
         結果タイプ: "verified", "failed", "skipped", "error"
         検証ステータス: "verified", "failed", または None (エラー/スキップ時)
     """
-    with metadata_path.open() as f:
+    with metadata_path.open(encoding="utf-8") as f:
         metadata = json.load(f)
 
     # only_unverified モードの場合、既に検証済みならスキップ
@@ -112,7 +112,7 @@ def _process_single_file(
     else:
         # メタデータを更新
         metadata["verification"] = verification
-        with metadata_path.open("w") as f:
+        with metadata_path.open("w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
         if verbose:
             logger.info(f"Verified: {metadata_path.name} -> {status}")

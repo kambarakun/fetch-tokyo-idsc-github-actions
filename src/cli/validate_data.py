@@ -40,7 +40,7 @@ SUPPORTED_ENCODINGS = frozenset(
 )
 
 
-def setup_logging(log_level: str = "INFO"):
+def setup_logging(log_level: str = "INFO") -> logging.Logger:
     """ロギングのセットアップ"""
     logging.basicConfig(
         level=getattr(logging, log_level.upper()),
@@ -142,6 +142,14 @@ class DataValidator:
                 result["warnings"].extend(csv_result.get("warnings", []))
                 if csv_result.get("details"):
                     details.update(csv_result["details"])
+
+                gender_result = self._check_gender_sum_consistency(file_path)
+                result["checks"]["gender_sum_consistency"] = gender_result
+                if not gender_result["valid"]:
+                    result["errors"].extend(gender_result.get("errors", []))
+                result["warnings"].extend(gender_result.get("warnings", []))
+                if gender_result.get("details"):
+                    details.update(gender_result["details"])
 
             # パストラバーサルチェック
             path_result = self._check_path_safety(file_path)
@@ -275,6 +283,96 @@ class DataValidator:
         except Exception as e:
             result["errors"].append(f"Failed to check CSV format: {e!s}")
             result["valid"] = False
+
+        return result
+
+    @staticmethod
+    def _find_gender_columns(fieldnames: list[str]) -> tuple[str | None, str | None, str | None]:
+        """性別合計整合性チェック用の列名を検出する."""
+        normalized_map = {name.strip().lower(): name for name in fieldnames}
+
+        male_col = next(
+            (normalized_map[key] for key in ("male", "males", "男性") if key in normalized_map),
+            None,
+        )
+        female_col = next(
+            (normalized_map[key] for key in ("female", "females", "女性") if key in normalized_map),
+            None,
+        )
+        total_col = next(
+            (normalized_map[key] for key in ("total", "合計") if key in normalized_map),
+            None,
+        )
+        return male_col, female_col, total_col
+
+    @staticmethod
+    def _parse_count(value: Any) -> int | None:
+        """数値文字列をintに変換する。欠損値/非数値はNoneを返す."""
+        if value is None:
+            return None
+
+        text = str(value).strip()
+        if not text or text.lower() in {"na", "n/a", "null", "-"}:
+            return None
+
+        normalized = text.replace(",", "")
+        try:
+            if "." in normalized:
+                as_float = float(normalized)
+                if not as_float.is_integer():
+                    return None
+                return int(as_float)
+            return int(normalized)
+        except ValueError:
+            return None
+
+    def _check_gender_sum_consistency(self, file_path: Path) -> dict[str, Any]:
+        """gender列の male + female = total を検証する."""
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": [], "details": {}}
+
+        try:
+            with file_path.open("r", encoding=self.encoding) as f:
+                reader = csv.DictReader(f)
+                if not reader.fieldnames:
+                    result["warnings"].append("Gender consistency check skipped: no header row")
+                    return result
+
+                male_col, female_col, total_col = self._find_gender_columns(reader.fieldnames)
+                if not all((male_col, female_col, total_col)):
+                    return result
+
+                mismatches: list[dict[str, Any]] = []
+                for row_no, row in enumerate(reader, start=2):
+                    male = self._parse_count(row.get(male_col))
+                    female = self._parse_count(row.get(female_col))
+                    total = self._parse_count(row.get(total_col))
+
+                    if any(v is None for v in (male, female, total)):
+                        if any(str(row.get(c) or "").strip() for c in (male_col, female_col, total_col)):
+                            result["warnings"].append(
+                                f"Gender consistency skipped at row {row_no}: non-numeric/missing value"
+                            )
+                        continue
+
+                    if male + female != total:
+                        result["valid"] = False
+                        result["errors"].append(
+                            f"Gender sum mismatch at row {row_no}: {male_col}({male}) + {female_col}({female}) != {total_col}({total})"
+                        )
+                        mismatches.append(
+                            {
+                                "row": row_no,
+                                "male": male,
+                                "female": female,
+                                "total": total,
+                            }
+                        )
+
+                if mismatches:
+                    result["details"]["gender_sum_mismatches"] = mismatches
+        except Exception as e:
+            result["valid"] = False
+            result["errors"].append(f"Failed to check gender sum consistency: {e!s}")
 
         return result
 
@@ -461,7 +559,7 @@ class DataValidator:
         return "\n".join(lines)
 
 
-def main():
+def main() -> None:
     """メイン関数"""
     parser = argparse.ArgumentParser(description="東京都感染症データの妥当性検証")
     parser.add_argument(
@@ -542,13 +640,13 @@ def main():
 
     # サマリー表示
     summary = report["summary"]
-    print("\n" + "=" * 60)
-    print("検証結果サマリー:")
-    print(f"  総ファイル数: {summary['total_files']}")
-    print(f"  有効: {summary['valid_files']}")
-    print(f"  無効: {summary['invalid_files']}")
-    print(f"  成功率: {summary['success_rate']:.1f}%")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("検証結果サマリー:")
+    logger.info(f"  総ファイル数: {summary['total_files']}")
+    logger.info(f"  有効: {summary['valid_files']}")
+    logger.info(f"  無効: {summary['invalid_files']}")
+    logger.info(f"  成功率: {summary['success_rate']:.1f}%")
+    logger.info("=" * 60)
 
     # 終了コード
     if validator.has_errors or (validator.has_warnings and args.strict):
