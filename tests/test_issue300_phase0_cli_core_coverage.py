@@ -7,6 +7,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -205,9 +206,19 @@ def test_cleanup_find_delete_and_main_paths(
     assert zero_file.exists() is True
     assert meta.exists() is True
 
+    # dry-run branch: metadata file does not exist
+    deleted_dry_no_meta = cleanup.delete_files([nonzero_file], storage, logger, dry_run=True)
+    assert deleted_dry_no_meta == 1
+    assert nonzero_file.exists() is True
+
     deleted = cleanup.delete_files([zero_file], storage, logger, dry_run=False)
     assert deleted == 1
     assert zero_file.exists() is False
+
+    # delete branch: metadata file does not exist
+    deleted_no_meta = cleanup.delete_files([nonzero_file], storage, logger, dry_run=False)
+    assert deleted_no_meta == 1
+    assert nonzero_file.exists() is False
 
     bad_file = data_dir / "bad.csv"
     bad_file.write_bytes(b"0")
@@ -238,6 +249,12 @@ def test_cleanup_find_delete_and_main_paths(
 
     monkeypatch.setattr(sys, "argv", ["cleanup", "--data-dir", str(data_dir)])
     monkeypatch.setattr("builtins.input", lambda *_args: "no")
+    assert cleanup.main() == 0
+
+    # confirmation branch: user enters yes/y
+    monkeypatch.setattr(sys, "argv", ["cleanup", "--data-dir", str(data_dir)])
+    monkeypatch.setattr("builtins.input", lambda *_args: "yes")
+    monkeypatch.setattr(cleanup, "delete_files", lambda *_args, **_kwargs: 1)
     assert cleanup.main() == 0
 
     monkeypatch.setattr(sys, "argv", ["cleanup", "--data-dir", str(data_dir), "--yes"])
@@ -393,3 +410,18 @@ def test_process_data_save_stats_print_result_and_main_branches(
     with pytest.raises(SystemExit) as exc:
         process.main()
     assert exc.value.code == 2
+
+    # defensive branch: parser returns no mode (all/files both falsy)
+    monkeypatch.setattr(process, "DataProcessor", FakeProcessor)
+    monkeypatch.setattr(
+        process.argparse.ArgumentParser,
+        "parse_args",
+        lambda _self: SimpleNamespace(
+            data_dir=str(data_dir),
+            dry_run=False,
+            verbose=False,
+            all=False,
+            files=None,
+        ),
+    )
+    process.main()

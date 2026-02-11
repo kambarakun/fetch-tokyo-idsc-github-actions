@@ -76,6 +76,7 @@ def test_fetch_setup_logging_and_save_stats_to_file(tmp_path: Path, monkeypatch:
     logger = fd.setup_logging(str(tmp_path / "logs" / "app.log"), "DEBUG")
     assert isinstance(logger, logging.Logger)
     assert (tmp_path / "logs").exists()
+    assert isinstance(fd.setup_logging(None, "INFO"), logging.Logger)
 
     monkeypatch.chdir(tmp_path)
     mock_logger = Mock()
@@ -301,6 +302,11 @@ def test_validate_data_additional_branches(
     assert missing_result["valid"] is False
     assert "File not found" in missing_result["errors"][0]
 
+    non_csv = data_root / "notes.txt"
+    non_csv.write_text("hello\n", encoding="utf-8")
+    non_csv_result = validator.validate_file(non_csv)
+    assert "csv_format" not in non_csv_result["checks"]
+
     monkeypatch.setattr(validator, "_check_file_size", lambda _p: (_ for _ in ()).throw(RuntimeError("boom")))
     failed = validator.validate_file(valid_file)
     assert failed["valid"] is False
@@ -431,8 +437,40 @@ def test_validate_data_additional_branches(
             "checks": {"file_size": {"size_mb": 0.12}, "csv_format": {"line_count": 3}},
         }
     )
+    report_validator.validation_results.append(
+        {
+            "file": str(data_root / "string-size.csv"),
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "checks": {"file_size": {"size_mb": "N/A"}, "csv_format": {"line_count": "N/A"}},
+        }
+    )
     markdown = report_validator.generate_markdown_report()
     assert "| ファイル | サイズ | 行数 | ステータス |" in markdown
+
+    mixed_validator = vd.DataValidator(strict_mode=False, encoding="utf-8")
+    mixed_validator.validation_results.extend(
+        [
+            {
+                "file": str(valid_file),
+                "valid": False,
+                "errors": ["error-a"],
+                "warnings": [],
+                "checks": {},
+            },
+            {
+                "file": str(data_root / "warn-only.csv"),
+                "valid": True,
+                "errors": [],
+                "warnings": ["warn-a"],
+                "checks": {},
+            },
+        ]
+    )
+    mixed_markdown = mixed_validator.generate_markdown_report()
+    assert "## ❌ エラー" in mixed_markdown
+    assert "## ⚠️ 警告" in mixed_markdown
 
     # restore temporary test overrides before executing main()
     monkeypatch.setattr(vd, "MAX_FILE_SIZE_MB", original_max_file_size)
@@ -609,6 +647,26 @@ def test_migrate_metadata_additional_branches(tmp_path: Path, monkeypatch: pytes
     assert migrated5["_fetch"] == {"source_url": None}
     assert any("WARNING: hash value is empty" in c for c in changes5)
 
+    migrated_skip, changes_skip = mm.migrate_none_to_v1_0(
+        {
+            "created_at": "2025-01-01T00:00:00",
+            "updated_at": "2025-01-02T00:00:00",
+            "line_count": 99,
+            "checksum_algorithm": "sha256",
+            "source_url": "https://example.com",
+            "verification": {"status": "verified"},
+        },
+        None,
+    )
+    assert migrated_skip["metadata_version"] == "1.0"
+    assert migrated_skip["line_count"] == 99
+    assert migrated_skip["source_url"] == "https://example.com"
+    assert all("created_at: None ->" not in c for c in changes_skip)
+
+    migrated_v12_same, _ = mm.migrate_v1_1_0_to_v1_2_0({"metadata_version": "1.2.0"}, None)
+    assert migrated_v12_same["metadata_version"] == "1.2.0"
+    assert migrated_v12_same["quality"]["validation_status"] == "skipped"
+
     dt, temporal = mm._extract_data_type_and_temporal("foo_bar_2025_01")
     assert dt == "foo_bar"
     assert temporal["period_type"] == "weekly"
@@ -644,6 +702,16 @@ def test_migrate_metadata_additional_branches(tmp_path: Path, monkeypatch: pytes
     )
     assert migrated_parse_fail["metadata_version"] == "1.3.0"
     monkeypatch.setattr(mm.re, "compile", original_compile)
+
+    migrated_v13_no_version_bump, _ = mm.migrate_v1_2_0_to_v1_3_0(
+        {
+            "metadata_version": "1.3.0",
+            "verification": {"warnings": ["[csv_format] Inconsistent column count: {}"], "details": {}},
+        },
+        None,
+    )
+    assert migrated_v13_no_version_bump["metadata_version"] == "1.3.0"
+    assert migrated_v13_no_version_bump["verification"]["warnings"] == ["[csv_format] Inconsistent column count"]
 
     assert mm.needs_migration({"metadata_version": "1.0"}, target_version="1.0") is True
     assert mm.needs_migration({"metadata_version": "1.1.0"}, target_version="1.1.0") is True
