@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.validate_data import DataValidator
+from src.cli.validate_data import DataValidator
 
 
 class TestDataValidatorMarkdownReport(unittest.TestCase):
@@ -325,7 +325,8 @@ class TestDataValidatorFormatOption(unittest.TestCase):
         subprocess.run(
             [
                 sys.executable,
-                "scripts/validate_data.py",
+                "-m",
+                "src.cli.validate_data",
                 str(self.test_data_dir),
                 "--pattern",
                 "test_data.csv",
@@ -365,7 +366,8 @@ class TestDataValidatorFormatOption(unittest.TestCase):
         subprocess.run(
             [
                 sys.executable,
-                "scripts/validate_data.py",
+                "-m",
+                "src.cli.validate_data",
                 str(self.test_data_dir),
                 "--pattern",
                 "test_data.csv",

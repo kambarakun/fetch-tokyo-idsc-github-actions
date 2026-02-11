@@ -12,11 +12,10 @@ def _exit_code(value: object) -> int:
 
 
 if __name__ == "__main__":
-    import warnings
+    from src.cli._deprecation import warn_legacy_script_deprecation
 
-    warnings.warn(
-        "scripts/check_data_status.py is deprecated; use 'uv run check-data-status' instead.",
-        FutureWarning,
-        stacklevel=2,
+    warn_legacy_script_deprecation(
+        script_path="scripts/check_data_status.py",
+        replacement_command="check-data-status",
     )
     raise SystemExit(_exit_code(_cli_main()))

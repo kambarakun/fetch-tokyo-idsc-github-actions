@@ -60,13 +60,15 @@ tests/
 
 ```bash
 # データ取得
-scripts/fetch_data.py       # データ取得メインスクリプト
+src/cli/fetch_data.py       # データ取得メインスクリプト
 scripts/check_missing.py    # 欠番チェックユーティリティ
 
 # パッケージ管理
 pyproject.toml              # プロジェクト設定とパッケージ定義
 uv.lock                     # 依存関係のロックファイル
 ```
+
+> 注: `scripts/fetch_data.py` など互換シム(issue #312 対象7ファイル)は `2026-03-15` 廃止予定です。実行は `uv run <command>` を使用してください。
 
 ==============================================================================
 

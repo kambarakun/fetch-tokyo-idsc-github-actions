@@ -12,11 +12,10 @@ def _exit_code(value: object) -> int:
 
 
 if __name__ == "__main__":
-    import warnings
+    from src.cli._deprecation import warn_legacy_script_deprecation
 
-    warnings.warn(
-        "scripts/migrate_metadata.py is deprecated; use 'uv run migrate-metadata' instead.",
-        FutureWarning,
-        stacklevel=2,
+    warn_legacy_script_deprecation(
+        script_path="scripts/migrate_metadata.py",
+        replacement_command="migrate-metadata",
     )
     raise SystemExit(_exit_code(_cli_main()))

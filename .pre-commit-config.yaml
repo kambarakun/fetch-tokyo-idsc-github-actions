@@ -90,6 +90,11 @@ repos:
         language: system
         types: [markdown]
         pass_filenames: true
+      - id: check-deprecated-cli-usage
+        name: issue312 旧CLI導線チェック
+        entry: python3 scripts/check_deprecated_cli_usage.py
+        language: system
+        pass_filenames: false
 
 # 設定
 default_language_version:

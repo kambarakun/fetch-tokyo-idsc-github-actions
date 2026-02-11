@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, patch
 # パスの設定
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.fetch_data import DataCollector
+from src.cli.fetch_data import DataCollector
 from src.fetchers.enhanced_fetcher import FetchParams
 
 
@@ -38,9 +38,9 @@ class TestTargetFiltering(unittest.TestCase):
         self.mock_config.storage.commit_message_template = "test commit"
         self.mock_config.storage.keep_shift_jis = True
 
-    @patch("scripts.fetch_data.datetime")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.datetime")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_target_weeks_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """対象週フィルタリングのテスト"""
         # 2025年の第52週を現在週として設定(確実に52週が存在する状態にする)
@@ -73,9 +73,9 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertNotIn(10, generated_weeks)
         self.assertNotIn(30, generated_weeks)
 
-    @patch("scripts.fetch_data.datetime")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.datetime")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_target_months_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """対象月フィルタリングのテスト"""
         # 2025年12月を現在月として設定(確実に12月まで存在する状態にする)
@@ -107,9 +107,9 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertNotIn(2, generated_months)
         self.assertNotIn(6, generated_months)
 
-    @patch("scripts.fetch_data.datetime")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.datetime")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_combined_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """週と月の両方のフィルタリングのテスト"""
         # 2025年の第52週12月を現在として設定
@@ -152,9 +152,9 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertNotIn(1, generated_months)
         self.assertNotIn(12, generated_months)
 
-    @patch("scripts.fetch_data.datetime")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.datetime")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_no_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
         """フィルタリングなしの場合のテスト"""
         # 2025年の第52週を現在週として設定(確実な状態)
@@ -191,8 +191,8 @@ class TestTargetFiltering(unittest.TestCase):
         for month in range(1, 13):
             self.assertIn(month, generated_months)
 
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_filter_missing_params_with_targets(self, mock_storage_class, mock_fetcher_class):
         """ターゲット指定時の欠損パラメータフィルタリングのテスト"""
         target_weeks = [1, 2, 52]
@@ -246,8 +246,8 @@ class TestTargetFiltering(unittest.TestCase):
             "sentinel_weekly_gender", existing_files, 2025, 2025, target_weeks, None
         )
 
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_week_53_handling(self, mock_storage_class, mock_fetcher_class):
         """53週がある年の処理のテスト"""
         # 2020年は53週まである
@@ -278,8 +278,8 @@ class TestTargetFiltering(unittest.TestCase):
         # target_weeksによるフィルタリングが正しく動作することを確認
         self.assertEqual(len(params), 2)  # 52週と53週のみ
 
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_invalid_target_weeks(self, mock_storage_class, mock_fetcher_class):
         """無効な週番号のバリデーションテスト"""
         # モックフェッチャーの設定
@@ -300,8 +300,8 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertIn("無効な週番号", str(cm.exception))
         self.assertIn("[0, 54]", str(cm.exception))
 
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
     def test_invalid_target_months(self, mock_storage_class, mock_fetcher_class):
         """無効な月番号のバリデーションテスト"""
         # モックフェッチャーの設定

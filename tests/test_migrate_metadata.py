@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.migrate_metadata import (
+from src.cli.migrate_metadata import (
     V1_0_REQUIRED_FIELDS,
     V1_1_REQUIRED_FIELDS,
     MigrationRegistry,
@@ -484,7 +484,7 @@ class TestMigrateV110ToV120:
 
     def test_migrate_v1_1_0_basic(self) -> None:
         """v1.1.0からv1.2.0への基本変換."""
-        from scripts.migrate_metadata import migrate_v1_1_0_to_v1_2_0
+        from src.cli.migrate_metadata import migrate_v1_1_0_to_v1_2_0
 
         v1_1_metadata = {
             "metadata_version": "1.1.0",
@@ -533,7 +533,7 @@ class TestMigrateV110ToV120:
 
     def test_migrate_v1_1_0_preserves_all_fields(self) -> None:
         """v1.1.0の全フィールドが保持される."""
-        from scripts.migrate_metadata import migrate_v1_1_0_to_v1_2_0
+        from src.cli.migrate_metadata import migrate_v1_1_0_to_v1_2_0
 
         v1_1_metadata = {
             "metadata_version": "1.1.0",
@@ -569,7 +569,7 @@ class TestMigrateV110ToV120:
 
     def test_migrate_v1_1_0_idempotent(self) -> None:
         """既にqualityフィールドがある場合は上書きしない."""
-        from scripts.migrate_metadata import migrate_v1_1_0_to_v1_2_0
+        from src.cli.migrate_metadata import migrate_v1_1_0_to_v1_2_0
 
         v1_1_metadata = {
             "metadata_version": "1.1.0",
@@ -605,7 +605,7 @@ class TestMigrateV120ToV130:
 
     def test_migrate_v1_2_0_basic(self) -> None:
         """v1.2.0からv1.3.0への基本変換."""
-        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+        from src.cli.migrate_metadata import migrate_v1_2_0_to_v1_3_0
 
         v1_2_metadata = {
             "metadata_version": "1.2.0",
@@ -646,7 +646,7 @@ class TestMigrateV120ToV130:
 
     def test_migrate_v1_2_0_without_warnings(self) -> None:
         """警告がない場合は何も変更しない."""
-        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+        from src.cli.migrate_metadata import migrate_v1_2_0_to_v1_3_0
 
         v1_2_metadata = {
             "metadata_version": "1.2.0",
@@ -684,7 +684,7 @@ class TestMigrateV120ToV130:
 
     def test_migrate_v1_2_0_with_multiple_warnings(self) -> None:
         """複数の警告がある場合、該当するものだけ変換される."""
-        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+        from src.cli.migrate_metadata import migrate_v1_2_0_to_v1_3_0
 
         v1_2_metadata = {
             "metadata_version": "1.2.0",
@@ -723,7 +723,7 @@ class TestMigrateV120ToV130:
 
     def test_migrate_v1_2_0_preserves_all_fields(self) -> None:
         """v1.2.0の全フィールドが保持される."""
-        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+        from src.cli.migrate_metadata import migrate_v1_2_0_to_v1_3_0
 
         v1_2_metadata = {
             "metadata_version": "1.2.0",
@@ -755,7 +755,7 @@ class TestMigrateV120ToV130:
 
     def test_migrate_v1_2_0_does_not_mutate_original(self) -> None:
         """マイグレーションが元のmetadataを変更しないことを確認 (deepcopyのテスト)."""
-        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+        from src.cli.migrate_metadata import migrate_v1_2_0_to_v1_3_0
 
         v1_2_metadata = {
             "metadata_version": "1.2.0",
@@ -805,7 +805,7 @@ class TestMigrateV120ToV130:
 
     def test_migrate_v1_2_0_with_edge_case_warnings(self) -> None:
         """エッジケース警告 (空セット、末尾スペース、余分なスペース) の処理を確認."""
-        from scripts.migrate_metadata import migrate_v1_2_0_to_v1_3_0
+        from src.cli.migrate_metadata import migrate_v1_2_0_to_v1_3_0
 
         # 空セット、末尾スペース、余分なスペースのエッジケースをテスト
         v1_2_metadata = {
