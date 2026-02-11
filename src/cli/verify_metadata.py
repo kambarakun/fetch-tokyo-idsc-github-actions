@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from typing import Any
 
 from src.managers.storage_manager import StorageManager

@@ -285,10 +285,12 @@ class DataValidator:
         try:
             # 絶対パスを解決
             resolved_path = file_path.resolve()
-            base_path = Path.cwd() / "data"
+            base_path = (Path.cwd() / "data").resolve()
 
             # base_path内にあることを確認
-            if not str(resolved_path).startswith(str(base_path)):
+            try:
+                resolved_path.relative_to(base_path)
+            except ValueError:
                 result["errors"].append(f"Path traversal detected: {resolved_path} not in {base_path}")
                 result["valid"] = False
 

@@ -32,7 +32,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from typing import TypeAlias
 
 
@@ -46,7 +46,7 @@ class MigrationStats(TypedDict):
     target_version: str
 
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     MigrationFunc: TypeAlias = Callable[[dict, Path | None], tuple[dict, list[str]]]
 
 from src.managers.storage_manager import METADATA_VERSION  # noqa: E402
