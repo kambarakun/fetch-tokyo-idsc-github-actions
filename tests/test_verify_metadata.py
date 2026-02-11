@@ -4,7 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from scripts.verify_metadata import run_verification
+from src.cli.verify_metadata import run_verification
 
 
 class TestRunVerification:

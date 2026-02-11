@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scripts.fetch_data import DataCollector
+from src.cli.fetch_data import DataCollector
 from src.fetchers.enhanced_fetcher import FetchParams, FetchResult, FileMetadata
 from src.managers.config_manager import DataCollectionConfig
 from src.managers.storage_manager import SaveResult
@@ -33,8 +33,8 @@ class TestDataCollectorOptions(unittest.TestCase):
         self.mock_config.storage.commit_message_template = "Test commit"
         self.mock_config.storage.keep_shift_jis = True
 
-    @patch("scripts.fetch_data.StorageManager")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     def test_skip_existing_option(self, mock_fetcher_class, mock_storage_class):
         """skip_existingオプションのテスト"""
         # モックの設定
@@ -57,8 +57,8 @@ class TestDataCollectorOptions(unittest.TestCase):
         mock_storage.get_existing_files.assert_called_once_with(data_type="test_data")
         mock_fetcher.get_missing_data.assert_called_once()
 
-    @patch("scripts.fetch_data.StorageManager")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     def test_force_update_option(self, mock_fetcher_class, mock_storage_class):
         """force_updateオプションのテスト"""
         # モックの設定
@@ -83,8 +83,8 @@ class TestDataCollectorOptions(unittest.TestCase):
         # get_existing_filesが呼ばれていないことを確認(スキップしない)
         mock_storage.get_existing_files.assert_not_called()
 
-    @patch("scripts.fetch_data.StorageManager")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     def test_force_update_with_save(self, mock_fetcher_class, mock_storage_class):
         """force_updateオプションでの保存処理テスト"""
         # モックの設定
@@ -154,7 +154,7 @@ class TestDataCollectorOptions(unittest.TestCase):
         # メインスクリプトでのオプション競合チェックをテスト
         import contextlib
 
-        from scripts.fetch_data import main
+        from src.cli.fetch_data import main
 
         # コマンドライン引数をモック
         test_args = [
@@ -169,7 +169,7 @@ class TestDataCollectorOptions(unittest.TestCase):
         with (
             patch("sys.argv", ["fetch_data.py", *test_args]),
             patch("sys.exit") as mock_exit,
-            patch("scripts.fetch_data.setup_logging") as mock_logging,
+            patch("src.cli.fetch_data.setup_logging") as mock_logging,
         ):
             # sys.exitが実際の挙動と同じくSystemExitを発生させる
             mock_exit.side_effect = SystemExit(1)
@@ -177,7 +177,7 @@ class TestDataCollectorOptions(unittest.TestCase):
             mock_logging.return_value = mock_logger
 
             # ConfigurationManagerをモック
-            with patch("scripts.fetch_data.ConfigurationManager"), contextlib.suppress(SystemExit):
+            with patch("src.cli.fetch_data.ConfigurationManager"), contextlib.suppress(SystemExit):
                 main()
 
             # エラーログが出力されたことを確認
@@ -190,9 +190,9 @@ class TestDataCollectorOptions(unittest.TestCase):
 class TestDataCollectorIntegration(unittest.TestCase):
     """DataCollectorの統合テスト"""
 
-    @patch("scripts.fetch_data.StorageManager")
-    @patch("scripts.fetch_data.EnhancedEpidemicDataFetcher")
-    @patch("scripts.fetch_data.ConfigurationManager")
+    @patch("src.cli.fetch_data.StorageManager")
+    @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
+    @patch("src.cli.fetch_data.ConfigurationManager")
     def test_normal_mode_without_options(self, mock_config_manager_class, mock_fetcher_class, mock_storage_class):
         """オプションなしの通常モード(skip_existing=False優先)"""
         # 設定マネージャーのモック

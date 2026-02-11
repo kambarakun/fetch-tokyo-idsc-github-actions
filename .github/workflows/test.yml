@@ -73,9 +73,13 @@ jobs:
             --data-types "sentinel_weekly_gender" \
             --log-file tests/temp/test.log
 
+      - name: Check deprecated CLI usage
+        run: |
+          uv run python scripts/check_deprecated_cli_usage.py
+
       - name: Check script syntax
         run: |
-          uv run python -m py_compile scripts/fetch_data.py
+          uv run python -m py_compile src/cli/fetch_data.py
           uv run python -m py_compile scripts/check_missing.py
           uv run python -m py_compile src/fetchers/base_fetcher.py
           uv run python -m py_compile src/fetchers/enhanced_fetcher.py

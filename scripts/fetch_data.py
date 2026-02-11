@@ -6,14 +6,12 @@ from __future__ import annotations
 import sys
 
 if __name__ == "__main__":
-    import warnings
-
+    from src.cli._deprecation import warn_legacy_script_deprecation
     from src.cli.fetch_data import main as _cli_main
 
-    warnings.warn(
-        "scripts/fetch_data.py is deprecated; use 'uv run fetch-data' instead.",
-        FutureWarning,
-        stacklevel=2,
+    warn_legacy_script_deprecation(
+        script_path="scripts/fetch_data.py",
+        replacement_command="fetch-data",
     )
     try:
         _cli_main()

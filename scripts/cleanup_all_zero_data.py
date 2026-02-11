@@ -12,11 +12,10 @@ def _exit_code(value: object) -> int:
 
 
 if __name__ == "__main__":
-    import warnings
+    from src.cli._deprecation import warn_legacy_script_deprecation
 
-    warnings.warn(
-        "scripts/cleanup_all_zero_data.py is deprecated; use 'uv run cleanup-all-zero-data' instead.",
-        FutureWarning,
-        stacklevel=2,
+    warn_legacy_script_deprecation(
+        script_path="scripts/cleanup_all_zero_data.py",
+        replacement_command="cleanup-all-zero-data",
     )
     raise SystemExit(_exit_code(_cli_main()))

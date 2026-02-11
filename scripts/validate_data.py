@@ -7,11 +7,10 @@ from src.cli.validate_data import *  # noqa: F403
 from src.cli.validate_data import main as _cli_main
 
 if __name__ == "__main__":
-    import warnings
+    from src.cli._deprecation import warn_legacy_script_deprecation
 
-    warnings.warn(
-        "scripts/validate_data.py is deprecated; use 'uv run validate-data' instead.",
-        FutureWarning,
-        stacklevel=2,
+    warn_legacy_script_deprecation(
+        script_path="scripts/validate_data.py",
+        replacement_command="validate-data",
     )
     _cli_main()

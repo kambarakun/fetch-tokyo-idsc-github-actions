@@ -598,6 +598,13 @@ uv run fetch-data --dry-run
 uv run check-missing data/raw
 ```
 
+#### 旧 `scripts/*.py` 実行経路の廃止予定(issue #312)
+
+- 対象: `fetch_data.py`, `process_data.py`, `validate_data.py`, `verify_metadata.py`, `migrate_metadata.py`, `check_data_status.py`, `cleanup_all_zero_data.py`
+- 廃止予定日: `2026-03-15`
+- 移行先: `uv run <command>`(例: `uv run fetch-data`, `uv run validate-data`)
+- 詳細: `https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues/312`
+
 #### 開発者向けコマンド
 
 ```bash

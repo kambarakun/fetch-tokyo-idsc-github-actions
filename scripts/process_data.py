@@ -6,14 +6,12 @@ from __future__ import annotations
 import sys
 
 if __name__ == "__main__":
-    import warnings
-
+    from src.cli._deprecation import warn_legacy_script_deprecation
     from src.cli.process_data import main as _cli_main
 
-    warnings.warn(
-        "scripts/process_data.py is deprecated; use 'uv run process-data' instead.",
-        FutureWarning,
-        stacklevel=2,
+    warn_legacy_script_deprecation(
+        script_path="scripts/process_data.py",
+        replacement_command="process-data",
     )
     try:
         _cli_main()
