@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from typing import Any
 
 from src.managers.storage_manager import StorageManager
+from src.validators.quality_validator import QualityValidator
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def _process_single_file(
     dry_run: bool,
     verbose: bool,
     only_unverified: bool,
+    quality_validator: QualityValidator | None = None,
 ) -> tuple[str, str | None]:
     """単一のメタデータファイルを処理する.
 
@@ -66,6 +68,7 @@ def _process_single_file(
         dry_run: Trueの場合、変更を保存しない
         verbose: Trueの場合、詳細なログを出力
         only_unverified: Trueの場合、verification が None のファイルのみ対象
+        quality_validator: QualityValidatorインスタンス
 
     Returns:
         (結果タイプ, 検証ステータス)
@@ -98,6 +101,45 @@ def _process_single_file(
 
     # 検証を実行 (公開API validate_file を使用)
     verification: dict[str, Any] = storage_manager.validate_file(data_file, data)
+
+    if quality_validator is not None:
+        data_type = metadata.get("data_type")
+        if not isinstance(data_type, str):
+            data_type = ""
+
+        try:
+            quality = quality_validator.validate(csv_filename, data_type, {})
+        except (OSError, ValueError) as e:
+            verification.setdefault("checks", {})["gender_sum_consistency"] = False
+            verification.setdefault("errors", []).append(f"[gender_sum_consistency] Validation failed: {e!s}")
+            verification["status"] = "failed"
+        else:
+            verification["quality"] = quality
+
+            issues = quality.get("issues", [])
+            has_gender_sum_errors = False
+            if isinstance(issues, list):
+                for issue in issues:
+                    if not isinstance(issue, dict):
+                        continue
+                    if issue.get("check_type") != "gender_sum_consistency":
+                        continue
+
+                    details = issue.get("details")
+                    affected_count = details.get("affected_count", 0) if isinstance(details, dict) else 0
+                    issue_status = issue.get("validation_status")
+                    message = issue.get("message", "Validation failed")
+                    if not isinstance(message, str):
+                        message = str(message)
+
+                    if issue_status == "failed" or (issue_status == "completed" and affected_count > 0):
+                        has_gender_sum_errors = True
+                        verification.setdefault("errors", []).append(f"[gender_sum_consistency] {message}")
+
+            verification.setdefault("checks", {})["gender_sum_consistency"] = not has_gender_sum_errors
+            if has_gender_sum_errors:
+                verification["status"] = "failed"
+
     status: str = verification["status"]
 
     if dry_run:
@@ -153,6 +195,7 @@ def run_verification(
     # StorageManager のインスタンスを作成 (検証ロジックを再利用)
     config: dict[str, Any] = {"auto_commit": False}
     storage_manager = StorageManager(base_path=data_dir, config=config)
+    quality_validator = QualityValidator(data_dir)
 
     metadata_files = sorted(metadata_dir.glob("*.json"))
     # hash_index.json は除外
@@ -170,6 +213,7 @@ def run_verification(
                 metadata_path=metadata_path,
                 data_dir=data_dir,
                 storage_manager=storage_manager,
+                quality_validator=quality_validator,
                 dry_run=dry_run,
                 verbose=verbose,
                 only_unverified=only_unverified,
@@ -243,6 +287,10 @@ def main() -> int:
 
     if not args.metadata_dir.exists():
         logger.error(f"Metadata directory not found: {args.metadata_dir}")
+        return 1
+
+    if not args.data_dir.exists():
+        logger.error(f"Data directory not found: {args.data_dir}")
         return 1
 
     if args.dry_run:

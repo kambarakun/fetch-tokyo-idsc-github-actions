@@ -30,7 +30,7 @@ import sys
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 if TYPE_CHECKING:  # pragma: no cover
     from typing import TypeAlias
@@ -51,6 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 from src.managers.storage_manager import METADATA_VERSION  # noqa: E402
 from src.utils.version import parse_version  # noqa: E402
+from src.validators.quality_validator import QualityValidator  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,11 @@ class MigrationRegistry:
     @property
     def supported_versions(self) -> list[str | None]:
         """サポートされているバージョンのリストを取得する."""
-        return sorted(self._versions, key=lambda v: (v is None, v or ""))
+
+        def _sort_key(v: str | None) -> tuple[bool, tuple[int, ...] | tuple[()]]:
+            return (v is None, parse_version(v) if v is not None else ())
+
+        return sorted(self._versions, key=_sort_key)
 
     @staticmethod
     def compare_versions(v1: str | None, v2: str | None) -> int:
@@ -546,7 +551,7 @@ def _extract_data_type_and_temporal(stem: str) -> tuple[str, dict]:
 # =============================================================================
 
 # v1.0 で必須となるフィールド
-V1_0_REQUIRED_FIELDS = {
+V1_0_REQUIRED_FIELDS: set[str] = {
     "metadata_version",
     "created_at",
     "updated_at",
@@ -557,7 +562,7 @@ V1_0_REQUIRED_FIELDS = {
 }
 
 # v1.1 で必須となるフィールド
-V1_1_REQUIRED_FIELDS = {
+V1_1_REQUIRED_FIELDS: set[str] = {
     "metadata_version",
     "name",
     "filename",
@@ -573,7 +578,52 @@ V1_1_REQUIRED_FIELDS = {
 }
 
 # v1.2 で必須となるフィールド (v1.1と同じ、qualityは任意)
-V1_2_REQUIRED_FIELDS = V1_1_REQUIRED_FIELDS.copy()
+V1_2_REQUIRED_FIELDS: set[str] = V1_1_REQUIRED_FIELDS.copy()
+
+
+def _build_quality_metadata_for_v1_2(migrated: dict[str, Any], data_file: Path | None) -> tuple[dict[str, Any], str]:
+    """v1.2.0向けqualityフィールドを構築する."""
+    from datetime import UTC, datetime
+
+    default_timestamp = datetime.now(UTC).isoformat()
+    if data_file is None or not data_file.exists():
+        return (
+            {
+                "validation_timestamp": default_timestamp,
+                "validation_status": "skipped",
+                "issues": [],
+            },
+            "quality: added (validation_status=skipped)",
+        )
+
+    data_type = migrated.get("data_type")
+    if not isinstance(data_type, str):
+        data_type = ""
+
+    try:
+        quality_validator = QualityValidator(data_file.parent)
+        quality = quality_validator.validate(data_file.name, data_type, {})
+    except (OSError, ValueError) as e:
+        logger.warning("Failed to evaluate quality for %s during migration: %s", data_file.name, e)
+        return (
+            {
+                "validation_timestamp": default_timestamp,
+                "validation_status": "skipped",
+                "issues": [],
+            },
+            "quality: added (validation_status=skipped)",
+        )
+
+    issues = quality.get("issues", [])
+    status = "failed" if issues else "passed"
+    return (
+        {
+            "validation_timestamp": quality.get("validation_timestamp", default_timestamp),
+            "validation_status": status,
+            "issues": issues,
+        },
+        f"quality: added (validation_status={status})",
+    )
 
 
 @migration_registry.register(from_version="1.1.0", to_version="1.2.0")
@@ -591,8 +641,6 @@ def migrate_v1_1_0_to_v1_2_0(metadata: dict, data_file: Path | None) -> tuple[di
     Returns:
         (マイグレーション後のメタデータ, 変更リスト)
     """
-    from datetime import UTC, datetime
-
     migrated = metadata.copy()
     changes = []
 
@@ -602,15 +650,11 @@ def migrate_v1_1_0_to_v1_2_0(metadata: dict, data_file: Path | None) -> tuple[di
         changes.append("metadata_version: 1.1.0 -> 1.2.0")
 
     # quality フィールドの追加
-    # 既存データは実際の検証を行わず、skippedとして記録
+    # 既存データも可能な範囲で品質検証を実行し、結果を記録
     if "quality" not in migrated:
-        validation_timestamp = datetime.now(UTC).isoformat()
-        migrated["quality"] = {
-            "validation_timestamp": validation_timestamp,
-            "validation_status": "skipped",
-            "issues": [],
-        }
-        changes.append("quality: added (validation_status=skipped)")
+        quality, change_message = _build_quality_metadata_for_v1_2(migrated, data_file)
+        migrated["quality"] = quality
+        changes.append(change_message)
 
     return migrated, changes
 
@@ -645,7 +689,13 @@ def migrate_v1_2_0_to_v1_3_0(metadata: dict, _data_file: Path | None) -> tuple[d
         warnings = verification.get("warnings", [])
         if warnings and isinstance(warnings, list):
             new_warnings = []
-            details = verification.get("details", {})
+            details_obj = verification.get("details")
+            if isinstance(details_obj, dict):
+                details = details_obj.copy()
+            else:
+                details = {}
+                if details_obj is not None:
+                    changes.append("verification.details: invalid type reset to {}")
             warnings_updated = False
             all_column_counts = []  # 全ての警告からカラム数を収集
 

@@ -612,7 +612,11 @@ def main() -> None:
     logger = setup_logging(args.log_level)
 
     # バリデーター作成
-    validator = DataValidator(strict_mode=args.strict, encoding=args.encoding)
+    try:
+        validator = DataValidator(strict_mode=args.strict, encoding=args.encoding)
+    except (LookupError, ValueError) as e:
+        logger.error(f"Invalid encoding specified: {e}")
+        sys.exit(1)
 
     # パスの処理
     path = Path(args.path)

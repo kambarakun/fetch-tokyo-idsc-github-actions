@@ -290,6 +290,7 @@ def test_validate_data_additional_branches(
     capsys: pytest.CaptureFixture[str],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO)
     monkeypatch.chdir(tmp_path)
     data_root = tmp_path / "data" / "raw"
     data_root.mkdir(parents=True)
@@ -577,6 +578,11 @@ def test_validate_data_additional_branches(
     assert exc.value.code == 1
     assert any("検証結果サマリー" in r.message for r in caplog.records)
 
+    monkeypatch.setattr(sys, "argv", ["validate-data", str(valid_file), "--encoding", "invalid-encoding-name"])
+    with pytest.raises(SystemExit) as exc:
+        vd.main()
+    assert exc.value.code == 1
+
 
 def test_verify_metadata_main_and_extra_branches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -587,7 +593,10 @@ def test_verify_metadata_main_and_extra_branches(
     data_dir.mkdir()
 
     metadata_path = metadata_dir / "sample.json"
-    metadata_path.write_text(json.dumps({"filename": "sample.csv", "verification": None}), encoding="utf-8")
+    metadata_path.write_text(
+        json.dumps({"filename": "sample.csv", "data_type": "sentinel_weekly_age", "verification": None}),
+        encoding="utf-8",
+    )
     data_file = data_dir / "sample.csv"
     data_file.write_bytes("a,b,c\n1,2,3\n".encode("shift_jis"))
 
@@ -620,6 +629,115 @@ def test_verify_metadata_main_and_extra_branches(
     )
     assert skipped[0] == "skipped"
 
+    quality_validator = Mock()
+    quality_validator.validate.return_value = {
+        "validation_timestamp": "2026-02-11T00:00:00+00:00",
+        "validation_status": "completed",
+        "issues": [
+            {
+                "check_type": "gender_sum_consistency",
+                "validation_status": "completed",
+                "message": "mismatch",
+                "details": {"affected_count": 1},
+            }
+        ],
+    }
+    result_gender_fail = vm._process_single_file(
+        metadata_path,
+        data_dir,
+        storage,
+        dry_run=False,
+        verbose=False,
+        only_unverified=False,
+        quality_validator=quality_validator,
+    )
+    assert result_gender_fail == ("failed", "failed")
+    updated_with_quality = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert updated_with_quality["verification"]["checks"]["gender_sum_consistency"] is False
+    assert updated_with_quality["verification"]["status"] == "failed"
+
+    storage.validate_file.return_value = {
+        "status": "verified",
+        "checks": {"encoding": True},
+        "errors": [],
+        "warnings": [],
+    }
+    quality_validator.validate.return_value = {
+        "validation_timestamp": "2026-02-11T00:00:00+00:00",
+        "validation_status": "completed",
+        "issues": [
+            "unexpected-item",
+            {
+                "check_type": "other_check",
+                "validation_status": "completed",
+                "message": "ignore-me",
+                "details": {"affected_count": 99},
+            },
+            {
+                "check_type": "gender_sum_consistency",
+                "validation_status": "failed",
+                "message": 123,
+                "details": {"affected_count": 0},
+            },
+            {
+                "check_type": "gender_sum_consistency",
+                "validation_status": "completed",
+                "message": "ok",
+                "details": {"affected_count": 0},
+            },
+        ],
+    }
+    result_mixed_issues = vm._process_single_file(
+        metadata_path,
+        data_dir,
+        storage,
+        dry_run=True,
+        verbose=False,
+        only_unverified=False,
+        quality_validator=quality_validator,
+    )
+    assert result_mixed_issues == ("failed", "failed")
+
+    storage.validate_file.return_value = {
+        "status": "verified",
+        "checks": {"encoding": True},
+        "errors": [],
+        "warnings": [],
+    }
+    quality_validator.validate.return_value = {
+        "validation_timestamp": "2026-02-11T00:00:00+00:00",
+        "validation_status": "completed",
+        "issues": "unexpected",
+    }
+    result_non_list_issues = vm._process_single_file(
+        metadata_path,
+        data_dir,
+        storage,
+        dry_run=True,
+        verbose=False,
+        only_unverified=False,
+        quality_validator=quality_validator,
+    )
+    assert result_non_list_issues == ("verified", "verified")
+
+    storage.validate_file.return_value = {
+        "status": "verified",
+        "checks": {"encoding": True},
+        "errors": [],
+        "warnings": [],
+    }
+    quality_validator.validate.side_effect = ValueError("quality-failed")
+    result_quality_error = vm._process_single_file(
+        metadata_path,
+        data_dir,
+        storage,
+        dry_run=True,
+        verbose=False,
+        only_unverified=False,
+        quality_validator=quality_validator,
+    )
+    assert result_quality_error == ("failed", "failed")
+
     bad_meta = metadata_dir / "bad.json"
     bad_meta.write_text("{ invalid", encoding="utf-8")
     stats = vm.run_verification(metadata_dir=metadata_dir, data_dir=data_dir)
@@ -629,11 +747,29 @@ def test_verify_metadata_main_and_extra_branches(
     monkeypatch.setattr(sys, "argv", ["verify-metadata", "--metadata-dir", str(missing_dir)])
     assert vm.main() == 1
 
+    missing_data_dir = tmp_path / "missing_data"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["verify-metadata", "--metadata-dir", str(metadata_dir), "--data-dir", str(missing_data_dir)],
+    )
+    assert vm.main() == 1
+
     monkeypatch.setattr(
         vm, "run_verification", lambda **_kwargs: {"total": 1, "verified": 1, "failed": 1, "skipped": 0, "errors": 0}
     )
     monkeypatch.setattr(
-        sys, "argv", ["verify-metadata", "--metadata-dir", str(metadata_dir), "--dry-run", "--output-json"]
+        sys,
+        "argv",
+        [
+            "verify-metadata",
+            "--metadata-dir",
+            str(metadata_dir),
+            "--data-dir",
+            str(data_dir),
+            "--dry-run",
+            "--output-json",
+        ],
     )
     assert vm.main() == 0
     assert '"verified": 1' in capsys.readouterr().out
@@ -641,7 +777,9 @@ def test_verify_metadata_main_and_extra_branches(
     monkeypatch.setattr(
         vm, "run_verification", lambda **_kwargs: {"total": 1, "verified": 0, "failed": 0, "skipped": 0, "errors": 1}
     )
-    monkeypatch.setattr(sys, "argv", ["verify-metadata", "--metadata-dir", str(metadata_dir)])
+    monkeypatch.setattr(
+        sys, "argv", ["verify-metadata", "--metadata-dir", str(metadata_dir), "--data-dir", str(data_dir)]
+    )
     assert vm.main() == 1
 
 
@@ -721,6 +859,59 @@ def test_migrate_metadata_additional_branches(tmp_path: Path, monkeypatch: pytes
     assert migrated_v12_same["metadata_version"] == "1.2.0"
     assert migrated_v12_same["quality"]["validation_status"] == "skipped"
 
+    monkeypatch.setattr(
+        mm,
+        "QualityValidator",
+        lambda _base_dir: SimpleNamespace(
+            validate=lambda *_args, **_kwargs: {
+                "validation_timestamp": "2026-02-11T00:00:00+00:00",
+                "issues": [],
+            }
+        ),
+    )
+    migrated_v12_pass, changes_v12_pass = mm.migrate_v1_1_0_to_v1_2_0(
+        {"metadata_version": "1.1.0", "data_type": "sentinel_weekly_age"},
+        csv_file,
+    )
+    assert migrated_v12_pass["quality"]["validation_status"] == "passed"
+    assert any("validation_status=passed" in c for c in changes_v12_pass)
+
+    monkeypatch.setattr(
+        mm,
+        "QualityValidator",
+        lambda _base_dir: SimpleNamespace(
+            validate=lambda *_args, **_kwargs: {
+                "validation_timestamp": "2026-02-11T00:00:00+00:00",
+                "issues": [
+                    {
+                        "check_type": "gender_sum_consistency",
+                        "validation_status": "completed",
+                        "message": "mismatch",
+                        "details": {"affected_count": 1},
+                    }
+                ],
+            }
+        ),
+    )
+    migrated_v12_failed, changes_v12_failed = mm.migrate_v1_1_0_to_v1_2_0(
+        {"metadata_version": "1.1.0", "data_type": "sentinel_weekly_age"},
+        csv_file,
+    )
+    assert migrated_v12_failed["quality"]["validation_status"] == "failed"
+    assert any("validation_status=failed" in c for c in changes_v12_failed)
+
+    monkeypatch.setattr(
+        mm,
+        "QualityValidator",
+        lambda _base_dir: SimpleNamespace(validate=lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("boom"))),
+    )
+    migrated_v12_skipped, changes_v12_skipped = mm.migrate_v1_1_0_to_v1_2_0(
+        {"metadata_version": "1.1.0", "data_type": 123},
+        csv_file,
+    )
+    assert migrated_v12_skipped["quality"]["validation_status"] == "skipped"
+    assert any("validation_status=skipped" in c for c in changes_v12_skipped)
+
     dt, temporal = mm._extract_data_type_and_temporal("foo_bar_2025_01")
     assert dt == "foo_bar"
     assert temporal["period_type"] == "weekly"
@@ -766,6 +957,31 @@ def test_migrate_metadata_additional_branches(tmp_path: Path, monkeypatch: pytes
     )
     assert migrated_v13_no_version_bump["metadata_version"] == "1.3.0"
     assert migrated_v13_no_version_bump["verification"]["warnings"] == ["[csv_format] Inconsistent column count"]
+
+    migrated_v13_none_details, _ = mm.migrate_v1_2_0_to_v1_3_0(
+        {
+            "metadata_version": "1.2.0",
+            "verification": {
+                "warnings": ["[csv_format] Inconsistent column count: {1, 2}"],
+                "details": None,
+            },
+        },
+        None,
+    )
+    assert migrated_v13_none_details["verification"]["details"]["column_counts"] == [1, 2]
+
+    migrated_v13_invalid_details, changes_v13_invalid_details = mm.migrate_v1_2_0_to_v1_3_0(
+        {
+            "metadata_version": "1.2.0",
+            "verification": {
+                "warnings": ["[csv_format] Inconsistent column count: {2, 3}"],
+                "details": "invalid",
+            },
+        },
+        None,
+    )
+    assert migrated_v13_invalid_details["verification"]["details"]["column_counts"] == [2, 3]
+    assert any("invalid type reset" in c for c in changes_v13_invalid_details)
 
     assert mm.needs_migration({"metadata_version": "1.0"}, target_version="1.0") is True
     assert mm.needs_migration({"metadata_version": "1.1.0"}, target_version="1.1.0") is True
