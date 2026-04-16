@@ -14,21 +14,21 @@
   "lines": 30,
   "hash": {
     "algorithm": "sha256",
-    "value": "d8150034a31745c8f29698d0d2c6f49f65c722c567cef4efd332a1edabe9a0a3"
+    "value": "6a4418d92aca897ab0905cbd16684df5b406d461051bd40aa73fa31d0e6f1bb9"
   },
   "encoding": "shift_jis",
   "created": "2026-04-02T08:27:33.227361+00:00",
-  "modified": "2026-04-09T08:55:11.509216+00:00",
+  "modified": "2026-04-16T09:04:18.110472+00:00",
   "sources": [],
   "_fetch": {
     "source_url": null,
-    "fetch_time_seconds": 0.8653995990753174,
+    "fetch_time_seconds": 0.6518876552581787,
     "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2026-04-09T08:55:11.509475+00:00",
+    "verified_at": "2026-04-16T09:04:18.110789+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -50,7 +50,7 @@
     }
   },
   "quality": {
-    "validation_timestamp": "2026-04-09T08:55:11.509481+00:00",
+    "validation_timestamp": "2026-04-16T09:04:18.110798+00:00",
     "validation_status": "completed",
     "issues": []
   }
