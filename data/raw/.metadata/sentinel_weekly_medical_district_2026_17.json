@@ -1,0 +1,160 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "sentinel_weekly_medical_district_2026_17",
+  "filename": "sentinel_weekly_medical_district_2026_17.csv",
+  "path": "sentinel_weekly_medical_district_2026_17.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2026,
+    "period": 17,
+    "period_type": "weekly"
+  },
+  "bytes": 7957,
+  "lines": 69,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "1faee4b54e80d2cbecb81538d42f18bef3bf78e55d53f9f534ac105587897363"
+  },
+  "encoding": "shift_jis",
+  "created": "2026-05-01T08:46:03.476818+00:00",
+  "modified": "2026-05-01T08:46:03.476818+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.7082974910736084,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2026-05-01T08:46:03.477050+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2,
+        32
+      ]
+    }
+  },
+  "quality": {
+    "validation_timestamp": "2026-05-01T08:46:03.477056+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 12 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2026_17.csv",
+          "affected_count": 12,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "伝染性紅斑",
+              "row_index": 3,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "区西南部",
+              "column": "RSウイルス感染症",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "マイコプラズマ肺炎",
+              "row_index": 6,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "RSウイルス感染症",
+              "row_index": 7,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区東北部",
+              "column": "ヘルパンギーナ",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東部",
+              "column": "ヘルパンギーナ",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "新型コロナウイルス感染症（COVID-19）",
+              "row_index": 10,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "南多摩",
+              "column": "水痘",
+              "row_index": 11,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "北多摩西部",
+              "column": "インフルエンザ",
+              "row_index": 12,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩南部",
+              "column": "手足口病",
+              "row_index": 13,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
