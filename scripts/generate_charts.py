@@ -18,6 +18,7 @@ import csv
 import hashlib
 import time
 from collections import defaultdict
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 
@@ -595,6 +596,58 @@ def calculate_deviation_rate(
     return deviation_rates
 
 
+def select_top_deviation_diseases(
+    deviation_rates: Mapping[str, Mapping[int, float | None]], top_n: int = 5
+) -> tuple[list[tuple[str, float]], bool]:
+    """乖離率グラフ用のトップN疾患を選定 (CDC流: 期間全体での最大正乖離)
+
+    最新1期間だけで判定すると、期間内で大きく流行した疾患も
+    現在値がbaseline以下まで戻ると消えてしまう。CDC FluView同様に
+    期間全体を視野に入れて選定する。
+
+    選定ロジック:
+    1. 期間内のいずれかで baseline を超えた疾患があれば、その最大正乖離値で
+       降順ソートしてトップN件を選ぶ (流行検知の本来の意図を維持)
+    2. 期間中ずっと baseline 以下の場合は、絶対値最大の乖離率(符号付き)で
+       降順ソートしてトップN件を選ぶ (空グラフ回避のフォールバック)
+
+    Args:
+        deviation_rates: 疾患名 -> {期間番号: 乖離率(%) または None}
+            None は乖離率が計算できなかった期間を表し、選定から除外される。
+            型は Mapping (共変) で受けるため、calculate_deviation_rate() の
+            戻り値 dict[str, dict[int, float]] (None を含まない) もそのまま渡せる。
+        top_n: 表示する疾患数
+
+    Returns:
+        ([(疾患名, 代表乖離率値), ...], fallback_used)
+        代表乖離率値は符号付き:
+          - 通常パス: 期間内の最大正乖離率 (常に正)
+          - フォールバック: 期間内で絶対値が最大の乖離率 (負になりうる)
+        fallback_used が True のとき、正乖離が一つも存在せず絶対値で選定したことを示す。
+        入力 deviation_rates が空、または全疾患が None のみの場合は ([], True) を返す。
+    """
+    primary_scores: dict[str, float] = {}
+    fallback_scores: dict[str, float] = {}
+
+    for disease, periods in deviation_rates.items():
+        non_null_values = [v for v in periods.values() if v is not None]
+        if not non_null_values:
+            continue
+        # 絶対値最大の値を符号を保ったまま記録 (= 期間内で最も極端な乖離)
+        fallback_scores[disease] = max(non_null_values, key=abs)
+        # ちょうど baseline (v == 0) はフォールバック対象 ("正乖離なし" 扱い)
+        positive_values = [v for v in non_null_values if v > 0]
+        if positive_values:
+            primary_scores[disease] = max(positive_values)
+
+    if primary_scores:
+        ranked = sorted(primary_scores.items(), key=lambda x: x[1], reverse=True)
+        return ranked[:top_n], False
+
+    ranked_fallback = sorted(fallback_scores.items(), key=lambda x: abs(x[1]), reverse=True)
+    return ranked_fallback[:top_n], True
+
+
 def _format_period_label(min_period: int, max_period: int, period_type: str) -> str:
     """期間ラベルを生成 (X軸用)
 
@@ -849,12 +902,10 @@ def generate_deviation_chart(
     # 日本語フォントを初期化 (遅延評価)
     JAPANESE_FONT = get_japanese_font()
 
-    # 最新期間でプラス方向(流行)の乖離率が大きい疾患のトップNを選択(CDCスタイル)
-    latest_period = max(all_periods)
-    latest_deviation_rates = {disease: periods.get(latest_period, 0) for disease, periods in deviation_rates.items()}
-    # プラス方向(流行)のみを抽出してソート
-    positive_deviations = {k: v for k, v in latest_deviation_rates.items() if v > 0}
-    top_diseases = sorted(positive_deviations.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    # 期間全体で baseline を超えた疾患 (最大正乖離) を優先選定。
+    # 最新期間1点だけで判定すると、期間内で流行した疾患が現在 baseline 以下に
+    # 戻った瞬間に全て消えて空グラフになるため (CDC FluView 同様 full-season 方式)。
+    top_diseases, fallback_used = select_top_deviation_diseases(deviation_rates, top_n=top_n)
 
     # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -900,7 +951,10 @@ def generate_deviation_chart(
     plt.tight_layout(rect=(0, 0.06, 1, 0.98))
 
     # データソースと注釈 (下側の確保したスペースに配置)
-    note_text = "※ 季節性ベースラインより高い(プラス乖離)疾患を最大5つ表示"
+    if fallback_used:
+        note_text = f"※ 期間中ベースラインを超える疾患なし — 参考として乖離絶対値の大きい疾患を最大{top_n}つ表示"
+    else:
+        note_text = f"※ 期間中の最大正乖離(流行兆候)が大きい疾患を最大{top_n}つ表示"
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
         # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)

@@ -21,6 +21,7 @@ from scripts.generate_charts import (
     parse_notifiable_weekly,
     parse_period_from_filename,
     parse_sentinel_weekly_gender,
+    select_top_deviation_diseases,
 )
 
 
@@ -237,6 +238,129 @@ class TestCalculateDeviationRate:
 
         # 疾患がベースラインに存在しない場合はスキップ
         assert "新型疾患" not in rates
+
+
+class TestSelectTopDeviationDiseases:
+    """select_top_deviation_diseases()関数のテスト
+
+    乖離率グラフ用の TopN 選定ロジック:
+    - 期間内のいずれかで baseline を超えた疾患があれば、最大正乖離の降順で TopN
+    - 全期間 baseline 以下なら、絶対値最大乖離の降順で TopN (空グラフ回避フォールバック)
+    """
+
+    def test_positive_deviation_uses_window_max(self):
+        """期間内のどこかで正乖離があれば、最新が負でも選定される"""
+        # 疾患Aは最新負だが期間内で +1900% のピーク, Bは最新正だが小さい
+        deviation_rates = {
+            "疾患A": {202508: 1900.0, 202604: -100.0},
+            "疾患B": {202508: 5.0, 202604: 10.0},
+        }
+
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+
+        assert fallback is False
+        # Aの代表値は期間内最大の1900
+        assert top[0][0] == "疾患A"
+        assert top[0][1] == 1900.0
+        assert top[1][0] == "疾患B"
+        assert top[1][1] == 10.0
+
+    def test_top_n_respected(self):
+        """top_n を超える結果は返さない"""
+        deviation_rates = {f"疾患{i}": {202501: float(i)} for i in range(1, 11)}
+
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=3)
+
+        assert fallback is False
+        assert len(top) == 3
+        # 上位3つは 10, 9, 8
+        assert [d for d, _ in top] == ["疾患10", "疾患9", "疾患8"]
+
+    def test_fallback_when_all_below_baseline(self):
+        """期間中ずっと baseline 以下のとき、絶対値TopNにフォールバック
+
+        ソート順は絶対値降順だが、戻り値は符号を保つ。
+        """
+        deviation_rates = {
+            "疾患A": {202601: -100.0, 202602: -50.0},
+            "疾患B": {202601: -10.0, 202602: -20.0},
+            "疾患C": {202601: 0.0},
+        }
+
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+
+        assert fallback is True
+        # 絶対値降順: |A|=100 > |B|=20 > |C|=0
+        assert [d for d, _ in top] == ["疾患A", "疾患B", "疾患C"]
+        # 値は符号付き
+        assert top[0][1] == -100.0
+        assert top[1][1] == -20.0
+        assert top[2][1] == 0.0
+
+    def test_zero_only_data_returns_fallback(self):
+        """全疾患の値が 0 のみのとき、フォールバック経由で 0 値が返る"""
+        deviation_rates = {"疾患A": {202501: 0.0}}
+
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+
+        assert fallback is True
+        assert top == [("疾患A", 0.0)]
+
+    def test_disease_with_no_values_excluded(self):
+        """値が一つもない疾患は選定対象外"""
+        deviation_rates = {
+            "疾患A": {},
+            "疾患B": {202501: 50.0},
+        }
+
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+
+        assert fallback is False
+        assert [d for d, _ in top] == ["疾患B"]
+
+    def test_none_values_skipped(self):
+        """None 値は除外し、有効値のみで判定する"""
+        deviation_rates = {
+            "疾患A": {202501: None, 202502: 25.0},
+            "疾患B": {202501: None, 202502: None},  # 有効値なし → 除外
+        }
+
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+
+        assert fallback is False
+        assert [d for d, _ in top] == ["疾患A"]
+
+    def test_empty_input(self):
+        """空入力は空リスト + fallback=True を返す (空フィルタの後は常にフォールバック判定)"""
+        top, fallback = select_top_deviation_diseases({}, top_n=5)
+
+        assert top == []
+        assert fallback is True
+
+    def test_fallback_does_not_activate_when_positive_deviations_exist(self):
+        """正乖離が一つでも存在すればフォールバックは発動しない (正負混在ケース)
+
+        期間内: [+30, -50] → 絶対値最大は -50 だが、+30 が存在するため
+        通常パス (primary_scores) が発動し、fallback_used=False が返る。
+        通常パスのスコアは max(positive_values) = 30.0。
+        """
+        deviation_rates = {
+            "疾患A": {202501: 30.0, 202502: -50.0},
+        }
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+        assert fallback is False
+        assert top[0][1] == 30.0
+
+    def test_fallback_with_mixed_negative_magnitudes(self):
+        """フォールバックで複数の負乖離疾患を絶対値順に並べ、符号付きで返す"""
+        deviation_rates = {
+            "疾患A": {202501: -5.0, 202502: -3.0},
+            "疾患B": {202501: -50.0},
+        }
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+        assert fallback is True
+        assert top[0] == ("疾患B", -50.0)
+        assert top[1] == ("疾患A", -5.0)
 
 
 class TestParseSentinelWeeklyGender:
