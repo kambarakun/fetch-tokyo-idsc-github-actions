@@ -620,7 +620,8 @@ def select_top_deviation_diseases(
         代表乖離率値は符号付き:
           - 通常パス: 期間内の最大正乖離率 (常に正)
           - フォールバック: 期間内で絶対値が最大の乖離率 (負になりうる)
-        fallback_used が True のとき、正乖離が一つも存在せず絶対値で選定したことを示す
+        fallback_used が True のとき、正乖離が一つも存在せず絶対値で選定したことを示す。
+        入力 deviation_rates が空、または全疾患が None のみの場合は ([], True) を返す。
     """
     primary_scores: dict[str, float] = {}
     fallback_scores: dict[str, float] = {}
@@ -631,6 +632,7 @@ def select_top_deviation_diseases(
             continue
         # 絶対値最大の値を符号を保ったまま記録 (= 期間内で最も極端な乖離)
         fallback_scores[disease] = max(non_null_values, key=abs)
+        # ちょうど baseline (v == 0) はフォールバック対象 ("正乖離なし" 扱い)
         positive_values = [v for v in non_null_values if v > 0]
         if positive_values:
             primary_scores[disease] = max(positive_values)

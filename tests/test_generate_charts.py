@@ -337,16 +337,19 @@ class TestSelectTopDeviationDiseases:
         assert top == []
         assert fallback is True
 
-    def test_fallback_preserves_sign_for_max_abs(self):
-        """フォールバック時、絶対値最大の値は符号を保つ (正負混在で常に負方向の最大値が返るわけではない)"""
-        # 期間内: [+30, -50] → 絶対値最大は -50 (符号付きで返る)
-        # ただし +30 が存在するため通常パス (primary_scores) が発動し fallback にはならない
+    def test_fallback_does_not_activate_when_positive_deviations_exist(self):
+        """正乖離が一つでも存在すればフォールバックは発動しない (正負混在ケース)
+
+        期間内: [+30, -50] → 絶対値最大は -50 だが、+30 が存在するため
+        通常パス (primary_scores) が発動し、fallback_used=False が返る。
+        通常パスのスコアは max(positive_values) = 30.0。
+        """
         deviation_rates = {
             "疾患A": {202501: 30.0, 202502: -50.0},
         }
         top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
-        assert fallback is False  # 正乖離があるので通常パス
-        assert top[0][1] == 30.0  # 通常パスは max(positive_values)
+        assert fallback is False
+        assert top[0][1] == 30.0
 
     def test_fallback_with_mixed_negative_magnitudes(self):
         """フォールバックで複数の負乖離疾患を絶対値順に並べ、符号付きで返す"""
