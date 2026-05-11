@@ -2,7 +2,7 @@
 
 ## 設計方針
 
-1. **生データの保持**: Shift_JIS原本は必ず保持（再処理可能性）
+1. **生データの保持**: Shift_JIS原本は必ず保持(再処理可能性)
 2. **段階的処理**: raw → utf8 → normalized の3段階
 3. **用途別分離**: 分析用・アーカイブ用で分ける
 4. **メタデータ管理**: 各段階でメタデータを保持
@@ -11,38 +11,38 @@
 
 ```
 data/
-├── raw/                          # 生データ（Shift_JIS、GitHub管理対象）
-│   ├── .metadata/                # メタデータ（ハッシュインデックス等）
+├── raw/                          # 生データ(Shift_JIS、GitHub管理対象)
+│   ├── .metadata/                # メタデータ(ハッシュインデックス等)
 │   │   ├── hash_index.json
 │   │   └── *.json
-│   └── *.csv                     # 元データ（複雑な構造のまま）
+│   └── *.csv                     # 元データ(複雑な構造のまま)
 │
-├── processed/                    # 処理済み（UTF-8、フラット配置）
+├── processed/                    # 処理済み(UTF-8、フラット配置)
 │   ├── .metadata/                # 処理済みファイルのメタデータ
 │   │   └── normalized_*.json     # 各ファイルの個別メタデータ
 │   │
 │   # 全数報告
 │   ├── notifiable_weekly_normalized_YYYY_WW.csv
 │   │
-│   # 定点監視（性別分割）
+│   # 定点監視(性別分割)
 │   ├── sentinel_weekly_age_normalized_male_YYYY_WW.csv
 │   ├── sentinel_weekly_age_normalized_female_YYYY_WW.csv
 │   ├── sentinel_weekly_age_normalized_total_YYYY_WW.csv
 │   │
-│   # 定点監視（分割なし）
+│   # 定点監視(分割なし)
 │   └── sentinel_weekly_gender_normalized_YYYY_WW.csv
 │
-├── backups/                      # バックアップ（.gitignore対象）
+├── backups/                      # バックアップ(.gitignore対象)
 └── logs/                         # 処理ログ
 ```
 
 **設計方針:**
 
-- **MECE**: `raw/`（Shift_JIS原本）と `processed/`（UTF-8正規化済み）で明確に分離
+- **MECE**: `raw/`(Shift_JIS原本)と `processed/`(UTF-8正規化済み)で明確に分離
 - **超シンプル**: トップレベルは `raw/` と `processed/` の2つのみ
 - **フラット**: 処理済みファイルは全て `processed/` 直下にフラット配置
 - **ファイル名で分類**: ディレクトリ階層ではなくファイル名で種類を識別
-- **中間ファイルなし**: UTF-8変換のみの中間ファイルは作らない（メモリ上で直接処理）
+- **中間ファイルなし**: UTF-8変換のみの中間ファイルは作らない(メモリ上で直接処理)
 
 ## データフロー
 
@@ -163,7 +163,7 @@ flowchart TD
 # バックアップは除外
 data/backups/
 
-# 処理済みデータは除外（再生成可能）
+# 処理済みデータは除外(再生成可能)
 data/utf8/
 data/normalized/
 data/processed/
@@ -203,16 +203,16 @@ uv run python scripts/normalize_data.py --all --dry-run
 
 ## データ容量の見積もり
 
-| ディレクトリ     | 容量見積もり | GitHub管理 | 説明                  |
-| ---------------- | ------------ | ---------- | --------------------- |
-| data/raw/        | 50-100MB     | ✅ Yes     | Shift_JIS原本         |
-| data/utf8/       | 50-100MB     | ❌ No      | UTF-8変換（再生成可） |
-| data/normalized/ | 100-200MB    | ❌ No      | 正規化版（再生成可）  |
-| data/backups/    | 可変         | ❌ No      | ローカルバックアップ  |
+| ディレクトリ     | 容量見積もり | GitHub管理 | 説明                 |
+| ---------------- | ------------ | ---------- | -------------------- |
+| data/raw/        | 50-100MB     | ✅ Yes     | Shift_JIS原本        |
+| data/utf8/       | 50-100MB     | ❌ No      | UTF-8変換(再生成可)  |
+| data/normalized/ | 100-200MB    | ❌ No      | 正規化版(再生成可)   |
+| data/backups/    | 可変         | ❌ No      | ローカルバックアップ |
 
 ## 運用フロー
 
-### 定期データ取得時（GitHub Actions）
+### 定期データ取得時(GitHub Actions)
 
 ```mermaid
 flowchart TD
@@ -235,12 +235,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     Clone[リポジトリクローン] --> CheckData{data/processed/<br/>が存在?}
-    CheckData -->|No| ProcessLocal[データ処理<br/>uv run python scripts/process_data.py --all]
+    CheckData -->|No| ProcessLocal[データ処理<br/>uv run process-data --all]
     CheckData -->|Yes| Analysis[分析・開発開始]
     ProcessLocal --> Analysis
 
     Analysis --> UpdateRaw{data/raw/<br/>を更新?}
-    UpdateRaw -->|Yes| Reprocess[再処理<br/>uv run python scripts/process_data.py --all]
+    UpdateRaw -->|Yes| Reprocess[再処理<br/>uv run process-data --all]
     UpdateRaw -->|No| Continue[開発継続]
     Reprocess --> Continue
 ```

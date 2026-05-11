@@ -68,7 +68,7 @@ pyproject.toml              # プロジェクト設定とパッケージ定義
 uv.lock                     # 依存関係のロックファイル
 ```
 
-> 注: `scripts/fetch_data.py` など互換シム(issue #312 対象7ファイル)は `2026-03-15` 廃止予定です。実行は `uv run <command>` を使用してください。
+> 注: 旧 `scripts/fetch_data.py` など互換シム(issue #312 対象7ファイル)は2026年Q2に削除済です。実行は `uv run <command>` を使用してください (`fetch-data` / `process-data` / `validate-data` / `verify-metadata` / `migrate-metadata` / `check-data-status` / `cleanup-all-zero-data`)。
 
 ==============================================================================
 
