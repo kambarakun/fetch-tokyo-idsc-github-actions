@@ -596,7 +596,7 @@ def calculate_deviation_rate(
 
 
 def select_top_deviation_diseases(
-    deviation_rates: dict[str, dict[int, float]], top_n: int = 5
+    deviation_rates: dict[str, dict[int, float | None]], top_n: int = 5
 ) -> tuple[list[tuple[str, float]], bool]:
     """乖離率グラフ用のトップN疾患を選定 (CDC流: 期間全体での最大正乖離)
 
@@ -607,35 +607,40 @@ def select_top_deviation_diseases(
     選定ロジック:
     1. 期間内のいずれかで baseline を超えた疾患があれば、その最大正乖離値で
        降順ソートしてトップN件を選ぶ (流行検知の本来の意図を維持)
-    2. 期間中ずっと baseline 以下の場合は、絶対値の最大乖離で降順ソートして
-       トップN件を選ぶ (空グラフ回避のフォールバック)
+    2. 期間中ずっと baseline 以下の場合は、絶対値最大の乖離率(符号付き)で
+       降順ソートしてトップN件を選ぶ (空グラフ回避のフォールバック)
 
     Args:
-        deviation_rates: 疾患名 -> {期間番号: 乖離率(%)}
+        deviation_rates: 疾患名 -> {期間番号: 乖離率(%) または None}
+            None は乖離率が計算できなかった期間を表し、選定から除外される
         top_n: 表示する疾患数
 
     Returns:
         ([(疾患名, 代表乖離率値), ...], fallback_used)
+        代表乖離率値は符号付き:
+          - 通常パス: 期間内の最大正乖離率 (常に正)
+          - フォールバック: 期間内で絶対値が最大の乖離率 (負になりうる)
         fallback_used が True のとき、正乖離が一つも存在せず絶対値で選定したことを示す
     """
-    period_max_positive: dict[str, float] = {}
-    period_max_abs: dict[str, float] = {}
+    primary_scores: dict[str, float] = {}
+    fallback_scores: dict[str, float] = {}
 
     for disease, periods in deviation_rates.items():
         non_null_values = [v for v in periods.values() if v is not None]
         if not non_null_values:
             continue
-        period_max_abs[disease] = max(abs(v) for v in non_null_values)
+        # 絶対値最大の値を符号を保ったまま記録 (= 期間内で最も極端な乖離)
+        fallback_scores[disease] = max(non_null_values, key=abs)
         positive_values = [v for v in non_null_values if v > 0]
         if positive_values:
-            period_max_positive[disease] = max(positive_values)
+            primary_scores[disease] = max(positive_values)
 
-    if period_max_positive:
-        ranked = sorted(period_max_positive.items(), key=lambda x: x[1], reverse=True)
+    if primary_scores:
+        ranked = sorted(primary_scores.items(), key=lambda x: x[1], reverse=True)
         return ranked[:top_n], False
 
-    ranked_abs = sorted(period_max_abs.items(), key=lambda x: x[1], reverse=True)
-    return ranked_abs[:top_n], True
+    ranked_fallback = sorted(fallback_scores.items(), key=lambda x: abs(x[1]), reverse=True)
+    return ranked_fallback[:top_n], True
 
 
 def _format_period_label(min_period: int, max_period: int, period_type: str) -> str:
@@ -942,9 +947,9 @@ def generate_deviation_chart(
 
     # データソースと注釈 (下側の確保したスペースに配置)
     if fallback_used:
-        note_text = "※ 期間中ベースラインを超える疾患なし — 参考として乖離絶対値の大きい疾患を最大5つ表示"
+        note_text = f"※ 期間中ベースラインを超える疾患なし — 参考として乖離絶対値の大きい疾患を最大{top_n}つ表示"
     else:
-        note_text = "※ 期間中の最大正乖離(流行兆候)が大きい疾患を最大5つ表示"
+        note_text = f"※ 期間中の最大正乖離(流行兆候)が大きい疾患を最大{top_n}つ表示"
     footer_text = f"{note_text}\n{data_source}"
     if JAPANESE_FONT:
         # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)

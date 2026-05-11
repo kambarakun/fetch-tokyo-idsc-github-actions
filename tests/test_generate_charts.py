@@ -277,7 +277,10 @@ class TestSelectTopDeviationDiseases:
         assert [d for d, _ in top] == ["疾患10", "疾患9", "疾患8"]
 
     def test_fallback_when_all_below_baseline(self):
-        """期間中ずっと baseline 以下のとき、絶対値TopNにフォールバック"""
+        """期間中ずっと baseline 以下のとき、絶対値TopNにフォールバック
+
+        ソート順は絶対値降順だが、戻り値は符号を保つ。
+        """
         deviation_rates = {
             "疾患A": {202601: -100.0, 202602: -50.0},
             "疾患B": {202601: -10.0, 202602: -20.0},
@@ -287,9 +290,12 @@ class TestSelectTopDeviationDiseases:
         top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
 
         assert fallback is True
-        # 絶対値降順: A(100) > B(20) > C(0)
+        # 絶対値降順: |A|=100 > |B|=20 > |C|=0
         assert [d for d, _ in top] == ["疾患A", "疾患B", "疾患C"]
-        assert top[0][1] == 100.0
+        # 値は符号付き
+        assert top[0][1] == -100.0
+        assert top[1][1] == -20.0
+        assert top[2][1] == 0.0
 
     def test_zero_only_data_returns_fallback(self):
         """全疾患の値が 0 のみのとき、フォールバック経由で 0 値が返る"""
@@ -330,6 +336,28 @@ class TestSelectTopDeviationDiseases:
 
         assert top == []
         assert fallback is True
+
+    def test_fallback_preserves_sign_for_max_abs(self):
+        """フォールバック時、絶対値最大の値は符号を保つ (正負混在で常に負方向の最大値が返るわけではない)"""
+        # 期間内: [+30, -50] → 絶対値最大は -50 (符号付きで返る)
+        # ただし +30 が存在するため通常パス (primary_scores) が発動し fallback にはならない
+        deviation_rates = {
+            "疾患A": {202501: 30.0, 202502: -50.0},
+        }
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+        assert fallback is False  # 正乖離があるので通常パス
+        assert top[0][1] == 30.0  # 通常パスは max(positive_values)
+
+    def test_fallback_with_mixed_negative_magnitudes(self):
+        """フォールバックで複数の負乖離疾患を絶対値順に並べ、符号付きで返す"""
+        deviation_rates = {
+            "疾患A": {202501: -5.0, 202502: -3.0},
+            "疾患B": {202501: -50.0},
+        }
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=5)
+        assert fallback is True
+        assert top[0] == ("疾患B", -50.0)
+        assert top[1] == ("疾患A", -5.0)
 
 
 class TestParseSentinelWeeklyGender:
