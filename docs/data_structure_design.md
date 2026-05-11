@@ -216,9 +216,9 @@ uv run python scripts/normalize_data.py --all --dry-run
 
 ```mermaid
 flowchart TD
-    Schedule[スケジュール実行<br/>毎週月曜 19:00 JST] --> Fetch[データ取得<br/>fetch_data.py]
+    Schedule[スケジュール実行<br/>毎週月曜 19:00 JST] --> Fetch[データ取得<br/>uv run fetch-data]
     Fetch --> SaveRaw[data/raw/に保存<br/>Shift_JIS]
-    SaveRaw --> Process[データ処理<br/>process_data.py]
+    SaveRaw --> Process[データ処理<br/>uv run process-data]
     Process --> ConvertUTF8[UTF-8変換]
     ConvertUTF8 --> Normalize[正規化・分割]
     Normalize --> SaveProcessed[data/processed/に保存<br/>UTF-8]

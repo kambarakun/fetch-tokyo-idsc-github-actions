@@ -67,6 +67,10 @@ def _build_patterns() -> tuple[re.Pattern[str], ...]:
                 # `from scripts.X import` / `import scripts.X`
                 re.compile(rf"\bfrom\s+scripts\.{name}\s+import\b"),
                 re.compile(rf"\bimport\s+scripts\.{name}\b"),
+                # docs/コード内のbare reference (例: mermaid label `fetch_data.py`)。
+                # `/` または単語文字に前置されないトークンのみマッチさせることで
+                # `src/cli/X.py` や `scripts/X.py` (path-bare、別パターンで検出) を除外
+                re.compile(rf"(?<![\w/]){name}\.py\b"),
             ]
         )
     return tuple(patterns)

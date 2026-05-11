@@ -79,8 +79,8 @@ uv.lock                     # 依存関係のロックファイル
 ```mermaid
 flowchart TD
     Start[開始] --> CheckRaw{data/raw/<br/>に生データあり?}
-    CheckRaw -->|No| FetchData[データ取得<br/>fetch_data.py]
-    CheckRaw -->|Yes| ProcessData[データ処理<br/>process_data.py]
+    CheckRaw -->|No| FetchData[データ取得<br/>uv run fetch-data]
+    CheckRaw -->|Yes| ProcessData[データ処理<br/>uv run process-data]
     FetchData --> ProcessData
 
     ProcessData --> ReadFile[Shift_JISファイル読み込み]

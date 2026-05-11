@@ -71,6 +71,23 @@ class TestPatterns:
         # `\b` で fetch_data の直後に _v2 が続くと境界がないため非マッチ
         assert not any(p.search(text) for p in PATTERNS)
 
+    def test_patterns_match_bare_filename_in_docs(self):
+        """docs内のbare reference (例: mermaid label `fetch_data.py`) をマッチ"""
+        # 削除済みファイルがdocsで言及されているケース
+        text = "Schedule[スケジュール実行] --> Fetch[データ取得<br/>fetch_data.py]"
+        assert any(p.search(text) for p in PATTERNS)
+
+    def test_bare_pattern_does_not_match_new_path(self):
+        """新CLI実装パス `src/cli/fetch_data.py` はbare patternで誤検出しない"""
+        text = "src/cli/fetch_data.py # データ取得メインスクリプト"
+        # `/` に前置されたパスは除外
+        assert not any(p.search(text) for p in PATTERNS)
+
+    def test_bare_pattern_does_not_match_underscore_prefix(self):
+        """単語文字に前置された名称 (例: my_fetch_data.py) は誤検出しない"""
+        text = "ファイル名: my_fetch_data.py"
+        assert not any(p.search(text) for p in PATTERNS)
+
 
 class TestCheckFile:
     """check_file関数のテスト"""

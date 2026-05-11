@@ -1,4 +1,4 @@
-"""verify_metadata.py のテストモジュール."""
+"""src/cli/verify_metadata.py のテストモジュール."""
 
 import json
 import tempfile
