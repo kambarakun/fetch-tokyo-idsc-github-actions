@@ -18,6 +18,7 @@ import csv
 import hashlib
 import time
 from collections import defaultdict
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
 
@@ -596,7 +597,7 @@ def calculate_deviation_rate(
 
 
 def select_top_deviation_diseases(
-    deviation_rates: dict[str, dict[int, float | None]], top_n: int = 5
+    deviation_rates: Mapping[str, Mapping[int, float | None]], top_n: int = 5
 ) -> tuple[list[tuple[str, float]], bool]:
     """乖離率グラフ用のトップN疾患を選定 (CDC流: 期間全体での最大正乖離)
 
@@ -612,7 +613,9 @@ def select_top_deviation_diseases(
 
     Args:
         deviation_rates: 疾患名 -> {期間番号: 乖離率(%) または None}
-            None は乖離率が計算できなかった期間を表し、選定から除外される
+            None は乖離率が計算できなかった期間を表し、選定から除外される。
+            型は Mapping (共変) で受けるため、calculate_deviation_rate() の
+            戻り値 dict[str, dict[int, float]] (None を含まない) もそのまま渡せる。
         top_n: 表示する疾患数
 
     Returns:
