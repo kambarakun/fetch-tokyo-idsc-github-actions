@@ -108,11 +108,26 @@ class TestCheckFile:
         assert violations == []
 
     def test_dedup_same_line_multiple_pattern_match(self, tmp_path: Path) -> None:
-        """同一行で複数パターン一致しても1件のみ報告"""
+        """同一行で複数パターン一致しても1件のみ報告
+
+        この行は `import scripts.fetch_data` (importパターン) と
+        bare `fetch_data.py` (bareパターン) の2パターンに同時マッチする。
+        内側ループの `break` による dedup を実際に発火させる。
+        """
         f = tmp_path / "doc.md"
-        # `python scripts/X.py` と `uv run python scripts/X.py` の両パターンが一致する行
-        f.write_text("uv run python scripts/process_data.py\n", encoding="utf-8")
+        f.write_text(
+            "import scripts.fetch_data ; alias of fetch_data.py here\n",
+            encoding="utf-8",
+        )
+        # 事前検証: テキストが2パターン以上にマッチすることを確認
+        from check_deprecated_cli_usage import PATTERNS
+
+        text = "import scripts.fetch_data ; alias of fetch_data.py here"
+        matched = [p for p in PATTERNS if p.search(text)]
+        assert len(matched) >= 2, f"テスト前提が壊れている: {len(matched)}パターンしか一致しない"
+
         violations = check_file(f)
+        # 2パターン以上に一致するが報告は1件のみ (dedup動作の確認)
         assert len(violations) == 1, f"重複報告された: {violations}"
 
     def test_inline_allow_directive_skips_line(self, tmp_path: Path) -> None:

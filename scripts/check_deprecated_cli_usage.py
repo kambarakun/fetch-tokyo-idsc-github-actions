@@ -96,15 +96,12 @@ def _iter_scan_files() -> list[Path]:
 def check_file(path: Path) -> list[Violation]:
     """Return deprecated usage hits from a file.
 
-    同一行で複数パターンが一致しても1件のみ報告する (重複排除)。
+    同一行で複数パターンが一致しても1件のみ報告する (内側ループの `break` でdedup)。
     """
     text = path.read_text(encoding="utf-8")
     violations: list[Violation] = []
-    reported_lines: set[int] = set()
     for line_no, line in enumerate(text.splitlines(), start=1):
         if "deprecated-usage: allow" in line:
-            continue
-        if line_no in reported_lines:
             continue
         for pattern in PATTERNS:
             if pattern.search(line):
@@ -116,7 +113,6 @@ def check_file(path: Path) -> list[Violation]:
                         pattern=pattern.pattern,
                     )
                 )
-                reported_lines.add(line_no)
                 break
     return violations
 
