@@ -7,7 +7,7 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "requests>=2.33.1",
     "PyYAML>=6.0.1",
-    "matplotlib>=3.10.8",
+    "matplotlib>=3.10.9",
     "seaborn>=0.13.2",
 ]
 
