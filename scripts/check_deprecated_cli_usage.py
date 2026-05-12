@@ -26,6 +26,11 @@ SCAN_GLOBS = (
     "scripts/**/*.py",
     "docs/**/*.md",
 )
+# 意図的に scope 外:
+# - .kiro/specs/**/*.md: 設計凍結時点を記録する spec 文書群。当初設計時の
+#   `scripts/X.py` 命名規約を歴史的記録として保持しており、書き換えると
+#   過去の設計判断のトレーサビリティが失われるため scan 対象に含めない。
+#   spec 自体を更新したい場合は、別途 spec maintenance PR で実施する。
 
 EXCLUDED_PATHS = {
     Path("scripts/check_deprecated_cli_usage.py"),
@@ -68,8 +73,11 @@ def _build_patterns() -> tuple[re.Pattern[str], ...]:
                 re.compile(rf"\bfrom\s+scripts\.{name}\s+import\b"),
                 re.compile(rf"\bimport\s+scripts\.{name}\b"),
                 # docs/コード内のbare reference (例: mermaid label `fetch_data.py`)。
-                # `/` または単語文字に前置されないトークンのみマッチさせることで
-                # `src/cli/X.py` や `scripts/X.py` (path-bare、別パターンで検出) を除外
+                # `/` または単語文字に前置されないトークンのみマッチさせることで、
+                # `src/cli/X.py` (新パス) や `something_X.py` (substring衝突) を誤検出しない。
+                # path形式 `scripts/X.py` 自体は本パターンの lookbehind により除外されるが、
+                # `python scripts/X.py` / `import scripts.X` 等の実行・import形態は
+                # 上記の専用パターン群で検出済。
                 re.compile(rf"(?<![\w/]){name}\.py\b"),
             ]
         )
