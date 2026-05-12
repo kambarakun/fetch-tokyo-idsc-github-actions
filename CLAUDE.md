@@ -414,7 +414,8 @@ source .venv/bin/activate
 brew install actionlint
 
 # Linux / WSL でのインストール (公式インストーラスクリプト経由)
-bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+# URL のブランチを `main` ではなく version tag に固定する (供給チェーン保護)
+bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash)
 # ダウンロード先は ./actionlint (PATHに追加するか直接実行)
 
 # Go経由 (どのOSでも)
