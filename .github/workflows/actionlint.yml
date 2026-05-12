@@ -40,3 +40,9 @@ jobs:
           level: error
           fail_on_error: true
           filter_mode: nofilter
+          # shellcheck 統合を無効化。
+          # 理由: reviewdog が shellcheck の `style` severity を自身の `error` に
+          # マップする挙動があり、本来 CI 失敗対象外の SC2129/SC2126 等で
+          # 過剰に CI が落ちる。 pre-commit でも `-shellcheck=` で統一。
+          # shellcheck 違反 (info/style) は別 issue で段階的に修正・組み込み予定。
+          actionlint_flags: -shellcheck=

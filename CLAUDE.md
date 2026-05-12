@@ -405,7 +405,7 @@ source .venv/bin/activate
 
 #### ワークフロー静的検証 (actionlint) (issue #308)
 
-`.github/workflows/*.yml` は actionlint で静的検証されます。CI は **error レベルの違反のみ失敗** とし、info/style はノイズ削減のためフィルタ。
+`.github/workflows/*.yml` は actionlint で静的検証されます。CI とpre-commitの両方で **actionlint本体のチェック** (workflow構文・型・非推奨action検出 等) のみを実行し、shellcheck 統合は現時点では無効化しています。
 
 **ローカル実行**:
 
@@ -413,21 +413,23 @@ source .venv/bin/activate
 # macOSでのインストール
 brew install actionlint
 
-# 実行
+# 実行 (actionlint本体のみ、shellcheck無効)
+actionlint -shellcheck= .github/workflows/*.yml
+
+# shellcheck含めて違反を確認 (情報収集目的、CIには影響しない)
 actionlint .github/workflows/*.yml
 
-# pre-commit経由 (推奨)
+# pre-commit経由 (推奨、shellcheck無効構成)
 uv run pre-commit run actionlint --all-files
 ```
 
 **CI 検証**:
 
-`.github/workflows/actionlint.yml` がPR時に自動実行されます。`fail_on_error: true` により error 検出で CI 失敗となります。
+`.github/workflows/actionlint.yml` がPR時 (`.github/workflows/**` 変更時のみ) に自動実行されます。`fail_on_error: true` で actionlint 違反検出時にCI失敗。
 
-**注意事項**:
+**shellcheck無効化の理由**:
 
-- shellcheck の info/style 違反 (SC2086 など) は現状 CI 失敗にしないが、修正は推奨
-- 段階的に warning レベルへ厳格化する予定 (別 issue)
+reviewdog が shellcheck の `style` severity を自身の `error` レベルにマップする挙動があり、本来 CI 失敗対象外の SC2129/SC2126 等で過剰に CI が落ちる現象を回避するため。shellcheck 違反 (info/style) は将来別 issue で段階的に修正・組み込み予定。
 
 ### 2.2 依存関係の管理
 
