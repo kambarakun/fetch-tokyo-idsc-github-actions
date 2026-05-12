@@ -403,6 +403,32 @@ source .venv/bin/activate
 - 緊急時は `git revert <commit>` でロールバック
 - 置換漏れ確認は `rg '^\\s*uses:\\s*[^.].*@v[0-9]+' .github/workflows/*.yml` を使用
 
+#### ワークフロー静的検証 (actionlint) (issue #308)
+
+`.github/workflows/*.yml` は actionlint で静的検証されます。CI は **error レベルの違反のみ失敗** とし、info/style はノイズ削減のためフィルタ。
+
+**ローカル実行**:
+
+```bash
+# macOSでのインストール
+brew install actionlint
+
+# 実行
+actionlint .github/workflows/*.yml
+
+# pre-commit経由 (推奨)
+uv run pre-commit run actionlint --all-files
+```
+
+**CI 検証**:
+
+`.github/workflows/actionlint.yml` がPR時に自動実行されます。`fail_on_error: true` により error 検出で CI 失敗となります。
+
+**注意事項**:
+
+- shellcheck の info/style 違反 (SC2086 など) は現状 CI 失敗にしないが、修正は推奨
+- 段階的に warning レベルへ厳格化する予定 (別 issue)
+
 ### 2.2 依存関係の管理
 
 ```toml

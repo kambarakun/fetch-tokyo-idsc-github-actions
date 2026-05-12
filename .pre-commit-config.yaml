@@ -96,6 +96,19 @@ repos:
         language: system
         pass_filenames: false
 
+  # GitHub Actions ワークフロー静的検証 (issue #308)
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        name: GitHub Actions ワークフロー検証 (actionlint)
+        # pre-commit では shellcheck を無効化し、actionlint 本体のチェック
+        # (workflow構文、型チェック、非推奨action検出 等) のみを対象とする。
+        # shellcheckは info/style まで出力しpre-commit時に過剰反応するため、
+        # 後続のCI workflow (actionlint.yml) で reviewdog の level:error に集約。
+        # 段階的に shellcheck も pre-commit に組み込む場合は -shellcheck フラグを外す。
+        args: ["-shellcheck="]
+
 # 設定
 default_language_version:
   python: python3.11

@@ -1,0 +1,42 @@
+name: 🔍 ワークフロー静的検証 (actionlint)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/actionlint.yaml"
+  workflow_dispatch:
+
+# 最小権限原則 (issue #299):
+# - contents: read (checkout)
+# - pull-requests: write (reviewdog の PR コメント annotation)
+# - checks: write (check run 作成)
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  actionlint:
+    name: actionlint + shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Run actionlint
+        # SHA pinned per CLAUDE.md sec.2.1 (Dependabot github-actions 運用)
+        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          # error レベルのみ CI 失敗とする (info/style はノイズ削減のためフィルタ)。
+          # 段階的に warning/style へ厳格化する場合は本フラグを段階的に変更する。
+          level: error
+          fail_on_error: true
+          filter_mode: nofilter
