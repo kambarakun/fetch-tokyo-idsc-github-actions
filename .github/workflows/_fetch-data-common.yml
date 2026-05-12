@@ -212,9 +212,15 @@ jobs:
         if: inputs.validate_before
         run: |
           echo "データ取得前の既存データ検証..."
-          # find で安全に csv ファイル数をカウント (ls -A よりノイズに強い)
-          CSV_COUNT=$(find data/raw -maxdepth 1 -name '*.csv' -type f 2>/dev/null | wc -l)
-          if [ -d "data/raw" ] && [ "$CSV_COUNT" -gt 0 ]; then
+          # data/raw ディレクトリの存在を最初に確認 (find は非存在 dir で exit 1)
+          # GitHub Actions の `run:` は bash -eo pipefail で動作するため、
+          # `find /missing | wc -l` は pipefail で step 全体を abort してしまう
+          CSV_COUNT=0
+          if [ -d "data/raw" ]; then
+            # find で安全に csv ファイル数をカウント (ls -A よりノイズに強い)
+            CSV_COUNT=$(find data/raw -maxdepth 1 -name '*.csv' -type f | wc -l)
+          fi
+          if [ "$CSV_COUNT" -gt 0 ]; then
             VALIDATION_REPORT_BEFORE="data/logs/validation_before_${FETCH_TIMESTAMP}.json"
             if uv run validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT_BEFORE"; then
               echo "✅ 事前データ検証成功"
