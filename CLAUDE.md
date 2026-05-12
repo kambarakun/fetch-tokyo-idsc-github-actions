@@ -410,8 +410,15 @@ source .venv/bin/activate
 **ローカル実行**:
 
 ```bash
-# macOSでのインストール
+# macOS でのインストール
 brew install actionlint
+
+# Linux / WSL でのインストール (公式インストーラスクリプト経由)
+bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+# ダウンロード先は ./actionlint (PATHに追加するか直接実行)
+
+# Go経由 (どのOSでも)
+go install github.com/rhysd/actionlint/cmd/actionlint@latest
 
 # 実行 (actionlint本体のみ、shellcheck無効)
 actionlint -shellcheck= .github/workflows/*.yml
