@@ -99,7 +99,8 @@ repos:
   # GitHub Actions ワークフロー静的検証 (issue #308)
   - repo: https://github.com/rhysd/actionlint
     # SHA pinned (CLAUDE.md sec.2.1 SHA pin方針の pre-commit `rev:` への拡張適用)。
-    # `pre-commit autoupdate` も SHA を直接更新できるため運用上の支障なし。
+    # Note: `pre-commit autoupdate` はデフォルトでタグ参照に戻すため、SHA を
+    # 維持したい場合は `pre-commit autoupdate --freeze` を使用する必要がある。
     rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
     hooks:
       - id: actionlint
