@@ -1,0 +1,56 @@
+name: 🔍 ワークフロー静的検証 (actionlint)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+# 最小権限原則 (issue #299):
+# - contents: read (checkout)
+# - checks: write (reviewdog の github-check reporter による Check Run 作成)
+permissions:
+  contents: read
+  checks: write
+
+# 同一PR/branchへの連続pushで実行が積み上がるのを防ぐ
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Run actionlint
+        # SHA pinned per CLAUDE.md sec.2.1 (Dependabot github-actions 運用)
+        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # github-check: push/PR/dispatch すべてのトリガで動作する Check Run 形式。
+          # github-pr-review は PR コンテキスト前提のため push 実行時に annotation が
+          # 落ちる課題があり、Check Run に統一して全イベント対応する。
+          reporter: github-check
+          # error レベルのみ CI 失敗とする (info/style はノイズ削減のためフィルタ)。
+          # 段階的に warning/style へ厳格化する場合は本フラグを段階的に変更する。
+          level: error
+          fail_on_error: true
+          # file: 変更ファイル全体を対象 (diff行外も含む)。
+          # actionlint は workflow ファイル単位の静的検証なので、PRの変更ファイル
+          # に絞り込む `file` モードが最適。nofilter は無関係な既存違反まで全件
+          # 報告するため過剰。added (新規追加行のみ) は既存違反を見落とすため不適。
+          filter_mode: file
+          # shellcheck 統合を無効化。
+          # 理由: reviewdog が shellcheck の `style` severity を自身の `error` に
+          # マップする挙動があり、本来 CI 失敗対象外の SC2129/SC2126 等で
+          # 過剰に CI が落ちる。 pre-commit でも `-shellcheck=` で統一。
+          # shellcheck 違反 (info/style) は別 issue で段階的に修正・組み込み予定。
+          actionlint_flags: -shellcheck=

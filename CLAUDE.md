@@ -403,6 +403,43 @@ source .venv/bin/activate
 - 緊急時は `git revert <commit>` でロールバック
 - 置換漏れ確認は `rg '^\\s*uses:\\s*[^.].*@v[0-9]+' .github/workflows/*.yml` を使用
 
+#### ワークフロー静的検証 (actionlint) (issue #308)
+
+`.github/workflows/*.yml` は actionlint で静的検証されます。CI とpre-commitの両方で **actionlint本体のチェック** (workflow構文・型・非推奨action検出 等) のみを実行し、shellcheck 統合は現時点では無効化しています。
+
+**ローカル実行**:
+
+```bash
+# macOS でのインストール
+brew install actionlint
+
+# Linux / WSL でのインストール (公式インストーラスクリプト経由)
+# - URL のブランチを `main` ではなく version tag に固定する (供給チェーン保護)
+# - curl は `-fsSL` を付け、HTTPエラー時にレスポンスボディがbash実行されないようにする
+bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash)
+# ダウンロード先は ./actionlint (PATHに追加するか直接実行)
+
+# Go経由 (どのOSでも) — pre-commitのrev と同じバージョンに固定し再現性を確保
+go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+# 実行 (actionlint本体のみ、shellcheck無効)
+actionlint -shellcheck= .github/workflows/*.yml
+
+# shellcheck含めて違反を確認 (情報収集目的、CIには影響しない)
+actionlint .github/workflows/*.yml
+
+# pre-commit経由 (推奨、shellcheck無効構成)
+uv run pre-commit run actionlint --all-files
+```
+
+**CI 検証**:
+
+`.github/workflows/actionlint.yml` がPR時 (`.github/workflows/**` 変更時のみ) に自動実行されます。`fail_on_error: true` で actionlint 違反検出時にCI失敗。
+
+**shellcheck無効化の理由**:
+
+reviewdog が shellcheck の `style` severity を自身の `error` レベルにマップする挙動があり、本来 CI 失敗対象外の SC2129/SC2126 等で過剰に CI が落ちる現象を回避するため。shellcheck 違反 (info/style) は将来別 issue で段階的に修正・組み込み予定。
+
 ### 2.2 依存関係の管理
 
 ```toml

@@ -136,7 +136,7 @@ jobs:
             PROCESS_CMD+=(--dry-run)
           fi
 
-          echo "Executing: ${PROCESS_CMD[@]}"
+          echo "Executing: ${PROCESS_CMD[*]}"
 
           # メインスクリプトの実行
           if "${PROCESS_CMD[@]}" 2>&1 | tee data/logs/console_${PROCESS_TIMESTAMP}.log; then

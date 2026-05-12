@@ -280,7 +280,7 @@ jobs:
 
           FETCH_CMD+=(--log-file "data/logs/${LOG_PREFIX}_${FETCH_TIMESTAMP}.log")
 
-          echo "Executing: ${FETCH_CMD[@]}"
+          echo "Executing: ${FETCH_CMD[*]}"
 
           # メインスクリプトの実行
           # NOTE:
