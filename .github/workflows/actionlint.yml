@@ -48,9 +48,8 @@ jobs:
           # に絞り込む `file` モードが最適。nofilter は無関係な既存違反まで全件
           # 報告するため過剰。added (新規追加行のみ) は既存違反を見落とすため不適。
           filter_mode: file
-          # shellcheck 統合を無効化。
-          # 理由: reviewdog が shellcheck の `style` severity を自身の `error` に
-          # マップする挙動があり、本来 CI 失敗対象外の SC2129/SC2126 等で
-          # 過剰に CI が落ちる。 pre-commit でも `-shellcheck=` で統一。
-          # shellcheck 違反 (info/style) は別 issue で段階的に修正・組み込み予定。
-          actionlint_flags: -shellcheck=
+          # shellcheck 統合は有効。reviewdog が shellcheck の severity を独自に
+          # マップする問題があるが、本リポジトリは shellcheck の info/style 違反を
+          # 全件解消済み (chore/shellcheck-cleanup) のため CI失敗には至らない。
+          # 万一 reviewdog の severity 解釈で過剰検知が発生した場合の暫定回避策は
+          # `actionlint_flags: -shellcheck=` で shellcheck を無効化すること。

@@ -105,12 +105,9 @@ repos:
     hooks:
       - id: actionlint
         name: GitHub Actions ワークフロー検証 (actionlint)
-        # pre-commit では shellcheck を無効化し、actionlint 本体のチェック
-        # (workflow構文、型チェック、非推奨action検出 等) のみを対象とする。
-        # shellcheckは info/style まで出力しpre-commit時に過剰反応するため、
-        # 後続のCI workflow (actionlint.yml) で reviewdog の level:error に集約。
-        # 段階的に shellcheck も pre-commit に組み込む場合は -shellcheck フラグを外す。
-        args: ["-shellcheck="]
+        # shellcheck 統合も有効化済 (info/style 違反は chore/shellcheck-cleanup
+        # で全件解消)。万一 shellcheck の過剰検知でローカル開発が止まる場合は
+        # 一時的に `args: ["-shellcheck="]` を追加して回避可能。
 
 # 設定
 default_language_version:

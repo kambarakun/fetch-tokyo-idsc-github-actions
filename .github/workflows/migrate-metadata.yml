@@ -58,8 +58,10 @@ jobs:
         run: |
           # 手動実行の場合は常にtrue
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "new_version=${{ github.event.inputs.target_version }}" >> $GITHUB_OUTPUT
+            {
+              echo "changed=true"
+              echo "new_version=${{ github.event.inputs.target_version }}"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -90,11 +92,13 @@ jobs:
 
           if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
             echo "METADATA_VERSION changed from $OLD_VERSION to $NEW_VERSION"
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            {
+              echo "changed=true"
+              echo "new_version=$NEW_VERSION"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "METADATA_VERSION unchanged"
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
   migrate:
@@ -168,6 +172,7 @@ jobs:
           ")
 
               # バージョン抽出に失敗した場合はワークフローを停止
+              # shellcheck disable=SC2181  # python実行を別行で評価したいため $? を許容
               if [ $? -ne 0 ] || [ -z "$TARGET_VERSION" ]; then
                 echo "::error::METADATA_VERSION の抽出に失敗しました。metadata.py を確認してください。"
                 exit 1
@@ -176,8 +181,10 @@ jobs:
           fi
 
           # outputs として出力 (後続ステップで参照)
-          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
-          echo "target_version=$TARGET_VERSION" >> $GITHUB_OUTPUT
+          {
+            echo "dry_run=$DRY_RUN"
+            echo "target_version=$TARGET_VERSION"
+          } >> "$GITHUB_OUTPUT"
 
           echo "Parameters:"
           echo "  Dry run: $DRY_RUN"
@@ -195,7 +202,7 @@ jobs:
           # sedで "Migrated:" の後の数値を抽出する
           MIGRATED=$(grep "Migrated:" dry_run.log | sed -E 's/.*Migrated:\s*([0-9]+).*/\1/')
           MIGRATED=${MIGRATED:-0}
-          echo "migrated_count=$MIGRATED" >> $GITHUB_OUTPUT
+          echo "migrated_count=$MIGRATED" >> "$GITHUB_OUTPUT"
 
       - name: Run migration
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
@@ -215,8 +222,10 @@ jobs:
           # jq で堅牢にパース
           VERIFIED=$(echo "$STATS" | jq -r '.verified // 0')
           FAILED=$(echo "$STATS" | jq -r '.failed // 0')
-          echo "verified_count=$VERIFIED" >> $GITHUB_OUTPUT
-          echo "failed_count=$FAILED" >> $GITHUB_OUTPUT
+          {
+            echo "verified_count=$VERIFIED"
+            echo "failed_count=$FAILED"
+          } >> "$GITHUB_OUTPUT"
           echo "Verification completed: verified=$VERIFIED, failed=$FAILED"
 
       - name: Configure git
@@ -228,8 +237,10 @@ jobs:
       - name: Set environment variables
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
         run: |
-          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
-          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
+          {
+            echo "CURRENT_DATE=$(date +'%Y-%m-%d')"
+            echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')"
+          } >> "$GITHUB_ENV"
 
       - name: Create Pull Request
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
@@ -268,23 +279,25 @@ jobs:
           FAILED_COUNT="${{ steps.verify.outputs.failed_count }}"
           FAILED_COUNT="${FAILED_COUNT:-0}"
 
-          echo "## 🔀 メタデータマイグレーションサマリー" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **目標バージョン**: $TARGET_VERSION" >> $GITHUB_STEP_SUMMARY
-          echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル" >> $GITHUB_STEP_SUMMARY
-          echo "- **ドライラン**: $DRY_RUN" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 🔀 メタデータマイグレーションサマリー"
+            echo ""
+            echo "- **目標バージョン**: $TARGET_VERSION"
+            echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル"
+            echo "- **ドライラン**: $DRY_RUN"
 
-          if [ "$DRY_RUN" = "true" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "⚠️ **ドライランモード**: 変更は保存されていません。" >> $GITHUB_STEP_SUMMARY
-          elif [ "$MIGRATED_COUNT" = "0" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ すべてのメタデータファイルは既に目標バージョンです。" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "✅ マイグレーションが正常に完了しました。" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### 検証結果" >> $GITHUB_STEP_SUMMARY
-            echo "- **検証成功**: ${VERIFIED_COUNT}ファイル" >> $GITHUB_STEP_SUMMARY
-            echo "- **検証失敗**: ${FAILED_COUNT}ファイル" >> $GITHUB_STEP_SUMMARY
-          fi
+            if [ "$DRY_RUN" = "true" ]; then
+              echo ""
+              echo "⚠️ **ドライランモード**: 変更は保存されていません。"
+            elif [ "$MIGRATED_COUNT" = "0" ]; then
+              echo ""
+              echo "✅ すべてのメタデータファイルは既に目標バージョンです。"
+            else
+              echo ""
+              echo "✅ マイグレーションが正常に完了しました。"
+              echo ""
+              echo "### 検証結果"
+              echo "- **検証成功**: ${VERIFIED_COUNT}ファイル"
+              echo "- **検証失敗**: ${FAILED_COUNT}ファイル"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

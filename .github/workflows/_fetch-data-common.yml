@@ -140,13 +140,15 @@ jobs:
           CURRENT_YEAR=$(date +'%Y')
           PREVIOUS_YEAR=$((CURRENT_YEAR - 1))
 
-          echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_ENV
-          echo "CURRENT_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
-          echo "CURRENT_YEAR=$CURRENT_YEAR" >> $GITHUB_ENV
-          echo "PREVIOUS_YEAR=$PREVIOUS_YEAR" >> $GITHUB_ENV
-          echo "CURRENT_MONTH=$(date +'%m')" >> $GITHUB_ENV
-          echo "CURRENT_WEEK=$(date +'%V')" >> $GITHUB_ENV
-          echo "GITHUB_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+          {
+            echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')"
+            echo "CURRENT_DATE=$(date +'%Y-%m-%d')"
+            echo "CURRENT_YEAR=$CURRENT_YEAR"
+            echo "PREVIOUS_YEAR=$PREVIOUS_YEAR"
+            echo "CURRENT_MONTH=$(date +'%m')"
+            echo "CURRENT_WEEK=$(date +'%V')"
+            echo "GITHUB_RUN_ID=${{ github.run_id }}"
+          } >> "$GITHUB_ENV"
 
       - name: Prepare fetch parameters
         id: params
@@ -189,11 +191,13 @@ jobs:
           esac
 
           # 環境変数として設定
-          echo "START_YEAR=$START_YEAR" >> $GITHUB_ENV
-          echo "END_YEAR=$END_YEAR" >> $GITHUB_ENV
-          echo "MODE=$MODE" >> $GITHUB_ENV
-          echo "CHECK_PREVIOUS_YEAR=$CHECK_PREVIOUS_YEAR" >> $GITHUB_ENV
-          echo "DRY_RUN=$DRY_RUN" >> $GITHUB_ENV
+          {
+            echo "START_YEAR=$START_YEAR"
+            echo "END_YEAR=$END_YEAR"
+            echo "MODE=$MODE"
+            echo "CHECK_PREVIOUS_YEAR=$CHECK_PREVIOUS_YEAR"
+            echo "DRY_RUN=$DRY_RUN"
+          } >> "$GITHUB_ENV"
 
           echo "${{ inputs.workflow_display_name }} parameters:"
           echo "  Start year: $START_YEAR"
@@ -208,14 +212,22 @@ jobs:
         if: inputs.validate_before
         run: |
           echo "データ取得前の既存データ検証..."
-          if [ -d "data/raw" ] && [ "$(ls -A data/raw/*.csv 2>/dev/null | wc -l)" -gt 0 ]; then
+          # data/raw ディレクトリの存在を最初に確認 (find は非存在 dir で exit 1)
+          # GitHub Actions の `run:` は bash -eo pipefail で動作するため、
+          # `find /missing | wc -l` は pipefail で step 全体を abort してしまう
+          CSV_COUNT=0
+          if [ -d "data/raw" ]; then
+            # find で安全に csv ファイル数をカウント (ls -A よりノイズに強い)
+            CSV_COUNT=$(find data/raw -maxdepth 1 -name '*.csv' -type f | wc -l)
+          fi
+          if [ "$CSV_COUNT" -gt 0 ]; then
             VALIDATION_REPORT_BEFORE="data/logs/validation_before_${FETCH_TIMESTAMP}.json"
             if uv run validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT_BEFORE"; then
               echo "✅ 事前データ検証成功"
-              echo "VALIDATION_BEFORE_SUCCESS=true" >> $GITHUB_ENV
+              echo "VALIDATION_BEFORE_SUCCESS=true" >> "$GITHUB_ENV"
             else
               echo "❌ 事前データ検証失敗"
-              echo "VALIDATION_BEFORE_SUCCESS=false" >> $GITHUB_ENV
+              echo "VALIDATION_BEFORE_SUCCESS=false" >> "$GITHUB_ENV"
 
               # 検証レポートの内容を表示
               if [ -f "$VALIDATION_REPORT_BEFORE" ]; then
@@ -227,7 +239,7 @@ jobs:
             fi
           else
             echo "既存データなし - 検証スキップ"
-            echo "VALIDATION_BEFORE_SUCCESS=true" >> $GITHUB_ENV
+            echo "VALIDATION_BEFORE_SUCCESS=true" >> "$GITHUB_ENV"
           fi
 
       - name: Fetch epidemic data
@@ -470,10 +482,10 @@ jobs:
 
           if uv run validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT"; then
             echo "✅ データ検証成功"
-            echo "VALIDATION_SUCCESS=true" >> $GITHUB_ENV
+            echo "VALIDATION_SUCCESS=true" >> "$GITHUB_ENV"
           else
             echo "❌ データ検証失敗"
-            echo "VALIDATION_SUCCESS=false" >> $GITHUB_ENV
+            echo "VALIDATION_SUCCESS=false" >> "$GITHUB_ENV"
 
             # 検証レポートの内容を表示
             if [ -f "$VALIDATION_REPORT" ]; then
@@ -525,25 +537,25 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "No changes detected"
-            echo "HAS_CHANGES=false" >> $GITHUB_ENV
+            echo "HAS_CHANGES=false" >> "$GITHUB_ENV"
           else
             echo "Changes detected"
-            echo "HAS_CHANGES=true" >> $GITHUB_ENV
+            echo "HAS_CHANGES=true" >> "$GITHUB_ENV"
 
             # 新規ファイルと変更ファイルを分けて集計 (他のワークフローと統一)
             # POSIX準拠の空白クラス [[:space:]] と拡張正規表現 -E を使用
 
             # 新規rawファイル数 (data/raw/*.csv)
-            NEW_RAW_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            NEW_RAW_FILES=$(git diff --cached --name-status | grep -cE '^A[[:space:]]+data/raw/[^/]*\.csv$' | tr -d ' ' || echo "0")
 
             # 変更されたrawファイル数
-            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep -E '^M[[:space:]]+data/raw/[^/]*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep -cE '^M[[:space:]]+data/raw/[^/]*\.csv$' | tr -d ' ' || echo "0")
 
             # 処理済みファイル数 (data/processed/normalized_*.csv)
-            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep -E '^A[[:space:]]+data/processed/normalized_.*\.csv$' | wc -l | tr -d ' ' || echo "0")
+            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep -cE '^A[[:space:]]+data/processed/normalized_.*\.csv$' | tr -d ' ' || echo "0")
 
             # 合計CSVファイル数
-            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep '\.csv$' | wc -l | tr -d ' ' || echo "0")
+            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep -c '\.csv$' | tr -d ' ' || echo "0")
 
             # 空文字列や非数値の場合のフォールバック
             if ! [[ "$NEW_RAW_FILES" =~ ^[0-9]+$ ]]; then
@@ -564,15 +576,17 @@ jobs:
             NEW_CSV_FILES=$NEW_RAW_FILES
             MODIFIED_CSV_FILES=$MODIFIED_RAW_FILES
 
-            echo "NEW_CSV_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
-            echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
-            echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES" >> $GITHUB_ENV
-            echo "CSV_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+            {
+              echo "NEW_CSV_FILES=$NEW_CSV_FILES"
+              echo "MODIFIED_CSV_FILES=$MODIFIED_CSV_FILES"
+              echo "NEW_PROCESSED_FILES=$NEW_PROCESSED_FILES"
+              echo "CSV_FILES=$TOTAL_CSV_FILES"
 
-            # サマリー用の変数名も設定 (後方互換性)
-            echo "NEW_FILES=$NEW_CSV_FILES" >> $GITHUB_ENV
-            echo "MODIFIED_FILES=$MODIFIED_CSV_FILES" >> $GITHUB_ENV
-            echo "CHANGED_FILES=$TOTAL_CSV_FILES" >> $GITHUB_ENV
+              # サマリー用の変数名も設定 (後方互換性)
+              echo "NEW_FILES=$NEW_CSV_FILES"
+              echo "MODIFIED_FILES=$MODIFIED_CSV_FILES"
+              echo "CHANGED_FILES=$TOTAL_CSV_FILES"
+            } >> "$GITHUB_ENV"
 
             echo "📊 変更統計:"
             echo "  - 新規rawファイル: $NEW_RAW_FILES"
@@ -656,35 +670,37 @@ jobs:
       - name: Generate summary
         if: always()
         run: |
-          echo "## 📊 ${{ inputs.workflow_display_name }}サマリー" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **対象期間**: $START_YEAR - $END_YEAR" >> $GITHUB_STEP_SUMMARY
-          echo "- **現在の週**: 第${CURRENT_WEEK}週" >> $GITHUB_STEP_SUMMARY
-          echo "- **収集モード**: ${MODE}" >> $GITHUB_STEP_SUMMARY
-          echo "- **ドライラン**: ${DRY_RUN:-false}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔄 データ取得結果" >> $GITHUB_STEP_SUMMARY
-          echo "- **取得ステータス**: ${FETCH_STATUS:-unknown}" >> $GITHUB_STEP_SUMMARY
-          echo "- **終了コード**: ${FETCH_RESULT:-N/A}" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${FETCH_CONTINUED_REASON:-}" ] && [ "${FETCH_CONTINUED_REASON}" != "none" ]; then
-            echo "- **継続理由**: ${FETCH_CONTINUED_REASON}" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 📊 ${{ inputs.workflow_display_name }}サマリー"
+            echo ""
+            echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}"
+            echo "- **対象期間**: $START_YEAR - $END_YEAR"
+            echo "- **現在の週**: 第${CURRENT_WEEK}週"
+            echo "- **収集モード**: ${MODE}"
+            echo "- **ドライラン**: ${DRY_RUN:-false}"
+            echo ""
+            echo "### 🔄 データ取得結果"
+            echo "- **取得ステータス**: ${FETCH_STATUS:-unknown}"
+            echo "- **終了コード**: ${FETCH_RESULT:-N/A}"
+            if [ -n "${FETCH_CONTINUED_REASON:-}" ] && [ "${FETCH_CONTINUED_REASON}" != "none" ]; then
+              echo "- **継続理由**: ${FETCH_CONTINUED_REASON}"
+            fi
+            echo ""
 
-          if [ "$HAS_CHANGES" = "true" ]; then
-            echo "### ✅ 変更検出" >> $GITHUB_STEP_SUMMARY
-            echo "- **総変更ファイル数**: $CHANGED_FILES" >> $GITHUB_STEP_SUMMARY
-            if [ -n "$NEW_FILES" ] && [ "$NEW_FILES" -gt 0 ]; then
-              echo "- **新規ファイル**: $NEW_FILES" >> $GITHUB_STEP_SUMMARY
+            if [ "$HAS_CHANGES" = "true" ]; then
+              echo "### ✅ 変更検出"
+              echo "- **総変更ファイル数**: $CHANGED_FILES"
+              if [ -n "$NEW_FILES" ] && [ "$NEW_FILES" -gt 0 ]; then
+                echo "- **新規ファイル**: $NEW_FILES"
+              fi
+              if [ -n "$MODIFIED_FILES" ] && [ "$MODIFIED_FILES" -gt 0 ]; then
+                echo "- **更新ファイル**: $MODIFIED_FILES"
+              fi
+              if [ -n "$PR_URL" ]; then
+                echo "- **Pull Request**: $PR_URL"
+              fi
+            else
+              echo "### ℹ️ 変更なし"
+              echo "${{ inputs.workflow_display_name }}で変更は検出されませんでした。"
             fi
-            if [ -n "$MODIFIED_FILES" ] && [ "$MODIFIED_FILES" -gt 0 ]; then
-              echo "- **更新ファイル**: $MODIFIED_FILES" >> $GITHUB_STEP_SUMMARY
-            fi
-            if [ -n "$PR_URL" ]; then
-              echo "- **Pull Request**: $PR_URL" >> $GITHUB_STEP_SUMMARY
-            fi
-          else
-            echo "### ℹ️ 変更なし" >> $GITHUB_STEP_SUMMARY
-            echo "${{ inputs.workflow_display_name }}で変更は検出されませんでした。" >> $GITHUB_STEP_SUMMARY
-          fi
+          } >> "$GITHUB_STEP_SUMMARY"
