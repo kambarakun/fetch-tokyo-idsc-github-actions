@@ -17,6 +17,11 @@ permissions:
   contents: read
   checks: write
 
+# 同一PR/branchへの連続pushで実行が積み上がるのを防ぐ
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   actionlint:
     name: actionlint
@@ -38,7 +43,11 @@ jobs:
           # 段階的に warning/style へ厳格化する場合は本フラグを段階的に変更する。
           level: error
           fail_on_error: true
-          filter_mode: nofilter
+          # file: 変更ファイル全体を対象 (diff行外も含む)。
+          # actionlint は workflow ファイル単位の静的検証なので、PRの変更ファイル
+          # に絞り込む `file` モードが最適。nofilter は無関係な既存違反まで全件
+          # 報告するため過剰。added (新規追加行のみ) は既存違反を見落とすため不適。
+          filter_mode: file
           # shellcheck 統合を無効化。
           # 理由: reviewdog が shellcheck の `style` severity を自身の `error` に
           # マップする挙動があり、本来 CI 失敗対象外の SC2129/SC2126 等で
