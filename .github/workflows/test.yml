@@ -7,6 +7,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# 最小権限原則 (issue #299): テスト/lintはコミット・PR操作を行わないため read-only で十分。
+# - actions/checkout: contents: read
+# - codecov-action: CODECOV_TOKEN (リポジトリシークレット) を使用するため GITHUB_TOKEN 追加権限不要
+# - actions/upload-artifact: GITHUB_TOKEN を使用しない (Actions API 側で別管理)
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
