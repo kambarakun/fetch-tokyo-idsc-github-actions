@@ -280,3 +280,6 @@ data/output/
 # Label backup files
 .github/label-backups/
 label_backup_*.json
+
+# Claude Code local session state
+.claude/

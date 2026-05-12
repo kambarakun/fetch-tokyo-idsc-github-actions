@@ -68,7 +68,7 @@ pyproject.toml              # プロジェクト設定とパッケージ定義
 uv.lock                     # 依存関係のロックファイル
 ```
 
-> 注: `scripts/fetch_data.py` など互換シム(issue #312 対象7ファイル)は `2026-03-15` 廃止予定です。実行は `uv run <command>` を使用してください。
+> 注: 旧 `scripts/fetch_data.py` など互換シム(issue #312 対象7ファイル)は2026年Q2に削除済です。実行は `uv run <command>` を使用してください (`fetch-data` / `process-data` / `validate-data` / `verify-metadata` / `migrate-metadata` / `check-data-status` / `cleanup-all-zero-data`)。
 
 ==============================================================================
 
@@ -79,8 +79,8 @@ uv.lock                     # 依存関係のロックファイル
 ```mermaid
 flowchart TD
     Start[開始] --> CheckRaw{data/raw/<br/>に生データあり?}
-    CheckRaw -->|No| FetchData[データ取得<br/>fetch_data.py]
-    CheckRaw -->|Yes| ProcessData[データ処理<br/>process_data.py]
+    CheckRaw -->|No| FetchData[データ取得<br/>uv run fetch-data]
+    CheckRaw -->|Yes| ProcessData[データ処理<br/>uv run process-data]
     FetchData --> ProcessData
 
     ProcessData --> ReadFile[Shift_JISファイル読み込み]

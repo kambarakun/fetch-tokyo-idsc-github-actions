@@ -574,6 +574,7 @@ def update_readme(stats: dict) -> bool:
 
     # 統計情報セクションを生成
     stats_section = f"""<!-- start data-statistics -->
+<!-- prettier-ignore-start -->
 ## 📊 データ収集状況 (自動更新)
 
 > 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
@@ -659,6 +660,7 @@ def update_readme(stats: dict) -> bool:
 
 {format_anomalies_section(stats['anomalies'])}
 
+<!-- prettier-ignore-end -->
 <!-- end data-statistics -->"""
 
     # マーカーが存在するかチェック

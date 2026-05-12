@@ -1,4 +1,4 @@
-"""migrate_metadata.py のテストモジュール."""
+"""src/cli/migrate_metadata.py のテストモジュール."""
 
 import json
 import tempfile

@@ -971,7 +971,7 @@ class StorageManager:
     def validate_file(self, file_path: Path, data: bytes) -> dict[str, Any]:
         """ファイルを検証し、検証結果を返す (公開API).
 
-        外部スクリプト (verify_metadata.py など) からファイル検証を
+        外部CLI (`uv run verify-metadata` など) からファイル検証を
         実行するための公開インターフェース。
 
         Args:

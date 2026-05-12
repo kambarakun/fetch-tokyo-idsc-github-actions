@@ -10,6 +10,7 @@
 東京都感染症発生動向情報システムから定期的にデータを自動取得・保存するGitHub Actionsベースのシステムです。
 
 <!-- start data-statistics -->
+<!-- prettier-ignore-start -->
 ## 📊 データ収集状況 (自動更新)
 
 > 💡 このセクションは `scripts/update_readme_stats.py` により自動生成されています。
@@ -235,6 +236,7 @@ sentinel_weekly_medical_district_2025_21.csv (不整合: 12件)
 </details>
 
 
+<!-- prettier-ignore-end -->
 <!-- end data-statistics -->
 
 ## 📋 主な機能
@@ -598,11 +600,10 @@ uv run fetch-data --dry-run
 uv run check-missing data/raw
 ```
 
-#### 旧 `scripts/*.py` 実行経路の廃止予定(issue #312)
+#### 旧 `scripts/*.py` 実行経路は削除済み(issue #312)
 
-- 対象: `fetch_data.py`, `process_data.py`, `validate_data.py`, `verify_metadata.py`, `migrate_metadata.py`, `check_data_status.py`, `cleanup_all_zero_data.py`
-- 廃止予定日: `2026-03-15`
-- 移行先: `uv run <command>`(例: `uv run fetch-data`, `uv run validate-data`)
+- 対象7コマンドは互換シムを削除済 (2026年Q2): `fetch-data`, `process-data`, `validate-data`, `verify-metadata`, `migrate-metadata`, `check-data-status`, `cleanup-all-zero-data`
+- 実行方法: `uv run <command>` (例: `uv run fetch-data`, `uv run validate-data`)
 - 詳細: `https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/issues/312`
 
 #### 開発者向けコマンド

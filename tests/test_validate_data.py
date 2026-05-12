@@ -1,6 +1,4 @@
-"""
-validate_data.py のテスト
-"""
+"""src/cli/validate_data.py のテスト"""
 
 import json
 import shutil

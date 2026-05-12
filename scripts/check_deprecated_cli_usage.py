@@ -24,10 +24,18 @@ SCAN_GLOBS = (
     "tests/**/*.py",
     "src/**/*.py",
     "scripts/**/*.py",
+    "docs/**/*.md",
 )
+# 意図的に scope 外:
+# - .kiro/specs/**/*.md: 設計凍結時点を記録する spec 文書群。当初設計時の
+#   `scripts/X.py` 命名規約を歴史的記録として保持しており、書き換えると
+#   過去の設計判断のトレーサビリティが失われるため scan 対象に含めない。
+#   spec 自体を更新したい場合は、別途 spec maintenance PR で実施する。
 
 EXCLUDED_PATHS = {
     Path("scripts/check_deprecated_cli_usage.py"),
+    # 検出ロジック自体のテストでは意図的に違反文字列を含むため除外
+    Path("tests/test_check_deprecated_cli_usage.py"),
 }
 
 ALLOWLIST = {
@@ -47,14 +55,30 @@ class Violation:
 
 
 def _build_patterns() -> tuple[re.Pattern[str], ...]:
+    """7対象shimの旧導線パターンをまとめてコンパイル。
+
+    Note: `\\b` を二重エスケープしていた既存実装は word boundary として機能せず、
+    パターン全体がリテラル `\\b...` を要求していたため違反を一切検出できなかった。
+    本実装は単一の raw f-string でword boundaryを正しく表現する。
+    """
     patterns: list[re.Pattern[str]] = []
     for name in DEPRECATED_SCRIPT_NAMES:
         patterns.extend(
             [
-                re.compile(rf"\\bpython(?:3)?\\s+scripts/{name}\\.py\\b"),
-                re.compile(rf"\\buv\\s+run\\s+python(?:3)?\\s+scripts/{name}\\.py\\b"),
-                re.compile(rf"\\bfrom\\s+scripts\\.{name}\\s+import\\b"),
-                re.compile(rf"\\bimport\\s+scripts\\.{name}\\b"),
+                # `python scripts/X.py` / `uv run python scripts/X.py` / `python3 ...` を統合
+                re.compile(rf"(?:\buv\s+run\s+)?\bpython(?:3)?\s+scripts/{name}\.py\b"),
+                # `python -m scripts.X` / `uv run python -m scripts.X`
+                re.compile(rf"(?:\buv\s+run\s+)?\bpython(?:3)?\s+-m\s+scripts\.{name}\b"),
+                # `from scripts.X import` / `import scripts.X`
+                re.compile(rf"\bfrom\s+scripts\.{name}\s+import\b"),
+                re.compile(rf"\bimport\s+scripts\.{name}\b"),
+                # docs/コード内のbare reference (例: mermaid label `fetch_data.py`)。
+                # `/` または単語文字に前置されないトークンのみマッチさせることで、
+                # `src/cli/X.py` (新パス) や `something_X.py` (substring衝突) を誤検出しない。
+                # path形式 `scripts/X.py` 自体は本パターンの lookbehind により除外されるが、
+                # `python scripts/X.py` / `import scripts.X` 等の実行・import形態は
+                # 上記の専用パターン群で検出済。
+                re.compile(rf"(?<![\w/]){name}\.py\b"),
             ]
         )
     return tuple(patterns)
@@ -78,7 +102,10 @@ def _iter_scan_files() -> list[Path]:
 
 
 def check_file(path: Path) -> list[Violation]:
-    """Return deprecated usage hits from a file."""
+    """Return deprecated usage hits from a file.
+
+    同一行で複数パターンが一致しても1件のみ報告する (内側ループの `break` でdedup)。
+    """
     text = path.read_text(encoding="utf-8")
     violations: list[Violation] = []
     for line_no, line in enumerate(text.splitlines(), start=1):
@@ -94,6 +121,7 @@ def check_file(path: Path) -> list[Violation]:
                         pattern=pattern.pattern,
                     )
                 )
+                break
     return violations
 
 
