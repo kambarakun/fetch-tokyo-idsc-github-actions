@@ -96,17 +96,21 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- Python Version: 3.11" >> $GITHUB_STEP_SUMMARY
-          echo "- Test Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Test Summary"
+            echo ""
+            echo "- Python Version: 3.11"
+            echo "- Test Status: ${{ job.status }}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ -f tests/temp/test.log ]; then
-            echo "### Dry Run Log (last 20 lines)" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 20 tests/temp/test.log >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+            {
+              echo "### Dry Run Log (last 20 lines)"
+              echo '```'
+              tail -n 20 tests/temp/test.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
   lint:

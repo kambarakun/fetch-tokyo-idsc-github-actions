@@ -405,7 +405,7 @@ source .venv/bin/activate
 
 #### ワークフロー静的検証 (actionlint) (issue #308)
 
-`.github/workflows/*.yml` は actionlint で静的検証されます。CI とpre-commitの両方で **actionlint本体のチェック** (workflow構文・型・非推奨action検出 等) のみを実行し、shellcheck 統合は現時点では無効化しています。
+`.github/workflows/*.yml` は actionlint で静的検証されます。CI とpre-commit の両方で actionlint 本体のチェック (workflow構文・型・非推奨action検出 等) と shellcheck 統合の双方を有効化しています。
 
 **ローカル実行**:
 
@@ -422,23 +422,20 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scr
 # Go経由 (どのOSでも) — pre-commitのrev と同じバージョンに固定し再現性を確保
 go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
-# 実行 (actionlint本体のみ、shellcheck無効)
-actionlint -shellcheck= .github/workflows/*.yml
-
-# shellcheck含めて違反を確認 (情報収集目的、CIには影響しない)
+# 実行 (shellcheck 含めて検証)
 actionlint .github/workflows/*.yml
 
-# pre-commit経由 (推奨、shellcheck無効構成)
+# pre-commit経由 (推奨)
 uv run pre-commit run actionlint --all-files
 ```
 
 **CI 検証**:
 
-`.github/workflows/actionlint.yml` がPR時 (`.github/workflows/**` 変更時のみ) に自動実行されます。`fail_on_error: true` で actionlint 違反検出時にCI失敗。
+`.github/workflows/actionlint.yml` がPR時 (`.github/workflows/**` 変更時のみ) に自動実行されます。`fail_on_error: true` で違反検出時にCI失敗。
 
-**shellcheck無効化の理由**:
+**shellcheck severity マッピング問題**:
 
-reviewdog が shellcheck の `style` severity を自身の `error` レベルにマップする挙動があり、本来 CI 失敗対象外の SC2129/SC2126 等で過剰に CI が落ちる現象を回避するため。shellcheck 違反 (info/style) は将来別 issue で段階的に修正・組み込み予定。
+reviewdog は shellcheck の `style` severity を自身の `error` レベルに集約する仕様があるため、style/info レベルの違反でもCI失敗扱いになります。本リポジトリでは shellcheck info/style 違反を `chore/shellcheck-cleanup` で全件解消済みのため通常運用では問題にならないが、新規違反を導入すると CI が落ちる点に注意。回避が必要な場合は `actionlint_flags: -shellcheck=` でshellcheck統合を一時的に無効化できる。
 
 ### 2.2 依存関係の管理
 

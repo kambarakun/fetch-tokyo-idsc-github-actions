@@ -71,9 +71,11 @@ jobs:
           PREVIOUS_MONTH=$(printf "%02d" $(( (10#$CURRENT_MONTH - 2 + 12) % 12 + 1 )))
           TARGET_MONTHS="${PREVIOUS_MONTH},${CURRENT_MONTH}"
 
-          echo "start_year=$START_YEAR" >> $GITHUB_OUTPUT
-          echo "target_weeks=$TARGET_WEEKS" >> $GITHUB_OUTPUT
-          echo "target_months=$TARGET_MONTHS" >> $GITHUB_OUTPUT
+          {
+            echo "start_year=$START_YEAR"
+            echo "target_weeks=$TARGET_WEEKS"
+            echo "target_months=$TARGET_MONTHS"
+          } >> "$GITHUB_OUTPUT"
 
   # 共通ワークフロー呼び出し
   fetch-data:
