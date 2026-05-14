@@ -18,17 +18,17 @@
   },
   "encoding": "shift_jis",
   "created": "2026-05-01T08:46:18.451068+00:00",
-  "modified": "2026-05-12T14:43:59.570534+00:00",
+  "modified": "2026-05-14T09:26:22.279523+00:00",
   "sources": [],
   "_fetch": {
     "source_url": null,
-    "fetch_time_seconds": 0.7631223201751709,
+    "fetch_time_seconds": 2.717686653137207,
     "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2026-05-12T14:43:59.570814+00:00",
+    "verified_at": "2026-05-14T09:26:22.279855+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -49,7 +49,7 @@
     }
   },
   "quality": {
-    "validation_timestamp": "2026-05-12T14:43:59.570819+00:00",
+    "validation_timestamp": "2026-05-14T09:26:22.279862+00:00",
     "validation_status": "completed",
     "issues": []
   }

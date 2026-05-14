@@ -14,21 +14,21 @@
   "lines": 69,
   "hash": {
     "algorithm": "sha256",
-    "value": "5a70c0a1a5919c8fbc909374e4160d4c17596c5e426787ba0d438943d8164bf2"
+    "value": "a24f2a4858d7fbd607e68f14a5d1e726228d3411fdea737ad6237510265c0196"
   },
   "encoding": "shift_jis",
   "created": "2026-05-11T09:18:19.592159+00:00",
-  "modified": "2026-05-12T14:43:01.199019+00:00",
+  "modified": "2026-05-14T09:25:22.234514+00:00",
   "sources": [],
   "_fetch": {
     "source_url": null,
-    "fetch_time_seconds": 0.9954257011413574,
+    "fetch_time_seconds": 1.4993617534637451,
     "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2026-05-12T14:43:01.199581+00:00",
+    "verified_at": "2026-05-14T09:25:22.234944+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -50,7 +50,7 @@
     }
   },
   "quality": {
-    "validation_timestamp": "2026-05-12T14:43:01.199589+00:00",
+    "validation_timestamp": "2026-05-14T09:25:22.234951+00:00",
     "validation_status": "completed",
     "issues": [
       {
@@ -147,10 +147,10 @@
               "location": "合計",
               "column": "新型コロナウイルス感染症（COVID-19）",
               "row_index": 16,
-              "male": 73,
+              "male": 74,
               "female": 70,
-              "total": 141,
-              "expected": 143
+              "total": 142,
+              "expected": 144
             }
           ]
         }
