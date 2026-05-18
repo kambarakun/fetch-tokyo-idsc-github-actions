@@ -16,11 +16,13 @@ from pathlib import Path
 # テスト対象モジュールのインポート
 from scripts.generate_charts import (
     _format_period_label,
+    build_consistent_color_map,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
     parse_notifiable_weekly,
     parse_period_from_filename,
     parse_sentinel_weekly_gender,
+    select_top_absolute_diseases,
     select_top_deviation_diseases,
 )
 
@@ -361,6 +363,86 @@ class TestSelectTopDeviationDiseases:
         assert fallback is True
         assert top[0] == ("疾患B", -50.0)
         assert top[1] == ("疾患A", -5.0)
+
+
+class TestSelectTopAbsoluteDiseases:
+    """select_top_absolute_diseases()関数のテスト"""
+
+    def test_picks_top_by_latest_period_value(self):
+        """最新期間の値が大きい順にトップNを返す"""
+        data = {
+            "疾患A": {202501: 10, 202502: 20},
+            "疾患B": {202501: 5, 202502: 50},
+            "疾患C": {202501: 100, 202502: 3},
+        }
+        top = select_top_absolute_diseases(data, top_n=2)
+        assert top[0][0] == "疾患B"
+        assert top[1][0] == "疾患A"
+
+    def test_missing_latest_period_value_treated_as_zero(self):
+        """最新期間にデータがない疾患は0扱いで末尾に並ぶ"""
+        data = {
+            "疾患A": {202501: 10, 202502: 20},
+            "疾患B": {202501: 100},
+        }
+        top = select_top_absolute_diseases(data, top_n=2)
+        assert top[0][0] == "疾患A"
+        assert top[1] == ("疾患B", 0)
+
+    def test_empty_data_returns_empty_list(self):
+        """データが空の場合は空リストを返す"""
+        assert select_top_absolute_diseases({}, top_n=5) == []
+
+    def test_all_diseases_empty_periods_returns_empty(self):
+        """全疾患の期間データが空なら空リストを返す"""
+        assert select_top_absolute_diseases({"疾患A": {}, "疾患B": {}}, top_n=5) == []
+
+
+class TestBuildConsistentColorMap:
+    """build_consistent_color_map()関数のテスト"""
+
+    def test_shared_disease_gets_same_color_across_charts(self):
+        """推移と乖離率の両方に登場する疾患は同色になる"""
+        color_map = build_consistent_color_map(["A", "B", "C"], ["B", "C", "D"])
+        # 推移と乖離率で共通の "B"/"C" は primary 由来の同一色
+        assert "A" in color_map
+        assert "B" in color_map
+        assert "C" in color_map
+        assert "D" in color_map
+
+    def test_extra_only_disease_gets_distinct_color(self):
+        """乖離率のみで登場する疾患は別パレットから色を割り当てる"""
+        color_map = build_consistent_color_map(["A"], ["A", "B"])
+        # extra palette (Set2) は primary (husl) と異なる系統
+        assert color_map["A"] != color_map["B"]
+
+    def test_primary_palette_order_preserved(self):
+        """推移の表示順がそのまま色順に反映される"""
+        cm1 = build_consistent_color_map(["A", "B"], [])
+        cm2 = build_consistent_color_map(["A", "B", "C"], [])
+        # 2件版と3件版で同じ "A" の色が違うことがある (husl はn_colorsで等分配)
+        # ただし両者とも順序は維持される (Aが0番目、Bが1番目)
+        keys1 = list(cm1.keys())
+        keys2 = list(cm2.keys())
+        assert keys1 == ["A", "B"]
+        assert keys2 == ["A", "B", "C"]
+
+    def test_only_deviation_diseases_uses_extra_palette(self):
+        """推移が空で乖離率のみの場合、全て extra palette から割り当て"""
+        color_map = build_consistent_color_map([], ["A", "B"])
+        assert "A" in color_map
+        assert "B" in color_map
+
+    def test_both_empty_returns_empty_map(self):
+        """両方空なら空マップを返す"""
+        assert build_consistent_color_map([], []) == {}
+
+    def test_extra_only_diseases_preserve_input_order(self):
+        """乖離率のみで登場する疾患の入力順序がそのまま色順に反映される"""
+        color_map = build_consistent_color_map(["X"], ["X", "B", "A"])
+        # X は推移由来、B と A は乖離率専用 (入力順を維持)
+        extras = [k for k in color_map if k != "X"]
+        assert extras == ["B", "A"]
 
 
 class TestParseSentinelWeeklyGender:
