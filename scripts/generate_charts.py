@@ -654,7 +654,14 @@ def select_top_deviation_diseases(
           - フォールバック: 期間内で絶対値が最大の乖離率 (負になりうる)
         fallback_used が True のとき、正乖離が一つも存在せず絶対値で選定したことを示す。
         入力 deviation_rates が空、または全疾患が None のみの場合は ([], True) を返す。
+
+    Raises:
+        ValueError: top_n が負数の場合 (Python の負スライス挙動によって意図しない
+            「末尾以外を返却」が起きるのを防ぐためのフェイルファスト)
     """
+    if top_n < 0:
+        raise ValueError(f"top_n must be non-negative, got {top_n}")
+
     primary_scores: dict[str, float] = {}
     fallback_scores: dict[str, float] = {}
 
@@ -682,7 +689,14 @@ def select_top_absolute_diseases(data: Mapping[str, Mapping[int, float]], top_n:
 
     generate_absolute_chart() 内の選定ロジックと同一仕様。色マップ構築のために
     事前選定が必要なケースで使用する。
+
+    Raises:
+        ValueError: top_n が負数の場合 (Python の負スライス挙動によって意図しない
+            「末尾以外を返却」が起きるのを防ぐためのフェイルファスト)
     """
+    if top_n < 0:
+        raise ValueError(f"top_n must be non-negative, got {top_n}")
+
     all_periods = sorted({p for periods in data.values() for p in periods})
     if not all_periods:
         return []
