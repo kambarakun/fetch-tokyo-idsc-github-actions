@@ -52,6 +52,10 @@ _PRIMARY_MARKERS: tuple[str, ...] = ("o", "s", "D", "^", "*")
 # (細い `+` は密データで線状に見えるため SAS 推奨に従い使用しない)
 _EXTRA_MARKERS: tuple[str, ...] = ("P", "X", "v", "h", ">")
 
+# マーカーサイズ (推移・乖離率の両チャート共通)
+# 形状による識別性を確保するため十分な大きさを設定 (色覚多様性配慮)
+_MARKER_SIZE: int = 7
+
 
 def _copy_font_properties(base_fp, size: float):
     """FontPropertiesをサイズ指定でコピー
@@ -910,7 +914,7 @@ def generate_absolute_chart(
             values,
             linewidth=2.5,
             label=label_with_value,
-            markersize=5,
+            markersize=_MARKER_SIZE,
             **plot_kwargs,
         )
 
@@ -1035,7 +1039,7 @@ def generate_deviation_chart(
             values,
             linewidth=2.5,
             label=label_with_value,
-            markersize=5,
+            markersize=_MARKER_SIZE,
             **plot_kwargs,
         )
 
