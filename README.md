@@ -279,6 +279,9 @@ sentinel_weekly_medical_district_2025_22.csv (不整合: 11件)
 | **sentinel_monthly_health_center**    | 定点     | 月次 | 保健所別         | 月別定点あたり患者報告数(保健所別)         |
 | **sentinel_monthly_medical_district** | 定点     | 月次 | 二次保健医療圏別 | 月別定点あたり患者報告数(二次保健医療圏別) |
 
+<details>
+<summary>📁 ディレクトリ構造 / ファイル命名規則 / メタデータスキーマ v1.3.0 (クリックして展開)</summary>
+
 #### データディレクトリ構造
 
 ```text
@@ -402,9 +405,14 @@ data/
 
 検証スキーマの詳細は [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130) を参照してください。
 
+</details>
+
 ### 🔄 データ処理の詳細
 
 `data/processed/` ディレクトリには、`data/raw/` の生データを以下の処理フローで変換したファイルが格納されます。
+
+<details>
+<summary>🔄 処理フロー図 (Mermaid) / ステップ詳細 / 注意事項 (クリックして展開)</summary>
 
 #### 処理フロー図
 
@@ -500,6 +508,8 @@ flowchart TD
    - 例: ARIの「2歳」データが必要な場合 → 「1歳 (=1~4歳)」のデータを参照
 3. **行をフィルタリング**: `*`を含む行を除外して分析
 
+</details>
+
 ## 🔄 GitHub Actionsワークフロー
 
 ### 🤖 自動実行ワークフロー
@@ -525,6 +535,9 @@ flowchart TD
 3. **"Run workflow"** をクリック
 4. 必要に応じてパラメータを設定して実行
 
+<details>
+<summary>📋 ワークフロー一覧 (データ収集 / 開発・CI/CD) (クリックして展開)</summary>
+
 ### ワークフロー一覧
 
 #### データ収集ワークフロー
@@ -542,6 +555,8 @@ flowchart TD
 | **🧪 テストスイート実行**    | `test.yml`               | 自動テスト実行         | プッシュ または PR または 手動実行 |
 | **🔍 Claude コードレビュー** | `claude-code-review.yml` | AIによるコードレビュー | PR作成・更新時                     |
 | **🤖 Claude Code 統合**      | `claude.yml`             | Claude AIとの統合      | Issue/PRコメント                   |
+
+</details>
 
 ## ⚙️ 必要な設定
 
@@ -633,7 +648,10 @@ uv run pytest tests/test_enhanced_fetcher.py
 
 ### 🛠️ 設定ファイル
 
-`config/config.yml` で以下の詳細設定が可能です:
+`config/config.yml` で詳細設定が可能です。
+
+<details>
+<summary>⚙️ 設定項目の詳細 (収集 / ストレージ / 品質管理 / 通知 / Pull Request) (クリックして展開)</summary>
 
 #### 収集設定
 
@@ -684,6 +702,8 @@ PR_LABELS:
 ```
 
 カスタマイズが必要な場合は、`.github/workflows/fetch-data.yml` の該当箇所を直接編集してください。
+
+</details>
 
 ## 📝 ライセンスおよび利用規約
 
