@@ -720,7 +720,7 @@ def build_consistent_style_map(
     疾患には extra パレット/マーカーから別系統のスタイルを割り当てる。
 
     色覚多様性への配慮:
-      - 既定パレットは seaborn の colorblind / Dark2 を使用 (CB-friendly)
+      - 既定パレットは seaborn の colorblind / Set2 を使用 (CB-friendly)
       - 色だけでなくマーカー形状も疾患ごとに一意化することで、色の識別が
         難しい利用者にも個々の疾患を追跡可能にする
 
@@ -734,25 +734,37 @@ def build_consistent_style_map(
 
     Returns:
         {疾患名: DiseaseStyle(color, marker)} のスタイルマップ
+
+    Raises:
+        ValueError: 疾患数がマーカー数を超えた場合 (マーカー形状の一意性が
+            破れるため。色のみだと色覚異常者で識別困難な疾患ペアが生じる
+            設計契約上、マーカー一意性は冗長エンコーディングの前提となる)
     """
+    if len(absolute_diseases) > len(primary_markers):
+        raise ValueError(
+            f"absolute_diseases ({len(absolute_diseases)} items) exceeds "
+            f"primary_markers capacity ({len(primary_markers)}); "
+            f"marker uniqueness cannot be guaranteed."
+        )
+
     style_map: dict[str, DiseaseStyle] = {}
 
     if absolute_diseases:
         primary_palette = sns.color_palette(primary_palette_name, n_colors=len(absolute_diseases))
         for i, disease in enumerate(absolute_diseases):
-            style_map[disease] = DiseaseStyle(
-                color=primary_palette[i],
-                marker=primary_markers[i % len(primary_markers)],
-            )
+            style_map[disease] = DiseaseStyle(color=primary_palette[i], marker=primary_markers[i])
 
     extra_only = [d for d in deviation_diseases if d not in style_map]
+    if len(extra_only) > len(extra_markers):
+        raise ValueError(
+            f"deviation-only diseases ({len(extra_only)} items) exceeds "
+            f"extra_markers capacity ({len(extra_markers)}); "
+            f"marker uniqueness cannot be guaranteed."
+        )
     if extra_only:
         extra_palette = sns.color_palette(extra_palette_name, n_colors=max(len(extra_only), 1))
         for i, disease in enumerate(extra_only):
-            style_map[disease] = DiseaseStyle(
-                color=extra_palette[i % len(extra_palette)],
-                marker=extra_markers[i % len(extra_markers)],
-            )
+            style_map[disease] = DiseaseStyle(color=extra_palette[i], marker=extra_markers[i])
 
     return style_map
 

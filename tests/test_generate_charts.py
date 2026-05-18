@@ -521,6 +521,29 @@ class TestBuildConsistentStyleMap:
         extras = [k for k in style_map if k != "X"]
         assert extras == ["B", "A"]
 
+    def test_absolute_diseases_exceeding_primary_markers_raises(self):
+        """推移疾患数が _PRIMARY_MARKERS の容量を超えるとマーカー一意性が
+        破綻するため ValueError を送出 (冗長エンコーディング契約の維持)"""
+        too_many = [f"D{i}" for i in range(len(_PRIMARY_MARKERS) + 1)]
+        with pytest.raises(ValueError, match="primary_markers capacity"):
+            build_consistent_style_map(too_many, [])
+
+    def test_extra_only_diseases_exceeding_extra_markers_raises(self):
+        """乖離率専用疾患数が _EXTRA_MARKERS の容量を超えると ValueError を送出"""
+        too_many_extras = [f"E{i}" for i in range(len(_EXTRA_MARKERS) + 1)]
+        with pytest.raises(ValueError, match="extra_markers capacity"):
+            build_consistent_style_map([], too_many_extras)
+
+    def test_shared_diseases_dont_count_against_extra_capacity(self):
+        """推移と重複する疾患は extra 側にカウントされず、容量超過にならない"""
+        # primary=5件 (_PRIMARY_MARKERS と同サイズ), deviation=5件 (全て primary と重複) + 1件のextra
+        primary = list(_PRIMARY_MARKERS)  # 形状文字をそのまま疾患名として5件
+        deviation = [*primary, "ExtraOnly"]
+        # ExtraOnly は extra に1件のみ → 容量内で成功
+        style_map = build_consistent_style_map(primary, deviation)
+        assert "ExtraOnly" in style_map
+        assert style_map["ExtraOnly"].marker == _EXTRA_MARKERS[0]
+
 
 class TestParseSentinelWeeklyGender:
     """parse_sentinel_weekly_gender()関数のテスト"""
