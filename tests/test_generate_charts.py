@@ -15,8 +15,11 @@ from pathlib import Path
 
 # テスト対象モジュールのインポート
 from scripts.generate_charts import (
+    _EXTRA_MARKERS,
+    _PRIMARY_MARKERS,
+    DiseaseStyle,
     _format_period_label,
-    build_consistent_color_map,
+    build_consistent_style_map,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
     parse_notifiable_weekly,
@@ -398,50 +401,75 @@ class TestSelectTopAbsoluteDiseases:
         assert select_top_absolute_diseases({"疾患A": {}, "疾患B": {}}, top_n=5) == []
 
 
-class TestBuildConsistentColorMap:
-    """build_consistent_color_map()関数のテスト"""
+class TestBuildConsistentStyleMap:
+    """build_consistent_style_map()関数のテスト"""
 
-    def test_shared_disease_gets_same_color_across_charts(self):
-        """推移と乖離率の両方に登場する疾患は同色になる"""
-        color_map = build_consistent_color_map(["A", "B", "C"], ["B", "C", "D"])
-        # 推移と乖離率で共通の "B"/"C" は primary 由来の同一色
-        assert "A" in color_map
-        assert "B" in color_map
-        assert "C" in color_map
-        assert "D" in color_map
+    def test_shared_disease_gets_same_style_across_charts(self):
+        """推移と乖離率の両方に登場する疾患は同じ DiseaseStyle (色+マーカー) になる"""
+        style_map = build_consistent_style_map(["A", "B", "C"], ["B", "C", "D"])
+        # 推移と乖離率で共通の "B"/"C" は primary 由来の同一スタイル
+        assert "A" in style_map
+        assert "B" in style_map
+        assert "C" in style_map
+        assert "D" in style_map
+        # 全エントリが DiseaseStyle 型であること
+        for style in style_map.values():
+            assert isinstance(style, DiseaseStyle)
+
+    def test_primary_diseases_use_primary_markers(self):
+        """推移チャートに登場する疾患には _PRIMARY_MARKERS が順番に割り当てられる"""
+        style_map = build_consistent_style_map(["A", "B", "C"], [])
+        assert style_map["A"].marker == _PRIMARY_MARKERS[0]
+        assert style_map["B"].marker == _PRIMARY_MARKERS[1]
+        assert style_map["C"].marker == _PRIMARY_MARKERS[2]
+
+    def test_extra_only_diseases_use_extra_markers(self):
+        """乖離率のみで登場する疾患には _EXTRA_MARKERS が順番に割り当てられる"""
+        style_map = build_consistent_style_map(["A"], ["A", "B", "C"])
+        # A は推移由来 (primary marker)
+        assert style_map["A"].marker == _PRIMARY_MARKERS[0]
+        # B, C は乖離率専用 (extra marker)
+        assert style_map["B"].marker == _EXTRA_MARKERS[0]
+        assert style_map["C"].marker == _EXTRA_MARKERS[1]
+
+    def test_primary_and_extra_markers_dont_overlap(self):
+        """プライマリとエクストラのマーカーセットに重複がない (識別容易性)"""
+        assert set(_PRIMARY_MARKERS).isdisjoint(set(_EXTRA_MARKERS))
 
     def test_extra_only_disease_gets_distinct_color(self):
         """乖離率のみで登場する疾患は別パレットから色を割り当てる"""
-        color_map = build_consistent_color_map(["A"], ["A", "B"])
-        # extra palette (Set2) は primary (husl) と異なる系統
-        assert color_map["A"] != color_map["B"]
+        style_map = build_consistent_style_map(["A"], ["A", "B"])
+        # extra palette (Set2) は primary (colorblind) と異なる系統
+        assert style_map["A"].color != style_map["B"].color
 
     def test_primary_palette_order_preserved(self):
         """推移の表示順がそのまま色順に反映される"""
-        cm1 = build_consistent_color_map(["A", "B"], [])
-        cm2 = build_consistent_color_map(["A", "B", "C"], [])
-        # 2件版と3件版で同じ "A" の色が違うことがある (husl はn_colorsで等分配)
-        # ただし両者とも順序は維持される (Aが0番目、Bが1番目)
-        keys1 = list(cm1.keys())
-        keys2 = list(cm2.keys())
+        sm1 = build_consistent_style_map(["A", "B"], [])
+        sm2 = build_consistent_style_map(["A", "B", "C"], [])
+        # 順序は維持される (Aが0番目、Bが1番目)
+        keys1 = list(sm1.keys())
+        keys2 = list(sm2.keys())
         assert keys1 == ["A", "B"]
         assert keys2 == ["A", "B", "C"]
 
     def test_only_deviation_diseases_uses_extra_palette(self):
         """推移が空で乖離率のみの場合、全て extra palette から割り当て"""
-        color_map = build_consistent_color_map([], ["A", "B"])
-        assert "A" in color_map
-        assert "B" in color_map
+        style_map = build_consistent_style_map([], ["A", "B"])
+        assert "A" in style_map
+        assert "B" in style_map
+        # 全て extra marker
+        assert style_map["A"].marker == _EXTRA_MARKERS[0]
+        assert style_map["B"].marker == _EXTRA_MARKERS[1]
 
     def test_both_empty_returns_empty_map(self):
         """両方空なら空マップを返す"""
-        assert build_consistent_color_map([], []) == {}
+        assert build_consistent_style_map([], []) == {}
 
     def test_extra_only_diseases_preserve_input_order(self):
         """乖離率のみで登場する疾患の入力順序がそのまま色順に反映される"""
-        color_map = build_consistent_color_map(["X"], ["X", "B", "A"])
+        style_map = build_consistent_style_map(["X"], ["X", "B", "A"])
         # X は推移由来、B と A は乖離率専用 (入力順を維持)
-        extras = [k for k in color_map if k != "X"]
+        extras = [k for k in style_map if k != "X"]
         assert extras == ["B", "A"]
 
 
