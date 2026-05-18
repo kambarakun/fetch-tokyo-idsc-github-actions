@@ -13,14 +13,21 @@ tests/test_generate_charts.py - グラフ生成機能のテスト
 import tempfile
 from pathlib import Path
 
+import pytest
+
 # テスト対象モジュールのインポート
 from scripts.generate_charts import (
+    _EXTRA_MARKERS,
+    _PRIMARY_MARKERS,
+    DiseaseStyle,
     _format_period_label,
+    build_consistent_style_map,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
     parse_notifiable_weekly,
     parse_period_from_filename,
     parse_sentinel_weekly_gender,
+    select_top_absolute_diseases,
     select_top_deviation_diseases,
 )
 
@@ -361,6 +368,181 @@ class TestSelectTopDeviationDiseases:
         assert fallback is True
         assert top[0] == ("疾患B", -50.0)
         assert top[1] == ("疾患A", -5.0)
+
+    def test_top_n_zero_returns_empty(self):
+        """top_n=0 は空リストを返す (正乖離あり経路)"""
+        deviation_rates = {"疾患A": {202501: 30.0}}
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=0)
+        assert top == []
+        assert fallback is False
+
+    def test_top_n_zero_returns_empty_in_fallback_path(self):
+        """top_n=0 はフォールバック経路でも空リストを返す"""
+        deviation_rates = {"疾患A": {202501: -50.0}}
+        top, fallback = select_top_deviation_diseases(deviation_rates, top_n=0)
+        assert top == []
+        assert fallback is True
+
+    def test_top_n_negative_raises_value_error(self):
+        """top_n が負数の場合は ValueError を送出 (負スライスでの意図しない挙動を防止)"""
+        deviation_rates = {"疾患A": {202501: 30.0}}
+        with pytest.raises(ValueError, match="top_n must be non-negative"):
+            select_top_deviation_diseases(deviation_rates, top_n=-1)
+
+
+class TestSelectTopAbsoluteDiseases:
+    """select_top_absolute_diseases()関数のテスト"""
+
+    def test_picks_top_by_latest_period_value(self):
+        """最新期間の値が大きい順にトップNを返す"""
+        data = {
+            "疾患A": {202501: 10, 202502: 20},
+            "疾患B": {202501: 5, 202502: 50},
+            "疾患C": {202501: 100, 202502: 3},
+        }
+        top = select_top_absolute_diseases(data, top_n=2)
+        assert top[0][0] == "疾患B"
+        assert top[1][0] == "疾患A"
+
+    def test_missing_latest_period_value_treated_as_zero(self):
+        """最新期間にデータがない疾患は0扱いで末尾に並ぶ"""
+        data = {
+            "疾患A": {202501: 10, 202502: 20},
+            "疾患B": {202501: 100},
+        }
+        top = select_top_absolute_diseases(data, top_n=2)
+        assert top[0][0] == "疾患A"
+        assert top[1] == ("疾患B", 0)
+
+    def test_empty_data_returns_empty_list(self):
+        """データが空の場合は空リストを返す"""
+        assert select_top_absolute_diseases({}, top_n=5) == []
+
+    def test_all_diseases_empty_periods_returns_empty(self):
+        """全疾患の期間データが空なら空リストを返す"""
+        assert select_top_absolute_diseases({"疾患A": {}, "疾患B": {}}, top_n=5) == []
+
+    def test_top_n_zero_returns_empty(self):
+        """top_n=0 は空リストを返す (0件取得という有効な指定)"""
+        data = {"疾患A": {202502: 10}, "疾患B": {202502: 5}}
+        assert select_top_absolute_diseases(data, top_n=0) == []
+
+    def test_top_n_negative_raises_value_error(self):
+        """top_n が負数の場合は ValueError を送出する (Python負スライスの意図しない挙動を防止)"""
+        data = {"疾患A": {202502: 10}, "疾患B": {202502: 5}}
+        with pytest.raises(ValueError, match="top_n must be non-negative"):
+            select_top_absolute_diseases(data, top_n=-1)
+
+
+class TestBuildConsistentStyleMap:
+    """build_consistent_style_map()関数のテスト"""
+
+    def test_shared_disease_gets_same_style_across_charts(self):
+        """共有疾患は extra 側の順序・内容に依存せず primary 由来の同一スタイルを維持する
+
+        DiseaseStyle (NamedTuple) の等価性を直接比較することで
+        「推移と乖離率で同一疾患が同じスタイル」の契約を実証する。
+        """
+        # primary のみ
+        sm_primary_only = build_consistent_style_map(["A", "B", "C"], [])
+        # primary + extra (extra に共有疾患を含む)
+        sm_with_extra = build_consistent_style_map(["A", "B", "C"], ["B", "C", "D"])
+        # primary + extra (extra の順序を入れ替え)
+        sm_extra_reordered = build_consistent_style_map(["A", "B", "C"], ["C", "B", "D"])
+
+        # 共有疾患 "B"/"C" は extra 側の有無/順序に関係なく primary 由来の同一スタイル
+        for key in ("A", "B", "C"):
+            assert sm_with_extra[key] == sm_primary_only[key]
+            assert sm_extra_reordered[key] == sm_primary_only[key]
+            # color と marker の両属性も明示的に一致を確認
+            assert sm_with_extra[key].color == sm_primary_only[key].color
+            assert sm_with_extra[key].marker == sm_primary_only[key].marker
+
+        # extra-only の "D" は primary 経由ではないので primary_only には存在しない
+        assert "D" not in sm_primary_only
+        assert "D" in sm_with_extra
+        # 全エントリが DiseaseStyle 型
+        for style in sm_with_extra.values():
+            assert isinstance(style, DiseaseStyle)
+
+    def test_primary_diseases_use_primary_markers(self):
+        """推移チャートに登場する疾患には _PRIMARY_MARKERS が順番に割り当てられる"""
+        style_map = build_consistent_style_map(["A", "B", "C"], [])
+        assert style_map["A"].marker == _PRIMARY_MARKERS[0]
+        assert style_map["B"].marker == _PRIMARY_MARKERS[1]
+        assert style_map["C"].marker == _PRIMARY_MARKERS[2]
+
+    def test_extra_only_diseases_use_extra_markers(self):
+        """乖離率のみで登場する疾患には _EXTRA_MARKERS が順番に割り当てられる"""
+        style_map = build_consistent_style_map(["A"], ["A", "B", "C"])
+        # A は推移由来 (primary marker)
+        assert style_map["A"].marker == _PRIMARY_MARKERS[0]
+        # B, C は乖離率専用 (extra marker)
+        assert style_map["B"].marker == _EXTRA_MARKERS[0]
+        assert style_map["C"].marker == _EXTRA_MARKERS[1]
+
+    def test_primary_and_extra_markers_dont_overlap(self):
+        """プライマリとエクストラのマーカーセットに重複がない (識別容易性)"""
+        assert set(_PRIMARY_MARKERS).isdisjoint(set(_EXTRA_MARKERS))
+
+    def test_extra_only_disease_gets_distinct_color(self):
+        """乖離率のみで登場する疾患は別パレットから色を割り当てる"""
+        style_map = build_consistent_style_map(["A"], ["A", "B"])
+        # extra palette (Set2) は primary (colorblind) と異なる系統
+        assert style_map["A"].color != style_map["B"].color
+
+    def test_primary_palette_order_preserved(self):
+        """推移の表示順がそのまま色順に反映される"""
+        sm1 = build_consistent_style_map(["A", "B"], [])
+        sm2 = build_consistent_style_map(["A", "B", "C"], [])
+        # 順序は維持される (Aが0番目、Bが1番目)
+        keys1 = list(sm1.keys())
+        keys2 = list(sm2.keys())
+        assert keys1 == ["A", "B"]
+        assert keys2 == ["A", "B", "C"]
+
+    def test_only_deviation_diseases_uses_extra_palette(self):
+        """推移が空で乖離率のみの場合、全て extra palette から割り当て"""
+        style_map = build_consistent_style_map([], ["A", "B"])
+        assert "A" in style_map
+        assert "B" in style_map
+        # 全て extra marker
+        assert style_map["A"].marker == _EXTRA_MARKERS[0]
+        assert style_map["B"].marker == _EXTRA_MARKERS[1]
+
+    def test_both_empty_returns_empty_map(self):
+        """両方空なら空マップを返す"""
+        assert build_consistent_style_map([], []) == {}
+
+    def test_extra_only_diseases_preserve_input_order(self):
+        """乖離率のみで登場する疾患の入力順序がそのまま色順に反映される"""
+        style_map = build_consistent_style_map(["X"], ["X", "B", "A"])
+        # X は推移由来、B と A は乖離率専用 (入力順を維持)
+        extras = [k for k in style_map if k != "X"]
+        assert extras == ["B", "A"]
+
+    def test_absolute_diseases_exceeding_primary_markers_raises(self):
+        """推移疾患数が _PRIMARY_MARKERS の容量を超えるとマーカー一意性が
+        破綻するため ValueError を送出 (冗長エンコーディング契約の維持)"""
+        too_many = [f"D{i}" for i in range(len(_PRIMARY_MARKERS) + 1)]
+        with pytest.raises(ValueError, match="primary_markers capacity"):
+            build_consistent_style_map(too_many, [])
+
+    def test_extra_only_diseases_exceeding_extra_markers_raises(self):
+        """乖離率専用疾患数が _EXTRA_MARKERS の容量を超えると ValueError を送出"""
+        too_many_extras = [f"E{i}" for i in range(len(_EXTRA_MARKERS) + 1)]
+        with pytest.raises(ValueError, match="extra_markers capacity"):
+            build_consistent_style_map([], too_many_extras)
+
+    def test_shared_diseases_dont_count_against_extra_capacity(self):
+        """推移と重複する疾患は extra 側にカウントされず、容量超過にならない"""
+        # primary=5件 (_PRIMARY_MARKERS と同サイズ), deviation=5件 (全て primary と重複) + 1件のextra
+        primary = list(_PRIMARY_MARKERS)  # 形状文字をそのまま疾患名として5件
+        deviation = [*primary, "ExtraOnly"]
+        # ExtraOnly は extra に1件のみ → 容量内で成功
+        style_map = build_consistent_style_map(primary, deviation)
+        assert "ExtraOnly" in style_map
+        assert style_map["ExtraOnly"].marker == _EXTRA_MARKERS[0]
 
 
 class TestParseSentinelWeeklyGender:

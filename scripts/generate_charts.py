@@ -21,11 +21,40 @@ from collections import defaultdict
 from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import requests
 import seaborn as sns
+
+
+class DiseaseStyle(NamedTuple):
+    """1疾患分の描画スタイル (色 + マーカー形状)
+
+    色覚多様性 (Color Vision Deficiency) への配慮のため、色だけでなく
+    マーカー形状も疾患ごとに一意に割り当てる。同じ疾患が複数チャートに
+    登場する場合は同じスタイルを再利用することで視覚的な追跡を容易にする。
+    """
+
+    color: tuple[float, float, float]
+    marker: str
+
+
+# 推移チャート用マーカー (top_n=5 を想定)
+# 形状カテゴリを最大限分散させて知覚的識別性を確保 (CatPAW論文の知見):
+# 円・正方形・菱形・三角・星 はそれぞれ独立した形状カテゴリ
+_PRIMARY_MARKERS: tuple[str, ...] = ("o", "s", "D", "^", "*")
+
+# 乖離率チャート専用 (推移にいない疾患) 用マーカー
+# プライマリと形状カテゴリが被らないよう選定:
+# 塗りプラス・塗りX・下向き三角・六角・右向き三角
+# (細い `+` は密データで線状に見えるため SAS 推奨に従い使用しない)
+_EXTRA_MARKERS: tuple[str, ...] = ("P", "X", "v", "h", ">")
+
+# マーカーサイズ (推移・乖離率の両チャート共通)
+# 形状による識別性を確保するため十分な大きさを設定 (色覚多様性配慮)
+_MARKER_SIZE: int = 7
 
 
 def _copy_font_properties(base_fp, size: float):
@@ -625,7 +654,14 @@ def select_top_deviation_diseases(
           - フォールバック: 期間内で絶対値が最大の乖離率 (負になりうる)
         fallback_used が True のとき、正乖離が一つも存在せず絶対値で選定したことを示す。
         入力 deviation_rates が空、または全疾患が None のみの場合は ([], True) を返す。
+
+    Raises:
+        ValueError: top_n が負数の場合 (Python の負スライス挙動によって意図しない
+            「末尾以外を返却」が起きるのを防ぐためのフェイルファスト)
     """
+    if top_n < 0:
+        raise ValueError(f"top_n must be non-negative, got {top_n}")
+
     primary_scores: dict[str, float] = {}
     fallback_scores: dict[str, float] = {}
 
@@ -646,6 +682,91 @@ def select_top_deviation_diseases(
 
     ranked_fallback = sorted(fallback_scores.items(), key=lambda x: abs(x[1]), reverse=True)
     return ranked_fallback[:top_n], True
+
+
+def select_top_absolute_diseases(data: Mapping[str, Mapping[int, float]], top_n: int = 5) -> list[tuple[str, float]]:
+    """絶対数グラフ用のトップN疾患を選定 (最新期間の値が大きい順)
+
+    generate_absolute_chart() 内の選定ロジックと同一仕様。色マップ構築のために
+    事前選定が必要なケースで使用する。
+
+    Raises:
+        ValueError: top_n が負数の場合 (Python の負スライス挙動によって意図しない
+            「末尾以外を返却」が起きるのを防ぐためのフェイルファスト)
+    """
+    if top_n < 0:
+        raise ValueError(f"top_n must be non-negative, got {top_n}")
+
+    all_periods = sorted({p for periods in data.values() for p in periods})
+    if not all_periods:
+        return []
+    latest_period = max(all_periods)
+    latest_values = {disease: periods.get(latest_period, 0) for disease, periods in data.items()}
+    return sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
+
+
+def build_consistent_style_map(
+    absolute_diseases: list[str],
+    deviation_diseases: list[str],
+    primary_palette_name: str = "colorblind",
+    extra_palette_name: str = "Set2",
+    primary_markers: tuple[str, ...] = _PRIMARY_MARKERS,
+    extra_markers: tuple[str, ...] = _EXTRA_MARKERS,
+) -> dict[str, DiseaseStyle]:
+    """推移チャートと乖離率チャートで一貫した描画スタイル (色+マーカー) を構築
+
+    推移 (絶対数) チャートに登場する疾患には primary パレット/マーカーから
+    固定スタイルを割り当て、乖離率チャートで新たに登場する (推移にいない)
+    疾患には extra パレット/マーカーから別系統のスタイルを割り当てる。
+
+    色覚多様性への配慮:
+      - 既定パレットは seaborn の colorblind / Set2 を使用 (CB-friendly)
+      - 色だけでなくマーカー形状も疾患ごとに一意化することで、色の識別が
+        難しい利用者にも個々の疾患を追跡可能にする
+
+    Args:
+        absolute_diseases: 推移チャートに表示される疾患名のリスト (表示順)
+        deviation_diseases: 乖離率チャートに表示される疾患名のリスト (表示順)
+        primary_palette_name: 推移用パレット名 (seaborn palette)
+        extra_palette_name: 乖離率専用パレット名 (推移とは異なる系統)
+        primary_markers: 推移チャート用マーカー形状のシーケンス
+        extra_markers: 乖離率専用マーカー形状のシーケンス
+
+    Returns:
+        {疾患名: DiseaseStyle(color, marker)} のスタイルマップ
+
+    Raises:
+        ValueError: 疾患数がマーカー数を超えた場合 (マーカー形状の一意性が
+            破れるため。色のみだと色覚異常者で識別困難な疾患ペアが生じる
+            設計契約上、マーカー一意性は冗長エンコーディングの前提となる)
+    """
+    if len(absolute_diseases) > len(primary_markers):
+        raise ValueError(
+            f"absolute_diseases ({len(absolute_diseases)} items) exceeds "
+            f"primary_markers capacity ({len(primary_markers)}); "
+            f"marker uniqueness cannot be guaranteed."
+        )
+
+    style_map: dict[str, DiseaseStyle] = {}
+
+    if absolute_diseases:
+        primary_palette = sns.color_palette(primary_palette_name, n_colors=len(absolute_diseases))
+        for i, disease in enumerate(absolute_diseases):
+            style_map[disease] = DiseaseStyle(color=primary_palette[i], marker=primary_markers[i])
+
+    extra_only = [d for d in deviation_diseases if d not in style_map]
+    if len(extra_only) > len(extra_markers):
+        raise ValueError(
+            f"deviation-only diseases ({len(extra_only)} items) exceeds "
+            f"extra_markers capacity ({len(extra_markers)}); "
+            f"marker uniqueness cannot be guaranteed."
+        )
+    if extra_only:
+        extra_palette = sns.color_palette(extra_palette_name, n_colors=max(len(extra_only), 1))
+        for i, disease in enumerate(extra_only):
+            style_map[disease] = DiseaseStyle(color=extra_palette[i], marker=extra_markers[i])
+
+    return style_map
 
 
 def _format_period_label(min_period: int, max_period: int, period_type: str) -> str:
@@ -761,6 +882,7 @@ def generate_absolute_chart(
     data_source: str,
     period_type: str = "week",
     top_n: int = 5,
+    style_map: dict[str, DiseaseStyle] | None = None,
 ) -> None:
     """絶対数推移グラフを生成 (CDCスタイル)
 
@@ -772,6 +894,7 @@ def generate_absolute_chart(
         data_source: データソース表示
         period_type: 期間タイプ ('week' or 'month')
         top_n: トップN疾患を表示
+        style_map: 疾患名 -> DiseaseStyle(color, marker) のマップ (省略時はseabornデフォルトcycler+'o')
     """
     if not data:
         print("警告: データが空のため、グラフを生成できません")
@@ -789,9 +912,7 @@ def generate_absolute_chart(
     JAPANESE_FONT = get_japanese_font()
 
     # 最新期間のトップN疾患を選択
-    latest_period = max(all_periods)
-    latest_values = {disease: periods.get(latest_period, 0) for disease, periods in data.items()}
-    top_diseases = sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
+    top_diseases = select_top_absolute_diseases(data, top_n=top_n)
 
     # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -812,7 +933,16 @@ def generate_absolute_chart(
 
         # 折れ線グラフ (CDCスタイル) - 凡例に最新値を含める
         label_with_value = f"{disease} (最新: {value_format})"
-        line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
+        style = style_map[disease] if style_map and disease in style_map else None
+        plot_kwargs: dict = {"marker": style.marker, "color": style.color} if style else {"marker": "o"}
+        line = ax.plot(
+            range(len(all_periods)),
+            values,
+            linewidth=2.5,
+            label=label_with_value,
+            markersize=_MARKER_SIZE,
+            **plot_kwargs,
+        )
 
         # 最新データポイントにアノテーションを追加 (共通関数を使用)
         _add_annotation(ax, values, value_format, line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
@@ -863,6 +993,7 @@ def generate_deviation_chart(
     data_source: str,
     period_type: str = "week",
     top_n: int = 5,
+    style_map: dict[str, DiseaseStyle] | None = None,
 ) -> None:
     """ベースライン乖離率グラフを生成 (CDCスタイル)
 
@@ -874,6 +1005,7 @@ def generate_deviation_chart(
         data_source: データソース表示
         period_type: 期間タイプ ('week' or 'month')
         top_n: トップN疾患を表示
+        style_map: 疾患名 -> DiseaseStyle(color, marker) のマップ (省略時はseabornデフォルトcycler+'o')
     """
     if not data or not baseline:
         print("警告: データが空のため、グラフを生成できません")
@@ -926,7 +1058,16 @@ def generate_deviation_chart(
 
         # 折れ線グラフ (CDCスタイル) - 凡例に最新値を含める
         label_with_value = f"{disease} (最新: {latest_value:+.0f}%)"
-        line = ax.plot(range(len(all_periods)), values, marker="o", linewidth=2.5, label=label_with_value, markersize=5)
+        style = style_map[disease] if style_map and disease in style_map else None
+        plot_kwargs: dict = {"marker": style.marker, "color": style.color} if style else {"marker": "o"}
+        line = ax.plot(
+            range(len(all_periods)),
+            values,
+            linewidth=2.5,
+            label=label_with_value,
+            markersize=_MARKER_SIZE,
+            **plot_kwargs,
+        )
 
         # 最新データポイントにアノテーションを追加 (共通関数を使用)
         _add_annotation(ax, values, f"{latest_value:+.0f}%", line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
@@ -1009,8 +1150,22 @@ def main():
 
     print("\n🎨 グラフ生成中...")
 
-    # 1. 週次定点・絶対数
+    # データセット対 (推移 + 乖離率) ごとに色マップを共有し、
+    # 両チャートに登場する疾患は同色、乖離率のみの疾患は別系統色を割り当てる。
+
+    # 1+2. 週次定点
     if sentinel_weekly_data:
+        sw_abs_top = select_top_absolute_diseases(sentinel_weekly_data, top_n=5)
+        sw_dev_diseases: list[str] = []
+        seasonal_baseline: dict[str, dict[int, float]] = {}
+        if all_sentinel_weeks:
+            recent_week_periods = sorted({p for periods in sentinel_weekly_data.values() for p in periods})
+            seasonal_baseline = calculate_seasonal_baseline(all_sentinel_weeks, recent_week_periods, years=5)
+            sw_dev_rates = calculate_deviation_rate(sentinel_weekly_data, seasonal_baseline)
+            sw_dev_top, _ = select_top_deviation_diseases(sw_dev_rates, top_n=5)
+            sw_dev_diseases = [d for d, _ in sw_dev_top]
+        sw_style_map = build_consistent_style_map([d for d, _ in sw_abs_top], sw_dev_diseases)
+
         generate_absolute_chart(
             sentinel_weekly_data,
             output_dir / "sentinel_weekly_absolute.png",
@@ -1019,26 +1174,36 @@ def main():
             data_source="データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
             period_type="week",
             top_n=5,
+            style_map=sw_style_map,
         )
 
-    # 2. 週次定点・季節性乖離率
-    if sentinel_weekly_data and all_sentinel_weeks:
-        # 直近52週の期間リスト
-        recent_week_periods = sorted({p for periods in sentinel_weekly_data.values() for p in periods})
-        seasonal_baseline = calculate_seasonal_baseline(all_sentinel_weeks, recent_week_periods, years=5)
+        if all_sentinel_weeks:
+            generate_deviation_chart(
+                sentinel_weekly_data,
+                seasonal_baseline,
+                output_dir / "sentinel_weekly_deviation.png",
+                title="定点報告疾患の週次乖離率 (流行検知)",
+                data_source="データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
+                period_type="week",
+                top_n=5,
+                style_map=sw_style_map,
+            )
 
-        generate_deviation_chart(
-            sentinel_weekly_data,
-            seasonal_baseline,
-            output_dir / "sentinel_weekly_deviation.png",
-            title="定点報告疾患の週次乖離率 (流行検知)",
-            data_source="データソース: 東京都感染症発生動向調査(定点週次・性別報告)",
-            period_type="week",
-            top_n=5,
-        )
-
-    # 3. 週次全数・絶対数
+    # 3+4. 週次全数
     if notifiable_weekly_data:
+        nw_abs_top = select_top_absolute_diseases(notifiable_weekly_data, top_n=5)
+        nw_dev_diseases: list[str] = []
+        notifiable_seasonal_baseline: dict[str, dict[int, float]] = {}
+        if all_notifiable_weeks:
+            recent_notifiable_periods = sorted({p for periods in notifiable_weekly_data.values() for p in periods})
+            notifiable_seasonal_baseline = calculate_seasonal_baseline(
+                all_notifiable_weeks, recent_notifiable_periods, years=5
+            )
+            nw_dev_rates = calculate_deviation_rate(notifiable_weekly_data, notifiable_seasonal_baseline)
+            nw_dev_top, _ = select_top_deviation_diseases(nw_dev_rates, top_n=5)
+            nw_dev_diseases = [d for d, _ in nw_dev_top]
+        nw_style_map = build_consistent_style_map([d for d, _ in nw_abs_top], nw_dev_diseases)
+
         generate_absolute_chart(
             notifiable_weekly_data,
             output_dir / "notifiable_weekly_absolute.png",
@@ -1047,27 +1212,34 @@ def main():
             data_source="データソース: 東京都感染症発生動向調査(全数週次報告)",
             period_type="week",
             top_n=5,
+            style_map=nw_style_map,
         )
 
-    # 4. 週次全数・季節性乖離率
-    if notifiable_weekly_data and all_notifiable_weeks:
-        recent_notifiable_periods = sorted({p for periods in notifiable_weekly_data.values() for p in periods})
-        notifiable_seasonal_baseline = calculate_seasonal_baseline(
-            all_notifiable_weeks, recent_notifiable_periods, years=5
-        )
+        if all_notifiable_weeks:
+            generate_deviation_chart(
+                notifiable_weekly_data,
+                notifiable_seasonal_baseline,
+                output_dir / "notifiable_weekly_deviation.png",
+                title="全数報告疾患の週次乖離率 (流行検知)",
+                data_source="データソース: 東京都感染症発生動向調査(全数週次報告)",
+                period_type="week",
+                top_n=5,
+                style_map=nw_style_map,
+            )
 
-        generate_deviation_chart(
-            notifiable_weekly_data,
-            notifiable_seasonal_baseline,
-            output_dir / "notifiable_weekly_deviation.png",
-            title="全数報告疾患の週次乖離率 (流行検知)",
-            data_source="データソース: 東京都感染症発生動向調査(全数週次報告)",
-            period_type="week",
-            top_n=5,
-        )
-
-    # 5. 月次定点・絶対数
+    # 5+6. 月次定点
     if monthly_data:
+        mo_abs_top = select_top_absolute_diseases(monthly_data, top_n=5)
+        mo_dev_diseases: list[str] = []
+        monthly_seasonal_baseline: dict[str, dict[int, float]] = {}
+        if all_months:
+            recent_month_periods = sorted({p for periods in monthly_data.values() for p in periods})
+            monthly_seasonal_baseline = calculate_seasonal_baseline(all_months, recent_month_periods, years=5)
+            mo_dev_rates = calculate_deviation_rate(monthly_data, monthly_seasonal_baseline)
+            mo_dev_top, _ = select_top_deviation_diseases(mo_dev_rates, top_n=5)
+            mo_dev_diseases = [d for d, _ in mo_dev_top]
+        mo_style_map = build_consistent_style_map([d for d, _ in mo_abs_top], mo_dev_diseases)
+
         generate_absolute_chart(
             monthly_data,
             output_dir / "sentinel_monthly_absolute.png",
@@ -1076,22 +1248,20 @@ def main():
             data_source="データソース: 東京都感染症発生動向調査(定点月次・性別報告)",
             period_type="month",
             top_n=5,
+            style_map=mo_style_map,
         )
 
-    # 6. 月次定点・季節性乖離率
-    if monthly_data and all_months:
-        recent_month_periods = sorted({p for periods in monthly_data.values() for p in periods})
-        monthly_seasonal_baseline = calculate_seasonal_baseline(all_months, recent_month_periods, years=5)
-
-        generate_deviation_chart(
-            monthly_data,
-            monthly_seasonal_baseline,
-            output_dir / "sentinel_monthly_deviation.png",
-            title="定点報告疾患の月次乖離率 (流行検知)",
-            data_source="データソース: 東京都感染症発生動向調査(定点月次・性別報告)",
-            period_type="month",
-            top_n=5,
-        )
+        if all_months:
+            generate_deviation_chart(
+                monthly_data,
+                monthly_seasonal_baseline,
+                output_dir / "sentinel_monthly_deviation.png",
+                title="定点報告疾患の月次乖離率 (流行検知)",
+                data_source="データソース: 東京都感染症発生動向調査(定点月次・性別報告)",
+                period_type="month",
+                top_n=5,
+                style_map=mo_style_map,
+            )
 
     print("\n✅ グラフ生成完了 (6枚)")
 
