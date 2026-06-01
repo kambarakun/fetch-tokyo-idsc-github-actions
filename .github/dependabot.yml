@@ -71,3 +71,24 @@ updates:
       type-stubs:
         patterns:
           - "types-*"
+
+  # 🪝 pre-commit フックを更新 (2026-03-10 から Dependabot ネイティブサポート)
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    labels:
+      - "dependencies"
+      - "pre-commit"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 5
+    # メジャーバージョンアップは無視 (破壊的変更を手動でレビュー)
+    # actionlint は SHA pin 運用のため Dependabot も SHA を更新する。github-actions 同様レビュー必須。
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
