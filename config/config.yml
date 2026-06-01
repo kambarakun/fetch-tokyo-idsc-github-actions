@@ -1,8 +1,12 @@
 # 東京都感染症発生動向データ収集設定ファイル
 
 # スケジュール設定
+# 注: この cron は config_manager が読み込む設定値だが、実際の定期実行は
+#     GitHub Actions の .github/workflows/fetch-data-daily.yml (cron: "0 8 * * *") と
+#     fetch-data-weekly.yml (cron: "30 8 * * 4") が制御する。両者は独立しているため、
+#     ここの値を変更しても自動実行スケジュールは変わらない点に注意。
 schedule:
-  cron: "0 10 * * 1" # 毎週月曜日 19:00 JST (10:00 UTC)
+  cron: "0 10 * * 1" # (参考値) 毎週月曜日 19:00 JST (10:00 UTC)
   timezone: "Asia/Tokyo"
   manual_trigger_enabled: true
 
@@ -13,7 +17,9 @@ collection:
   # - full: 全期間のデータを取得し、既存も更新チェック
   # - force: 全データを強制的に再取得
   mode: "incremental"
-  # incremental_mode: true  # (非推奨) mode を使用してください
+  # incremental_mode: true  # (非推奨) mode を使用してください。
+  #   mode が未設定 (null) のときのみ後方互換フォールバックとして参照されます
+  #   (優先順位: CLI --mode > collection.mode > incremental_mode > デフォルト incremental)
   batch_size: 50 # 一度に処理するファイル数
   start_year: 2024 # デフォルトの開始年（初回は2000年から実行推奨）
   end_year: null # null の場合は現在年
@@ -35,29 +41,35 @@ storage:
   base_directory: "data/raw"
   processed_directory: "data/processed"
   log_directory: "data/logs"
-  directory_structure: "{year}/{month}/week_{week}" # ディレクトリ構造
+  directory_structure: "{year}/{month}/week_{week}" # (現状未使用) config_manager は読み込むが StorageManager はフラット構造を採用しており参照しない
   auto_commit: true
   commit_message_template: "データ更新: {data_type} - {date_range}"
   keep_shift_jis: true # Shift_JIS エンコーディングを維持
 
 # 品質管理設定
+# 注: file_size_limits 以外のキー (anomaly_detection_enabled / anomaly_threshold /
+#     quarantine_enabled / quarantine_directory) は config_manager が読み込むのみで、
+#     現状 src 側に対応する実処理がない (将来用 / 未実装)。
 quality:
   file_size_limits:
     csv: [100, 10485760] # 100B - 10MB
-  anomaly_detection_enabled: true
-  anomaly_threshold: 0.3
-  quarantine_enabled: true
-  quarantine_directory: "data/quarantine"
+  anomaly_detection_enabled: true # (未実装) 将来用
+  anomaly_threshold: 0.3 # (未実装) 将来用
+  quarantine_enabled: true # (未実装) 将来用
+  quarantine_directory: "data/quarantine" # (未実装) 将来用
 
 # 通知設定
+# 注: notifications 配下のキーは config_manager が読み込むのみで、現状 src 側に
+#     対応する実処理がない (将来用 / 未実装)。実際のエラー通知/PR 作成は
+#     GitHub Actions ワークフロー側 (scripts/create_pr.sh 等) が担当する。
 notifications:
-  github_issues_enabled: true
-  create_issue_on_error: true
-  create_issue_on_anomaly: false # 異常検出時のIssue作成（初期は無効）
-  issue_labels:
+  github_issues_enabled: true # (未実装) 将来用
+  create_issue_on_error: true # (未実装) 将来用
+  create_issue_on_anomaly: false # (未実装) 将来用 (異常検出時のIssue作成)
+  issue_labels: # (未実装) 将来用
     - data-collection
     - automated
-  max_issues_per_day: 10
+  max_issues_per_day: 10 # (未実装) 将来用
 
 # データタイプ詳細設定
 data_types:

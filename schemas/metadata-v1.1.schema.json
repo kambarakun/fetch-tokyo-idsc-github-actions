@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/schemas/metadata-v1.1.schema.json",
-  "title": "Tokyo IDSC Metadata Schema",
-  "description": "Common metadata schema for Tokyo Infectious Disease Surveillance Center data files",
+  "$id": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/schemas/metadata-v1.3.schema.json",
+  "title": "Tokyo IDSC Metadata Schema (v1.3.0)",
+  "description": "Common metadata schema (v1.3.0) for Tokyo Infectious Disease Surveillance Center data files. NOTE: the filename is historically metadata-v1.1.schema.json; the authoritative schema version is 1.3.0 (see src/models/metadata.py::METADATA_VERSION). The file should be renamed to metadata-v1.3.schema.json in a follow-up.",
   "type": "object",
   "required": [
     "metadata_version",
@@ -169,6 +169,84 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "List of warning messages"
+        },
+        "details": {
+          "type": "object",
+          "description": "Structured detail information (v1.3.0+). Concrete values backing warning messages.",
+          "properties": {
+            "column_counts": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 0 },
+              "description": "Observed CSV column counts (recorded on inconsistent column count)"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "quality": {
+      "type": "object",
+      "description": "Data quality validation result (v1.2.0+)",
+      "required": ["validation_timestamp", "validation_status", "issues"],
+      "properties": {
+        "validation_timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Quality validation timestamp in ISO 8601 format"
+        },
+        "validation_status": {
+          "type": "string",
+          "enum": ["completed", "skipped", "failed"],
+          "description": "Overall status of the quality validation process"
+        },
+        "issues": {
+          "type": "array",
+          "description": "List of issues found during validation (empty array means no issues)",
+          "items": {
+            "type": "object",
+            "required": ["check_type", "validation_status", "message", "details"],
+            "properties": {
+              "check_type": {
+                "type": "string",
+                "description": "Identifier of the quality check (e.g., gender_sum_consistency)"
+              },
+              "validation_status": {
+                "type": "string",
+                "enum": ["completed", "skipped", "failed"],
+                "description": "Status of this individual check"
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable description of the issue"
+              },
+              "details": {
+                "type": "object",
+                "description": "Structured detail information for the issue",
+                "properties": {
+                  "source_file": {
+                    "type": "string",
+                    "description": "Source file the issue was detected in"
+                  },
+                  "affected_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Number of records affected by the issue"
+                  },
+                  "truncated": {
+                    "type": "boolean",
+                    "description": "Whether affected_locations was truncated (exceeded the cap)"
+                  },
+                  "affected_locations": {
+                    "type": "array",
+                    "description": "Detailed list of affected locations (capped, e.g. at 10 entries)",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "additionalProperties": false

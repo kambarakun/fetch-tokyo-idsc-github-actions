@@ -374,8 +374,8 @@ data/
 **ソース・処理履歴:**
 
 - `sources`: データソース情報
-- `_fetch`: データ取得情報 (raw用: `source_url`、`fetch_timestamp` 等)
-- `_process`: データ処理情報 (processed用: `source_name`、`processing_timestamp` 等)
+- `_fetch`: データ取得情報 (raw用: `source_url`、`fetch_time_seconds`、`force_overwrite`、`save_all_zero`)
+- `_process`: データ処理情報 (processed用: `source_name`、`source_hash`、`processing_time_seconds`、`gender`)
 
 ##### メタデータの2つの検証フィールド
 

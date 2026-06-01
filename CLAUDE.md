@@ -4,11 +4,16 @@
 
 ## 最終更新日
 
-2025-12-23
+2026-06-02
 
 ## バージョン
 
-1.3.0
+このセクションの「バージョン」は**メタデータスキーマのバージョン**を指します (`src/models/metadata.py` の `METADATA_VERSION`)。
+
+- メタデータスキーマ: **1.3.0** (`src/models/metadata.py::METADATA_VERSION`)
+- Python パッケージ: **1.0.0** (`pyproject.toml` の `project.version`)
+
+両者は独立したバージョンであり、一致させる必要はありません。
 
 ==============================================================================
 
@@ -25,9 +30,16 @@
 
 # GitHub Actions ワークフロー
 .github/workflows/
-├── claude.yml              # Claude AI統合
-├── claude-code-review.yml  # コードレビュー自動化
-└── fetch-data.yml          # データ取得自動化(作成予定)
+├── claude.yml                # Claude AI統合
+├── claude-code-review.yml    # コードレビュー自動化
+├── _fetch-data-common.yml    # データ取得の共通処理 (reusable workflow)
+├── fetch-data-daily.yml      # 日次データ取得 (cron + commonを呼び出し)
+├── fetch-data-weekly.yml     # 週次データ取得 (cron + commonを呼び出し)
+├── fetch-data.yml            # 手動実行用 (workflow_dispatch + commonを呼び出し)
+├── process-data.yml          # データ処理
+├── migrate-metadata.yml      # メタデータマイグレーション
+├── actionlint.yml            # ワークフロー静的検証
+└── test.yml                  # テスト/カバレッジ
 
 # データ保存ディレクトリ
 data/
@@ -41,34 +53,51 @@ data/
 
 # ソースコード
 src/
-├── fetchers/               # データ取得モジュール
-│   ├── base_fetcher.py    # 基本フェッチャー
-│   └── enhanced_fetcher.py # 拡張フェッチャー
-├── managers/               # 管理モジュール
-│   ├── config_manager.py   # 設定管理
-│   └── storage_manager.py  # ストレージ管理
-└── utils/                  # ユーティリティ
+├── cli/                      # CLI エントリポイント (uv run <command> の実体):
+│                             #   fetch-data / process-data / validate-data / verify-metadata /
+│                             #   migrate-metadata / check-data-status / cleanup-all-zero-data / check-missing
+├── fetchers/                 # データ取得モジュール
+│   ├── base_fetcher.py       # 基本フェッチャー
+│   └── enhanced_fetcher.py   # 拡張フェッチャー
+├── managers/                 # 管理モジュール
+│   ├── config_manager.py     # 設定管理
+│   └── storage_manager.py    # ストレージ管理 (全て0データ検出も含む)
+├── processors/               # データ処理モジュール
+│   └── data_processor.py     # Shift_JIS→UTF-8変換・性別分割など
+├── models/                   # データモデル
+│   └── metadata.py           # メタデータモデル (METADATA_VERSION定義)
+├── validators/               # データ品質検証
+│   ├── quality_validator.py  # 品質検証オーケストレータ
+│   └── gender_sum_validator.py # 性別合計検証 (male + female = total)
+└── utils/                    # ユーティリティ
+    └── version.py            # バージョン情報
 
-# テスト
+# テスト (網羅的なテストスイート。テスト数は `uv run pytest` で確認)
 tests/
+├── test_base_fetcher.py
 ├── test_enhanced_fetcher.py
 ├── test_config_manager.py
-└── test_storage_manager.py
+├── test_storage_manager.py
+├── test_data_processor.py
+├── test_metadata.py / test_models_metadata.py
+├── test_validate_data.py / test_validators_integration.py
+├── test_migrate_metadata.py
+└── ...                       # ほか CLI/カバレッジ用テスト多数
 ```
 
 ### 📁 主要スクリプト
 
 ```bash
-# データ取得
-src/cli/fetch_data.py       # データ取得メインスクリプト
-scripts/check_missing.py    # 欠番チェックユーティリティ
+# データ取得 (実体は src/cli/ 配下。実行は uv run <command> を使用)
+src/cli/fetch_data.py       # データ取得メインスクリプト (uv run fetch-data)
+src/cli/check_missing.py    # 欠番チェックユーティリティ (uv run check-missing)
 
 # パッケージ管理
 pyproject.toml              # プロジェクト設定とパッケージ定義
 uv.lock                     # 依存関係のロックファイル
 ```
 
-> 注: 旧 `scripts/fetch_data.py` など互換シム(issue #312 対象7ファイル)は2026年Q2に削除済です。実行は `uv run <command>` を使用してください (`fetch-data` / `process-data` / `validate-data` / `verify-metadata` / `migrate-metadata` / `check-data-status` / `cleanup-all-zero-data`)。
+> 注: 実行は必ず `uv run <command>` を使用してください (`fetch-data` / `process-data` / `validate-data` / `verify-metadata` / `migrate-metadata` / `check-data-status` / `cleanup-all-zero-data` / `check-missing`)。`scripts/check_missing.py` は `src/cli/check_missing.py` を呼ぶ互換シム (deprecated) で、直接実行すると FutureWarning が出ます。旧 `scripts/fetch_data.py` など互換シム (issue #312 対象7ファイル) は2026年Q2に削除済です。
 
 ==============================================================================
 
@@ -229,32 +258,37 @@ uv run fetch-data --save-all-zero
 
 ```bash
 # GitHub Actionsワークフローの有効化(要: gh CLI インストール & gh auth login)
-gh workflow enable fetch-data.yml
+gh workflow enable fetch-data-daily.yml
+gh workflow enable fetch-data-weekly.yml
 
-# 手動実行
+# 手動実行 (fetch-data.yml は workflow_dispatch 専用)
 gh workflow run fetch-data.yml
 
-# スケジュール設定(.github/workflows/fetch-data.yml内で設定)
+# スケジュール設定:
+# - 日次:   .github/workflows/fetch-data-daily.yml  (cron: "0 8 * * *")
+# - 週次:   .github/workflows/fetch-data-weekly.yml (cron: "30 8 * * 4")
+# 上記 3 ワークフローはいずれも .github/workflows/_fetch-data-common.yml
+# (reusable workflow) を呼び出して実処理を共通化しています。
 ```
 
 ==============================================================================
 
 ## 📊 プロジェクトの現在のステータス
 
-### 進捗概要(2025-12-23時点)
+### 進捗概要(2026-06-02時点)
 
 - **仕様定義**: 完了 ✅
-- **GitHub Actions設定**: 完了 ✅(データ取得とテストワークフロー)
+- **GitHub Actions設定**: 完了 ✅(データ取得・処理・テスト・actionlint ワークフロー)
 - **データ取得モジュール**: 完了 ✅(基本・拡張フェッチャー実装済み)
-- **データ処理モジュール**: 完了 ✅(ストレージ管理、設定管理実装済み)
-- **自動化ワークフロー**: 完了 ✅(週次自動実行設定済み)
-- **テストスイート**: 完了 ✅(50テスト、カバレッジ設定済み)
+- **データ処理モジュール**: 完了 ✅(ストレージ管理、設定管理、データ処理、品質検証実装済み)
+- **自動化ワークフロー**: 完了 ✅(日次・週次の自動実行設定済み、共通処理を reusable workflow に集約)
+- **テストスイート**: 完了 ✅(テスト数は `uv run pytest` で確認。現状約 658 件、カバレッジ設定済み)
 
 ### システムステータス
 
 - **本番稼働準備完了**
 - 初回実行時は2000年からの全データ取得を推奨
-- 以降は週次の増分更新で運用
+- 以降は日次/週次の増分更新で運用
 
 ## メタインストラクション:このファイルの使用方法
 
@@ -463,7 +497,6 @@ dev = [
 #### 基本原則
 
 1. **テストファーストではなくテストと共に**
-
    - 実装とテストを交互に書く
    - Red → Green → Refactor のサイクル
 
@@ -483,7 +516,6 @@ dev = [
    ```
 
 3. **テストの独立性**
-
    - 各テストは独立して実行可能
    - テスト間の依存関係を排除
    - setUp/tearDownで状態を管理
@@ -504,7 +536,6 @@ dev = [
    ```
 
    理由:
-
    - プロジェクト全体で一貫した英語のスネークケースを使用
    - Python標準のPEP 8スタイルガイドに準拠
    - CI/CDツールやIDEとの互換性を保証
@@ -550,11 +581,13 @@ def test_timestamp(self, mock_time):
 
 #### カバレッジ目標
 
-- **全体カバレッジ(line + branch)**: **100%を維持する**
+- **計測対象**: `src/` 配下のみ (`pyproject.toml` の `[tool.coverage.run] source = ["src"]`)。`__init__.py` は `omit` で、`scripts/**` と `tests/**` は `codecov.yml` の `ignore` で除外されます。
+- **全体カバレッジ(line + branch)**: 計測対象 (`src`、`__init__.py`/`scripts` 除外) に対して **100%を維持する**
 - **コアモジュール**: 100%を維持する
   - `src/fetchers/`: HTTPエラー処理、リトライロジック
   - `src/managers/`: データ保存、設定管理
   - `src/processors/`: データ変換、検証
+  - `src/validators/`: データ品質検証 (性別合計など)
 
 #### カバレッジ確認方法
 
@@ -569,7 +602,6 @@ open htmlcov/index.html
 #### 本質的なテストの原則
 
 1. **修正した全コードパスをテストする**
-
    - 新機能追加時: 正常系と異常系の両方をテスト
    - バグ修正時: バグが再発しないことを保証するテストを追加
    - リファクタリング時: 既存の動作が変わっていないことを確認
@@ -589,7 +621,6 @@ open htmlcov/index.html
    ```
 
 3. **境界値テストを実施する**
-
    - 最大リトライ回数到達時の動作
    - 空データ、不正なデータの処理
    - タイムアウト、接続エラー
@@ -612,7 +643,6 @@ open htmlcov/index.html
    ```
 
 2. **優先度の高い順にテストを追加**
-
    - 🔴 緊急: エラーハンドリング、セキュリティ関連
    - 🟡 重要: データ処理ロジック、API呼び出し
    - 🟢 通常: ユーティリティ関数、ログ出力
@@ -832,12 +862,10 @@ data/
 #### 必須事項
 
 1. **ASCIIアート図の禁止**
-
    - `┌─┐`, `│ │`, `└─┘`, `→`, `▼` などのASCIIアート図は使用しない
    - 既存のASCIIアート図を発見した場合は、Mermaidに変換する
 
 2. **Mermaidの使用が必須な場面**
-
    - データフロー(システム全体の流れ)
    - プロセスフロー(処理の手順)
    - 状態遷移図
@@ -879,7 +907,6 @@ Error --> [*]
 ```
 
 4. **スタイリングの推奨**
-
    - 重要なノードには色付けを行う
    - `style NodeName fill:#f9f,stroke:#333,stroke-width:2px`
    - データ保存場所: `#f9f` (ピンク)
@@ -970,17 +997,14 @@ data/
 #### 実装ガイドライン
 
 1. **コメント開始位置の決定**
-
    - 最も長いパス名(ディレクトリ名+ファイル名)を基準に、コメント記号 `#` の開始位置を決定
    - 推奨: パス名の末尾から2スペース空けた位置(または統一したカラム位置)
 
 2. **全行で統一**
-
    - トップレベルディレクトリ(`├── raw/`、`└── logs/` など)も含めて、**全ての行**でコメント位置を揃える
    - 一部の行だけ揃えると、かえって見づらくなる
 
 3. **スペースで位置調整**
-
    - パス名が短い行は、スペースを追加してコメント位置を揃える
    - タブ文字は使用しない(環境により表示が異なるため)
 
@@ -1151,11 +1175,13 @@ tail -f data/logs/fetch_log_$(date +%Y%m%d).txt
 
 ### 7.1 ワークフローテンプレート
 
+> 注: 以下は構造を示すための**汎用例**です。実際の運用では実処理を `.github/workflows/_fetch-data-common.yml` (reusable workflow) に集約し、`fetch-data-daily.yml` (cron `"0 8 * * *"` = 毎日 17:00 JST)・`fetch-data-weekly.yml` (cron `"30 8 * * 4"` = 毎週木曜 17:30 JST)・`fetch-data.yml` (`workflow_dispatch` 手動実行) の 3 ファイルがこれを呼び出します。最新の cron 値・権限・PR 作成手順は各実ファイルを参照してください。
+
 ```yaml
-name: Fetch Tokyo Epidemic Data
+name: Fetch Tokyo Epidemic Data (汎用例)
 on:
   schedule:
-    - cron: "0 10 * * 1" # 毎週月曜日 19:00 JST
+    - cron: "0 8 * * *" # 毎日 17:00 JST (08:00 UTC) ※実値は fetch-data-daily.yml を参照
   workflow_dispatch: # 手動実行も可能
 
 permissions:

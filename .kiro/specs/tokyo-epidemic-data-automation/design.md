@@ -4,31 +4,31 @@
 
 東京都感染症発生動向情報の自動データ収集システムは、既存のTokyoEpidemicSurveillanceFetcherクラスを中核として、GitHub Actionsによるスケジュール実行、エラーハンドリング、データ品質管理、自動Git管理を統合したシステムです。
 
-**現在の実装状況**: 基本的なフェッチャー機能とEnhancedEpidemicDataFetcherクラスが実装済み。設定ファイル（config.yml）、GitHub Actionsワークフロー（fetch-data.yml）、およびプロジェクト構造も整備済み。
+**現在の実装状況**: 基本的なフェッチャー機能とEnhancedEpidemicDataFetcherクラスが実装済み。設定ファイル(config.yml)、GitHub Actionsワークフロー(fetch-data.yml)、およびプロジェクト構造も整備済み。
 
-**実装方針**: 既存のコードとスクリプトを最大限活用し、新規クラスや大規模リファクタリングは必要最小限に留めます。ディレクトリ構造（data/raw のフラット構造）やファイル命名規則（{data*type}*{year}\_{period:02d}.csv）は変更しません。
+**実装方針**: 既存のコードとスクリプトを最大限活用し、新規クラスや大規模リファクタリングは必要最小限に留めます。ディレクトリ構造(data/raw のフラット構造)やファイル命名規則({data*type}*{year}\_{period:02d}.csv)は変更しません。
 
-システムは以下の主要コンポーネントで構成されます：
+システムは以下の主要コンポーネントで構成されます:
 
 - **Data Collector (Enhanced Fetcher)**: ✅ 実装済み - 既存のTokyoEpidemicSurveillanceFetcherを拡張したデータ取得エンジン
-- **Configuration Manager**: ✅ 実装済み - YAML設定ファイルによる設定管理（config.yml）
+- **Configuration Manager**: ✅ 実装済み - YAML設定ファイルによる設定管理(config.yml)
 - **Storage Manager**: ✅ 実装済み - ファイル管理とGit操作を担当
-- **Automation System**: ✅ 実装済み - GitHub Actionsベースのスケジューリングと実行制御システム（fetch-data.yml）
-- **Quality Controller**: 🔄 部分実装済み - データ検証スクリプト（validate_data.py, validate_continuity.py, check_missing.py）
+- **Automation System**: ✅ 実装済み - GitHub Actionsベースのスケジューリングと実行制御システム(fetch-data.yml)
+- **Quality Controller**: 🔄 部分実装済み - データ検証 (src/cli/validate_data.py, src/cli/verify_metadata.py, scripts/validate_continuity.py, scripts/validate_raw_quality.py, src/cli/check_missing.py) と品質検証ロジック (src/validators/)
 - **Notification System**: ✅ 実装済み - GitHub Issues連携によるエラー通知
 - **Execution Manager**: 🔄 実装予定 - 実行時間制限とチェックポイント管理
 - **Security Validator**: 🔄 実装予定 - セキュリティ検証と機密情報保護
 
 ### Key Design Decisions
 
-1. **既存コードの活用**: TokyoEpidemicSurveillanceFetcherクラスを継承・拡張し、既存の実装を最大限活用（Requirements 1.2）
-2. **GitHub Actions中心設計**: CI/CDプラットフォームの制約（実行時間制限、リソース制限）を考慮した設計（Requirements 1.1, 4.2, 4.5）
-3. **ファイルベース状態管理**: データベース不要で、ファイルシステムとGitによる状態管理（Requirements 3.5）
-4. **段階的データ収集**: 大量の履歴データを効率的に処理するための分割実行戦略（Requirements 7.1, 7.4）
-5. **包括的エラーハンドリング**: 指数バックオフリトライとGitHub Issues連携による通知システム（Requirements 1.5, 2.2）
-6. **データ品質重視**: ファイル検証、異常検出、隔離機能による信頼性確保（Requirements 6.1-6.5）
-7. **セキュリティファースト**: 最小権限、HTTPS通信、機密情報保護の徹底（Requirements 8.1-8.5）
-8. **設定駆動アーキテクチャ**: YAMLベース設定による柔軟性とメンテナンス性（Requirements 4.1, 4.6）
+1. **既存コードの活用**: TokyoEpidemicSurveillanceFetcherクラスを継承・拡張し、既存の実装を最大限活用(Requirements 1.2)
+2. **GitHub Actions中心設計**: CI/CDプラットフォームの制約(実行時間制限、リソース制限)を考慮した設計(Requirements 1.1, 4.2, 4.5)
+3. **ファイルベース状態管理**: データベース不要で、ファイルシステムとGitによる状態管理(Requirements 3.5)
+4. **段階的データ収集**: 大量の履歴データを効率的に処理するための分割実行戦略(Requirements 7.1, 7.4)
+5. **包括的エラーハンドリング**: 指数バックオフリトライとGitHub Issues連携による通知システム(Requirements 1.5, 2.2)
+6. **データ品質重視**: ファイル検証、異常検出、隔離機能による信頼性確保(Requirements 6.1-6.5)
+7. **セキュリティファースト**: 最小権限、HTTPS通信、機密情報保護の徹底(Requirements 8.1-8.5)
+8. **設定駆動アーキテクチャ**: YAMLベース設定による柔軟性とメンテナンス性(Requirements 4.1, 4.6)
 
 ## Architecture
 
@@ -65,7 +65,7 @@ graph TB
 
 ### GitHub Actions Workflow Design
 
-要件に基づくワークフロー設計（✅ 実装済み: .github/workflows/fetch-data.yml）：
+要件に基づくワークフロー設計(✅ 実装済み: .github/workflows/fetch-data.yml):
 
 ```yaml
 # .github/workflows/fetch-data.yml の概要
@@ -128,7 +128,7 @@ sequenceDiagram
 
 ### 0. Execution Manager
 
-GitHub Actionsの実行時間制限（6時間）を考慮した実行管理：
+GitHub Actionsの実行時間制限(6時間)を考慮した実行管理:
 
 ```python
 class ExecutionManager:
@@ -158,7 +158,7 @@ class CheckpointManager:
 
 ### 1. Data Collector (Enhanced Fetcher) - ✅ 実装済み
 
-既存のTokyoEpidemicSurveillanceFetcherクラスを拡張し、要件に基づく機能を実装済み：
+既存のTokyoEpidemicSurveillanceFetcherクラスを拡張し、要件に基づく機能を実装済み:
 
 **実装済み機能**:
 
@@ -193,15 +193,17 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         """欠損データの特定と重複回避 (Requirement 3.6)"""
 ```
 
-**データ構造処理機能** (🔄 Requirement 9 - 未実装):
+**データ構造処理機能** (✅ Requirement 9 - 実装済み):
 
-> **注**: 現在の実装は**CSVダウンロードと保存のみ**。
-> 以下のCSV解析機能はRequirement 9で定義されているが、まだ実装されていない。
+> **注**: CSV解析は `src/processors/data_processor.py` の `DataProcessor` クラスに実装済み (`uv run process-data` から実行)。
+> Shift_JIS → UTF-8 変換と性別分割を行い、`data/processed/` に正規化済みCSVを保存する。
+> pandas には依存せず、標準ライブラリ `csv` で実装している。
 
-- 🔄 全数報告CSV解析: メタデータ抽出、疾病名・報告数の特定
-- 🔄 定点監視CSV解析: 性別セクション分割、年齢別データ処理
-- 🔄 感染症列の動的抽出: ヘッダー行からの自動検出
-- 🔄 引用符処理: CSVフィールドの正しい解析
+- ✅ 全数報告CSV解析: `_process_notifiable` (メタデータ抽出、疾病名・報告数の特定)
+- ✅ 定点監視CSV解析: `_process_sentinel` / `_process_sentinel_simple` (性別セクション分割、年齢別データ処理)
+- ✅ 性別セクション検出: `_detect_gender_sections`
+- ✅ 性別合計の検証: `_verify_total_calculation` (male + female = total)
+- ✅ 感染症列の動的抽出 / 引用符付きCSVフィールドの解析
 
 **追加実装予定**:
 
@@ -211,12 +213,14 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
 ````
 
-### 2. Configuration Manager - ✅ 部分実装済み
+### 2. Configuration Manager - ✅ 実装済み
 
-YAML設定ファイルによる柔軟な設定管理、要件に基づく設定機能：
+YAML設定ファイルによる柔軟な設定管理、要件に基づく設定機能:
 
 **実装済み機能**:
-- ✅ config.yml: 包括的な設定ファイル (Requirements 4.1, 4.2, 4.5)
+- ✅ config/config.yml: 包括的な設定ファイル (Requirements 4.1, 4.2, 4.5)
+- ✅ ConfigurationManager クラス (src/managers/config_manager.py): YAML 読み込み・設定検証 (Requirement 4.6)
+- ✅ 設定データクラス: DataCollectionConfig, CollectionConfig, ScheduleConfig, StorageConfig, QualityConfig, NotificationConfig, DataTypeConfig
 - ✅ スケジュール設定: cronベース、手動トリガー対応
 - ✅ データタイプ設定: 9種類のデータタイプ定義済み
 - ✅ ストレージ設定: ディレクトリ構造、自動コミット設定
@@ -249,62 +253,65 @@ notifications:
 
 **追加実装予定**:
 
-- 🔄 ConfigurationManagerクラスの実装
-- 🔄 設定検証機能 (Requirement 4.6)
 - 🔄 セキュリティ設定セクション (Requirements 8.1, 8.2)
 - 🔄 ログ設定セクション (Requirement 4.4)
 
-# config.yml の例
+# config/config.yml の例 (実際の構造に準拠 - ソース・オブ・トゥルースは config/config.yml)
 
 ```yaml
 schedule:
-  cron: "0 2 * * 1"
+  cron: "0 10 * * 1" # 毎週月曜日 19:00 JST (10:00 UTC)
   timezone: "Asia/Tokyo"
   manual_trigger_enabled: true
 
-data_collection:
-  incremental_mode: true # 増分収集モード
+collection:
+  # データ収集モード (incremental | full | force)
+  mode: "incremental"
   batch_size: 50 # 一度に処理するファイル数
-  date_ranges:
-    - start: "2024-01-01"
-      end: "2024-12-31"
-      priority: "high"
-    - start: "2000-01-01"
-      end: "2023-12-31"
-      priority: "low"
-
-data_types:
-  - name: "sentinel_weekly_gender"
-    enabled: true
-    fetch_method: "fetch_csv_sentinel_weekly_gender"
-    parameters:
-      epid_code: "00"
-  - name: "sentinel_weekly_age"
-    enabled: true
-    fetch_method: "fetch_csv_sentinel_weekly_age"
+  start_year: 2024 # デフォルトの開始年 (初回は2000年から実行推奨)
+  end_year: null # null の場合は現在年
+  data_types: # 9種類のデータタイプ
+    - sentinel_weekly_gender
+    - sentinel_weekly_age
+    # ... (詳細は config/config.yml を参照)
+  retry_failed: true
+  max_execution_time_hours: 5.5 # GitHub Actions の6時間制限対策
 
 storage:
   base_directory: "data/raw"
-  directory_structure: "" # フラット構造（現状未使用）
+  processed_directory: "data/processed"
+  log_directory: "data/logs"
   auto_commit: true
-  commit_message_template: "Add {data_type} data for {date_range}"
+  commit_message_template: "データ更新: {data_type} - {date_range}"
+  keep_shift_jis: true # Shift_JIS エンコーディングを維持
 
 quality:
   file_size_limits:
     csv: [100, 10485760] # 100B - 10MB
   anomaly_detection_enabled: true
   quarantine_enabled: true
+
+# データタイプ詳細設定 (同一ファイル内の data_types: セクション)
+data_types:
+  - name: sentinel_weekly_gender
+    enabled: true
+    fetch_method: fetch_csv_sentinel_weekly_gender
+    epid_code: "00"
+  - name: sentinel_weekly_age
+    enabled: true
+    fetch_method: fetch_csv_sentinel_weekly_age
+    epid_code: "00"
 ```
 
 ### 3. Storage Manager - ✅ 実装済み
 
-ファイル管理とGit操作の統合、要件に基づく機能実装：
+ファイル管理とGit操作の統合、要件に基づく機能実装:
 
 **実装済み機能**:
 
-- ✅ save_with_metadata: CSVファイル+メタデータの一括保存（Shift_JISエンコーディング維持）
+- ✅ save_with_metadata: CSVファイル+メタデータの一括保存(Shift_JISエンコーディング維持)
 - ✅ commit_changes: Git自動コミット・プッシュ
-- ✅ get_existing_files: 既存ファイルの取得（データタイプ・年でフィルタ可能）
+- ✅ get_existing_files: 既存ファイルの取得(データタイプ・年でフィルタ可能)
 - ✅ check_duplicates: SHA256ハッシュによる重複チェック
 - ✅ get_metadata: メタデータの読み込み
 - ✅ get_storage_stats: ストレージ統計情報の取得
@@ -334,18 +341,18 @@ class StorageManager:
     def __init__(self, base_path: Path, config: dict[str, Any]):
         """
         Args:
-            base_path: データ保存のベースディレクトリ（例: Path("data/raw")）
+            base_path: データ保存のベースディレクトリ(例: Path("data/raw"))
             config: ストレージ設定を含む辞書
-                - auto_commit: Git自動コミットを有効にするか（デフォルト: True）
+                - auto_commit: Git自動コミットを有効にするか(デフォルト: True)
         """
         self.base_path = Path(base_path)
         self.config = config
         self.git_handler = GitHandler(config.get("auto_commit", True))
 
-        # メタデータ保存用ディレクトリ（.metadata/）
+        # メタデータ保存用ディレクトリ(.metadata/)
         self.metadata_dir = self.base_path / ".metadata"
 
-        # ハッシュインデックス（重複チェック用）
+        # ハッシュインデックス(重複チェック用)
         self.hash_index_file = self.metadata_dir / "hash_index.json"
 
     def save_with_metadata(
@@ -363,7 +370,7 @@ class StorageManager:
 
         - SHA256ハッシュで重複チェック (Requirements 3.4, 7.3)
         - Shift_JISエンコーディング維持 (Requirements 3.1, 3.2, 3.3)
-        - フラット構造でファイル保存（data/raw直下）
+        - フラット構造でファイル保存(data/raw直下)
         - メタデータは.metadata/ディレクトリに別途保存 (Requirement 3.4)
         """
 
@@ -377,9 +384,9 @@ class StorageManager:
         Git自動コミット・プッシュ (Requirement 3.5)
 
         Args:
-            message: コミットメッセージ（省略時は自動生成）
-            data_type: データタイプ（メッセージ生成用、例: 'sentinel_weekly_gender'）
-            date_range: 日付範囲（メッセージ生成用、例: '2025-01-01 to 2025-01-07'）
+            message: コミットメッセージ(省略時は自動生成)
+            data_type: データタイプ(メッセージ生成用、例: 'sentinel_weekly_gender')
+            date_range: 日付範囲(メッセージ生成用、例: '2025-01-01 to 2025-01-07')
 
         Note:
             - base_pathとmetadata_dirを自動的にステージング
@@ -397,11 +404,11 @@ class StorageManager:
         既存ファイルの取得 (Requirement 3.6)
 
         Args:
-            data_type: フィルタリングするデータタイプ（オプション）
-            year: フィルタリングする年（オプション）
+            data_type: フィルタリングするデータタイプ(オプション)
+            year: フィルタリングする年(オプション)
 
         Returns:
-            条件に一致するファイルパスのリスト（ソート済み）
+            条件に一致するファイルパスのリスト(ソート済み)
         """
 
     def check_duplicates(self, file_hash: str) -> bool:
@@ -423,7 +430,7 @@ class StorageManager:
 
 ### 4. Quality Controller
 
-データ品質管理と検証、要件に基づく包括的な品質保証：
+データ品質管理と検証、要件に基づく包括的な品質保証:
 
 ```python
 class QualityController:
@@ -459,7 +466,7 @@ class QualityController:
 
 ### 5. Notification System
 
-GitHub Issues APIを使用した通知システム、要件に基づく通知機能：
+GitHub Issues APIを使用した通知システム、要件に基づく通知機能:
 
 ````python
 class NotificationSystem:
@@ -487,7 +494,7 @@ class NotificationSystem:
 
 ### 6. Security Validator
 
-セキュリティ検証と機密情報保護、要件に基づくセキュリティ機能：
+セキュリティ検証と機密情報保護、要件に基づくセキュリティ機能:
 
 ```python
 class SecurityValidator:
@@ -517,7 +524,7 @@ class SecurityValidator:
 
 ### 7. Monitoring System
 
-システム監視とメトリクス収集：
+システム監視とメトリクス収集:
 
 ```python
 class MonitoringSystem:
@@ -608,15 +615,16 @@ class DataFetcherConfig:
     user_agent: str = "TokyoEpidemicDataFetcher/1.0 (GitHub Actions Automation)"
 ```
 
-### Processed Data Structures - 🔄 計画中（未実装）
+### Processed Data Structures - ✅ 実装済み (CSV ベース、pandas 非依存)
 
-> **注**: このセクションは**将来のデータ処理機能**のターゲット構造を示しています。
-> 現在の実装はCSVの生データダウンロードのみで、DataFrame変換は未実装です。
+> **注**: データ処理は `src/processors/data_processor.py` に実装済みで、出力は `data/processed/` の UTF-8 正規化済みCSVファイルです。
+> 実装は標準ライブラリ `csv` ベースで、**pandas DataFrame は使用していません** (pandas はプロジェクト依存に含まれない)。
+> 以下の `pd.DataFrame(...)` は、出力CSVの論理的な列構造を説明するための擬似コードであり、実際のランタイム型ではありません。
 
-**Shift_JIS CSV処理後のデータ構造**（計画）:
+**Shift_JIS CSV処理後のデータ構造** (論理スキーマ):
 
 ```python
-# 全数報告データの処理後構造（pandas DataFrame）
+# 全数報告データの処理後構造(出力CSVの論理的な列構造)
 # 列: ['疾病名', '報告数', 'year', 'period', 'data_type', 'category',
 #      'report_frequency', 'aggregation', 'start_week', 'end_week']
 notifiable_df = pd.DataFrame({
@@ -632,7 +640,7 @@ notifiable_df = pd.DataFrame({
     'end_week': ['2024年第1週', ...]
 })
 
-# 定点監視データの処理後構造（pandas DataFrame）
+# 定点監視データの処理後構造(pandas DataFrame)
 # 列: ['地域・年齢区分', 'インフルエンザ', 'RSウイルス感染症', ...,
 #      'gender', 'year', 'period', 'data_type', 'category',
 #      'report_frequency', 'aggregation']
@@ -650,7 +658,7 @@ sentinel_df = pd.DataFrame({
     'aggregation': ['男女別', ...]
 })
 
-# 年齢別データの処理後構造（pandas DataFrame）
+# 年齢別データの処理後構造(pandas DataFrame)
 # 列: ['地域・年齢区分', 'インフルエンザ', 'RSウイルス感染症', ...,
 #      'gender', 'year', 'period', 'data_type', 'category',
 #      'report_frequency', 'aggregation']
@@ -672,13 +680,13 @@ age_df = pd.DataFrame({
 **データ構造の特徴**:
 
 1. **全数報告データ**: 疾病名と報告数の2列構造 + メタデータ列
-2. **定点監視データ**: 地域・年齢区分 + 複数の感染症列（動的） + メタデータ列
+2. **定点監視データ**: 地域・年齢区分 + 複数の感染症列(動的) + メタデータ列
 3. **性別セクション**: 男、女、男女合計の3セクションに分割
-4. **年齢別データ**: 年齢区分（0歳、1-4歳等）+ 感染症列 + 性別情報
+4. **年齢別データ**: 年齢区分(0歳、1-4歳等)+ 感染症列 + 性別情報
 5. **メタデータ列**: year, period, data_type, category, report_frequency, aggregation
-6. **数値型**: 報告数・感染症列は全てfloat64型（64ビット浮動小数点数）
-7. **欠損値処理**: 欠損値・空白値は0.0に正規化（データ集計の一貫性のため）
-8. **タイムゾーン**: 年(year)と週(period)の関係はISO 8601準拠（詳細は後述）
+6. **数値型**: 報告数・感染症列は全てfloat64型(64ビット浮動小数点数)
+7. **欠損値処理**: 欠損値・空白値は0.0に正規化(データ集計の一貫性のため)
+8. **タイムゾーン**: 年(year)と週(period)の関係はISO 8601準拠(詳細は後述)
 
 ### ISO 8601 週番号と年境界処理
 
@@ -688,31 +696,31 @@ age_df = pd.DataFrame({
 # ISO 8601では、週は月曜日から始まり日曜日で終わる
 # 年の第1週は、1月4日を含む週として定義される
 
-# 例1: 2024年12月30日（月曜日）はISO年では2025年第1週
+# 例1: 2024年12月30日(月曜日)はISO年では2025年第1週
 date(2024, 12, 30).isocalendar()  # (2025, 1, 1)
-# year=2025, week=1, weekday=1（月曜）
+# year=2025, week=1, weekday=1(月曜)
 
-# 例2: 2023年1月1日（日曜日）はISO年では2022年第52週
+# 例2: 2023年1月1日(日曜日)はISO年では2022年第52週
 date(2023, 1, 1).isocalendar()  # (2022, 52, 7)
-# year=2022, week=52, weekday=7（日曜）
+# year=2022, week=52, weekday=7(日曜)
 
 # 例3: 2週前の計算が年をまたぐケース
-# 2025年1月6日（月曜日、第2週）の2週前は2024年第52週
+# 2025年1月6日(月曜日、第2週)の2週前は2024年第52週
 current = date(2025, 1, 6)
 two_weeks_ago = current - timedelta(weeks=2)
 current.isocalendar()  # (2025, 2, 1)
 two_weeks_ago.isocalendar()  # (2024, 52, 1)
 ```
 
-**年境界での週番号取得（GitHub Actions実装）**:
+**年境界での週番号取得(GitHub Actions実装)**:
 
 ```yaml
 # .github/workflows/fetch-data-daily.yml での実装
 # Linux date コマンドのISO週番号オプション使用
 
 # 現在週
-CURRENT_WEEK=$(date +'%V')  # ISO週番号（01-53）
-CURRENT_YEAR=$(date +'%G')  # ISO週暦年（年境界考慮）
+CURRENT_WEEK=$(date +'%V')  # ISO週番号(01-53)
+CURRENT_YEAR=$(date +'%G')  # ISO週暦年(年境界考慮)
 
 # 前週
 PREVIOUS_WEEK=$(date -d 'last week' +'%V')
@@ -733,13 +741,13 @@ TWO_WEEKS_AGO_YEAR=$(date -d '2 weeks ago' +'%G')  # 重要: 年も取得
 **fetch_data.pyでの年境界処理**:
 
 ```python
-# scripts/fetch_data.py の実装（266-271行）
+# src/cli/fetch_data.py の _generate_all_params メソッド
 # 年ごとにループして週番号をフィルタリング
 for year in range(start_year, end_year + 1):
     max_week = self._get_weeks_in_year(year)  # 各年の最大週数を取得
 
     for week in range(1, max_week + 1):
-        # 指定された週番号のみを処理（年をまたぐ場合も正しく処理）
+        # 指定された週番号のみを処理(年をまたぐ場合も正しく処理)
         if self.target_weeks and week not in self.target_weeks:
             continue
         # 各年の該当週のデータを取得
@@ -819,7 +827,7 @@ class QualityConfig:
 
 ### Retry Strategy
 
-要件に基づく包括的なリトライ戦略：
+要件に基づく包括的なリトライ戦略:
 
 ```python
 class RetryHandler:
@@ -901,7 +909,7 @@ class ErrorHandler:
 
 ### Unit Testing
 
-各コンポーネントの単体テスト：
+各コンポーネントの単体テスト:
 
 ```python
 class TestDataFetcher:
@@ -955,7 +963,7 @@ class TestPerformance:
 
 ## Logging System
 
-要件に基づく包括的なログシステム：
+要件に基づく包括的なログシステム:
 
 ### Multi-Level Logging
 
@@ -1070,55 +1078,78 @@ class DataCache:
 **注意**: 以下は現在の実装状況を反映したディレクトリ構造です。実際の設定は config/config.yml をソース・オブ・トゥルースとしてください。
 
 **実装済み構造**:
-```text
 
+```text
 fetch-tokyo-idsc-github-actions/
 ├── .github/
 │   └── workflows/
-│       └── fetch-data.yml                      # ✅ メインワークフロー実装済み
+│       ├── fetch-data.yml                      # ✅ メインデータ収集ワークフロー
+│       ├── fetch-data-daily.yml                # ✅ 毎日チェック (週境界処理)
+│       ├── fetch-data-weekly.yml               # ✅ 週次データ収集
+│       ├── process-data.yml                    # ✅ データ処理ワークフロー
+│       ├── migrate-metadata.yml                # ✅ メタデータ移行ワークフロー
+│       ├── test.yml                            # ✅ テスト・lint (uv ベース)
+│       └── actionlint.yml                      # ✅ ワークフロー静的検証
 ├── src/
+│   ├── cli/                                    # ✅ CLI エントリーポイント (uv run <cmd>)
+│   │   ├── fetch_data.py                       # ✅ fetch-data (メイン収集スクリプト)
+│   │   ├── process_data.py                     # ✅ process-data (Shift_JIS→UTF-8 正規化)
+│   │   ├── validate_data.py                    # ✅ validate-data
+│   │   ├── verify_metadata.py                  # ✅ verify-metadata
+│   │   ├── migrate_metadata.py                 # ✅ migrate-metadata
+│   │   ├── check_data_status.py                # ✅ check-data-status
+│   │   ├── cleanup_all_zero_data.py            # ✅ cleanup-all-zero-data
+│   │   └── check_missing.py                    # ✅ check-missing (欠損チェック)
 │   ├── fetchers/                               # ✅ 実装済み
-│   │   ├── **init**.py
-│   │   ├── base*fetcher.py                     # ✅ TokyoEpidemicSurveillanceFetcher
+│   │   ├── base_fetcher.py                     # ✅ TokyoEpidemicSurveillanceFetcher
 │   │   └── enhanced_fetcher.py                 # ✅ 拡張版フェッチャー
-│   └── managers/                               # ✅ 実装済み
-│       ├── **init**.py
-│       ├── config_manager.py                   # ✅ 設定管理実装済み
-│       └── storage_manager.py                  # ✅ ストレージ管理実装済み
+│   ├── managers/                               # ✅ 実装済み
+│   │   ├── config_manager.py                   # ✅ 設定管理 (ConfigurationManager)
+│   │   └── storage_manager.py                  # ✅ ストレージ管理 (StorageManager)
+│   ├── processors/                             # ✅ データ処理
+│   │   └── data_processor.py                   # ✅ CSV解析・性別分割 (DataProcessor)
+│   ├── validators/                             # ✅ データ品質検証
+│   │   ├── quality_validator.py                # ✅ 品質検証 orchestrator
+│   │   └── gender_sum_validator.py             # ✅ 性別合計整合性検証
+│   └── models/                                 # ✅ データモデル
+│       └── metadata.py                         # ✅ メタデータモデル (v1.3.0)
 ├── config/
-│   └── config.yml                              # ✅ 包括的設定ファイル（ソース・オブ・トゥルース）
-├── scripts/                                    # ✅ 実装済み
-│   ├── fetch_data.py                           # ✅ メインスクリプト
-│   ├── validate_data.py                        # ✅ データ検証
+│   └── config.yml                              # ✅ 包括的設定ファイル (ソース・オブ・トゥルース)
+├── scripts/                                    # ✅ 補助スクリプト
 │   ├── validate_continuity.py                  # ✅ 連続性検証
-│   └── check_missing.py                        # ✅ 欠損チェック
+│   ├── validate_raw_quality.py                 # ✅ raw データ品質一括検証
+│   ├── migrate_metadata_v1_2_0.py              # ✅ v1.1.0→v1.2.0 移行
+│   ├── generate_charts.py                      # ✅ 可視化グラフ生成
+│   └── check_missing.py                        # ✅ 欠番チェックユーティリティ
 ├── data/
-│   ├── raw/                                    # ✅ CSVファイル保存（フラット構造）
-│   └── logs/                                   # ✅ メタデータログ
+│   ├── raw/                                    # ✅ CSVファイル保存 (フラット構造)
+│   ├── processed/                              # ✅ 正規化済みデータ (UTF-8)
+│   └── logs/                                   # ✅ ログファイル
 ├── tests/                                      # ✅ テスト構造
-│   ├── test*\*.py
-│   └── fixtures/
-├── pyproject.toml                              # ✅ プロジェクト設定
+├── pyproject.toml                              # ✅ プロジェクト設定・[project.scripts]
+├── uv.lock                                     # ✅ 依存関係ロックファイル
 ├── .gitignore                                  # ✅ 設定済み
 ├── .pre-commit-config.yaml                     # ✅ 品質管理
 ├── README.md                                   # ✅ 基本ドキュメント
 └── CLAUDE.md                                   # ✅ 開発ドキュメント
+```
 
-````
+**将来の拡張予定(人間レビュー必須)**:
 
-**将来の拡張予定（人間レビュー必須）**:
+> **注**: データ品質検証ロジックは src/validators/ に、CSV処理は src/processors/ に既に実装済み。
+> 以下は QualityController / NotificationSystem などの「クラスによる統合ラッパー」や新規アーキテクチャの追加を指す (機能自体は既存の scripts/CLI/validators で提供済み)。
 
-- 🔄 src/quality/ - データ品質管理クラスの統合
-- 🔄 src/notifications/ - 通知システムクラスの統合
-- 🔄 src/security/ - セキュリティ機能
-- 🔄 src/execution/ - 実行管理システム
+- 🔄 src/quality/ - QualityController クラス (既存 validators/scripts のラッパー統合)
+- 🔄 src/notifications/ - NotificationSystem クラス (既存 GitHub Actions + Issues 連携のラッパー)
+- 🔄 src/security/ - SecurityValidator (大規模新規追加・人間レビュー必須)
+- 🔄 src/execution/ - ExecutionManager / CheckpointManager (大規模新規追加・人間レビュー必須)
 
 ### Environment Variables
 
 ```bash
 # GitHub Actions Secrets
 GITHUB_TOKEN                # リポジトリアクセス用
-NOTIFICATION_TOKEN          # Issue作成用（必要に応じて）
+NOTIFICATION_TOKEN          # Issue作成用(必要に応じて)
 
 # Optional Configuration
 DATA_COLLECTION_CONFIG      # 設定ファイルパスのオーバーライド
@@ -1128,26 +1159,50 @@ DRY_RUN                     # テスト実行モード
 
 ### Continuous Integration
 
+CI は uv ベースで実装済み (pip / requirements.txt は不使用)。テスト・lint は `.github/workflows/test.yml`、ワークフロー静的検証は `.github/workflows/actionlint.yml` が担当する。リンタは ruff / black / isort / mypy を使用 (flake8 は不使用)。外部 Action は CLAUDE.md の方針に従い 40桁SHA で pin する。
+
 ```yaml
-# .github/workflows/ci.yml
-name: CI
-on: [push, pull_request]
+# .github/workflows/test.yml (概要)
+name: 🧪 テストスイート実行
+on:
+  push:
+    branches: [main, develop, feature/*]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read # 最小権限原則 (read-only)
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@<SHA> # v6.0.2 (SHA pin)
+      - uses: astral-sh/setup-uv@<SHA> # v8.1.0 (SHA pin)
         with:
-          python-version: "3.11"
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Run tests
-        run: pytest tests/ -v
-      - name: Run linting
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - run: uv python install 3.11
+      - run: uv sync --all-extras
+      - run: uv lock --check # ロックファイルの整合性確認
+      - name: Run unit tests
         run: |
-          flake8 src/
-          black --check src/
-          mypy src/
+          uv run pytest tests/ \
+            --cov=src --cov-branch \
+            --cov-report=term-missing --cov-report=xml \
+            --cov-fail-under=100
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<SHA> # v6.0.2 (SHA pin)
+      - uses: astral-sh/setup-uv@<SHA> # v8.1.0 (SHA pin)
+      - run: uv python install 3.11
+      - run: uv sync --all-extras
+      - run: uv run ruff check src/ scripts/ tests/
+      - run: uv run black --check --diff src/ scripts/ tests/ --line-length=120
+      - run: uv run isort --check-only --diff src/ scripts/ tests/
+      - run: uv run mypy src/ scripts/ --ignore-missing-imports --no-strict-optional
 ```
+````
