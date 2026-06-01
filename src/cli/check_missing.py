@@ -16,8 +16,10 @@ def weeks_in_year(year: int) -> int:
 
 
 # ファイル名パターン
-PAT_WEEK = re.compile(r"(?P<base>.+?_weekly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?:_|-)")
-PAT_MONTH = re.compile(r"(?P<base>.+?_monthly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?:_|-)")
+# idx の直後は区切り (_ / -) もしくは拡張子 (.csv) のため、lookahead で [._-] を許容する。
+# 旧形式 (..._2025_1_20250101_120000.csv) と現行フラット形式 (..._2025_01.csv) の双方にマッチさせる。
+PAT_WEEK = re.compile(r"(?P<base>.+?_weekly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?=[._-])")
+PAT_MONTH = re.compile(r"(?P<base>.+?_monthly(?:_[^_]+)??)_(?P<year>\d{4})_(?P<idx>\d{1,2})(?=[._-])")
 
 
 def collect(data_dir: Path):

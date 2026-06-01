@@ -119,6 +119,7 @@ class TestConfigurationManager(unittest.TestCase):
         config_dict = {
             "schedule": {"cron": "0 0 * * *", "timezone": "UTC", "manual_trigger_enabled": False},
             "collection": {
+                "mode": "full",
                 "incremental_mode": False,
                 "batch_size": 100,
                 "start_year": 2020,
@@ -137,6 +138,7 @@ class TestConfigurationManager(unittest.TestCase):
         self.assertEqual(config.schedule.timezone, "UTC")
         self.assertFalse(config.schedule.manual_trigger_enabled)
         self.assertEqual(config.collection.batch_size, 100)
+        self.assertEqual(config.collection.mode, "full")  # collection.mode が解析される (旧: mode 黙殺バグの再発防止)
         self.assertEqual(config.storage.base_directory, "/tmp/data")
         self.assertEqual(len(config.data_types), 1)
         self.assertEqual(config.data_types[0].name, "test_type")
@@ -180,6 +182,7 @@ class TestConfigurationManager(unittest.TestCase):
 
         self.assertEqual(config_dict["schedule"]["cron"], config.schedule.cron_expression)
         self.assertEqual(config_dict["collection"]["batch_size"], config.collection.batch_size)
+        self.assertEqual(config_dict["collection"]["mode"], config.collection.mode)  # mode が round-trip で保持される
 
     @patch("builtins.open", mock_open())
     @patch("yaml.dump")

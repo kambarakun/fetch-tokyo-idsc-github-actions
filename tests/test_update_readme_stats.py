@@ -198,7 +198,12 @@ class TestGetMetadataStats:
             os.chdir(tmp_path)
             result = get_metadata_stats()
             assert result["total_files"] == 0
-            assert result["date_range"] == "データなし"
+            # データなし時も正常系と同じキー集合を返し、update_readme/main が KeyError にならないこと (再発防止)
+            assert result["week_range"] == "N/A"
+            assert result["month_range"] == "N/A"
+            assert result["week_count"] == 0
+            assert result["month_count"] == 0
+            assert result["data_type_periods"] == {}
             # 最終統計更新日時が設定されていることを確認
             assert "last_stats_update" in result
             assert result["last_stats_update"] != "N/A"

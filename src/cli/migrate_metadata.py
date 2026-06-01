@@ -615,7 +615,7 @@ def _build_quality_metadata_for_v1_2(migrated: dict[str, Any], data_file: Path |
         )
 
     issues = quality.get("issues", [])
-    status = "failed" if issues else "passed"
+    status = "failed" if issues else "completed"
     return (
         {
             "validation_timestamp": quality.get("validation_timestamp", default_timestamp),
