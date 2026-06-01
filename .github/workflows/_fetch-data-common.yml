@@ -610,15 +610,18 @@ jobs:
           # auto_merge設定
           AUTO_MERGE: ${{ inputs.auto_merge }}
         run: |
-          # workflow_type別のブランチ名プレフィックス
+          # workflow_type を create_pr.sh が認識する workflow_name 識別子へ変換する。
+          # create_pr.sh はこの識別子でブランチ名・コミットメッセージ・自動マージ検証ゲートを分岐するため、
+          # 旧来の "data-update-*" を渡すと全て default 分岐に落ち、ブランチ名二重化・検証ゲート無効化を招く。
           case "${{ inputs.workflow_type }}" in
-            manual) BRANCH_PREFIX="data-update-manual" ;;
-            weekly) BRANCH_PREFIX="data-update-weekly" ;;
-            daily)  BRANCH_PREFIX="data-update-daily" ;;
+            manual) WORKFLOW_NAME="fetch-data" ;;
+            weekly) WORKFLOW_NAME="fetch-data-weekly" ;;
+            daily)  WORKFLOW_NAME="fetch-data-daily" ;;
+            *)      WORKFLOW_NAME="fetch-data" ;;
           esac
 
           # 共通スクリプトを呼び出し
-          bash scripts/create_pr.sh "$BRANCH_PREFIX" "${{ inputs.workflow_display_name }}"
+          bash scripts/create_pr.sh "$WORKFLOW_NAME" "${{ inputs.workflow_display_name }}"
 
       - name: Create issue on error
         if: failure() && inputs.dry_run != true

@@ -96,9 +96,9 @@ class TestGenderSumValidatorIntegration:
         assert "sentinel_weekly_age" in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "sentinel_weekly_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "sentinel_weekly_health_center" in GenderSumValidator._APPLICABLE_DATA_TYPES
-        assert "sentinel_daily_age" in GenderSumValidator._APPLICABLE_DATA_TYPES
-        assert "sentinel_daily_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES
-        assert "sentinel_daily_health_center" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_monthly_age" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_monthly_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES
+        assert "sentinel_monthly_health_center" in GenderSumValidator._APPLICABLE_DATA_TYPES
 
         # Verify similar but different types are NOT in the set
         assert "sentinel_weekly_age_group" not in GenderSumValidator._APPLICABLE_DATA_TYPES

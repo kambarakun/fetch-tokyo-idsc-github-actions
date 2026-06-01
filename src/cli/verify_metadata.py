@@ -102,6 +102,10 @@ def _process_single_file(
     # 検証を実行 (公開API validate_file を使用)
     verification: dict[str, Any] = storage_manager.validate_file(data_file, data)
 
+    # quality は verification 配下ではなく metadata 直下 (top-level) へ格納する。
+    # (Metadata モデル / スキーマ / storage_manager・data_processor 経路と構造を統一)
+    metadata_quality: dict[str, Any] | None = None
+
     if quality_validator is not None:
         data_type = metadata.get("data_type")
         if not isinstance(data_type, str):
@@ -114,7 +118,7 @@ def _process_single_file(
             verification.setdefault("errors", []).append(f"[gender_sum_consistency] Validation failed: {e!s}")
             verification["status"] = "failed"
         else:
-            verification["quality"] = quality
+            metadata_quality = quality
 
             issues = quality.get("issues", [])
             has_gender_sum_errors = False
@@ -154,6 +158,8 @@ def _process_single_file(
     else:
         # メタデータを更新
         metadata["verification"] = verification
+        if metadata_quality is not None:
+            metadata["quality"] = metadata_quality
         with metadata_path.open("w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
         if verbose:

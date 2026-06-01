@@ -873,8 +873,8 @@ def test_migrate_metadata_additional_branches(tmp_path: Path, monkeypatch: pytes
         {"metadata_version": "1.1.0", "data_type": "sentinel_weekly_age"},
         csv_file,
     )
-    assert migrated_v12_pass["quality"]["validation_status"] == "passed"
-    assert any("validation_status=passed" in c for c in changes_v12_pass)
+    assert migrated_v12_pass["quality"]["validation_status"] == "completed"
+    assert any("validation_status=completed" in c for c in changes_v12_pass)
 
     monkeypatch.setattr(
         mm,

@@ -31,14 +31,17 @@ class GenderSumValidator:
     # Applicable data types for gender sum validation
     # These data types have gender-disaggregated data (male, female, total sections)
     # and require validation of male + female = total consistency
+    # 性別分割 (男性/女性/男女合計セクション) を持つデータタイプのみが対象。
+    # weekly だけでなく monthly の age/health_center/medical_district も性別分割されるため含める。
+    # (sentinel_*_gender は単純処理で性別分割されないため対象外)
     _APPLICABLE_DATA_TYPES = frozenset(
         {
             "sentinel_weekly_medical_district",
             "sentinel_weekly_health_center",
             "sentinel_weekly_age",
-            "sentinel_daily_medical_district",
-            "sentinel_daily_health_center",
-            "sentinel_daily_age",
+            "sentinel_monthly_medical_district",
+            "sentinel_monthly_health_center",
+            "sentinel_monthly_age",
         }
     )
 

@@ -145,13 +145,18 @@ def get_metadata_stats() -> dict[str, Any]:
     if not metadata_dir.exists():
         return {
             "total_files": 0,
-            "date_range": "データなし",
+            "week_range": "N/A",
+            "month_range": "N/A",
             "latest_fetch": latest_fetch_str,
             "last_stats_update": last_stats_update_str,
             "data_types": {},
+            "data_type_periods": {},
             "year_range": "N/A",
             "latest_week": "N/A",
             "latest_month": "N/A",
+            "years": [],
+            "week_count": 0,
+            "month_count": 0,
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
 
@@ -258,13 +263,18 @@ def get_metadata_stats() -> dict[str, Any]:
     if not all_files:
         return {
             "total_files": 0,
-            "date_range": "データなし",
+            "week_range": "N/A",
+            "month_range": "N/A",
             "latest_fetch": latest_fetch_str,
             "last_stats_update": last_stats_update_str,
             "data_types": {},
+            "data_type_periods": {},
             "year_range": "N/A",
             "latest_week": "N/A",
             "latest_month": "N/A",
+            "years": [],
+            "week_count": 0,
+            "month_count": 0,
             "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
         }
 

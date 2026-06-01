@@ -72,7 +72,8 @@ class NotificationConfig:
 class CollectionConfig:
     """データ収集設定"""
 
-    incremental_mode: bool = True  # 増分収集モード
+    mode: str | None = None  # 収集モード (incremental | full | force)。None なら incremental_mode にフォールバック
+    incremental_mode: bool = True  # (非推奨) mode を使用してください。後方互換のため保持
     batch_size: int = 50  # 一度に処理するファイル数
     start_year: int = 2000
     end_year: int | None = None  # Noneの場合は現在年
@@ -217,6 +218,7 @@ class ConfigurationManager:
         if "collection" in config_dict:
             collection = config_dict["collection"]
             config.collection = CollectionConfig(
+                mode=collection.get("mode"),
                 incremental_mode=collection.get("incremental_mode", True),
                 batch_size=collection.get("batch_size", 50),
                 start_year=collection.get("start_year", 2000),
@@ -347,6 +349,7 @@ class ConfigurationManager:
                 "manual_trigger_enabled": config.schedule.manual_trigger_enabled,
             },
             "collection": {
+                "mode": config.collection.mode,
                 "incremental_mode": config.collection.incremental_mode,
                 "batch_size": config.collection.batch_size,
                 "start_year": config.collection.start_year,

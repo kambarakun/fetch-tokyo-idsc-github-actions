@@ -124,9 +124,10 @@ def test_check_missing_collect_analyse_report_and_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     raw = tmp_path / "raw"
-    _write_csv(raw / "sentinel_weekly_gender_2025_01_a.csv", ["h", "1"])
-    _write_csv(raw / "sentinel_weekly_gender_2025_03_b.csv", ["h", "2"])
-    _write_csv(raw / "sentinel_monthly_age_2025_02_a.csv", ["h", "1"])
+    # 現行フラット形式 (idx 直後が .csv) でマッチすることを保証する (旧バグの再発防止)
+    _write_csv(raw / "sentinel_weekly_gender_2025_01.csv", ["h", "1"])
+    _write_csv(raw / "sentinel_weekly_gender_2025_03.csv", ["h", "2"])
+    _write_csv(raw / "sentinel_monthly_age_2025_02.csv", ["h", "1"])
     _write_csv(raw / "unrelated.csv", ["x"])
 
     weekly, monthly = cm.collect(raw)
