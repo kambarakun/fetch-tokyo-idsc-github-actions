@@ -108,6 +108,18 @@
 4. WHEN GitHub_Actionsの実行時間制限に近づく時、THE Automation_System SHALL 処理を分割して継続実行する
 5. IF メモリ使用量が閾値を超える場合、THEN THE EnhancedEpidemicDataFetcher SHALL ストリーミング処理に切り替える
 
+### Requirement 8
+
+**User Story:** セキュリティ担当者として、システムが安全に動作し、機密情報を適切に保護してほしい。データ漏洩やセキュリティインシデントを防ぐため。
+
+#### Acceptance Criteria
+
+1. WHEN GitHub_Actionsが実行される時、THE Automation_System SHALL 最小権限の原則でトークンを使用する
+2. WHEN 設定ファイルを扱う時、THE ConfigurationManager SHALL 機密情報をGitHub_Secretsで管理する
+3. WHEN 外部APIと通信する時、THE EnhancedEpidemicDataFetcher SHALL HTTPS接続のみを使用する
+4. WHEN ログを出力する時、THE Automation_System SHALL 機密情報をマスクまたは除外する
+5. IF セキュリティ脆弱性が検出された場合、THEN THE Automation_System SHALL 実行を停止し管理者に通知する
+
 ### Requirement 9
 
 **User Story:** データエンジニアとして、システムが実際のデータ構造を正しく解析・処理してほしい。全数報告と定点監視の異なる形式を適切に扱えるようにするため。
@@ -122,15 +134,3 @@
 6. WHEN 定点監視CSVを解析する時、THE Data_Collector SHALL 地域・年齢区分列と集計行(合計、総計)を識別する
 7. WHEN CSVを解析する時、THE Data_Collector SHALL 引用符で囲まれたフィールドを正しく処理する
 8. IF 解析エラーが発生した場合、THEN THE Data_Collector SHALL エラー詳細をログに記録し、該当ファイルをスキップする
-
-### Requirement 8
-
-**User Story:** セキュリティ担当者として、システムが安全に動作し、機密情報を適切に保護してほしい。データ漏洩やセキュリティインシデントを防ぐため。
-
-#### Acceptance Criteria
-
-1. WHEN GitHub_Actionsが実行される時、THE Automation_System SHALL 最小権限の原則でトークンを使用する
-2. WHEN 設定ファイルを扱う時、THE ConfigurationManager SHALL 機密情報をGitHub_Secretsで管理する
-3. WHEN 外部APIと通信する時、THE EnhancedEpidemicDataFetcher SHALL HTTPS接続のみを使用する
-4. WHEN ログを出力する時、THE Automation_System SHALL 機密情報をマスクまたは除外する
-5. IF セキュリティ脆弱性が検出された場合、THEN THE Automation_System SHALL 実行を停止し管理者に通知する
