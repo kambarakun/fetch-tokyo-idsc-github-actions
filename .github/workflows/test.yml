@@ -93,6 +93,10 @@ jobs:
           uv run python -m py_compile src/managers/config_manager.py
           uv run python -m py_compile src/managers/storage_manager.py
 
+      - name: Validate metadata against JSON Schema (v1.3.0)
+        run: |
+          uv run python scripts/validate_metadata_schema.py
+
       - name: Summary
         if: always()
         run: |
