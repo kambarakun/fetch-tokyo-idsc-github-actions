@@ -5,6 +5,9 @@
 - **v1.0.0**: 初期バージョン
 - **v1.1.0**: プロファイルベース構造の導入
 - **v1.2.0**: データ品質検証情報の追加 (2025-12-18)
+- **v1.3.0**: verification.details の追加・quality.issues[].validation_status の追加 (詳細は本書末尾「v1.3.0 での変更」を参照)
+
+> **注**: 本書は v1.2.0 仕様の正式ドキュメントです。実装の現行バージョンは `src/models/metadata.py` の `METADATA_VERSION = "1.3.0"` です。v1.3.0 での差分は後方互換 (MINOR バージョンアップ) であり、本書末尾の追補にまとめています。
 
 ## 概要
 
@@ -146,7 +149,7 @@ v1.2.0 では、元データの品質問題を記録し、データ利用者に�
 
 ### 例
 
-`sentinel_weekly_medical_district_2024_06` の場合：
+`sentinel_weekly_medical_district_2024_06` の場合:
 
 - `normalized_sentinel_weekly_medical_district_male_2024_06.csv` → メタデータに検証結果あり ✅
 - `normalized_sentinel_weekly_medical_district_female_2024_06.csv` → メタデータに検証結果あり ✅ (male と同一)
@@ -176,7 +179,7 @@ v1.2.0 では、元データの品質問題を記録し、データ利用者に�
 
 ### ステップ1: バージョン番号のみ更新
 
-既存のv1.1.0メタデータに対して、まず `metadata_version` のみを `1.2.0` に更新：
+既存のv1.1.0メタデータに対して、まず `metadata_version` のみを `1.2.0` に更新:
 
 ```json
 {
@@ -188,7 +191,7 @@ v1.2.0 では、元データの品質問題を記録し、データ利用者に�
 
 ### ステップ2: 検証実行とquality追加
 
-性別分割データに対して検証を実行し、`quality` フィールドを追加：
+性別分割データに対して検証を実行し、`quality` フィールドを追加:
 
 ```json
 {
@@ -218,7 +221,6 @@ v1.2.0 では、元データの品質問題を記録し、データ利用者に�
 **セマンティックバージョニング**: `MAJOR.MINOR.PATCH`
 
 - **MAJOR (1.x.y)**: メジャーバージョン内は後方互換を保証
-
   - `1.0.0`, `1.1.0`, `1.2.0` は全て互換
   - 既存フィールドの削除・変更・意味変更は行わない
   - 新規フィールドの追加のみ
@@ -243,10 +245,12 @@ v1.2.0 では、元データの品質問題を記録し、データ利用者に�
 
 ## 実装ファイル
 
-- `src/validators/quality_validator.py`: 品質検証ロジック
+- `src/models/metadata.py`: メタデータモデル (Metadata / QualityInfo / Verification など)
+- `src/validators/quality_validator.py`: 品質検証ロジック (orchestrator)
 - `src/validators/gender_sum_validator.py`: 性別合計整合性検証
-- `scripts/migrate_metadata_v1_2_0.py`: マイグレーションスクリプト
-- `scripts/validate_data_quality.py`: 既存データの検証スクリプト
+- `scripts/migrate_metadata_v1_2_0.py`: v1.1.0 → v1.2.0 マイグレーションスクリプト
+- `src/cli/migrate_metadata.py`: メタデータマイグレーション CLI (`uv run migrate-metadata`)
+- `scripts/validate_raw_quality.py`: 既存 raw データの品質一括検証スクリプト (`uv run python scripts/validate_raw_quality.py`)
 
 ## サンプル
 
@@ -432,7 +436,7 @@ for m in metadata_list:
 
 ## まとめ
 
-v1.2.0 では、データ品質情報を記録することで：
+v1.2.0 では、データ品質情報を記録することで:
 
 1. ✅ **事実の記録**: 不整合があった場所と値を記録
 2. ✅ **判断は利用者**: ステータスやスコアで評価せず、生データの不整合を提示
@@ -455,10 +459,65 @@ v1.2.0 では、データ品質情報を記録することで：
 
 ## レビュー対応履歴
 
-v1.2.0の設計は以下の指摘を反映しています：
+v1.2.0の設計は以下の指摘を反映しています:
 
 1. **打ち切り時の総件数** → `affected_count` と `truncated` を追加 ✅
 2. **後方互換性の契約** → セマンティックバージョニングポリシーを明文化 ✅
 3. **検証不能時の表現** → `validation_status` を追加 ✅
 4. **CSVの追跡性向上** → `row_index` を追加 (オプション) ✅
 5. **メッセージの中立化** → "Observed mismatch" に統一 ✅
+
+## v1.3.0 での変更 (追補)
+
+> 本セクションは v1.2.0 仕様に対する v1.3.0 の差分追補です。v1.3.0 は MINOR バージョンアップであり、後方互換 (既存フィールドの削除・意味変更なし、新規フィールドの追加のみ) を保ちます。実装は `src/models/metadata.py` (`METADATA_VERSION = "1.3.0"`)。
+
+### 変更点1: `quality.issues[].validation_status` の追加
+
+v1.2.0 では `validation_status` は `quality` 直下にのみ存在しましたが、v1.3.0 では**個別の issue 単位**にも `validation_status` を持たせ、検証項目ごとの実行ステータスを表現できるようにしました。
+
+- **型**: string (`completed` | `skipped` | `failed`)
+- **必須**: Yes (各 issue に付与)
+- **説明**: その検証項目 (`check_type`) ごとの実行ステータス
+- **例**: 性別分割の行数が male/female/total で一致しない場合は `gender_sum_consistency` の issue が `validation_status: "skipped"` として記録される (実装: `src/validators/gender_sum_validator.py`)
+
+```json
+"quality": {
+  "validation_timestamp": "...",
+  "validation_status": "completed",
+  "issues": [
+    {
+      "check_type": "gender_sum_consistency",
+      "validation_status": "completed",
+      "message": "Observed mismatch between (male + female) and reported total in 5 record(s)",
+      "details": { "...": "..." }
+    }
+  ]
+}
+```
+
+### 変更点2: `verification.details` の追加
+
+`verification` フィールドに構造化詳細情報 `details` を追加しました。検証警告の具体的な値 (例: 観測された CSV カラム数の一覧) を構造化して保持します。
+
+- **型**: object
+- **必須**: No (デフォルト `{}`)
+- **現在サポートされるキー**:
+  - `column_counts`: list[int] — CSV カラム数の一覧 (カラム数不整合の検出時)
+- **目的**: 警告メッセージ本体は統一形式 (`[csv_format] Inconsistent column count`) とし、具体値は `details` に分離することで、検索性・集計性を向上 (メッセージでグループ化可能)
+
+```json
+"verification": {
+  "status": "verified",
+  "verified_at": "...",
+  "method": "automated",
+  "checks": { "file_size": true, "encoding": true, "csv_format": true, "path_safety": true },
+  "errors": [],
+  "warnings": ["[csv_format] Inconsistent column count"],
+  "details": { "column_counts": [0, 1, 2, 10] }
+}
+```
+
+### 後方互換性
+
+- v1.2.0 を読むシステムは、issue 単位の `validation_status` と `verification.details` を未知フィールドとして無視できる ✅
+- v1.3.0 を読むシステムは、これらが欠けている v1.1.0/v1.2.0 メタデータも読み込み可能 ✅
