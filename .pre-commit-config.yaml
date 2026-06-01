@@ -3,7 +3,7 @@
 repos:
   # 基本的なファイルチェック
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
         name: 末尾の空白を削除
@@ -38,7 +38,7 @@ repos:
 
   # Pythonコードフォーマット (isort)
   - repo: https://github.com/PyCQA/isort
-    rev: 5.13.2
+    rev: 7.0.0
     hooks:
       - id: isort
         name: import文の整理
@@ -46,26 +46,27 @@ repos:
 
   # Pythonコードフォーマット (black)
   - repo: https://github.com/psf/black
-    rev: 24.3.0
+    rev: 25.12.0
     hooks:
       - id: black
         name: Pythonコードのフォーマット
         language_version: python3.11
         args: ["--line-length", "120"]
 
-  # Pythonコード品質チェック (Ruff - 高速な統合リンター)
+  # Pythonコード品質チェック (Ruff リンター)
+  # 注: コードフォーマットは black に一任する。ruff-format と black を二重適用すると
+  # 両者が互いに異なる整形を要求し競合する (バージョン更新時に顕在化) ため ruff-format は使わない。
+  # CI (test.yml) も black --check を採用しており black 一本化が整合的。
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.0
+    rev: v0.15.15
     hooks:
       - id: ruff
         name: Ruff リンター
         args: ["--fix", "--exit-non-zero-on-fix"]
-      - id: ruff-format
-        name: Ruff フォーマッター
 
   # 型チェック (mypy)
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
+    rev: v1.20.2
     hooks:
       - id: mypy
         name: Python型チェック
@@ -73,8 +74,9 @@ repos:
         additional_dependencies: [types-requests, types-PyYAML]
 
   # Markdownファイルのフォーマット
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v3.1.0
+  # mirrors-prettier (pre-commit 公式) は 2024 年にアーカイブされたため後継の rbubley/mirrors-prettier を使用
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.8.3
     hooks:
       - id: prettier
         name: Markdown/YAML/JSONのフォーマット
