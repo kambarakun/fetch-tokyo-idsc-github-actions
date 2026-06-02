@@ -1,0 +1,12 @@
+{
+  "total_files": 139,
+  "successful": 121,
+  "failed": 0,
+  "duplicates": 0,
+  "skipped": 18,
+  "new_files": 0,
+  "updated_files": 121,
+  "errors": [],
+  "start_time": "2026-06-02T15:01:19.559041+00:00",
+  "end_time": "2026-06-02T15:04:49.226175+00:00"
+}
