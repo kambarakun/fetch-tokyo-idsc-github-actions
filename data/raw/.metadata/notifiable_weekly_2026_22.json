@@ -1,0 +1,56 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "notifiable_weekly_2026_22",
+  "filename": "notifiable_weekly_2026_22.csv",
+  "path": "notifiable_weekly_2026_22.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "notifiable_weekly",
+  "temporal": {
+    "year": 2026,
+    "period": 22,
+    "period_type": "weekly"
+  },
+  "bytes": 2156,
+  "lines": 95,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "8b395c4583b5839aed37a5d73f0b7534d3deb1732af77d252a25897559cfd06d"
+  },
+  "encoding": "shift_jis",
+  "created": "2026-06-04T09:26:47.993431+00:00",
+  "modified": "2026-06-04T09:26:47.993431+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.6826760768890381,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2026-06-04T09:26:47.993592+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2
+      ]
+    }
+  },
+  "quality": {
+    "validation_timestamp": "2026-06-04T09:26:47.993598+00:00",
+    "validation_status": "completed",
+    "issues": []
+  }
+}
