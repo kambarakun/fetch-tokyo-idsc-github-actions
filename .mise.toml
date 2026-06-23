@@ -1,0 +1,8 @@
+# mise (https://mise.jdx.dev/) 用のツールバージョン定義
+#
+# Python は既存の .python-version (3.11) から解決されるため、ここでは uv のみ宣言する。
+# uv のバージョンが未宣言だと mise が "No version is set for shim: uv" で解決に失敗するため、
+# プロジェクトで使用する uv を固定する (再現性の確保)。
+# CI はこのファイルを参照せず astral-sh/setup-uv でセットアップするため影響しない。
+[tools]
+uv = "0.11.23"
