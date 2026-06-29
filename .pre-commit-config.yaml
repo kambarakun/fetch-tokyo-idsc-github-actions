@@ -58,7 +58,7 @@ repos:
   # 両者が互いに異なる整形を要求し競合する (バージョン更新時に顕在化) ため ruff-format は使わない。
   # CI (test.yml) も black --check を採用しており black 一本化が整合的。
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.18
+    rev: v0.15.20
     hooks:
       - id: ruff
         name: Ruff リンター
