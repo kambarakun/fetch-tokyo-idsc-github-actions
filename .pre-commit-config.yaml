@@ -76,7 +76,7 @@ repos:
   # Markdownファイルのフォーマット
   # mirrors-prettier (pre-commit 公式) は 2024 年にアーカイブされたため後継の rbubley/mirrors-prettier を使用
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.8.4
+    rev: v3.9.4
     hooks:
       - id: prettier
         name: Markdown/YAML/JSONのフォーマット
