@@ -8,6 +8,9 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Tokyo"
+    # Delay version-update PRs for supply-chain observation; security updates are exempt.
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "github-actions"
@@ -29,6 +32,9 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Tokyo"
+    # Delay version-update PRs for supply-chain observation; security updates are exempt.
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "python"
@@ -80,6 +86,9 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Tokyo"
+    # Delay version-update PRs for supply-chain observation; security updates are exempt.
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "pre-commit"
