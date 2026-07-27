@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
-from requests.exceptions import ConnectionError
+from requests.exceptions import ConnectionError, Timeout
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -122,6 +122,44 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
     def setUp(self):
         self.config = DataFetcherConfig(max_retries=2, base_delay=0.1, timeout=10, rate_limit_delay=0.1)
         self.fetcher = EnhancedEpidemicDataFetcher(self.config)
+
+    def test_request_timeout_validation(self):
+        """Requests互換の正数timeoutだけを受け入れることを確認"""
+        for timeout in (7, 0.5, (3.05, 27)):
+            with self.subTest(timeout=timeout):
+                self.assertEqual(DataFetcherConfig(timeout=timeout).timeout, timeout)
+
+        for timeout in (0, -1, float("inf"), (1, 0), (1,), (1, 2, 3)):
+            with self.subTest(timeout=timeout), self.assertRaises(ValueError):
+                DataFetcherConfig(timeout=timeout)
+
+        for timeout in (True, "30", (1, "2")):
+            with self.subTest(timeout=timeout), self.assertRaises(TypeError):
+                DataFetcherConfig(timeout=timeout)
+
+    @patch("src.fetchers.base_fetcher.requests.Session.post")
+    def test_all_fetch_methods_use_configured_timeout(self, mock_post):
+        """全データ種別のHTTP POSTが設定timeoutを共有することを確認"""
+        mock_post.return_value = Mock(status_code=200, content=b"test")
+
+        for data_type, fetch_method in self.fetcher.fetch_methods.items():
+            with self.subTest(data_type=data_type):
+                mock_post.reset_mock()
+                fetch_method()
+                mock_post.assert_called_once()
+                self.assertEqual(mock_post.call_args.kwargs["timeout"], 10)
+
+    @patch("src.fetchers.base_fetcher.requests.Session.post")
+    def test_retry_preserves_configured_timeout(self, mock_post):
+        """リトライ後も同じtimeout設定がHTTP POSTへ渡ることを確認"""
+        mock_post.side_effect = [Timeout("timed out"), Mock(status_code=200, content=b"test")]
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            result = self.fetcher.fetch_with_retry(self.fetcher.fetch_csv_sentinel_weekly_gender)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.retry_count, 2)
+        self.assertEqual([call.kwargs["timeout"] for call in mock_post.call_args_list], [10, 10])
 
     @patch("src.fetchers.base_fetcher.requests.Session.post")
     def test_fetch_with_retry_success(self, mock_post):

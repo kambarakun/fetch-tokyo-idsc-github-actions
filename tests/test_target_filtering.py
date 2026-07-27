@@ -289,9 +289,9 @@ class TestTargetFiltering(unittest.TestCase):
         mock_storage_class.return_value = mock_storage
 
         # 無効な週番号を含むtarget_weeks
-        from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher
+        from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher
 
-        fetcher = EnhancedEpidemicDataFetcher(Mock())
+        fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig())
 
         # 無効な週番号(0と54)でValueErrorが発生することを確認
         with self.assertRaises(ValueError) as cm:
@@ -311,9 +311,9 @@ class TestTargetFiltering(unittest.TestCase):
         mock_storage_class.return_value = mock_storage
 
         # 無効な月番号を含むtarget_months
-        from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher
+        from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher
 
-        fetcher = EnhancedEpidemicDataFetcher(Mock())
+        fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig())
 
         # 無効な月番号(0と13)でValueErrorが発生することを確認
         with self.assertRaises(ValueError) as cm:

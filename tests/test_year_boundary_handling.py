@@ -12,9 +12,9 @@ import tempfile
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, Mock
+from unittest.mock import Mock
 
-from src.fetchers.enhanced_fetcher import EnhancedEpidemicDataFetcher
+from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher
 from src.managers.storage_manager import StorageManager
 
 
@@ -87,8 +87,7 @@ class TestYearBoundaryDataFetching(unittest.TestCase):
 
     def setUp(self):
         """テスト用の設定"""
-        self.config = MagicMock()
-        self.config.get.return_value = {}
+        self.config = DataFetcherConfig()
         self.fetcher = EnhancedEpidemicDataFetcher(self.config)
         self.fetcher.session = Mock()
 

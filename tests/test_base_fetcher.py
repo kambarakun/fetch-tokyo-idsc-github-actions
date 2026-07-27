@@ -292,6 +292,7 @@ class TestTokyoEpidemicSurveillanceFetcher(unittest.TestCase):
         call_args = mock_post.call_args
         called_url = call_args[0][0]
         called_data = call_args[1]["data"]
+        called_timeout = call_args[1]["timeout"]
 
         # URLの検証 (dlwgender.doを含むこと)
         self.assertIn("dlwgender.do", called_url)
@@ -310,6 +311,18 @@ class TestTokyoEpidemicSurveillanceFetcher(unittest.TestCase):
             "val(totalMode)": "0",
         }
         self.assertEqual(called_data, expected_data)
+        self.assertEqual(called_timeout, 30)
+
+    @patch("src.fetchers.base_fetcher.requests.Session.post")
+    def test_custom_request_timeout_is_forwarded(self, mock_post):
+        """カスタムtimeoutが共通POST経路へ渡ることを確認"""
+        mock_response = Mock(status_code=200, content=b"test")
+        mock_post.return_value = mock_response
+        fetcher = TokyoEpidemicSurveillanceFetcher(timeout=(3.05, 27.0))
+
+        fetcher.fetch_csv_sentinel_weekly_gender()
+
+        self.assertEqual(mock_post.call_args.kwargs["timeout"], (3.05, 27.0))
 
 
 if __name__ == "__main__":

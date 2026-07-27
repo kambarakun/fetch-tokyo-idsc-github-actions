@@ -2,9 +2,36 @@
 東京都感染症発生動向情報システムからデータを取得する基底クラス
 """
 
+import math
 from typing import ClassVar
 
 import requests
+
+RequestTimeout = float | tuple[float, float]
+
+
+def _validate_positive_timeout(value: object, *, name: str) -> float:
+    """Validate and normalize one timeout component."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a number")
+
+    normalized = float(value)
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return normalized
+
+
+def validate_request_timeout(timeout: object) -> RequestTimeout:
+    """Validate a Requests-compatible scalar or (connect, read) timeout."""
+    if isinstance(timeout, tuple):
+        if len(timeout) != 2:
+            raise ValueError("timeout tuple must contain connect and read values")
+        return (
+            _validate_positive_timeout(timeout[0], name="connect timeout"),
+            _validate_positive_timeout(timeout[1], name="read timeout"),
+        )
+
+    return _validate_positive_timeout(timeout, name="timeout")
 
 
 class TokyoEpidemicSurveillanceFetcher:
@@ -82,7 +109,8 @@ class TokyoEpidemicSurveillanceFetcher:
         "20": "dlwzensu.do",  # 全数報告疾病
     }
 
-    def __init__(self):
+    def __init__(self, timeout: RequestTimeout = 30.0) -> None:
+        self.request_timeout = validate_request_timeout(timeout)
         self.session = requests.Session()
 
     def _post_request(
@@ -130,7 +158,7 @@ class TokyoEpidemicSurveillanceFetcher:
             "val(totalMode)": total_mode,
         }
 
-        response = self.session.post(url, data=data, timeout=30)
+        response = self.session.post(url, data=data, timeout=self.request_timeout)
 
         if response.status_code == 200:
             return response.content
