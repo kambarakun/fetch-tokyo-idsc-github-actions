@@ -109,7 +109,7 @@ class TokyoEpidemicSurveillanceFetcher:
         "20": "dlwzensu.do",  # 全数報告疾病
     }
 
-    def __init__(self, timeout: RequestTimeout = 30.0):
+    def __init__(self, timeout: RequestTimeout = 30.0) -> None:
         self.request_timeout = validate_request_timeout(timeout)
         self.session = requests.Session()
 

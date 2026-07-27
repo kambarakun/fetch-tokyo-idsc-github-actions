@@ -144,7 +144,9 @@ class TestEnhancedEpidemicDataFetcher(unittest.TestCase):
 
         for data_type, fetch_method in self.fetcher.fetch_methods.items():
             with self.subTest(data_type=data_type):
+                mock_post.reset_mock()
                 fetch_method()
+                mock_post.assert_called_once()
                 self.assertEqual(mock_post.call_args.kwargs["timeout"], 10)
 
     @patch("src.fetchers.base_fetcher.requests.Session.post")
