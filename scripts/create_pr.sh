@@ -24,7 +24,10 @@ set -e
 # オプション環境変数（ワークフロー別）:
 #   共通:
 #     - AUTO_MERGE (true|false) - PR自動マージを有効化 (デフォルト: false)
-#     - FORCE_MERGE_ON_FAILURE (true|false) - 検証失敗時も強制マージ (デフォルト: false)
+#     - FORCE_MERGE_ON_FAILURE (true|false) - Explicitly override failed gates (default: false)
+#     - FETCH_STATUS (success|failed) - データ取得結果
+#     - PROCESS_RESULT (success|failed|skipped) - データ処理結果
+#     - FETCH_CONTINUED_REASON, PROCESS_CONTINUED_REASON - 失敗後の継続理由
 #   fetch-data-daily:
 #     - CURRENT_YEAR, CURRENT_WEEK, CURRENT_MONTH
 #     - PREVIOUS_WEEK, PREVIOUS_MONTH
@@ -73,6 +76,10 @@ set -e
 #   - シェルインジェクション対策済み
 #   - エラー出力は標準エラーへ
 # ============================================================
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=scripts/auto_merge_gate.sh
+source "$SCRIPT_DIR/auto_merge_gate.sh"
 
 # 引数の検証
 if [ $# -lt 2 ] || [ -z "$1" ] || [ -z "$2" ]; then
@@ -270,6 +277,11 @@ case "$WORKFLOW_NAME" in
     ;;
 esac
 
+if [ "${AUTO_MERGE_GATE_EVALUATED:-false}" != "true" ]; then
+  evaluate_auto_merge_gate
+fi
+write_auto_merge_gate_env
+
 # コミット実行
 if ! git commit -m "$COMMIT_MSG"; then
   echo "Error: Failed to commit changes" >&2
@@ -306,6 +318,19 @@ PR_BODY_FILE="/tmp/pr_body.md"
       [ -n "${CURRENT_WEEK:-}" ] && echo "- **現在の週**: 第${CURRENT_WEEK}週"
       ;;
   esac
+
+  echo ""
+  echo "### 🛡️ 自動マージゲート"
+  echo "- **取得**: $FETCH_GATE_STATUS"
+  echo "- **処理**: $PROCESS_GATE_STATUS"
+  echo "- **検証**: $VALIDATION_GATE_STATUS"
+  echo "- **連続性**: $CONTINUITY_GATE_STATUS"
+  echo "- **ブロック理由**: $AUTO_MERGE_BLOCKERS"
+  echo "- **判定**: $AUTO_MERGE_GATE_STATUS"
+  echo "- **強制上書き要求**: $FORCE_MERGE"
+  echo "- **強制上書き適用**: $AUTO_MERGE_OVERRIDE_USED"
+  echo "- **取得失敗後の継続理由**: ${FETCH_CONTINUED_REASON:-none}"
+  echo "- **処理失敗後の継続理由**: ${PROCESS_CONTINUED_REASON:-none}"
 
   echo ""
   echo "### 🎯 チェック範囲"
@@ -553,70 +578,14 @@ else
 fi
 
 echo "✅ Successfully created PR: $PR_URL"
-echo "PR_URL=$PR_URL" >> $GITHUB_ENV
+echo "PR_URL=$PR_URL" >> "$GITHUB_ENV"
 
 # PR番号を取得
 PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$' || true)
 if [ -z "$PR_NUMBER" ]; then
   echo "⚠️ Warning: Failed to extract PR number from: $PR_URL" >&2
 else
-  echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
-
-  # 自動マージ有効化の判定
-  # AUTO_MERGE_EFFECTIVE = AUTO_MERGE && (検証成功 OR FORCE_MERGE_ON_FAILURE)
-  AUTO_MERGE_REQUESTED="${AUTO_MERGE:-false}"
-  FORCE_MERGE="${FORCE_MERGE_ON_FAILURE:-false}"
-
-  # ワークフロー別の検証結果を取得
-  VALIDATIONS_PASSED="true"  # デフォルトは検証成功
-  case "$WORKFLOW_NAME" in
-    fetch-data-weekly)
-      # 週次チェックワークフロー: 事前検証と事後検証の両方を確認
-      if [ "${VALIDATION_BEFORE_SUCCESS:-}" = "false" ]; then
-        VALIDATIONS_PASSED="false"
-      fi
-      if [ "${VALIDATION_SUCCESS:-}" = "false" ]; then
-        VALIDATIONS_PASSED="false"
-      fi
-      ;;
-    fetch-data)
-      if [ "${CONTINUITY_VALID:-}" = "false" ] && [ "${VERIFY_CONTINUITY:-}" = "true" ]; then
-        VALIDATIONS_PASSED="false"
-      fi
-      ;;
-    fetch-data-daily)
-      # 日次チェックワークフロー: 事前検証の結果を確認
-      if [ "${VALIDATION_BEFORE_SUCCESS:-}" = "false" ]; then
-        VALIDATIONS_PASSED="false"
-      fi
-      ;;
-    process-data)
-      if [ "${VALIDATION_PASSED:-}" = "false" ]; then
-        VALIDATIONS_PASSED="false"
-      fi
-      ;;
-    migrate-metadata)
-      # メタデータマイグレーションワークフロー
-      # 現時点では検証結果を環境変数に設定していないため、デフォルト (true) を使用
-      # TODO: 将来的にAUTO_MERGEを追加する場合は、VERIFIED_COUNT/FAILED_COUNTの環境変数設定が必要
-      ;;
-    *)
-      # 未知のワークフロー: 安全のため警告を出力
-      echo "⚠️  Warning: Unknown workflow '$WORKFLOW_NAME' - using default validation status (true)" >&2
-      echo "   If this workflow has validations, please add it to the case statement." >&2
-      ;;
-  esac
-
-  # AUTO_MERGE_EFFECTIVE の計算
-  AUTO_MERGE_EFFECTIVE="false"
-  if [ "$AUTO_MERGE_REQUESTED" = "true" ]; then
-    if [ "$VALIDATIONS_PASSED" = "true" ] || [ "$FORCE_MERGE" = "true" ]; then
-      AUTO_MERGE_EFFECTIVE="true"
-    else
-      echo "ℹ️ Auto-merge requested but validations failed. Skipping auto-merge." >&2
-      echo "   Set FORCE_MERGE_ON_FAILURE=true to override this behavior." >&2
-    fi
-  fi
+  echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
 
   # 自動マージの実行
   if [ "$AUTO_MERGE_EFFECTIVE" = "true" ]; then
@@ -630,8 +599,8 @@ else
     # 終了コードで結果を判定
     if [ $MERGE_EXIT_CODE -eq 0 ]; then
       echo "✅ Auto-merge configured successfully (branch will be deleted after merge)"
-      if [ "$FORCE_MERGE" = "true" ] && [ "$VALIDATIONS_PASSED" = "false" ]; then
-        echo "⚠️ Warning: Force merge enabled despite validation failures" >&2
+      if [ "$AUTO_MERGE_OVERRIDE_USED" = "true" ]; then
+        echo "⚠️ Warning: Force merge enabled despite gate failures: $AUTO_MERGE_BLOCKERS" >&2
       fi
     else
       echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
@@ -644,7 +613,7 @@ else
       fi
     fi
   else
-    echo "ℹ️ Auto-merge disabled (AUTO_MERGE=$AUTO_MERGE_REQUESTED, VALIDATIONS_PASSED=$VALIDATIONS_PASSED, FORCE_MERGE=$FORCE_MERGE)"
+    echo "ℹ️ Auto-merge disabled (REQUESTED=$AUTO_MERGE_REQUESTED, GATE=$AUTO_MERGE_GATE_STATUS, BLOCKERS=$AUTO_MERGE_BLOCKERS, FORCE=$FORCE_MERGE)"
     echo "   Manual merge is required."
   fi
 fi
