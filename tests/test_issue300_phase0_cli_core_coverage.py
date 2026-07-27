@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -120,60 +119,40 @@ def test_check_data_status_print_dir_and_main(
     assert "データディレクトリが見つかりません" in capsys.readouterr().err
 
 
-def test_check_missing_collect_analyse_report_and_main(
+def test_check_missing_main_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     raw = tmp_path / "raw"
-    # 現行フラット形式 (idx 直後が .csv) でマッチすることを保証する (旧バグの再発防止)
     _write_csv(raw / "sentinel_weekly_gender_2025_01.csv", ["h", "1"])
     _write_csv(raw / "sentinel_weekly_gender_2025_03.csv", ["h", "2"])
-    _write_csv(raw / "sentinel_monthly_age_2025_02.csv", ["h", "1"])
     _write_csv(raw / "unrelated.csv", ["x"])
 
-    weekly, monthly = cm.collect(raw)
-    assert ("sentinel_weekly_gender", 2025) in weekly
-    assert weekly[("sentinel_weekly_gender", 2025)] == {1, 3}
-    assert monthly[("sentinel_monthly_age", 2025)] == {2}
-
-    class _FixedDateTime(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return datetime(2025, 1, 1, tzinfo=tz)
-
-    monkeypatch.setattr(cm, "datetime", _FixedDateTime)
-    current_year = cm.datetime.now().year
-    assert cm.weeks_in_year(2020) == 53
-    found = {("sentinel_weekly_gender", current_year): {1, 3}}
-    missing = cm.analyse(found, current_limit=4, max_func=lambda _year: 52)
-    assert missing["sentinel_weekly_gender"][current_year] == [2, 4]
-
-    no_missing = cm.analyse({("sentinel_weekly_gender", 2020): {1, 2}}, current_limit=4, max_func=lambda _year: 2)
-    assert no_missing == {}
-
-    cm.report("empty", {})
-    assert "欠番なし" in capsys.readouterr().out
-    cm.report("weekly", {"sentinel_weekly_gender": {2025: [2, 4]}})
+    result = cm.main(
+        [
+            str(raw),
+            "--data-type",
+            "sentinel_weekly_gender",
+            "--start-year",
+            "2025",
+            "--end-year",
+            "2025",
+            "--as-of",
+            "2025-01-27",
+        ]
+    )
     out = capsys.readouterr().out
-    assert "合計欠番数: 2" in out
-
-    monkeypatch.setattr(sys, "argv", ["check-missing", str(raw)])
-    cm.main()
-    out = capsys.readouterr().out
-    assert "統計情報" in out
+    assert result == 1
+    assert "データ連続性検証レポート" in out
+    assert "欠損: 1" in out
 
     missing_dir = tmp_path / "not-found"
-    monkeypatch.setattr(sys, "argv", ["check-missing", str(missing_dir)])
-    with pytest.raises(SystemExit) as exc:
-        cm.main()
-    assert exc.value.code == 1
-    assert "ディレクトリが見つかりません" in capsys.readouterr().out
+    assert cm.main([str(missing_dir)]) == 1
+    assert "データディレクトリが見つかりません" in capsys.readouterr().err
 
-    # default path branch (len(sys.argv) != 2)
-    monkeypatch.setattr(sys, "argv", ["check-missing"])
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data" / "raw").mkdir(parents=True)
-    cm.main()
-    assert "データディレクトリ" in capsys.readouterr().out
+    assert cm.main([]) == 1
+    assert "検証対象: 9種" in capsys.readouterr().out
 
 
 def test_cleanup_find_delete_and_main_paths(
