@@ -68,7 +68,7 @@ jobs:
           # 前のコミットのファイルを一時的に取得
           git show HEAD^:src/models/metadata.py > /tmp/old_metadata.py 2>/dev/null || echo "" > /tmp/old_metadata.py
 
-          OLD_VERSION=$(uv run python -c "
+          OLD_VERSION=$(uv run --no-project python -c "
           import re
           try:
               content = open('/tmp/old_metadata.py').read()
@@ -77,7 +77,7 @@ jobs:
           except Exception:
               print('')
           ")
-          NEW_VERSION=$(uv run python -c "
+          NEW_VERSION=$(uv run --no-project python -c "
           import re
           try:
               content = open('src/models/metadata.py').read()
@@ -127,7 +127,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --locked
 
       - name: Prepare parameters
         id: params
@@ -155,7 +155,7 @@ jobs:
               TARGET_VERSION="${{ needs.check-version-change.outputs.new_version }}"
             else
               # Pythonで堅牢にバージョンを抽出
-              TARGET_VERSION=$(uv run python -c "
+              TARGET_VERSION=$(uv run --locked python -c "
           import re
           import sys
           try:
@@ -194,7 +194,7 @@ jobs:
         id: dry_run
         run: |
           echo "=== Dry Run ==="
-          uv run migrate-metadata --dry-run --target-version "${{ steps.params.outputs.target_version }}" 2>&1 | tee dry_run.log
+          uv run --locked migrate-metadata --dry-run --target-version "${{ steps.params.outputs.target_version }}" 2>&1 | tee dry_run.log
 
           # マイグレーション対象があるか確認 (空の場合は0をデフォルト)
           # ログ形式: "2025-12-17 07:45:46 - INFO - Migrated:       7546"
@@ -208,7 +208,7 @@ jobs:
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
         run: |
           echo "=== Running Migration ==="
-          uv run migrate-metadata --target-version "${{ steps.params.outputs.target_version }}" --verbose
+          uv run --locked migrate-metadata --target-version "${{ steps.params.outputs.target_version }}" --verbose
 
       - name: Run verification
         id: verify
@@ -217,7 +217,7 @@ jobs:
           echo "=== Running Verification ==="
           # 検証を実行 (--verbose と --output-json を同時使用)
           # ログはstderr、JSONはstdoutに出力される
-          STATS=$(uv run verify-metadata --only-unverified --verbose --output-json)
+          STATS=$(uv run --locked verify-metadata --only-unverified --verbose --output-json)
 
           # jq で堅牢にパース
           VERIFIED=$(echo "$STATS" | jq -r '.verified // 0')
