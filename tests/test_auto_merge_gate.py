@@ -180,6 +180,22 @@ def test_common_workflow_forwards_every_gate_input() -> None:
     assert "VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}" in workflow
 
 
+def test_common_workflow_captures_canonical_continuity_result() -> None:
+    workflow = COMMON_WORKFLOW.read_text(encoding="utf-8")
+    continuity_step = workflow[workflow.index("- name: Verify data continuity") :]
+    continuity_step = continuity_step[: continuity_step.index("- name: Generate visualization charts")]
+
+    assert "uv run check-missing data/raw" in continuity_step
+    assert '--start-year "$START_YEAR"' in continuity_step
+    assert '--end-year "$END_YEAR"' in continuity_step
+    assert '--as-of "$CURRENT_DATE"' in continuity_step
+    assert "--format json" in continuity_step
+    assert "CONTINUITY_VALID=true" in continuity_step
+    assert "CONTINUITY_VALID=false" in continuity_step
+    assert 'echo "CONTINUITY_VALID=$CONTINUITY_VALID" >> "$GITHUB_ENV"' in continuity_step
+    assert "|| true" not in continuity_step
+
+
 def test_common_workflow_evaluates_gate_before_optional_pr_creation() -> None:
     workflow = COMMON_WORKFLOW.read_text(encoding="utf-8")
 
