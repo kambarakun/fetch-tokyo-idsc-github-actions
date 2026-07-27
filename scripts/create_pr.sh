@@ -277,20 +277,10 @@ case "$WORKFLOW_NAME" in
     ;;
 esac
 
-evaluate_auto_merge_gate
-
-if [ -n "${GITHUB_ENV:-}" ]; then
-  {
-    echo "FETCH_GATE_STATUS=$FETCH_GATE_STATUS"
-    echo "PROCESS_GATE_STATUS=$PROCESS_GATE_STATUS"
-    echo "VALIDATION_GATE_STATUS=$VALIDATION_GATE_STATUS"
-    echo "CONTINUITY_GATE_STATUS=$CONTINUITY_GATE_STATUS"
-    echo "AUTO_MERGE_GATE_STATUS=$AUTO_MERGE_GATE_STATUS"
-    echo "AUTO_MERGE_BLOCKERS=$AUTO_MERGE_BLOCKERS"
-    echo "AUTO_MERGE_OVERRIDE_USED=$AUTO_MERGE_OVERRIDE_USED"
-    echo "AUTO_MERGE_EFFECTIVE=$AUTO_MERGE_EFFECTIVE"
-  } >> "$GITHUB_ENV"
+if [ "${AUTO_MERGE_GATE_EVALUATED:-false}" != "true" ]; then
+  evaluate_auto_merge_gate
 fi
+write_auto_merge_gate_env
 
 # コミット実行
 if ! git commit -m "$COMMIT_MSG"; then

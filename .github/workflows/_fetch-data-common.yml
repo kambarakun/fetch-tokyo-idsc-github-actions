@@ -609,6 +609,30 @@ jobs:
             echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
           fi
 
+      - name: Evaluate auto-merge gate
+        if: inputs.dry_run != true
+        shell: bash
+        env:
+          AUTO_MERGE: ${{ inputs.auto_merge }}
+          FORCE_MERGE_ON_FAILURE: ${{ inputs.force_merge_on_failure }}
+          FETCH_STATUS: ${{ env.FETCH_STATUS }}
+          PROCESS_RESULT: ${{ env.PROCESS_RESULT }}
+          VERIFY_CONTINUITY: ${{ inputs.verify_continuity }}
+          CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}
+          VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}
+          VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}
+        run: |
+          case "${{ inputs.workflow_type }}" in
+            manual) WORKFLOW_NAME="fetch-data" ;;
+            weekly) WORKFLOW_NAME="fetch-data-weekly" ;;
+            daily)  WORKFLOW_NAME="fetch-data-daily" ;;
+            *)      WORKFLOW_NAME="unknown" ;;
+          esac
+
+          source scripts/auto_merge_gate.sh
+          evaluate_auto_merge_gate
+          write_auto_merge_gate_env
+
       - name: Create Pull Request
         if: env.HAS_CHANGES == 'true' && inputs.dry_run != true
         env:
@@ -632,6 +656,15 @@ jobs:
           CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}
           VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}
           VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}
+          AUTO_MERGE_GATE_EVALUATED: ${{ env.AUTO_MERGE_GATE_EVALUATED }}
+          FETCH_GATE_STATUS: ${{ env.FETCH_GATE_STATUS }}
+          PROCESS_GATE_STATUS: ${{ env.PROCESS_GATE_STATUS }}
+          VALIDATION_GATE_STATUS: ${{ env.VALIDATION_GATE_STATUS }}
+          CONTINUITY_GATE_STATUS: ${{ env.CONTINUITY_GATE_STATUS }}
+          AUTO_MERGE_GATE_STATUS: ${{ env.AUTO_MERGE_GATE_STATUS }}
+          AUTO_MERGE_BLOCKERS: ${{ env.AUTO_MERGE_BLOCKERS }}
+          AUTO_MERGE_OVERRIDE_USED: ${{ env.AUTO_MERGE_OVERRIDE_USED }}
+          AUTO_MERGE_EFFECTIVE: ${{ env.AUTO_MERGE_EFFECTIVE }}
         run: |
           # workflow_type を create_pr.sh が認識する workflow_name 識別子へ変換する。
           # create_pr.sh はこの識別子でブランチ名・コミットメッセージ・自動マージ検証ゲートを分岐するため、

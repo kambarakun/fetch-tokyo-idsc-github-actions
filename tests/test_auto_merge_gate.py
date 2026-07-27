@@ -180,6 +180,20 @@ def test_common_workflow_forwards_every_gate_input() -> None:
     assert "VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}" in workflow
 
 
+def test_common_workflow_evaluates_gate_before_optional_pr_creation() -> None:
+    workflow = COMMON_WORKFLOW.read_text(encoding="utf-8")
+
+    evaluation_step = workflow.index("- name: Evaluate auto-merge gate")
+    create_pr_step = workflow.index("- name: Create Pull Request")
+
+    assert evaluation_step < create_pr_step
+    assert "write_auto_merge_gate_env" in workflow[evaluation_step:create_pr_step]
+    assert 'echo "AUTO_MERGE_GATE_EVALUATED=$AUTO_MERGE_GATE_EVALUATED"' in GATE_SCRIPT.read_text(encoding="utf-8")
+    assert 'if [ "${AUTO_MERGE_GATE_EVALUATED:-false}" != "true" ]; then' in CREATE_PR_SCRIPT.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_continued_fetch_failure_creates_check_annotation() -> None:
     workflow = COMMON_WORKFLOW.read_text(encoding="utf-8")
 
