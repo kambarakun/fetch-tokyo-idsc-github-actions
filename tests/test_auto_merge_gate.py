@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -10,6 +11,48 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GATE_SCRIPT = PROJECT_ROOT / "scripts" / "auto_merge_gate.sh"
 COMMON_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "_fetch-data-common.yml"
 CREATE_PR_SCRIPT = PROJECT_ROOT / "scripts" / "create_pr.sh"
+WORKFLOW_DIRECTORY = PROJECT_ROOT / ".github" / "workflows"
+
+
+def test_workflows_install_from_the_committed_lockfile() -> None:
+    unlocked_syncs: list[str] = []
+
+    for workflow_path in sorted(WORKFLOW_DIRECTORY.glob("*.y*ml")):
+        for line_number, line in enumerate(workflow_path.read_text(encoding="utf-8").splitlines(), start=1):
+            command = line.strip()
+            if not command.startswith("#") and "uv sync" in command and "--locked" not in command.split():
+                unlocked_syncs.append(f"{workflow_path.name}:{line_number}: {command}")
+
+    assert unlocked_syncs == []
+
+
+def test_locked_sync_rejects_a_missing_lockfile(tmp_path: Path) -> None:
+    project_file = tmp_path / "pyproject.toml"
+    project_file.write_text(
+        """\
+[project]
+name = "missing-lockfile"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = []
+""",
+        encoding="utf-8",
+    )
+
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+    result = subprocess.run(
+        [shutil.which("uv") or "uv", "sync", "--locked"],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "uv.lock" in result.stderr
+    assert "--locked" in result.stderr
 
 
 def evaluate_gate(

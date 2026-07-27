@@ -54,10 +54,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv sync
-
-      - name: Verify lockfile is up-to-date
-        run: uv lock --check
+        run: uv sync --locked
 
       - name: Configure git
         run: |
