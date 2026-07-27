@@ -24,7 +24,7 @@ set -e
 # オプション環境変数（ワークフロー別）:
 #   共通:
 #     - AUTO_MERGE (true|false) - PR自動マージを有効化 (デフォルト: false)
-#     - FORCE_MERGE_ON_FAILURE (true|false) - 検証失敗時も強制マージ (デフォルト: false)
+#     - FORCE_MERGE_ON_FAILURE (true|false) - Explicitly override failed gates (default: false)
 #     - FETCH_STATUS (success|failed) - データ取得結果
 #     - PROCESS_RESULT (success|failed|skipped) - データ処理結果
 #     - FETCH_CONTINUED_REASON, PROCESS_CONTINUED_REASON - 失敗後の継続理由
