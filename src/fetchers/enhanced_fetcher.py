@@ -15,7 +15,7 @@ from typing import Any
 
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
-from .base_fetcher import TokyoEpidemicSurveillanceFetcher
+from .base_fetcher import RequestTimeout, TokyoEpidemicSurveillanceFetcher, validate_request_timeout
 
 # ロガー設定
 logger = logging.getLogger(__name__)
@@ -71,10 +71,13 @@ class DataFetcherConfig:
     max_retries: int = 3
     base_delay: float = 1.0
     max_delay: float = 60.0
-    timeout: int = 30
+    timeout: RequestTimeout = 30.0
     rate_limit_delay: float = 1.0
     enable_jitter: bool = True
     user_agent: str = "TokyoEpidemicDataFetcher/1.0 (GitHub Actions Automation)"
+
+    def __post_init__(self) -> None:
+        self.timeout = validate_request_timeout(self.timeout)
 
 
 class RetryHandler:
@@ -202,8 +205,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
     """拡張版感染症データフェッチャー"""
 
     def __init__(self, config: DataFetcherConfig | None = None):
-        super().__init__()
         self.config = config or DataFetcherConfig()
+        super().__init__(timeout=self.config.timeout)
         self.retry_handler = RetryHandler(self.config)
         self.rate_limiter = RateLimiter(self.config.rate_limit_delay)
 
