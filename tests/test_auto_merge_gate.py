@@ -190,6 +190,9 @@ def test_common_workflow_captures_canonical_continuity_result() -> None:
     assert '--end-year "$END_YEAR"' in continuity_step
     assert '--as-of "$CURRENT_DATE"' in continuity_step
     assert "CURRENT_DATE=$(TZ=Asia/Tokyo date +'%Y-%m-%d')" in workflow
+    assert "CURRENT_YEAR=$(TZ=Asia/Tokyo date +'%Y')" in workflow
+    assert "CURRENT_MONTH=$(TZ=Asia/Tokyo date +'%m')" in workflow
+    assert "CURRENT_WEEK=$(TZ=Asia/Tokyo date +'%V')" in workflow
     assert "--format json" in continuity_step
     assert "CONTINUITY_VALID=true" in continuity_step
     assert "CONTINUITY_VALID=false" in continuity_step
