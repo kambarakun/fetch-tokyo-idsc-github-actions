@@ -41,11 +41,6 @@ on:
         required: false
         type: string
         default: ""
-      verify_lockfile:
-        description: "uv.lockが最新かチェック"
-        required: false
-        type: boolean
-        default: false
       verify_continuity:
         description: "データ連続性を検証"
         required: false
@@ -116,10 +111,6 @@ jobs:
 
       - name: Setup Python
         run: uv python install 3.11
-
-      - name: Verify lockfile is up-to-date
-        if: inputs.verify_lockfile
-        run: uv lock --check
 
       - name: Install dependencies
         run: uv sync --locked
@@ -222,7 +213,7 @@ jobs:
           fi
           if [ "$CSV_COUNT" -gt 0 ]; then
             VALIDATION_REPORT_BEFORE="data/logs/validation_before_${FETCH_TIMESTAMP}.json"
-            if uv run validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT_BEFORE"; then
+            if uv run --locked validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT_BEFORE"; then
               echo "✅ 事前データ検証成功"
               echo "VALIDATION_BEFORE_SUCCESS=true" >> "$GITHUB_ENV"
             else
@@ -261,7 +252,7 @@ jobs:
           echo "Starting ${{ inputs.workflow_display_name }} at $FETCH_TIMESTAMP"
 
           # コマンドの構築
-          FETCH_CMD=(uv run fetch-data)
+          FETCH_CMD=(uv run --locked fetch-data)
 
           # 年範囲の指定
           FETCH_CMD+=(--start-year "$START_YEAR")
@@ -383,7 +374,7 @@ jobs:
             # データ処理の実行 (変更されたファイルのみ)
             # 配列を安全に展開してスペースを含むファイル名にも対応
             # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
-            if uv run process-data --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
+            if uv run --locked process-data --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
               echo "✅ データ処理: 成功"
               {
                 echo "PROCESS_RESULT=success"
@@ -494,7 +485,7 @@ jobs:
           echo "取得したデータの検証..."
           VALIDATION_REPORT="data/logs/validation_${FETCH_TIMESTAMP}.json"
 
-          if uv run validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT"; then
+          if uv run --locked validate-data data/raw --pattern "*.csv" --output "$VALIDATION_REPORT"; then
             echo "✅ データ検証成功"
             echo "VALIDATION_SUCCESS=true" >> "$GITHUB_ENV"
           else
@@ -517,7 +508,7 @@ jobs:
           CONTINUITY_REPORT="$RUNNER_TEMP/continuity_${FETCH_TIMESTAMP}.json"
           CONTINUITY_VALID=false
 
-          if uv run check-missing data/raw \
+          if uv run --locked check-missing data/raw \
             --start-year "$START_YEAR" \
             --end-year "$END_YEAR" \
             --as-of "$CURRENT_DATE" \
@@ -539,7 +530,7 @@ jobs:
         if: inputs.dry_run != true
         run: |
           echo "📈 感染動向グラフを生成しています..."
-          uv run python scripts/generate_charts.py
+          uv run --locked python scripts/generate_charts.py
 
           # グラフファイルをステージング
           if ! git diff --quiet docs/images/; then
@@ -551,7 +542,7 @@ jobs:
         if: inputs.dry_run != true
         run: |
           echo "📊 README統計情報を更新しています..."
-          uv run python scripts/update_readme_stats.py
+          uv run --locked python scripts/update_readme_stats.py
 
           # 変更があればステージング
           if ! git diff --quiet README.md; then

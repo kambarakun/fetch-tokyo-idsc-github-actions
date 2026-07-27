@@ -14,12 +14,13 @@ GATE_SCRIPT = PROJECT_ROOT / "scripts" / "auto_merge_gate.sh"
 COMMON_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "_fetch-data-common.yml"
 CREATE_PR_SCRIPT = PROJECT_ROOT / "scripts" / "create_pr.sh"
 WORKFLOW_DIRECTORY = PROJECT_ROOT / ".github" / "workflows"
-UV_SYNC_COMMAND = re.compile(r"^(?:if\s+)?(?:!\s+)?uv\s+sync(?:\s|$)")
+UV_PROJECT_COMMAND = re.compile(r"\buv\s+(sync|run)\b")
 LOCKED_OPTION = re.compile(r"(?:^|\s)--locked(?=$|[\s;&|])")
+NO_PROJECT_OPTION = re.compile(r"(?:^|\s)--no-project(?=$|[\s;&|])")
 
 
-def test_workflows_install_from_the_committed_lockfile() -> None:
-    unlocked_syncs: list[str] = []
+def test_workflow_project_commands_do_not_mutate_the_lockfile() -> None:
+    unguarded_commands: list[str] = []
 
     for workflow_path in sorted(WORKFLOW_DIRECTORY.glob("*.y*ml")):
         workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
@@ -37,13 +38,22 @@ def test_workflows_install_from_the_committed_lockfile() -> None:
             for step in steps:
                 if not isinstance(step, dict) or not isinstance(step.get("run"), str):
                     continue
-                for line in step["run"].splitlines():
-                    command = line.strip()
-                    if UV_SYNC_COMMAND.match(command) and not LOCKED_OPTION.search(command):
+                script = re.sub(r"\\\s*\n\s*", " ", step["run"])
+                for line in script.splitlines():
+                    for command in re.split(r"&&|\|\||;", line):
+                        match = UV_PROJECT_COMMAND.search(command)
+                        if match is None:
+                            continue
+                        arguments = command[match.end() :]
+                        guarded = LOCKED_OPTION.search(arguments) is not None
+                        if match.group(1) == "run":
+                            guarded = guarded or NO_PROJECT_OPTION.search(arguments) is not None
+                        if guarded:
+                            continue
                         step_name = step.get("name", "unnamed step")
-                        unlocked_syncs.append(f"{workflow_path.name}:{job_name}:{step_name}: {command}")
+                        unguarded_commands.append(f"{workflow_path.name}:{job_name}:{step_name}: {command.strip()}")
 
-    assert unlocked_syncs == []
+    assert unguarded_commands == []
 
 
 def test_locked_sync_rejects_a_missing_lockfile(tmp_path: Path) -> None:
@@ -247,7 +257,7 @@ def test_common_workflow_captures_canonical_continuity_result() -> None:
     continuity_step = workflow[workflow.index("- name: Verify data continuity") :]
     continuity_step = continuity_step[: continuity_step.index("- name: Generate visualization charts")]
 
-    assert "uv run check-missing data/raw" in continuity_step
+    assert "uv run --locked check-missing data/raw" in continuity_step
     assert '--start-year "$START_YEAR"' in continuity_step
     assert '--end-year "$END_YEAR"' in continuity_step
     assert '--as-of "$CURRENT_DATE"' in continuity_step
