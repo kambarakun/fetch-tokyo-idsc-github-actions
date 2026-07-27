@@ -142,7 +142,7 @@ jobs:
 
           {
             echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')"
-            echo "CURRENT_DATE=$(date +'%Y-%m-%d')"
+            echo "CURRENT_DATE=$(TZ=Asia/Tokyo date +'%Y-%m-%d')"
             echo "CURRENT_YEAR=$CURRENT_YEAR"
             echo "PREVIOUS_YEAR=$PREVIOUS_YEAR"
             echo "CURRENT_MONTH=$(date +'%m')"
@@ -532,7 +532,7 @@ jobs:
 
           echo "CONTINUITY_VALID=$CONTINUITY_VALID" >> "$GITHUB_ENV"
           if [ -f "$CONTINUITY_REPORT" ]; then
-            jq .summary "$CONTINUITY_REPORT"
+            jq .summary "$CONTINUITY_REPORT" || echo "⚠️ レポート解析に失敗しました"
           fi
 
       - name: Generate visualization charts

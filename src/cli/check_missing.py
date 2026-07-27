@@ -159,7 +159,7 @@ class ContinuityValidator:
         ]
 
         error_messages: list[str] = []
-        if not existing_periods:
+        if expected_periods and not existing_periods:
             error_messages.append("データファイルが見つかりません")
         if missing_periods:
             error_messages.append(f"{len(missing_periods)}件の欠損期間があります")
@@ -178,7 +178,7 @@ class ContinuityValidator:
             watermark=watermark,
             missing_periods=missing_periods,
             unexpected_files=unexpected_files,
-            is_valid=bool(existing_periods) and not missing_periods,
+            is_valid=not missing_periods and (not expected_periods or bool(existing_periods)),
             error_messages=error_messages,
         )
         if not report.is_valid:

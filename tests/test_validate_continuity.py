@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Any, cast
@@ -10,6 +12,8 @@ from typing import Any, cast
 import pytest
 
 from src.cli.check_missing import DATA_TYPES, ContinuityValidator, main, weeks_in_year
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def write_periods(data_dir: Path, data_type: str, periods: list[tuple[int, int]]) -> None:
@@ -204,6 +208,14 @@ def test_empty_effective_range_is_reported_without_inventing_missing_periods(tmp
     assert report.is_valid
     assert payload["data_types"][data_type]["target_period"] == {"start": None, "end": None}
 
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    empty_report = ContinuityValidator(empty_dir, as_of=date(2025, 1, 6), weekly_lag=2).validate_data_type(
+        data_type, start_year=2025, end_year=2025
+    )
+    assert empty_report.is_valid
+    assert empty_report.error_messages == []
+
 
 def test_rejects_unsupported_type_and_collects_malformed_target_files(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="publication lag"):
@@ -259,3 +271,16 @@ def test_markdown_invalid_format_and_output_file_paths(tmp_path: Path, capsys: p
     assert result == 0
     assert json.loads(output_path.read_text(encoding="utf-8"))["summary"]["is_valid"] is True
     assert "レポートを保存しました" in capsys.readouterr().out
+
+
+def test_legacy_validator_shim_runs_without_an_installed_project() -> None:
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", str(PROJECT_ROOT / "scripts" / "validate_continuity.py"), "--help"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "週次・月次データの連続性を検証" in result.stdout
