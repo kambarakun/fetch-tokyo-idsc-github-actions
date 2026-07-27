@@ -326,6 +326,7 @@ jobs:
         shell: bash
         run: |
           echo "⚠️ データ取得に失敗しました (exit code: ${FETCH_RESULT})"
+          echo "::error title=Data fetch failed::fetch-data exited with code ${FETCH_RESULT}; automatic merge will be blocked unless explicitly overridden"
 
           # 失敗時の動作制御
           # 真理値表:
@@ -367,7 +368,10 @@ jobs:
 
           if [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
             echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
-            echo "PROCESS_RESULT=skipped" >> "$GITHUB_ENV"
+            {
+              echo "PROCESS_RESULT=skipped"
+              echo "PROCESS_CONTINUED_REASON=none"
+            } >> "$GITHUB_ENV"
           else
             # 変更ファイル数を表示
             FILE_COUNT=${#CHANGED_RAW_FILES[@]}
@@ -381,7 +385,10 @@ jobs:
             # 注: set -o pipefailにより、パイプ内のPythonスクリプトの終了コードが正しく伝播される
             if uv run process-data --files "${CHANGED_RAW_FILES[@]}" 2>&1 | tee "data/logs/process_${FETCH_TIMESTAMP}.log"; then
               echo "✅ データ処理: 成功"
-              echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
+              {
+                echo "PROCESS_RESULT=success"
+                echo "PROCESS_CONTINUED_REASON=none"
+              } >> "$GITHUB_ENV"
 
               # stats.jsonから処理結果を抽出
               if [ -f "data/processed/stats.json" ]; then
@@ -418,7 +425,10 @@ jobs:
               fi
             else
               echo "❌ データ処理: 失敗"
-              echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
+              {
+                echo "PROCESS_RESULT=failed"
+                echo "PROCESS_CONTINUED_REASON=none"
+              } >> "$GITHUB_ENV"
 
               # 処理失敗時の動作制御
               # 真理値表:
@@ -428,13 +438,17 @@ jobs:
               # false              | true                 | 継続（警告）
               # false              | false                | 終了（exit 1）
               if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
-                echo "⚠️ 警告: データ処理に失敗しましたが、ワークフローを継続します。"
+                REASON="continue_on_failure=true により継続"
+                echo "⚠️ 警告: データ処理に失敗しましたが、${REASON}します。"
+                echo "PROCESS_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
               else
                 # force_merge_on_failureがfalseの場合は終了
                 if [ "${{ inputs.force_merge_on_failure }}" = "false" ]; then
                   exit 1
                 else
-                  echo "⚠️ 警告: データ処理に失敗しましたが、force_merge_on_failureが有効のため継続します。"
+                  REASON="force_merge_on_failure=true により継続"
+                  echo "⚠️ 警告: データ処理に失敗しましたが、${REASON}します。"
+                  echo "PROCESS_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
                 fi
               fi
             fi
@@ -609,6 +623,15 @@ jobs:
           NEW_PROCESSED_FILES: ${{ env.NEW_PROCESSED_FILES }}
           # auto_merge設定
           AUTO_MERGE: ${{ inputs.auto_merge }}
+          FORCE_MERGE_ON_FAILURE: ${{ inputs.force_merge_on_failure }}
+          FETCH_STATUS: ${{ env.FETCH_STATUS }}
+          PROCESS_RESULT: ${{ env.PROCESS_RESULT }}
+          FETCH_CONTINUED_REASON: ${{ env.FETCH_CONTINUED_REASON }}
+          PROCESS_CONTINUED_REASON: ${{ env.PROCESS_CONTINUED_REASON }}
+          VERIFY_CONTINUITY: ${{ inputs.verify_continuity }}
+          CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}
+          VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}
+          VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}
         run: |
           # workflow_type を create_pr.sh が認識する workflow_name 識別子へ変換する。
           # create_pr.sh はこの識別子でブランチ名・コミットメッセージ・自動マージ検証ゲートを分岐するため、
@@ -688,6 +711,18 @@ jobs:
             if [ -n "${FETCH_CONTINUED_REASON:-}" ] && [ "${FETCH_CONTINUED_REASON}" != "none" ]; then
               echo "- **継続理由**: ${FETCH_CONTINUED_REASON}"
             fi
+            echo ""
+            echo "### 🛡️ 自動マージゲート"
+            echo "- **取得**: ${FETCH_GATE_STATUS:-not_evaluated}"
+            echo "- **処理**: ${PROCESS_GATE_STATUS:-not_evaluated}"
+            echo "- **検証**: ${VALIDATION_GATE_STATUS:-not_evaluated}"
+            echo "- **連続性**: ${CONTINUITY_GATE_STATUS:-not_evaluated}"
+            echo "- **ブロック理由**: ${AUTO_MERGE_BLOCKERS:-not_evaluated}"
+            echo "- **判定**: ${AUTO_MERGE_GATE_STATUS:-not_evaluated}"
+            echo "- **強制上書き要求**: ${{ inputs.force_merge_on_failure }}"
+            echo "- **強制上書き適用**: ${AUTO_MERGE_OVERRIDE_USED:-false}"
+            echo "- **取得失敗後の継続理由**: ${FETCH_CONTINUED_REASON:-none}"
+            echo "- **処理失敗後の継続理由**: ${PROCESS_CONTINUED_REASON:-none}"
             echo ""
 
             if [ "$HAS_CHANGES" = "true" ]; then
