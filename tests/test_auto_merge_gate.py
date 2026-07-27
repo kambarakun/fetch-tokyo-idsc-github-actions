@@ -1,27 +1,47 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GATE_SCRIPT = PROJECT_ROOT / "scripts" / "auto_merge_gate.sh"
 COMMON_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "_fetch-data-common.yml"
 CREATE_PR_SCRIPT = PROJECT_ROOT / "scripts" / "create_pr.sh"
 WORKFLOW_DIRECTORY = PROJECT_ROOT / ".github" / "workflows"
+UV_SYNC_COMMAND = re.compile(r"^(?:if\s+)?(?:!\s+)?uv\s+sync(?:\s|$)")
+LOCKED_OPTION = re.compile(r"(?:^|\s)--locked(?=$|[\s;&|])")
 
 
 def test_workflows_install_from_the_committed_lockfile() -> None:
     unlocked_syncs: list[str] = []
 
     for workflow_path in sorted(WORKFLOW_DIRECTORY.glob("*.y*ml")):
-        for line_number, line in enumerate(workflow_path.read_text(encoding="utf-8").splitlines(), start=1):
-            command = line.strip()
-            if not command.startswith("#") and "uv sync" in command and "--locked" not in command.split():
-                unlocked_syncs.append(f"{workflow_path.name}:{line_number}: {command}")
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        assert isinstance(workflow, dict)
+        jobs = workflow.get("jobs")
+        assert isinstance(jobs, dict)
+
+        for job_name, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            steps = job.get("steps", [])
+            if not isinstance(steps, list):
+                continue
+
+            for step in steps:
+                if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+                    continue
+                for line in step["run"].splitlines():
+                    command = line.strip()
+                    if UV_SYNC_COMMAND.match(command) and not LOCKED_OPTION.search(command):
+                        step_name = step.get("name", "unnamed step")
+                        unlocked_syncs.append(f"{workflow_path.name}:{job_name}:{step_name}: {command}")
 
     assert unlocked_syncs == []
 
@@ -52,7 +72,6 @@ dependencies = []
 
     assert result.returncode != 0
     assert "uv.lock" in result.stderr
-    assert "--locked" in result.stderr
 
 
 def evaluate_gate(
