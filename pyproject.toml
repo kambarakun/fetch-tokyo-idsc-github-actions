@@ -13,10 +13,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.4.0",
+    "pytest==9.0.3",
     "pytest-cov>=7.1.0",
     "pytest-asyncio>=1.4.0",
-    "black>=23.0.0",
+    "black==26.3.1",
     "ruff>=0.15.21",
     "mypy>=2.2.0",
     "isort>=5.12.0",
@@ -25,6 +25,9 @@ dev = [
     "pre-commit>=4.6.0",
     "jsonschema>=4.18.0",
 ]
+
+[tool.uv]
+required-version = "==0.11.24"
 
 [project.scripts]
 fetch-data = "src.cli.fetch_data:main"

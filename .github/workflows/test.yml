@@ -5,6 +5,9 @@ on:
     branches: [main, develop, feature/*]
   pull_request:
     branches: [main]
+  schedule:
+    # Tuesdays 09:17 JST; avoid top-of-hour Actions load.
+    - cron: "17 0 * * 2"
   workflow_dispatch:
 
 # 最小権限原則 (issue #299): テスト/lintはコミット・PR操作を行わないため read-only で十分。
@@ -31,11 +34,12 @@ jobs:
       - name: Setup Python 3.11
         run: uv python install 3.11
 
-      - name: Install dependencies
-        run: uv sync --all-extras
+      - name: Verify and audit locked dependencies
+        timeout-minutes: 5
+        run: uv --preview-features audit-command audit --locked
 
-      - name: Verify lockfile is up-to-date
-        run: uv lock --check
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
 
       - name: Create test directories
         run: |
@@ -134,7 +138,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install linting tools
-        run: uv sync --all-extras
+        run: uv sync --all-extras --locked
 
       - name: Run Ruff linter
         run: |

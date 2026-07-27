@@ -9,6 +9,7 @@
 - raw データ: Shift_JIS (デフォルト、Tokyo IDSCからの取得データ)
 - processed データ: UTF-8 (--encoding utf-8 を指定)
 """
+
 # mypy: ignore-errors
 
 import argparse
