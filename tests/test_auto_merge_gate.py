@@ -194,6 +194,38 @@ def test_common_workflow_evaluates_gate_before_optional_pr_creation() -> None:
     )
 
 
+def test_gate_env_forwards_normalized_request_and_override_to_pr_step(tmp_path: Path) -> None:
+    github_env = tmp_path / "github-env"
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKFLOW_NAME": "fetch-data-daily",
+            "AUTO_MERGE": "true",
+            "FORCE_MERGE_ON_FAILURE": "true",
+            "FETCH_STATUS": "failed",
+            "PROCESS_RESULT": "success",
+            "VALIDATION_BEFORE_SUCCESS": "true",
+            "GITHUB_ENV": str(github_env),
+        }
+    )
+    command = 'source "$1"; evaluate_auto_merge_gate; write_auto_merge_gate_env'
+
+    subprocess.run(
+        ["bash", "-c", command, "bash", str(GATE_SCRIPT)],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=True,
+    )
+
+    exported = dict(line.split("=", 1) for line in github_env.read_text(encoding="utf-8").splitlines())
+    assert exported["AUTO_MERGE_REQUESTED"] == "true"
+    assert exported["FORCE_MERGE"] == "true"
+
+    workflow = COMMON_WORKFLOW.read_text(encoding="utf-8")
+    assert "AUTO_MERGE_REQUESTED: ${{ env.AUTO_MERGE_REQUESTED }}" in workflow
+    assert "FORCE_MERGE: ${{ env.FORCE_MERGE }}" in workflow
+
+
 def test_continued_fetch_failure_creates_check_annotation() -> None:
     workflow = COMMON_WORKFLOW.read_text(encoding="utf-8")
 
