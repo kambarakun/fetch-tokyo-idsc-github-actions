@@ -16,9 +16,33 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
+
+from src.cli.check_missing import FILENAME_PATTERN
+from src.processors.data_processor import (
+    GENDER_SUFFIX_BY_LABEL,
+    NOTIFIABLE_DATA_START_MARKERS,
+    SENTINEL_DATA_START_MARKERS,
+    detect_gender_sections,
+    extract_gender_section_data,
+    find_data_start_line,
+)
+
+# Output expectations follow the processor's actual path for each data type.
+DATA_TYPE_OUTPUT_KINDS = {
+    "notifiable_weekly": "single",
+    "sentinel_weekly_gender": "gender_sections",
+    "sentinel_weekly_age": "gender_sections",
+    "sentinel_weekly_health_center": "gender_sections",
+    "sentinel_weekly_medical_district": "medical_district_sections",
+    "sentinel_monthly_gender": "gender_sections",
+    "sentinel_monthly_age": "gender_sections",
+    "sentinel_monthly_health_center": "gender_sections",
+    "sentinel_monthly_medical_district": "medical_district_sections",
+}
 
 
 def main():
@@ -40,7 +64,11 @@ def main():
         sys.exit(1)
 
     # 各ディレクトリの状況を確認
-    status = check_status(data_dir, args.verbose)
+    try:
+        status = check_status(data_dir, args.verbose)
+    except OSError as exc:
+        print(f"❌ データディレクトリの読み取りに失敗しました: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     if args.json:
         # JSON形式で出力
@@ -67,18 +95,115 @@ def check_status(data_dir: Path, verbose: bool = False) -> dict[str, Any]:
         "logs": check_directory(data_dir / "logs", verbose),
     }
 
-    # 処理カバー率を計算
-    if status["raw"]["file_count"] > 0:
-        processed_rate = (
-            (status["processed"]["file_count"] / status["raw"]["file_count"]) * 100
-            if status["processed"]["file_count"] > 0
-            else 0.0
-        )
-        status["coverage"] = {"processed_rate": processed_rate}
-    else:
-        status["coverage"] = {"processed_rate": 0.0}
+    status["coverage"] = check_processing_coverage(data_dir / "raw", data_dir / "processed")
 
     return status
+
+
+def expected_processed_outputs(raw_file: Path | str) -> list[str] | None:
+    """Return the normalized artifacts the processor can emit for one raw source."""
+    raw_path = Path(raw_file)
+    match = FILENAME_PATTERN.fullmatch(raw_path.name)
+    if match is None:
+        return None
+
+    data_type = match.group("data_type")
+    output_kind = DATA_TYPE_OUTPUT_KINDS.get(data_type)
+    if output_kind is None:
+        return None
+
+    lines = raw_path.read_text(encoding="shift_jis", errors="replace").splitlines()
+    suffixes: list[str | None]
+    if output_kind == "single":
+        suffixes = [None] if find_data_start_line(lines, NOTIFIABLE_DATA_START_MARKERS) is not None else []
+    else:
+        gender_sections = detect_gender_sections(lines)
+        if not gender_sections:
+            suffixes = [None] if find_data_start_line(lines, SENTINEL_DATA_START_MARKERS) is not None else []
+        else:
+            processable_sections = [
+                section for section in gender_sections if extract_gender_section_data(lines, section)
+            ]
+            suffixes = list(
+                dict.fromkeys(GENDER_SUFFIX_BY_LABEL[section["gender"]] for section in processable_sections)
+            )
+            if output_kind == "medical_district_sections":
+                suffixes = [suffix for suffix in suffixes if suffix != "total"]
+
+    year = match.group("year")
+    period = match.group("period")
+    outputs = []
+    for suffix in suffixes:
+        suffix_part = f"_{suffix}" if suffix is not None else ""
+        outputs.append(f"normalized_{data_type}{suffix_part}_{year}_{period}.csv")
+    return sorted(outputs)
+
+
+def _raise_scan_error(error: OSError) -> None:
+    raise error
+
+
+def find_csv_files(dir_path: Path) -> list[Path]:
+    """Find CSV files without suppressing directory traversal errors."""
+    if not dir_path.exists():
+        return []
+
+    return sorted(
+        Path(root) / filename
+        for root, _directories, filenames in os.walk(dir_path, onerror=_raise_scan_error)
+        for filename in filenames
+        if filename.endswith(".csv")
+    )
+
+
+def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, Any]:
+    """Calculate source-based processing coverage and identify mismatched artifacts."""
+    raw_files = find_csv_files(raw_dir)
+    processed_files = find_csv_files(processed_dir)
+    processed_paths = {path.relative_to(processed_dir).as_posix() for path in processed_files}
+
+    expected_paths: set[str] = set()
+    incomplete_sources: list[dict[str, Any]] = []
+    processed_source_count = 0
+
+    for raw_file in raw_files:
+        raw_path = raw_file.relative_to(raw_dir).as_posix()
+        if raw_file.parent != raw_dir:
+            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": [], "reason": "noncanonical_raw_path"})
+            continue
+
+        expected_outputs = expected_processed_outputs(raw_file)
+        if expected_outputs is None:
+            incomplete_sources.append(
+                {"raw_file": raw_path, "missing_outputs": [], "reason": "unsupported_raw_filename"}
+            )
+            continue
+        if not expected_outputs:
+            incomplete_sources.append(
+                {"raw_file": raw_path, "missing_outputs": [], "reason": "unprocessable_raw_content"}
+            )
+            continue
+
+        expected_paths.update(expected_outputs)
+        missing_outputs = sorted(set(expected_outputs) - processed_paths)
+        if not missing_outputs:
+            processed_source_count += 1
+        else:
+            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_outputs})
+
+    raw_source_count = len(raw_files)
+    processed_rate = (processed_source_count / raw_source_count * 100) if raw_source_count else 0.0
+    orphaned_processed_files = sorted(processed_paths - expected_paths)
+
+    return {
+        "processed_rate": processed_rate,
+        "raw_source_count": raw_source_count,
+        "processed_source_count": processed_source_count,
+        "incomplete_source_count": len(incomplete_sources),
+        "incomplete_sources": incomplete_sources,
+        "orphaned_processed_count": len(orphaned_processed_files),
+        "orphaned_processed_files": orphaned_processed_files,
+    }
 
 
 def check_directory(dir_path: Path, verbose: bool = False) -> dict[str, Any]:
@@ -95,7 +220,7 @@ def check_directory(dir_path: Path, verbose: bool = False) -> dict[str, Any]:
         return {"exists": False, "file_count": 0, "total_size_mb": 0, "files": []}
 
     # CSVファイルを集計
-    csv_files = list(dir_path.rglob("*.csv"))
+    csv_files = find_csv_files(dir_path)
     total_size = sum(f.stat().st_size for f in csv_files)
 
     result: dict[str, Any] = {
@@ -146,26 +271,66 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
     print("📈 処理カバー率")
     print("=" * 70)
     print(f"処理済み率: {status['coverage']['processed_rate']:.1f}%")
+    print(
+        f"処理済みraw: {status['coverage']['processed_source_count']} / " f"{status['coverage']['raw_source_count']}件"
+    )
+    print(f"未完了raw: {status['coverage']['incomplete_source_count']}件")
+    print(f"rawに対応しない処理済みファイル: {status['coverage']['orphaned_processed_count']}件")
+
+    if verbose and status["coverage"]["incomplete_sources"]:
+        print("  未完了raw一覧:")
+        for source in status["coverage"]["incomplete_sources"]:
+            if source.get("reason") == "unsupported_raw_filename":
+                print(f"    - {source['raw_file']} (未対応のファイル名)")
+            elif source.get("reason") == "noncanonical_raw_path":
+                print(f"    - {source['raw_file']} (raw直下ではないファイル)")
+            elif source.get("reason") == "unprocessable_raw_content":
+                print(f"    - {source['raw_file']} (処理可能なデータ構造なし)")
+            else:
+                missing = ", ".join(source["missing_outputs"])
+                print(f"    - {source['raw_file']} (欠損: {missing})")
+
+    if verbose and status["coverage"]["orphaned_processed_files"]:
+        print("  孤立processed一覧:")
+        for path in status["coverage"]["orphaned_processed_files"]:
+            print(f"    - {path}")
 
     # 推奨アクション
     print("\n" + "=" * 70)
     print("💡 推奨アクション")
     print("=" * 70)
 
+    processable_incomplete_sources = [
+        source for source in status["coverage"]["incomplete_sources"] if source.get("reason") is None
+    ]
+    unprocessable_sources = [
+        source for source in status["coverage"]["incomplete_sources"] if source.get("reason") is not None
+    ]
+
     if status["raw"]["file_count"] == 0:
         print("⚠️  data/raw/にデータがありません")
         print("   → データ取得スクリプトを実行してください")
 
-    elif status["processed"]["file_count"] == 0:
-        print("⚠️  データ処理が必要です")
-        print("   → uv run process-data --all")
-
-    elif status["processed"]["file_count"] < status["raw"]["file_count"]:
-        print("⚠️  一部のファイルが処理されていません")
-        print("   → uv run process-data --all")
-
     else:
-        print("✅ すべての処理が完了しています")
+        if processable_incomplete_sources:
+            if status["coverage"]["processed_source_count"] == 0:
+                print("⚠️  データ処理が必要です")
+            else:
+                print("⚠️  一部のファイルが処理されていません")
+            print("   → uv run process-data --all")
+
+        elif not unprocessable_sources:
+            print("✅ すべての処理が完了しています")
+
+        if unprocessable_sources:
+            print(f"⚠️  処理できないrawファイルが{len(unprocessable_sources)}件あります")
+            if any(source.get("reason") == "unprocessable_raw_content" for source in unprocessable_sources):
+                print("   → rawの内容を修正してください")
+            if any(source.get("reason") != "unprocessable_raw_content" for source in unprocessable_sources):
+                print("   → ファイル名または配置を修正してください")
+
+    if status["coverage"]["orphaned_processed_count"] > 0:
+        print("⚠️  rawに対応しない処理済みファイルを確認してください")
 
     print()
 

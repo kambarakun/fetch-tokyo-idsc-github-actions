@@ -18,6 +18,82 @@ from src.validators.quality_validator import QualityValidator
 
 logger = logging.getLogger(__name__)
 
+_GENDER_MALE = "男性"
+_GENDER_FEMALE = "女性"
+_GENDER_TOTAL = "男女合計"
+_GENDER_MARKER = "性別"
+_HEADER_SEARCH_RANGE = 20
+_DISEASE_KEYWORDS = [
+    "インフルエンザ",
+    "ウイルス",
+    "感染症",
+    "球菌",
+    "結膜",
+]
+_MIN_DISEASE_COUNT = 2
+_COMMENT_PREFIX = "*"
+
+NOTIFIABLE_DATA_START_MARKERS = ("疾病名", "病名")
+SENTINEL_DATA_START_MARKERS = (*NOTIFIABLE_DATA_START_MARKERS, "年齢区分")
+
+GENDER_SUFFIX_BY_LABEL = {
+    _GENDER_MALE: "male",
+    _GENDER_FEMALE: "female",
+    _GENDER_TOTAL: "total",
+}
+
+
+def detect_gender_sections(lines: list[str]) -> list[dict[str, Any]]:
+    """Return gender section markers recognized by the processor."""
+    sections = []
+
+    for line_number, line in enumerate(lines):
+        if _GENDER_MARKER in line and "," in line:
+            parts = [part.strip().strip('"') for part in line.split(",")]
+            if len(parts) >= 2:
+                gender = parts[1]
+                if gender in GENDER_SUFFIX_BY_LABEL:
+                    sections.append({"gender": gender, "start_line": line_number})
+
+    return sections
+
+
+def extract_gender_section_data(lines: list[str], section: dict[str, Any]) -> list[str]:
+    """Return the rows the processor can extract for one gender section."""
+    start_line = section["start_line"]
+    header_line = None
+    for line_number in range(start_line, min(start_line + _HEADER_SEARCH_RANGE, len(lines))):
+        line = lines[line_number]
+        disease_count = sum(1 for keyword in _DISEASE_KEYWORDS if keyword in line)
+        if disease_count >= _MIN_DISEASE_COUNT:
+            header_line = line_number
+            break
+
+    if header_line is None:
+        return []
+
+    data_lines = [lines[header_line]]
+    for line in lines[header_line + 1 :]:
+        if not line.strip():
+            continue
+        if _GENDER_MARKER in line or "定点報告" in line or "集計期間" in line:
+            break
+        if line.startswith(_COMMENT_PREFIX):
+            continue
+        data_lines.append(line)
+        if line.startswith('"合計"') or line.startswith("合計"):
+            break
+
+    return data_lines
+
+
+def find_data_start_line(lines: list[str], markers: tuple[str, ...]) -> int | None:
+    """Return the first line containing one of the processor's data markers."""
+    for line_number, line in enumerate(lines):
+        if any(marker in line for marker in markers):
+            return line_number
+    return None
+
 
 @dataclass
 class ConversionResult:
@@ -50,20 +126,14 @@ class DataProcessor:
     """データ処理を統合的に管理するクラス"""
 
     # クラス定数: マジックナンバー/ストリングを定数化
-    HEADER_SEARCH_RANGE = 20  # ヘッダー行を探す範囲(行数)
-    DISEASE_KEYWORDS: ClassVar[list[str]] = [
-        "インフルエンザ",
-        "ウイルス",
-        "感染症",
-        "球菌",
-        "結膜",
-    ]
-    MIN_DISEASE_COUNT = 2  # ヘッダー行と判定する最小疾病数
-    COMMENT_PREFIX = "*"  # 注釈行のプレフィックス
-    GENDER_MALE = "男性"
-    GENDER_FEMALE = "女性"
-    GENDER_TOTAL = "男女合計"
-    GENDER_MARKER = "性別"
+    HEADER_SEARCH_RANGE = _HEADER_SEARCH_RANGE  # ヘッダー行を探す範囲(行数)
+    DISEASE_KEYWORDS: ClassVar[list[str]] = _DISEASE_KEYWORDS
+    MIN_DISEASE_COUNT = _MIN_DISEASE_COUNT  # ヘッダー行と判定する最小疾病数
+    COMMENT_PREFIX = _COMMENT_PREFIX  # 注釈行のプレフィックス
+    GENDER_MALE = _GENDER_MALE
+    GENDER_FEMALE = _GENDER_FEMALE
+    GENDER_TOTAL = _GENDER_TOTAL
+    GENDER_MARKER = _GENDER_MARKER
 
     def __init__(self, base_dir: Path):
         """DataProcessorを初期化する。
@@ -170,11 +240,7 @@ class DataProcessor:
             output_file = self.processed_dir / output_filename
 
             # データ開始行を探す
-            data_start_idx = None
-            for i, line in enumerate(lines):
-                if "疾病名" in line or "病名" in line:
-                    data_start_idx = i
-                    break
+            data_start_idx = find_data_start_line(lines, NOTIFIABLE_DATA_START_MARKERS)
 
             if data_start_idx is None:
                 return NormalizationResult(success=False, error="データ開始行が見つかりません")
@@ -369,11 +435,7 @@ class DataProcessor:
             output_file = self.processed_dir / output_filename
 
             # データ開始行を探す
-            data_start_idx = None
-            for i, line in enumerate(lines):
-                if "疾病名" in line or "病名" in line or "年齢区分" in line:
-                    data_start_idx = i
-                    break
+            data_start_idx = find_data_start_line(lines, SENTINEL_DATA_START_MARKERS)
 
             if data_start_idx is None:
                 return NormalizationResult(success=False, error="データ開始行が見つかりません")
@@ -406,17 +468,7 @@ class DataProcessor:
         Returns:
             性別セクション情報のリスト
         """
-        sections = []
-
-        for i, line in enumerate(lines):
-            if self.GENDER_MARKER in line and "," in line:
-                parts = [p.strip().strip('"') for p in line.split(",")]
-                if len(parts) >= 2:
-                    gender = parts[1]
-                    if gender in [self.GENDER_MALE, self.GENDER_FEMALE, self.GENDER_TOTAL]:
-                        sections.append({"gender": gender, "start_line": i})
-
-        return sections
+        return detect_gender_sections(lines)
 
     def _save_gender_section(self, lines: list[str], section: dict[str, Any], metadata: dict[str, Any]) -> Path | None:
         """性別セクションを保存
@@ -467,45 +519,7 @@ class DataProcessor:
         Returns:
             セクションのデータ行
         """
-        start_idx = section["start_line"]
-
-        # ヘッダー行を探す(疾病名が複数含まれる行)
-        header_idx = None
-        for i in range(start_idx, min(start_idx + self.HEADER_SEARCH_RANGE, len(lines))):
-            line = lines[i]
-            disease_count = sum(1 for keyword in self.DISEASE_KEYWORDS if keyword in line)
-            if disease_count >= self.MIN_DISEASE_COUNT:
-                header_idx = i
-                break
-
-        if header_idx is None:
-            return []
-
-        # データ行を抽出
-        data_lines = [lines[header_idx]]
-
-        for i in range(header_idx + 1, len(lines)):
-            line = lines[i]
-
-            # 空行や次のセクションのメタデータで終了
-            if not line.strip():
-                continue
-
-            if self.GENDER_MARKER in line or "定点報告" in line or "集計期間" in line:
-                break
-
-            # 注釈行をスキップ
-            if line.startswith(self.COMMENT_PREFIX):
-                continue
-
-            # データ行を追加
-            data_lines.append(line)
-
-            # 合計行で終了
-            if line.startswith('"合計"') or line.startswith("合計"):
-                break
-
-        return data_lines
+        return extract_gender_section_data(lines, section)
 
     def _get_gender_suffix(self, gender: str) -> str:
         """性別表示名をファイル名サフィックスに変換
@@ -516,8 +530,7 @@ class DataProcessor:
         Returns:
             ファイル名サフィックス(male/female/total)
         """
-        mapping = {self.GENDER_MALE: "male", self.GENDER_FEMALE: "female", self.GENDER_TOTAL: "total"}
-        return mapping.get(gender, "unknown")
+        return GENDER_SUFFIX_BY_LABEL.get(gender, "unknown")
 
     def _extract_metadata_from_filename(self, filename: str) -> dict[str, Any] | None:
         """ファイル名からメタデータを抽出
