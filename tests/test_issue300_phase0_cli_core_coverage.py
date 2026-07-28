@@ -120,6 +120,26 @@ def test_check_data_status_marks_unsupported_raw_as_incomplete(
     assert "invalid.csv (未対応のファイル名)" in capsys.readouterr().out
 
 
+def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data_dir = tmp_path / "data"
+    raw_name = "notifiable_weekly_2025_01.csv"
+    _write_csv(data_dir / "raw" / "a" / raw_name, ["h1,h2", "1,2"])
+    _write_csv(data_dir / "raw" / "b" / raw_name, ["h1,h2", "1,2"])
+    _write_csv(data_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+
+    status = cds.check_status(data_dir)
+    coverage = status["coverage"]
+
+    assert coverage["processed_rate"] == 0.0
+    assert coverage["incomplete_sources"] == [
+        {"raw_file": "a/notifiable_weekly_2025_01.csv", "missing_outputs": [], "reason": "noncanonical_raw_path"},
+        {"raw_file": "b/notifiable_weekly_2025_01.csv", "missing_outputs": [], "reason": "noncanonical_raw_path"},
+    ]
+    assert coverage["orphaned_processed_files"] == ["normalized_notifiable_weekly_2025_01.csv"]
+    cds.print_status(status, verbose=True)
+    assert "a/notifiable_weekly_2025_01.csv (raw直下ではないファイル)" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     ("raw_name", "expected_outputs"),
     [
@@ -231,6 +251,27 @@ def test_check_data_status_print_dir_and_main(
         cds.main()
     assert exc.value.code == 1
     assert "データディレクトリが見つかりません" in capsys.readouterr().err
+
+
+def test_check_data_status_main_reports_scan_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setattr(sys, "argv", ["check-data-status", "--data-dir", str(data_dir)])
+
+    def raise_scan_error(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(cds, "check_status", raise_scan_error)
+
+    with pytest.raises(SystemExit) as exc:
+        cds.main()
+
+    assert exc.value.code == 1
+    assert "データディレクトリの読み取りに失敗しました: permission denied" in capsys.readouterr().err
 
 
 def test_check_missing_main_paths(

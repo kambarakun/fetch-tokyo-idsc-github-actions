@@ -56,7 +56,11 @@ def main():
         sys.exit(1)
 
     # 各ディレクトリの状況を確認
-    status = check_status(data_dir, args.verbose)
+    try:
+        status = check_status(data_dir, args.verbose)
+    except OSError as exc:
+        print(f"❌ データディレクトリの読み取りに失敗しました: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     if args.json:
         # JSON形式で出力
@@ -129,6 +133,10 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
 
     for raw_file in raw_files:
         raw_path = raw_file.relative_to(raw_dir).as_posix()
+        if raw_file.parent != raw_dir:
+            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": [], "reason": "noncanonical_raw_path"})
+            continue
+
         output_variants = expected_processed_output_variants(raw_file.name)
         if output_variants is None:
             incomplete_sources.append(
@@ -235,6 +243,8 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
         for source in status["coverage"]["incomplete_sources"]:
             if source.get("reason") == "unsupported_raw_filename":
                 print(f"    - {source['raw_file']} (未対応のファイル名)")
+            elif source.get("reason") == "noncanonical_raw_path":
+                print(f"    - {source['raw_file']} (raw直下ではないファイル)")
             else:
                 missing = ", ".join(source["missing_outputs"])
                 print(f"    - {source['raw_file']} (欠損: {missing})")
