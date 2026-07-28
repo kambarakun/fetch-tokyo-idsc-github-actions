@@ -18,6 +18,32 @@ from src.validators.quality_validator import QualityValidator
 
 logger = logging.getLogger(__name__)
 
+_GENDER_MALE = "男性"
+_GENDER_FEMALE = "女性"
+_GENDER_TOTAL = "男女合計"
+_GENDER_MARKER = "性別"
+
+GENDER_SUFFIX_BY_LABEL = {
+    _GENDER_MALE: "male",
+    _GENDER_FEMALE: "female",
+    _GENDER_TOTAL: "total",
+}
+
+
+def detect_gender_sections(lines: list[str]) -> list[dict[str, Any]]:
+    """Return gender section markers recognized by the processor."""
+    sections = []
+
+    for line_number, line in enumerate(lines):
+        if _GENDER_MARKER in line and "," in line:
+            parts = [part.strip().strip('"') for part in line.split(",")]
+            if len(parts) >= 2:
+                gender = parts[1]
+                if gender in GENDER_SUFFIX_BY_LABEL:
+                    sections.append({"gender": gender, "start_line": line_number})
+
+    return sections
+
 
 @dataclass
 class ConversionResult:
@@ -60,10 +86,10 @@ class DataProcessor:
     ]
     MIN_DISEASE_COUNT = 2  # ヘッダー行と判定する最小疾病数
     COMMENT_PREFIX = "*"  # 注釈行のプレフィックス
-    GENDER_MALE = "男性"
-    GENDER_FEMALE = "女性"
-    GENDER_TOTAL = "男女合計"
-    GENDER_MARKER = "性別"
+    GENDER_MALE = _GENDER_MALE
+    GENDER_FEMALE = _GENDER_FEMALE
+    GENDER_TOTAL = _GENDER_TOTAL
+    GENDER_MARKER = _GENDER_MARKER
 
     def __init__(self, base_dir: Path):
         """DataProcessorを初期化する。
@@ -406,17 +432,7 @@ class DataProcessor:
         Returns:
             性別セクション情報のリスト
         """
-        sections = []
-
-        for i, line in enumerate(lines):
-            if self.GENDER_MARKER in line and "," in line:
-                parts = [p.strip().strip('"') for p in line.split(",")]
-                if len(parts) >= 2:
-                    gender = parts[1]
-                    if gender in [self.GENDER_MALE, self.GENDER_FEMALE, self.GENDER_TOTAL]:
-                        sections.append({"gender": gender, "start_line": i})
-
-        return sections
+        return detect_gender_sections(lines)
 
     def _save_gender_section(self, lines: list[str], section: dict[str, Any], metadata: dict[str, Any]) -> Path | None:
         """性別セクションを保存
@@ -516,8 +532,7 @@ class DataProcessor:
         Returns:
             ファイル名サフィックス(male/female/total)
         """
-        mapping = {self.GENDER_MALE: "male", self.GENDER_FEMALE: "female", self.GENDER_TOTAL: "total"}
-        return mapping.get(gender, "unknown")
+        return GENDER_SUFFIX_BY_LABEL.get(gender, "unknown")
 
     def _extract_metadata_from_filename(self, filename: str) -> dict[str, Any] | None:
         """ファイル名からメタデータを抽出

@@ -21,19 +21,19 @@ from pathlib import Path
 from typing import Any
 
 from src.cli.check_missing import FILENAME_PATTERN
+from src.processors.data_processor import GENDER_SUFFIX_BY_LABEL, detect_gender_sections
 
-# A source is complete when every artifact in any one variant exists.
-# None represents the processor's successful unsuffixed output shape.
-EXPECTED_OUTPUT_SUFFIX_VARIANTS: dict[str, tuple[tuple[str | None, ...], ...]] = {
-    "notifiable_weekly": ((None,),),
-    "sentinel_weekly_gender": ((None,),),
-    "sentinel_weekly_age": (("male", "female", "total"), (None,)),
-    "sentinel_weekly_health_center": (("male", "female", "total"), (None,)),
-    "sentinel_weekly_medical_district": (("male", "female"), (None,)),
-    "sentinel_monthly_gender": ((None,),),
-    "sentinel_monthly_age": (("male", "female", "total"), (None,)),
-    "sentinel_monthly_health_center": (("male", "female", "total"), (None,)),
-    "sentinel_monthly_medical_district": (("male", "female"), (None,)),
+# Output expectations follow the processor's actual path for each data type.
+DATA_TYPE_OUTPUT_KINDS = {
+    "notifiable_weekly": "single",
+    "sentinel_weekly_gender": "gender_sections",
+    "sentinel_weekly_age": "gender_sections",
+    "sentinel_weekly_health_center": "gender_sections",
+    "sentinel_weekly_medical_district": "medical_district_sections",
+    "sentinel_monthly_gender": "gender_sections",
+    "sentinel_monthly_age": "gender_sections",
+    "sentinel_monthly_health_center": "gender_sections",
+    "sentinel_monthly_medical_district": "medical_district_sections",
 }
 
 
@@ -92,33 +92,38 @@ def check_status(data_dir: Path, verbose: bool = False) -> dict[str, Any]:
     return status
 
 
-def expected_processed_outputs(raw_filename: str) -> list[str] | None:
-    """Return the canonical normalized artifact set for one raw file."""
-    variants = expected_processed_output_variants(raw_filename)
-    return variants[0] if variants is not None else None
-
-
-def expected_processed_output_variants(raw_filename: str) -> list[list[str]] | None:
-    """Return every successful normalized artifact shape for one raw file."""
-    match = FILENAME_PATTERN.fullmatch(raw_filename)
+def expected_processed_outputs(raw_file: Path | str) -> list[str] | None:
+    """Return the normalized artifacts the processor can emit for one raw source."""
+    raw_path = Path(raw_file)
+    match = FILENAME_PATTERN.fullmatch(raw_path.name)
     if match is None:
         return None
 
     data_type = match.group("data_type")
-    suffix_variants = EXPECTED_OUTPUT_SUFFIX_VARIANTS.get(data_type)
-    if suffix_variants is None:
+    output_kind = DATA_TYPE_OUTPUT_KINDS.get(data_type)
+    if output_kind is None:
         return None
+
+    suffixes: list[str | None]
+    if output_kind == "single":
+        suffixes = [None]
+    else:
+        lines = raw_path.read_text(encoding="shift_jis", errors="replace").splitlines()
+        gender_sections = detect_gender_sections(lines)
+        if not gender_sections:
+            suffixes = [None]
+        else:
+            suffixes = list(dict.fromkeys(GENDER_SUFFIX_BY_LABEL[section["gender"]] for section in gender_sections))
+            if output_kind == "medical_district_sections":
+                suffixes = [suffix for suffix in suffixes if suffix != "total"]
 
     year = match.group("year")
     period = match.group("period")
-    output_variants = []
-    for suffixes in suffix_variants:
-        outputs = []
-        for suffix in suffixes:
-            suffix_part = f"_{suffix}" if suffix is not None else ""
-            outputs.append(f"normalized_{data_type}{suffix_part}_{year}_{period}.csv")
-        output_variants.append(sorted(outputs))
-    return output_variants
+    outputs = []
+    for suffix in suffixes:
+        suffix_part = f"_{suffix}" if suffix is not None else ""
+        outputs.append(f"normalized_{data_type}{suffix_part}_{year}_{period}.csv")
+    return sorted(outputs)
 
 
 def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, Any]:
@@ -137,20 +142,24 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
             incomplete_sources.append({"raw_file": raw_path, "missing_outputs": [], "reason": "noncanonical_raw_path"})
             continue
 
-        output_variants = expected_processed_output_variants(raw_file.name)
-        if output_variants is None:
+        expected_outputs = expected_processed_outputs(raw_file)
+        if expected_outputs is None:
             incomplete_sources.append(
                 {"raw_file": raw_path, "missing_outputs": [], "reason": "unsupported_raw_filename"}
             )
             continue
+        if not expected_outputs:
+            incomplete_sources.append(
+                {"raw_file": raw_path, "missing_outputs": [], "reason": "unsupported_gender_sections"}
+            )
+            continue
 
-        for outputs in output_variants:
-            expected_paths.update(outputs)
-        missing_variants = [sorted(set(outputs) - processed_paths) for outputs in output_variants]
-        if any(not missing_outputs for missing_outputs in missing_variants):
+        expected_paths.update(expected_outputs)
+        missing_outputs = sorted(set(expected_outputs) - processed_paths)
+        if not missing_outputs:
             processed_source_count += 1
         else:
-            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_variants[0]})
+            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_outputs})
 
     raw_source_count = len(raw_files)
     processed_rate = (processed_source_count / raw_source_count * 100) if raw_source_count else 0.0
@@ -245,6 +254,8 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
                 print(f"    - {source['raw_file']} (未対応のファイル名)")
             elif source.get("reason") == "noncanonical_raw_path":
                 print(f"    - {source['raw_file']} (raw直下ではないファイル)")
+            elif source.get("reason") == "unsupported_gender_sections":
+                print(f"    - {source['raw_file']} (処理可能な性別セクションなし)")
             else:
                 missing = ", ".join(source["missing_outputs"])
                 print(f"    - {source['raw_file']} (欠損: {missing})")
@@ -283,7 +294,10 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
 
         if unprocessable_sources:
             print(f"⚠️  処理できないrawファイルが{len(unprocessable_sources)}件あります")
-            print("   → ファイル名または配置を修正してください")
+            if any(source.get("reason") == "unsupported_gender_sections" for source in unprocessable_sources):
+                print("   → rawの性別セクションを修正してください")
+            if any(source.get("reason") != "unsupported_gender_sections" for source in unprocessable_sources):
+                print("   → ファイル名または配置を修正してください")
 
     if status["coverage"]["orphaned_processed_count"] > 0:
         print("⚠️  rawに対応しない処理済みファイルを確認してください")

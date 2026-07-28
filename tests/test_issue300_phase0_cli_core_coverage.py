@@ -23,9 +23,27 @@ def _write_csv(path: Path, rows: list[str]) -> None:
     path.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
+def _write_raw_csv(path: Path, rows: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(rows) + "\n", encoding="shift_jis")
+
+
+def _write_sectioned_raw(path: Path, genders: tuple[str, ...] = ("男性", "女性", "男女合計")) -> None:
+    rows = []
+    for gender in genders:
+        rows.extend(
+            [
+                f'性別,"{gender}"',
+                "年齢区分,インフルエンザ,RSウイルス",
+                "0歳,10,5",
+            ]
+        )
+    _write_raw_csv(path, rows)
+
+
 def test_check_data_status_directory_and_status_flow(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data_dir = tmp_path / "data"
-    _write_csv(data_dir / "raw" / "sentinel_weekly_age_2025_01.csv", ["h1,h2", "1,2"])
+    _write_sectioned_raw(data_dir / "raw" / "sentinel_weekly_age_2025_01.csv")
     for gender in ("male", "female", "total"):
         _write_csv(
             data_dir / "processed" / f"normalized_sentinel_weekly_age_{gender}_2025_01.csv",
@@ -74,7 +92,7 @@ def test_check_data_status_directory_and_status_flow(tmp_path: Path, capsys: pyt
     partial_dir = tmp_path / "partial"
     _write_csv(partial_dir / "raw" / "notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
     _write_csv(partial_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
-    _write_csv(partial_dir / "raw" / "sentinel_weekly_age_2025_02.csv", ["h1,h2", "1,2"])
+    _write_sectioned_raw(partial_dir / "raw" / "sentinel_weekly_age_2025_02.csv")
     for gender in ("male", "female"):
         _write_csv(
             partial_dir / "processed" / f"normalized_sentinel_weekly_age_{gender}_2025_02.csv",
@@ -120,6 +138,32 @@ def test_check_data_status_marks_unsupported_raw_as_incomplete(
     out = capsys.readouterr().out
     assert "invalid.csv (未対応のファイル名)" in out
     assert "ファイル名または配置を修正してください" in out
+    assert "uv run process-data --all" not in out
+
+
+def test_check_data_status_marks_unprocessable_medical_district_as_incomplete(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data_dir = tmp_path / "data"
+    _write_sectioned_raw(
+        data_dir / "raw" / "sentinel_weekly_medical_district_2025_01.csv",
+        ("男女合計",),
+    )
+
+    status = cds.check_status(data_dir)
+
+    assert status["coverage"]["processed_rate"] == 0.0
+    assert status["coverage"]["incomplete_sources"] == [
+        {
+            "raw_file": "sentinel_weekly_medical_district_2025_01.csv",
+            "missing_outputs": [],
+            "reason": "unsupported_gender_sections",
+        }
+    ]
+    cds.print_status(status, verbose=True)
+    out = capsys.readouterr().out
+    assert "処理可能な性別セクションなし" in out
+    assert "rawの性別セクションを修正してください" in out
     assert "uv run process-data --all" not in out
 
 
@@ -200,8 +244,16 @@ def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: py
         ),
     ],
 )
-def test_check_data_status_defines_expected_outputs_per_data_type(raw_name: str, expected_outputs: list[str]) -> None:
-    assert cds.expected_processed_outputs(raw_name) == expected_outputs
+def test_check_data_status_defines_expected_outputs_per_data_type(
+    tmp_path: Path, raw_name: str, expected_outputs: list[str]
+) -> None:
+    raw_file = tmp_path / raw_name
+    if any("_male_" in output for output in expected_outputs):
+        _write_sectioned_raw(raw_file)
+    else:
+        _write_csv(raw_file, ["h1,h2", "1,2"])
+
+    assert cds.expected_processed_outputs(raw_file) == expected_outputs
 
 
 @pytest.mark.parametrize(
@@ -219,6 +271,22 @@ def test_check_data_status_accepts_unsuffixed_sentinel_fallback(tmp_path: Path, 
     data_dir = tmp_path / "data"
     _write_csv(data_dir / "raw" / f"{data_type}_2025_01.csv", ["h1,h2", "1,2"])
     _write_csv(data_dir / "processed" / f"normalized_{data_type}_2025_01.csv", ["h1,h2", "1,2"])
+
+    coverage = cds.check_status(data_dir)["coverage"]
+
+    assert coverage["processed_rate"] == 100.0
+    assert coverage["incomplete_sources"] == []
+    assert coverage["orphaned_processed_files"] == []
+
+
+def test_check_data_status_accepts_only_gender_sections_present_in_raw(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    _write_sectioned_raw(data_dir / "raw" / "sentinel_weekly_age_2025_01.csv", ("男性", "女性"))
+    for gender in ("male", "female"):
+        _write_csv(
+            data_dir / "processed" / f"normalized_sentinel_weekly_age_{gender}_2025_01.csv",
+            ["h1,h2", "1,2"],
+        )
 
     coverage = cds.check_status(data_dir)["coverage"]
 
