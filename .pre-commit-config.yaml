@@ -71,7 +71,7 @@ repos:
       - id: mypy
         name: Python型チェック
         args: ["--ignore-missing-imports", "--no-strict-optional", "--python-version=3.11"]
-        additional_dependencies: [types-requests, types-PyYAML]
+        additional_dependencies: [requests==2.34.2, types-PyYAML]
 
   # Markdownファイルのフォーマット
   # mirrors-prettier (pre-commit 公式) は 2024 年にアーカイブされたため後継の rbubley/mirrors-prettier を使用

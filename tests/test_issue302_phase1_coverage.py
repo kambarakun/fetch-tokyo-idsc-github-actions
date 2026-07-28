@@ -26,10 +26,10 @@ import csv
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from requests import Response
 from requests.exceptions import HTTPError
 
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchResult, RetryHandler
@@ -109,7 +109,10 @@ def test_config_manager_get_enabled_data_types_loads_config_when_missing() -> No
 def _make_http_error(status_code: int, headers: dict[str, str] | None = None) -> HTTPError:
     """Helper to create HTTPError with specific status code and headers."""
     error = HTTPError("http error")
-    error.response = SimpleNamespace(status_code=status_code, headers=headers or {})
+    response = Response()
+    response.status_code = status_code
+    response.headers.update(headers or {})
+    error.response = response
     return error
 
 
