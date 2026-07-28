@@ -117,7 +117,10 @@ def test_check_data_status_marks_unsupported_raw_as_incomplete(
     ]
     assert cds.expected_processed_outputs("invalid.csv") is None
     cds.print_status(status, verbose=True)
-    assert "invalid.csv (未対応のファイル名)" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "invalid.csv (未対応のファイル名)" in out
+    assert "ファイル名または配置を修正してください" in out
+    assert "uv run process-data --all" not in out
 
 
 def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -137,7 +140,10 @@ def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: py
     ]
     assert coverage["orphaned_processed_files"] == ["normalized_notifiable_weekly_2025_01.csv"]
     cds.print_status(status, verbose=True)
-    assert "a/notifiable_weekly_2025_01.csv (raw直下ではないファイル)" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "a/notifiable_weekly_2025_01.csv (raw直下ではないファイル)" in out
+    assert "ファイル名または配置を修正してください" in out
+    assert "uv run process-data --all" not in out
 
 
 @pytest.mark.parametrize(

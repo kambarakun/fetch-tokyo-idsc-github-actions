@@ -259,20 +259,31 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
     print("💡 推奨アクション")
     print("=" * 70)
 
+    processable_incomplete_sources = [
+        source for source in status["coverage"]["incomplete_sources"] if source.get("reason") is None
+    ]
+    unprocessable_sources = [
+        source for source in status["coverage"]["incomplete_sources"] if source.get("reason") is not None
+    ]
+
     if status["raw"]["file_count"] == 0:
         print("⚠️  data/raw/にデータがありません")
         print("   → データ取得スクリプトを実行してください")
 
-    elif status["coverage"]["processed_source_count"] == 0:
-        print("⚠️  データ処理が必要です")
-        print("   → uv run process-data --all")
-
-    elif status["coverage"]["incomplete_source_count"] > 0:
-        print("⚠️  一部のファイルが処理されていません")
-        print("   → uv run process-data --all")
-
     else:
-        print("✅ すべての処理が完了しています")
+        if processable_incomplete_sources:
+            if status["coverage"]["processed_source_count"] == 0:
+                print("⚠️  データ処理が必要です")
+            else:
+                print("⚠️  一部のファイルが処理されていません")
+            print("   → uv run process-data --all")
+
+        elif not unprocessable_sources:
+            print("✅ すべての処理が完了しています")
+
+        if unprocessable_sources:
+            print(f"⚠️  処理できないrawファイルが{len(unprocessable_sources)}件あります")
+            print("   → ファイル名または配置を修正してください")
 
     if status["coverage"]["orphaned_processed_count"] > 0:
         print("⚠️  rawに対応しない処理済みファイルを確認してください")
