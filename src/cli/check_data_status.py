@@ -20,6 +20,22 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from src.cli.check_missing import FILENAME_PATTERN
+
+# Each raw dataset must have every listed normalized artifact before it is complete.
+# None means the normalized filename has no gender suffix.
+EXPECTED_OUTPUT_SUFFIXES: dict[str, tuple[str | None, ...]] = {
+    "notifiable_weekly": (None,),
+    "sentinel_weekly_gender": (None,),
+    "sentinel_weekly_age": ("male", "female", "total"),
+    "sentinel_weekly_health_center": ("male", "female", "total"),
+    "sentinel_weekly_medical_district": ("male", "female"),
+    "sentinel_monthly_gender": (None,),
+    "sentinel_monthly_age": ("male", "female", "total"),
+    "sentinel_monthly_health_center": ("male", "female", "total"),
+    "sentinel_monthly_medical_district": ("male", "female"),
+}
+
 
 def main():
     """メイン処理"""
@@ -67,18 +83,70 @@ def check_status(data_dir: Path, verbose: bool = False) -> dict[str, Any]:
         "logs": check_directory(data_dir / "logs", verbose),
     }
 
-    # 処理カバー率を計算
-    if status["raw"]["file_count"] > 0:
-        processed_rate = (
-            (status["processed"]["file_count"] / status["raw"]["file_count"]) * 100
-            if status["processed"]["file_count"] > 0
-            else 0.0
-        )
-        status["coverage"] = {"processed_rate": processed_rate}
-    else:
-        status["coverage"] = {"processed_rate": 0.0}
+    status["coverage"] = check_processing_coverage(data_dir / "raw", data_dir / "processed")
 
     return status
+
+
+def expected_processed_outputs(raw_filename: str) -> list[str] | None:
+    """Return the complete normalized artifact set for one canonical raw file."""
+    match = FILENAME_PATTERN.fullmatch(raw_filename)
+    if match is None:
+        return None
+
+    data_type = match.group("data_type")
+    suffixes = EXPECTED_OUTPUT_SUFFIXES.get(data_type)
+    if suffixes is None:
+        return None
+
+    year = match.group("year")
+    period = match.group("period")
+    outputs = []
+    for suffix in suffixes:
+        suffix_part = f"_{suffix}" if suffix is not None else ""
+        outputs.append(f"normalized_{data_type}{suffix_part}_{year}_{period}.csv")
+    return sorted(outputs)
+
+
+def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, Any]:
+    """Calculate source-based processing coverage and identify mismatched artifacts."""
+    raw_files = sorted(raw_dir.rglob("*.csv")) if raw_dir.exists() else []
+    processed_files = sorted(processed_dir.rglob("*.csv")) if processed_dir.exists() else []
+    processed_paths = {path.relative_to(processed_dir).as_posix() for path in processed_files}
+
+    expected_paths: set[str] = set()
+    incomplete_sources: list[dict[str, Any]] = []
+    processed_source_count = 0
+
+    for raw_file in raw_files:
+        raw_path = raw_file.relative_to(raw_dir).as_posix()
+        expected_outputs = expected_processed_outputs(raw_file.name)
+        if expected_outputs is None:
+            incomplete_sources.append(
+                {"raw_file": raw_path, "missing_outputs": [], "reason": "unsupported_raw_filename"}
+            )
+            continue
+
+        expected_paths.update(expected_outputs)
+        missing_outputs = sorted(set(expected_outputs) - processed_paths)
+        if missing_outputs:
+            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_outputs})
+        else:
+            processed_source_count += 1
+
+    raw_source_count = len(raw_files)
+    processed_rate = (processed_source_count / raw_source_count * 100) if raw_source_count else 0.0
+    orphaned_processed_files = sorted(processed_paths - expected_paths)
+
+    return {
+        "processed_rate": processed_rate,
+        "raw_source_count": raw_source_count,
+        "processed_source_count": processed_source_count,
+        "incomplete_source_count": len(incomplete_sources),
+        "incomplete_sources": incomplete_sources,
+        "orphaned_processed_count": len(orphaned_processed_files),
+        "orphaned_processed_files": orphaned_processed_files,
+    }
 
 
 def check_directory(dir_path: Path, verbose: bool = False) -> dict[str, Any]:
@@ -146,6 +214,25 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
     print("📈 処理カバー率")
     print("=" * 70)
     print(f"処理済み率: {status['coverage']['processed_rate']:.1f}%")
+    print(
+        f"処理済みraw: {status['coverage']['processed_source_count']} / " f"{status['coverage']['raw_source_count']}件"
+    )
+    print(f"未完了raw: {status['coverage']['incomplete_source_count']}件")
+    print(f"rawに対応しない処理済みファイル: {status['coverage']['orphaned_processed_count']}件")
+
+    if verbose and status["coverage"]["incomplete_sources"]:
+        print("  未完了raw一覧:")
+        for source in status["coverage"]["incomplete_sources"]:
+            if source.get("reason") == "unsupported_raw_filename":
+                print(f"    - {source['raw_file']} (未対応のファイル名)")
+            else:
+                missing = ", ".join(source["missing_outputs"])
+                print(f"    - {source['raw_file']} (欠損: {missing})")
+
+    if verbose and status["coverage"]["orphaned_processed_files"]:
+        print("  孤立processed一覧:")
+        for path in status["coverage"]["orphaned_processed_files"]:
+            print(f"    - {path}")
 
     # 推奨アクション
     print("\n" + "=" * 70)
@@ -156,16 +243,19 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
         print("⚠️  data/raw/にデータがありません")
         print("   → データ取得スクリプトを実行してください")
 
-    elif status["processed"]["file_count"] == 0:
+    elif status["coverage"]["processed_source_count"] == 0:
         print("⚠️  データ処理が必要です")
         print("   → uv run process-data --all")
 
-    elif status["processed"]["file_count"] < status["raw"]["file_count"]:
+    elif status["coverage"]["incomplete_source_count"] > 0:
         print("⚠️  一部のファイルが処理されていません")
         print("   → uv run process-data --all")
 
     else:
         print("✅ すべての処理が完了しています")
+
+    if status["coverage"]["orphaned_processed_count"] > 0:
+        print("⚠️  rawに対応しない処理済みファイルを確認してください")
 
     print()
 

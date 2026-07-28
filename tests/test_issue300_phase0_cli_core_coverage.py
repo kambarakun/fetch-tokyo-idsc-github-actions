@@ -25,66 +25,156 @@ def _write_csv(path: Path, rows: list[str]) -> None:
 
 def test_check_data_status_directory_and_status_flow(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data_dir = tmp_path / "data"
-    _write_csv(data_dir / "raw" / "a.csv", ["h1,h2", "1,2"])
-    _write_csv(data_dir / "processed" / "a.csv", ["h1,h2", "1,2"])
-    _write_csv(data_dir / "processed" / "b.csv", ["h1,h2", "3,4"])
+    _write_csv(data_dir / "raw" / "sentinel_weekly_age_2025_01.csv", ["h1,h2", "1,2"])
+    for gender in ("male", "female", "total"):
+        _write_csv(
+            data_dir / "processed" / f"normalized_sentinel_weekly_age_{gender}_2025_01.csv",
+            ["h1,h2", "1,2"],
+        )
+    _write_csv(data_dir / "processed" / "normalized_notifiable_weekly_2025_99.csv", ["h1,h2", "3,4"])
 
     missing = cds.check_directory(data_dir / "missing")
     assert missing["exists"] is False
 
     verbose_dir = cds.check_directory(data_dir / "processed", verbose=True)
     assert verbose_dir["exists"] is True
-    assert verbose_dir["file_count"] == 2
-    assert len(verbose_dir["files"]) == 2
+    assert verbose_dir["file_count"] == 4
+    assert len(verbose_dir["files"]) == 4
 
     status = cds.check_status(data_dir, verbose=True)
-    assert status["coverage"]["processed_rate"] == pytest.approx(200.0)
+    assert status["coverage"] == {
+        "processed_rate": pytest.approx(100.0),
+        "raw_source_count": 1,
+        "processed_source_count": 1,
+        "incomplete_source_count": 0,
+        "incomplete_sources": [],
+        "orphaned_processed_count": 1,
+        "orphaned_processed_files": ["normalized_notifiable_weekly_2025_99.csv"],
+    }
+    cds.print_status(status, verbose=True)
+    out = capsys.readouterr().out
+    assert "すべての処理が完了しています" in out
+    assert "rawに対応しない処理済みファイル: 1件" in out
+    assert "normalized_notifiable_weekly_2025_99.csv" in out
+
     empty_status = cds.check_status(tmp_path / "empty-data", verbose=False)
     assert empty_status["coverage"]["processed_rate"] == 0.0
-
-    status_no_raw = {
-        "raw": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "processed": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "backups": {"exists": False, "file_count": 0, "total_size_mb": 0, "files": []},
-        "logs": {"exists": False, "file_count": 0, "total_size_mb": 0, "files": []},
-        "coverage": {"processed_rate": 0.0},
-    }
-    cds.print_status(status_no_raw, verbose=False)
+    assert empty_status["coverage"]["raw_source_count"] == 0
+    cds.print_status(empty_status, verbose=False)
     out = capsys.readouterr().out
     assert "data/raw/にデータがありません" in out
 
-    status_need_processing = {
-        "raw": {"exists": True, "file_count": 2, "total_size_mb": 0},
-        "processed": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "backups": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "logs": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "coverage": {"processed_rate": 0.0},
-    }
+    need_processing_dir = tmp_path / "need-processing"
+    _write_csv(need_processing_dir / "raw" / "notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    status_need_processing = cds.check_status(need_processing_dir)
     cds.print_status(status_need_processing, verbose=False)
     out = capsys.readouterr().out
     assert "データ処理が必要です" in out
 
-    status_partial = {
-        "raw": {"exists": True, "file_count": 5, "total_size_mb": 0},
-        "processed": {"exists": True, "file_count": 3, "total_size_mb": 0},
-        "backups": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "logs": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "coverage": {"processed_rate": 60.0},
-    }
-    cds.print_status(status_partial, verbose=False)
+    partial_dir = tmp_path / "partial"
+    _write_csv(partial_dir / "raw" / "notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    _write_csv(partial_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    _write_csv(partial_dir / "raw" / "sentinel_weekly_age_2025_02.csv", ["h1,h2", "1,2"])
+    for gender in ("male", "female"):
+        _write_csv(
+            partial_dir / "processed" / f"normalized_sentinel_weekly_age_{gender}_2025_02.csv",
+            ["h1,h2", "1,2"],
+        )
+    status_partial = cds.check_status(partial_dir)
+    assert status_partial["coverage"]["processed_rate"] == pytest.approx(50.0)
+    assert status_partial["coverage"]["incomplete_sources"] == [
+        {
+            "raw_file": "sentinel_weekly_age_2025_02.csv",
+            "missing_outputs": ["normalized_sentinel_weekly_age_total_2025_02.csv"],
+        }
+    ]
+    cds.print_status(status_partial, verbose=True)
     out = capsys.readouterr().out
     assert "一部のファイルが処理されていません" in out
+    assert "normalized_sentinel_weekly_age_total_2025_02.csv" in out
 
-    status_done = {
-        "raw": {"exists": True, "file_count": 2, "total_size_mb": 0},
-        "processed": {"exists": True, "file_count": 2, "total_size_mb": 0},
-        "backups": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "logs": {"exists": True, "file_count": 0, "total_size_mb": 0},
-        "coverage": {"processed_rate": 100.0},
-    }
-    cds.print_status(status_done, verbose=False)
-    out = capsys.readouterr().out
-    assert "すべての処理が完了しています" in out
+
+def test_check_data_status_marks_unsupported_raw_as_incomplete(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    data_dir = tmp_path / "data"
+    _write_csv(data_dir / "raw" / "invalid.csv", ["h1,h2", "1,2"])
+    _write_csv(data_dir / "raw" / "unknown_2025_01.csv", ["h1,h2", "1,2"])
+    _write_csv(data_dir / "processed" / "normalized_invalid.csv", ["h1,h2", "1,2"])
+    _write_csv(data_dir / "processed" / "normalized_unknown_2025_01.csv", ["h1,h2", "1,2"])
+
+    status = cds.check_status(data_dir)
+    coverage = status["coverage"]
+
+    assert coverage["processed_rate"] == 0.0
+    assert coverage["incomplete_sources"] == [
+        {"raw_file": "invalid.csv", "missing_outputs": [], "reason": "unsupported_raw_filename"},
+        {"raw_file": "unknown_2025_01.csv", "missing_outputs": [], "reason": "unsupported_raw_filename"},
+    ]
+    assert coverage["orphaned_processed_files"] == [
+        "normalized_invalid.csv",
+        "normalized_unknown_2025_01.csv",
+    ]
+    cds.print_status(status, verbose=True)
+    assert "invalid.csv (未対応のファイル名)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("raw_name", "expected_outputs"),
+    [
+        ("notifiable_weekly_2025_01.csv", ["normalized_notifiable_weekly_2025_01.csv"]),
+        ("sentinel_weekly_gender_2025_01.csv", ["normalized_sentinel_weekly_gender_2025_01.csv"]),
+        (
+            "sentinel_weekly_age_2025_01.csv",
+            [
+                "normalized_sentinel_weekly_age_female_2025_01.csv",
+                "normalized_sentinel_weekly_age_male_2025_01.csv",
+                "normalized_sentinel_weekly_age_total_2025_01.csv",
+            ],
+        ),
+        (
+            "sentinel_weekly_health_center_2025_01.csv",
+            [
+                "normalized_sentinel_weekly_health_center_female_2025_01.csv",
+                "normalized_sentinel_weekly_health_center_male_2025_01.csv",
+                "normalized_sentinel_weekly_health_center_total_2025_01.csv",
+            ],
+        ),
+        (
+            "sentinel_weekly_medical_district_2025_01.csv",
+            [
+                "normalized_sentinel_weekly_medical_district_female_2025_01.csv",
+                "normalized_sentinel_weekly_medical_district_male_2025_01.csv",
+            ],
+        ),
+        ("sentinel_monthly_gender_2025_01.csv", ["normalized_sentinel_monthly_gender_2025_01.csv"]),
+        (
+            "sentinel_monthly_age_2025_01.csv",
+            [
+                "normalized_sentinel_monthly_age_female_2025_01.csv",
+                "normalized_sentinel_monthly_age_male_2025_01.csv",
+                "normalized_sentinel_monthly_age_total_2025_01.csv",
+            ],
+        ),
+        (
+            "sentinel_monthly_health_center_2025_01.csv",
+            [
+                "normalized_sentinel_monthly_health_center_female_2025_01.csv",
+                "normalized_sentinel_monthly_health_center_male_2025_01.csv",
+                "normalized_sentinel_monthly_health_center_total_2025_01.csv",
+            ],
+        ),
+        (
+            "sentinel_monthly_medical_district_2025_01.csv",
+            [
+                "normalized_sentinel_monthly_medical_district_female_2025_01.csv",
+                "normalized_sentinel_monthly_medical_district_male_2025_01.csv",
+            ],
+        ),
+    ],
+)
+def test_check_data_status_defines_expected_outputs_per_data_type(raw_name: str, expected_outputs: list[str]) -> None:
+    assert cds.expected_processed_outputs(raw_name) == expected_outputs
 
 
 def test_check_data_status_print_dir_and_main(
@@ -99,8 +189,8 @@ def test_check_data_status_print_dir_and_main(
     assert "他 1件" in out
 
     data_dir = tmp_path / "d"
-    _write_csv(data_dir / "raw" / "a.csv", ["h1,h2", "1,2"])
-    _write_csv(data_dir / "processed" / "a.csv", ["h1,h2", "1,2"])
+    _write_csv(data_dir / "raw" / "notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    _write_csv(data_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
 
     monkeypatch.setattr(sys, "argv", ["check-data-status", "--data-dir", str(data_dir), "--json"])
     cds.main()
