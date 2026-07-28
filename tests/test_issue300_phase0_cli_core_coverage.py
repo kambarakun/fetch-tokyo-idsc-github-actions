@@ -295,6 +295,31 @@ def test_check_data_status_accepts_only_gender_sections_present_in_raw(tmp_path:
     assert coverage["orphaned_processed_files"] == []
 
 
+def test_check_data_status_ignores_gender_sections_the_processor_cannot_extract(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    _write_raw_csv(
+        data_dir / "raw" / "sentinel_weekly_age_2025_01.csv",
+        [
+            '性別,"女性"',
+            "年齢区分,インフルエンザ,RSウイルス",
+            "0歳,12,6",
+            '性別,"男性"',
+            "年齢区分,項目A,項目B",
+            "0歳,10,5",
+        ],
+    )
+    _write_csv(
+        data_dir / "processed" / "normalized_sentinel_weekly_age_female_2025_01.csv",
+        ["h1,h2", "1,2"],
+    )
+
+    coverage = cds.check_status(data_dir)["coverage"]
+
+    assert coverage["processed_rate"] == 100.0
+    assert coverage["incomplete_sources"] == []
+    assert coverage["orphaned_processed_files"] == []
+
+
 def test_check_data_status_print_dir_and_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

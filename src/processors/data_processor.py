@@ -22,6 +22,16 @@ _GENDER_MALE = "男性"
 _GENDER_FEMALE = "女性"
 _GENDER_TOTAL = "男女合計"
 _GENDER_MARKER = "性別"
+_HEADER_SEARCH_RANGE = 20
+_DISEASE_KEYWORDS = [
+    "インフルエンザ",
+    "ウイルス",
+    "感染症",
+    "球菌",
+    "結膜",
+]
+_MIN_DISEASE_COUNT = 2
+_COMMENT_PREFIX = "*"
 
 GENDER_SUFFIX_BY_LABEL = {
     _GENDER_MALE: "male",
@@ -43,6 +53,35 @@ def detect_gender_sections(lines: list[str]) -> list[dict[str, Any]]:
                     sections.append({"gender": gender, "start_line": line_number})
 
     return sections
+
+
+def extract_gender_section_data(lines: list[str], section: dict[str, Any]) -> list[str]:
+    """Return the rows the processor can extract for one gender section."""
+    start_line = section["start_line"]
+    header_line = None
+    for line_number in range(start_line, min(start_line + _HEADER_SEARCH_RANGE, len(lines))):
+        line = lines[line_number]
+        disease_count = sum(1 for keyword in _DISEASE_KEYWORDS if keyword in line)
+        if disease_count >= _MIN_DISEASE_COUNT:
+            header_line = line_number
+            break
+
+    if header_line is None:
+        return []
+
+    data_lines = [lines[header_line]]
+    for line in lines[header_line + 1 :]:
+        if not line.strip():
+            continue
+        if _GENDER_MARKER in line or "定点報告" in line or "集計期間" in line:
+            break
+        if line.startswith(_COMMENT_PREFIX):
+            continue
+        data_lines.append(line)
+        if line.startswith('"合計"') or line.startswith("合計"):
+            break
+
+    return data_lines
 
 
 @dataclass
@@ -76,16 +115,10 @@ class DataProcessor:
     """データ処理を統合的に管理するクラス"""
 
     # クラス定数: マジックナンバー/ストリングを定数化
-    HEADER_SEARCH_RANGE = 20  # ヘッダー行を探す範囲(行数)
-    DISEASE_KEYWORDS: ClassVar[list[str]] = [
-        "インフルエンザ",
-        "ウイルス",
-        "感染症",
-        "球菌",
-        "結膜",
-    ]
-    MIN_DISEASE_COUNT = 2  # ヘッダー行と判定する最小疾病数
-    COMMENT_PREFIX = "*"  # 注釈行のプレフィックス
+    HEADER_SEARCH_RANGE = _HEADER_SEARCH_RANGE  # ヘッダー行を探す範囲(行数)
+    DISEASE_KEYWORDS: ClassVar[list[str]] = _DISEASE_KEYWORDS
+    MIN_DISEASE_COUNT = _MIN_DISEASE_COUNT  # ヘッダー行と判定する最小疾病数
+    COMMENT_PREFIX = _COMMENT_PREFIX  # 注釈行のプレフィックス
     GENDER_MALE = _GENDER_MALE
     GENDER_FEMALE = _GENDER_FEMALE
     GENDER_TOTAL = _GENDER_TOTAL
@@ -483,45 +516,7 @@ class DataProcessor:
         Returns:
             セクションのデータ行
         """
-        start_idx = section["start_line"]
-
-        # ヘッダー行を探す(疾病名が複数含まれる行)
-        header_idx = None
-        for i in range(start_idx, min(start_idx + self.HEADER_SEARCH_RANGE, len(lines))):
-            line = lines[i]
-            disease_count = sum(1 for keyword in self.DISEASE_KEYWORDS if keyword in line)
-            if disease_count >= self.MIN_DISEASE_COUNT:
-                header_idx = i
-                break
-
-        if header_idx is None:
-            return []
-
-        # データ行を抽出
-        data_lines = [lines[header_idx]]
-
-        for i in range(header_idx + 1, len(lines)):
-            line = lines[i]
-
-            # 空行や次のセクションのメタデータで終了
-            if not line.strip():
-                continue
-
-            if self.GENDER_MARKER in line or "定点報告" in line or "集計期間" in line:
-                break
-
-            # 注釈行をスキップ
-            if line.startswith(self.COMMENT_PREFIX):
-                continue
-
-            # データ行を追加
-            data_lines.append(line)
-
-            # 合計行で終了
-            if line.startswith('"合計"') or line.startswith("合計"):
-                break
-
-        return data_lines
+        return extract_gender_section_data(lines, section)
 
     def _get_gender_suffix(self, gender: str) -> str:
         """性別表示名をファイル名サフィックスに変換

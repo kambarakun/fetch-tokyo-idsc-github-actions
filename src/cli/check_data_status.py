@@ -21,7 +21,11 @@ from pathlib import Path
 from typing import Any
 
 from src.cli.check_missing import FILENAME_PATTERN
-from src.processors.data_processor import GENDER_SUFFIX_BY_LABEL, detect_gender_sections
+from src.processors.data_processor import (
+    GENDER_SUFFIX_BY_LABEL,
+    detect_gender_sections,
+    extract_gender_section_data,
+)
 
 # Output expectations follow the processor's actual path for each data type.
 DATA_TYPE_OUTPUT_KINDS = {
@@ -113,7 +117,12 @@ def expected_processed_outputs(raw_file: Path | str) -> list[str] | None:
         if not gender_sections:
             suffixes = [None]
         else:
-            suffixes = list(dict.fromkeys(GENDER_SUFFIX_BY_LABEL[section["gender"]] for section in gender_sections))
+            processable_sections = [
+                section for section in gender_sections if extract_gender_section_data(lines, section)
+            ]
+            suffixes = list(
+                dict.fromkeys(GENDER_SUFFIX_BY_LABEL[section["gender"]] for section in processable_sections)
+            )
             if output_kind == "medical_district_sections":
                 suffixes = [suffix for suffix in suffixes if suffix != "total"]
 
