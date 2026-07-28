@@ -1,4 +1,5 @@
 import tomllib
+from importlib.metadata import version
 from pathlib import Path
 
 import requests
@@ -30,5 +31,6 @@ def test_requests_uses_bundled_type_information():
 
     assert not any(dependency.startswith("types-requests") for dependency in dev_dependencies)
     assert "types-requests" not in mypy_hook["additional_dependencies"]
+    assert f"requests=={version('requests')}" in mypy_hook["additional_dependencies"]
     assert 'name = "types-requests"' not in lock_text
     assert (Path(requests.__file__).parent / "py.typed").is_file()
