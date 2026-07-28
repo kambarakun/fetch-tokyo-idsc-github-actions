@@ -33,6 +33,9 @@ _DISEASE_KEYWORDS = [
 _MIN_DISEASE_COUNT = 2
 _COMMENT_PREFIX = "*"
 
+NOTIFIABLE_DATA_START_MARKERS = ("疾病名", "病名")
+SENTINEL_DATA_START_MARKERS = (*NOTIFIABLE_DATA_START_MARKERS, "年齢区分")
+
 GENDER_SUFFIX_BY_LABEL = {
     _GENDER_MALE: "male",
     _GENDER_FEMALE: "female",
@@ -82,6 +85,14 @@ def extract_gender_section_data(lines: list[str], section: dict[str, Any]) -> li
             break
 
     return data_lines
+
+
+def find_data_start_line(lines: list[str], markers: tuple[str, ...]) -> int | None:
+    """Return the first line containing one of the processor's data markers."""
+    for line_number, line in enumerate(lines):
+        if any(marker in line for marker in markers):
+            return line_number
+    return None
 
 
 @dataclass
@@ -229,11 +240,7 @@ class DataProcessor:
             output_file = self.processed_dir / output_filename
 
             # データ開始行を探す
-            data_start_idx = None
-            for i, line in enumerate(lines):
-                if "疾病名" in line or "病名" in line:
-                    data_start_idx = i
-                    break
+            data_start_idx = find_data_start_line(lines, NOTIFIABLE_DATA_START_MARKERS)
 
             if data_start_idx is None:
                 return NormalizationResult(success=False, error="データ開始行が見つかりません")
@@ -428,11 +435,7 @@ class DataProcessor:
             output_file = self.processed_dir / output_filename
 
             # データ開始行を探す
-            data_start_idx = None
-            for i, line in enumerate(lines):
-                if "疾病名" in line or "病名" in line or "年齢区分" in line:
-                    data_start_idx = i
-                    break
+            data_start_idx = find_data_start_line(lines, SENTINEL_DATA_START_MARKERS)
 
             if data_start_idx is None:
                 return NormalizationResult(success=False, error="データ開始行が見つかりません")

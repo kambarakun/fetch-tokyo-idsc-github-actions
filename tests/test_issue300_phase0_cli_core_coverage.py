@@ -83,14 +83,14 @@ def test_check_data_status_directory_and_status_flow(tmp_path: Path, capsys: pyt
     assert "data/raw/にデータがありません" in out
 
     need_processing_dir = tmp_path / "need-processing"
-    _write_csv(need_processing_dir / "raw" / "notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    _write_raw_csv(need_processing_dir / "raw" / "notifiable_weekly_2025_01.csv", ["疾病名,報告数", "病気,1"])
     status_need_processing = cds.check_status(need_processing_dir)
     cds.print_status(status_need_processing, verbose=False)
     out = capsys.readouterr().out
     assert "データ処理が必要です" in out
 
     partial_dir = tmp_path / "partial"
-    _write_csv(partial_dir / "raw" / "notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    _write_raw_csv(partial_dir / "raw" / "notifiable_weekly_2025_01.csv", ["疾病名,報告数", "病気,1"])
     _write_csv(partial_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
     _write_sectioned_raw(partial_dir / "raw" / "sentinel_weekly_age_2025_02.csv")
     for gender in ("male", "female"):
@@ -157,13 +157,13 @@ def test_check_data_status_marks_unprocessable_medical_district_as_incomplete(
         {
             "raw_file": "sentinel_weekly_medical_district_2025_01.csv",
             "missing_outputs": [],
-            "reason": "unsupported_gender_sections",
+            "reason": "unprocessable_raw_content",
         }
     ]
     cds.print_status(status, verbose=True)
     out = capsys.readouterr().out
-    assert "処理可能な性別セクションなし" in out
-    assert "rawの性別セクションを修正してください" in out
+    assert "処理可能なデータ構造なし" in out
+    assert "rawの内容を修正してください" in out
     assert "uv run process-data --all" not in out
 
 
@@ -250,8 +250,10 @@ def test_check_data_status_defines_expected_outputs_per_data_type(
     raw_file = tmp_path / raw_name
     if any("_male_" in output for output in expected_outputs):
         _write_sectioned_raw(raw_file)
+    elif raw_name.startswith("sentinel_"):
+        _write_raw_csv(raw_file, ["年齢区分,男性,女性", "0歳,1,2"])
     else:
-        _write_csv(raw_file, ["h1,h2", "1,2"])
+        _write_raw_csv(raw_file, ["疾病名,報告数", "病気,1"])
 
     assert cds.expected_processed_outputs(raw_file) == expected_outputs
 
@@ -269,7 +271,7 @@ def test_check_data_status_defines_expected_outputs_per_data_type(
 )
 def test_check_data_status_accepts_unsuffixed_sentinel_fallback(tmp_path: Path, data_type: str) -> None:
     data_dir = tmp_path / "data"
-    _write_csv(data_dir / "raw" / f"{data_type}_2025_01.csv", ["h1,h2", "1,2"])
+    _write_raw_csv(data_dir / "raw" / f"{data_type}_2025_01.csv", ["年齢区分,男性,女性", "0歳,1,2"])
     _write_csv(data_dir / "processed" / f"normalized_{data_type}_2025_01.csv", ["h1,h2", "1,2"])
 
     coverage = cds.check_status(data_dir)["coverage"]
@@ -277,6 +279,22 @@ def test_check_data_status_accepts_unsuffixed_sentinel_fallback(tmp_path: Path, 
     assert coverage["processed_rate"] == 100.0
     assert coverage["incomplete_sources"] == []
     assert coverage["orphaned_processed_files"] == []
+
+
+@pytest.mark.parametrize(
+    "raw_name",
+    ["notifiable_weekly_2025_01.csv", "sentinel_weekly_gender_2025_01.csv"],
+)
+def test_check_data_status_marks_missing_data_start_line_as_unprocessable(tmp_path: Path, raw_name: str) -> None:
+    data_dir = tmp_path / "data"
+    _write_raw_csv(data_dir / "raw" / raw_name, ["h1,h2", "1,2"])
+
+    coverage = cds.check_status(data_dir)["coverage"]
+
+    assert coverage["processed_rate"] == 0.0
+    assert coverage["incomplete_sources"] == [
+        {"raw_file": raw_name, "missing_outputs": [], "reason": "unprocessable_raw_content"}
+    ]
 
 
 def test_check_data_status_accepts_only_gender_sections_present_in_raw(tmp_path: Path) -> None:
@@ -332,7 +350,7 @@ def test_check_data_status_print_dir_and_main(
     assert "他 1件" in out
 
     data_dir = tmp_path / "d"
-    _write_csv(data_dir / "raw" / "notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    _write_raw_csv(data_dir / "raw" / "notifiable_weekly_2025_01.csv", ["疾病名,報告数", "病気,1"])
     _write_csv(data_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
 
     monkeypatch.setattr(sys, "argv", ["check-data-status", "--data-dir", str(data_dir), "--json"])
@@ -371,6 +389,18 @@ def test_check_data_status_main_reports_scan_error(
 
     assert exc.value.code == 1
     assert "データディレクトリの読み取りに失敗しました: permission denied" in capsys.readouterr().err
+
+
+def test_check_data_status_csv_scan_propagates_walk_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_walk(_root: Path, *, onerror: object):
+        assert callable(onerror)
+        onerror(PermissionError("permission denied"))
+        return []
+
+    monkeypatch.setattr(cds.os, "walk", fail_walk)
+
+    with pytest.raises(PermissionError, match="permission denied"):
+        cds.find_csv_files(tmp_path)
 
 
 def test_check_missing_main_paths(

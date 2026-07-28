@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,8 +24,11 @@ from typing import Any
 from src.cli.check_missing import FILENAME_PATTERN
 from src.processors.data_processor import (
     GENDER_SUFFIX_BY_LABEL,
+    NOTIFIABLE_DATA_START_MARKERS,
+    SENTINEL_DATA_START_MARKERS,
     detect_gender_sections,
     extract_gender_section_data,
+    find_data_start_line,
 )
 
 # Output expectations follow the processor's actual path for each data type.
@@ -108,14 +112,14 @@ def expected_processed_outputs(raw_file: Path | str) -> list[str] | None:
     if output_kind is None:
         return None
 
+    lines = raw_path.read_text(encoding="shift_jis", errors="replace").splitlines()
     suffixes: list[str | None]
     if output_kind == "single":
-        suffixes = [None]
+        suffixes = [None] if find_data_start_line(lines, NOTIFIABLE_DATA_START_MARKERS) is not None else []
     else:
-        lines = raw_path.read_text(encoding="shift_jis", errors="replace").splitlines()
         gender_sections = detect_gender_sections(lines)
         if not gender_sections:
-            suffixes = [None]
+            suffixes = [None] if find_data_start_line(lines, SENTINEL_DATA_START_MARKERS) is not None else []
         else:
             processable_sections = [
                 section for section in gender_sections if extract_gender_section_data(lines, section)
@@ -135,10 +139,27 @@ def expected_processed_outputs(raw_file: Path | str) -> list[str] | None:
     return sorted(outputs)
 
 
+def _raise_scan_error(error: OSError) -> None:
+    raise error
+
+
+def find_csv_files(dir_path: Path) -> list[Path]:
+    """Find CSV files without suppressing directory traversal errors."""
+    if not dir_path.exists():
+        return []
+
+    return sorted(
+        Path(root) / filename
+        for root, _directories, filenames in os.walk(dir_path, onerror=_raise_scan_error)
+        for filename in filenames
+        if filename.endswith(".csv")
+    )
+
+
 def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, Any]:
     """Calculate source-based processing coverage and identify mismatched artifacts."""
-    raw_files = sorted(raw_dir.rglob("*.csv")) if raw_dir.exists() else []
-    processed_files = sorted(processed_dir.rglob("*.csv")) if processed_dir.exists() else []
+    raw_files = find_csv_files(raw_dir)
+    processed_files = find_csv_files(processed_dir)
     processed_paths = {path.relative_to(processed_dir).as_posix() for path in processed_files}
 
     expected_paths: set[str] = set()
@@ -159,7 +180,7 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
             continue
         if not expected_outputs:
             incomplete_sources.append(
-                {"raw_file": raw_path, "missing_outputs": [], "reason": "unsupported_gender_sections"}
+                {"raw_file": raw_path, "missing_outputs": [], "reason": "unprocessable_raw_content"}
             )
             continue
 
@@ -199,7 +220,7 @@ def check_directory(dir_path: Path, verbose: bool = False) -> dict[str, Any]:
         return {"exists": False, "file_count": 0, "total_size_mb": 0, "files": []}
 
     # CSVファイルを集計
-    csv_files = list(dir_path.rglob("*.csv"))
+    csv_files = find_csv_files(dir_path)
     total_size = sum(f.stat().st_size for f in csv_files)
 
     result: dict[str, Any] = {
@@ -263,8 +284,8 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
                 print(f"    - {source['raw_file']} (未対応のファイル名)")
             elif source.get("reason") == "noncanonical_raw_path":
                 print(f"    - {source['raw_file']} (raw直下ではないファイル)")
-            elif source.get("reason") == "unsupported_gender_sections":
-                print(f"    - {source['raw_file']} (処理可能な性別セクションなし)")
+            elif source.get("reason") == "unprocessable_raw_content":
+                print(f"    - {source['raw_file']} (処理可能なデータ構造なし)")
             else:
                 missing = ", ".join(source["missing_outputs"])
                 print(f"    - {source['raw_file']} (欠損: {missing})")
@@ -303,9 +324,9 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
 
         if unprocessable_sources:
             print(f"⚠️  処理できないrawファイルが{len(unprocessable_sources)}件あります")
-            if any(source.get("reason") == "unsupported_gender_sections" for source in unprocessable_sources):
-                print("   → rawの性別セクションを修正してください")
-            if any(source.get("reason") != "unsupported_gender_sections" for source in unprocessable_sources):
+            if any(source.get("reason") == "unprocessable_raw_content" for source in unprocessable_sources):
+                print("   → rawの内容を修正してください")
+            if any(source.get("reason") != "unprocessable_raw_content" for source in unprocessable_sources):
                 print("   → ファイル名または配置を修正してください")
 
     if status["coverage"]["orphaned_processed_count"] > 0:
