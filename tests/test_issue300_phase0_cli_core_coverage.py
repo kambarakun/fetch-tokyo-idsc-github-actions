@@ -115,6 +115,7 @@ def test_check_data_status_marks_unsupported_raw_as_incomplete(
         "normalized_invalid.csv",
         "normalized_unknown_2025_01.csv",
     ]
+    assert cds.expected_processed_outputs("invalid.csv") is None
     cds.print_status(status, verbose=True)
     assert "invalid.csv (未対応のファイル名)" in capsys.readouterr().out
 
@@ -175,6 +176,29 @@ def test_check_data_status_marks_unsupported_raw_as_incomplete(
 )
 def test_check_data_status_defines_expected_outputs_per_data_type(raw_name: str, expected_outputs: list[str]) -> None:
     assert cds.expected_processed_outputs(raw_name) == expected_outputs
+
+
+@pytest.mark.parametrize(
+    "data_type",
+    [
+        "sentinel_weekly_age",
+        "sentinel_weekly_health_center",
+        "sentinel_weekly_medical_district",
+        "sentinel_monthly_age",
+        "sentinel_monthly_health_center",
+        "sentinel_monthly_medical_district",
+    ],
+)
+def test_check_data_status_accepts_unsuffixed_sentinel_fallback(tmp_path: Path, data_type: str) -> None:
+    data_dir = tmp_path / "data"
+    _write_csv(data_dir / "raw" / f"{data_type}_2025_01.csv", ["h1,h2", "1,2"])
+    _write_csv(data_dir / "processed" / f"normalized_{data_type}_2025_01.csv", ["h1,h2", "1,2"])
+
+    coverage = cds.check_status(data_dir)["coverage"]
+
+    assert coverage["processed_rate"] == 100.0
+    assert coverage["incomplete_sources"] == []
+    assert coverage["orphaned_processed_files"] == []
 
 
 def test_check_data_status_print_dir_and_main(

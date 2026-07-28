@@ -22,18 +22,18 @@ from typing import Any
 
 from src.cli.check_missing import FILENAME_PATTERN
 
-# Each raw dataset must have every listed normalized artifact before it is complete.
-# None means the normalized filename has no gender suffix.
-EXPECTED_OUTPUT_SUFFIXES: dict[str, tuple[str | None, ...]] = {
-    "notifiable_weekly": (None,),
-    "sentinel_weekly_gender": (None,),
-    "sentinel_weekly_age": ("male", "female", "total"),
-    "sentinel_weekly_health_center": ("male", "female", "total"),
-    "sentinel_weekly_medical_district": ("male", "female"),
-    "sentinel_monthly_gender": (None,),
-    "sentinel_monthly_age": ("male", "female", "total"),
-    "sentinel_monthly_health_center": ("male", "female", "total"),
-    "sentinel_monthly_medical_district": ("male", "female"),
+# A source is complete when every artifact in any one variant exists.
+# None represents the processor's successful unsuffixed output shape.
+EXPECTED_OUTPUT_SUFFIX_VARIANTS: dict[str, tuple[tuple[str | None, ...], ...]] = {
+    "notifiable_weekly": ((None,),),
+    "sentinel_weekly_gender": ((None,),),
+    "sentinel_weekly_age": (("male", "female", "total"), (None,)),
+    "sentinel_weekly_health_center": (("male", "female", "total"), (None,)),
+    "sentinel_weekly_medical_district": (("male", "female"), (None,)),
+    "sentinel_monthly_gender": ((None,),),
+    "sentinel_monthly_age": (("male", "female", "total"), (None,)),
+    "sentinel_monthly_health_center": (("male", "female", "total"), (None,)),
+    "sentinel_monthly_medical_district": (("male", "female"), (None,)),
 }
 
 
@@ -89,23 +89,32 @@ def check_status(data_dir: Path, verbose: bool = False) -> dict[str, Any]:
 
 
 def expected_processed_outputs(raw_filename: str) -> list[str] | None:
-    """Return the complete normalized artifact set for one canonical raw file."""
+    """Return the canonical normalized artifact set for one raw file."""
+    variants = expected_processed_output_variants(raw_filename)
+    return variants[0] if variants is not None else None
+
+
+def expected_processed_output_variants(raw_filename: str) -> list[list[str]] | None:
+    """Return every successful normalized artifact shape for one raw file."""
     match = FILENAME_PATTERN.fullmatch(raw_filename)
     if match is None:
         return None
 
     data_type = match.group("data_type")
-    suffixes = EXPECTED_OUTPUT_SUFFIXES.get(data_type)
-    if suffixes is None:
+    suffix_variants = EXPECTED_OUTPUT_SUFFIX_VARIANTS.get(data_type)
+    if suffix_variants is None:
         return None
 
     year = match.group("year")
     period = match.group("period")
-    outputs = []
-    for suffix in suffixes:
-        suffix_part = f"_{suffix}" if suffix is not None else ""
-        outputs.append(f"normalized_{data_type}{suffix_part}_{year}_{period}.csv")
-    return sorted(outputs)
+    output_variants = []
+    for suffixes in suffix_variants:
+        outputs = []
+        for suffix in suffixes:
+            suffix_part = f"_{suffix}" if suffix is not None else ""
+            outputs.append(f"normalized_{data_type}{suffix_part}_{year}_{period}.csv")
+        output_variants.append(sorted(outputs))
+    return output_variants
 
 
 def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, Any]:
@@ -120,19 +129,20 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
 
     for raw_file in raw_files:
         raw_path = raw_file.relative_to(raw_dir).as_posix()
-        expected_outputs = expected_processed_outputs(raw_file.name)
-        if expected_outputs is None:
+        output_variants = expected_processed_output_variants(raw_file.name)
+        if output_variants is None:
             incomplete_sources.append(
                 {"raw_file": raw_path, "missing_outputs": [], "reason": "unsupported_raw_filename"}
             )
             continue
 
-        expected_paths.update(expected_outputs)
-        missing_outputs = sorted(set(expected_outputs) - processed_paths)
-        if missing_outputs:
-            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_outputs})
-        else:
+        for outputs in output_variants:
+            expected_paths.update(outputs)
+        missing_variants = [sorted(set(outputs) - processed_paths) for outputs in output_variants]
+        if any(not missing_outputs for missing_outputs in missing_variants):
             processed_source_count += 1
+        else:
+            incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_variants[0]})
 
     raw_source_count = len(raw_files)
     processed_rate = (processed_source_count / raw_source_count * 100) if raw_source_count else 0.0
