@@ -1,0 +1,57 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "sentinel_weekly_age_2026_30",
+  "filename": "sentinel_weekly_age_2026_30.csv",
+  "path": "sentinel_weekly_age_2026_30.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_weekly_age",
+  "temporal": {
+    "year": 2026,
+    "period": 30,
+    "period_type": "weekly"
+  },
+  "bytes": 13295,
+  "lines": 99,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "202fd33dc26f11b58ec7a43b37a93a29b5b36475d88ceb0adc144b1c02773bbe"
+  },
+  "encoding": "shift_jis",
+  "created": "2026-07-30T08:59:13.731496+00:00",
+  "modified": "2026-07-30T08:59:13.731496+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.8465743064880371,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2026-07-30T08:59:13.731838+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2,
+        35
+      ]
+    }
+  },
+  "quality": {
+    "validation_timestamp": "2026-07-30T08:59:13.731844+00:00",
+    "validation_status": "completed",
+    "issues": []
+  }
+}
