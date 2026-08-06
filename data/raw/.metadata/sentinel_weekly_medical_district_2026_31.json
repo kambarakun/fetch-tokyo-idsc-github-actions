@@ -1,0 +1,160 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "sentinel_weekly_medical_district_2026_31",
+  "filename": "sentinel_weekly_medical_district_2026_31.csv",
+  "path": "sentinel_weekly_medical_district_2026_31.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2026,
+    "period": 31,
+    "period_type": "weekly"
+  },
+  "bytes": 8004,
+  "lines": 69,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "0346962728f05692dbbf18486448ca86b6079749b510e2ae8edee8dd45c59246"
+  },
+  "encoding": "shift_jis",
+  "created": "2026-08-06T09:00:04.310583+00:00",
+  "modified": "2026-08-06T09:00:04.310583+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.739323616027832,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2026-08-06T09:00:04.310841+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2,
+        32
+      ]
+    }
+  },
+  "quality": {
+    "validation_timestamp": "2026-08-06T09:00:04.310848+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 11 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2026_31.csv",
+          "affected_count": 11,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "RSウイルス感染症",
+              "row_index": 3,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区西南部",
+              "column": "流行性耳下腺炎",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "水痘",
+              "row_index": 6,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "急性出血性結膜炎",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "伝染性紅斑",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東部",
+              "column": "伝染性紅斑",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "インフルエンザ",
+              "row_index": 10,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "北多摩西部",
+              "column": "突発性発しん",
+              "row_index": 12,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "北多摩南部",
+              "column": "流行性耳下腺炎",
+              "row_index": 13,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "北多摩北部",
+              "column": "流行性耳下腺炎",
+              "row_index": 14,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
