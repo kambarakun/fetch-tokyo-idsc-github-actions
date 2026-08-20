@@ -10,25 +10,25 @@
     "period": 32,
     "period_type": "weekly"
   },
-  "bytes": 7992,
+  "bytes": 7997,
   "lines": 69,
   "hash": {
     "algorithm": "sha256",
-    "value": "a71794f1fdbd248b9ba062826dd1a722b380dcf0d6d4deb120d557c1a573a062"
+    "value": "998b71cf8fc5008cb4031d0c87019d03c8002cd3f3bd9cc0746b848fcae4111e"
   },
   "encoding": "shift_jis",
   "created": "2026-08-13T08:34:35.954949+00:00",
-  "modified": "2026-08-13T08:58:27.357094+00:00",
+  "modified": "2026-08-20T08:51:01.169679+00:00",
   "sources": [],
   "_fetch": {
     "source_url": null,
-    "fetch_time_seconds": 0.8505115509033203,
+    "fetch_time_seconds": 0.8072395324707031,
     "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2026-08-13T08:58:27.357489+00:00",
+    "verified_at": "2026-08-20T08:51:01.170043+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -50,7 +50,7 @@
     }
   },
   "quality": {
-    "validation_timestamp": "2026-08-13T08:58:27.357494+00:00",
+    "validation_timestamp": "2026-08-20T08:51:01.170054+00:00",
     "validation_status": "completed",
     "issues": [
       {
@@ -129,10 +129,10 @@
               "location": "南多摩",
               "column": "伝染性紅斑",
               "row_index": 11,
-              "male": 1,
-              "female": 1,
-              "total": 1,
-              "expected": 2
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
             },
             {
               "location": "北多摩西部",
