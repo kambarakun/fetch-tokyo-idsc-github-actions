@@ -46,7 +46,7 @@ repos:
 
   # Pythonコードフォーマット (black)
   - repo: https://github.com/psf/black
-    rev: 26.3.1
+    rev: 26.5.1
     hooks:
       - id: black
         name: Pythonコードのフォーマット
@@ -56,9 +56,9 @@ repos:
   # Pythonコード品質チェック (Ruff リンター)
   # 注: コードフォーマットは black に一任する。ruff-format と black を二重適用すると
   # 両者が互いに異なる整形を要求し競合する (バージョン更新時に顕在化) ため ruff-format は使わない。
-  # CI (test.yml) も black --check を採用しており black 一本化が整合的。
+  # CI (test.yml) も全 pre-commit hook 経由で black を実行しており、black 一本化が整合的。
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.3
     hooks:
       - id: ruff
         name: Ruff リンター
@@ -76,7 +76,7 @@ repos:
   # Markdownファイルのフォーマット
   # mirrors-prettier (pre-commit 公式) は 2024 年にアーカイブされたため後継の rbubley/mirrors-prettier を使用
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.5
+    rev: v3.8.5
     hooks:
       - id: prettier
         name: Markdown/YAML/JSONのフォーマット

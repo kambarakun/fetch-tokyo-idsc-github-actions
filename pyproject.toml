@@ -16,10 +16,11 @@ dev = [
     "pytest==9.0.3",
     "pytest-cov>=7.1.0",
     "pytest-asyncio>=1.4.0",
-    "black==26.3.1",
-    "ruff>=0.15.21",
-    "mypy>=2.2.0",
-    "isort>=5.12.0",
+    "black==26.5.1",
+    "ruff==0.16.3",
+    "mypy==2.3.0",
+    "isort==7.0.0",
+    "packaging==25.0",
     "types-PyYAML>=6.0.1",
     "pre-commit>=4.6.0",
     "jsonschema>=4.18.0",
@@ -128,6 +129,11 @@ exclude = [
     "dist",
     "*.egg-info",
 ]
+
+[tool.ruff.lint.pylint]
+# Preserve the current public API ceiling while still rejecting new signatures
+# with more positional parameters than the existing codebase.
+max-positional-args = 10
 
 [tool.ruff.format]
 quote-style = "double"

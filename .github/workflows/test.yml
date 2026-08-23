@@ -140,18 +140,6 @@ jobs:
       - name: Install linting tools
         run: uv sync --all-extras --locked
 
-      - name: Run Ruff linter
+      - name: Run all pre-commit hooks
         run: |
-          uv run --locked ruff check src/ scripts/ tests/
-
-      - name: Check black formatting
-        run: |
-          uv run --locked black --check --diff src/ scripts/ tests/ --line-length=120
-
-      - name: Check import sorting
-        run: |
-          uv run --locked isort --check-only --diff src/ scripts/ tests/
-
-      - name: Run mypy type checking
-        run: |
-          uv run --locked mypy src/ scripts/ --ignore-missing-imports --no-strict-optional
+          uv run --locked pre-commit run --all-files --show-diff-on-failure

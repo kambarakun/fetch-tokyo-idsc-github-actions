@@ -6,6 +6,7 @@ from pathlib import Path
 
 import requests
 import yaml
+from packaging.requirements import Requirement
 
 
 def test_all_dependabot_version_updates_have_seven_day_cooldown():
@@ -20,6 +21,26 @@ def test_all_dependabot_version_updates_have_seven_day_cooldown():
     ]
 
     assert invalid_ecosystems == []
+
+
+def test_python_tool_versions_match_pre_commit_hooks() -> None:
+    project_root = Path(__file__).resolve().parent.parent
+    pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    pre_commit = yaml.safe_load((project_root / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+
+    dev_dependencies = {
+        requirement.name: str(requirement.specifier)
+        for dependency in pyproject["project"]["optional-dependencies"]["dev"]
+        if (requirement := Requirement(dependency)).name in {"black", "isort", "mypy", "ruff"}
+    }
+    hook_versions = {
+        hook["id"]: repo["rev"].removeprefix("v")
+        for repo in pre_commit["repos"]
+        for hook in repo["hooks"]
+        if hook["id"] in {"black", "isort", "mypy", "ruff"}
+    }
+
+    assert dev_dependencies == {tool: f"=={version}" for tool, version in hook_versions.items()}
 
 
 def test_requests_uses_bundled_type_information(tmp_path: Path) -> None:
