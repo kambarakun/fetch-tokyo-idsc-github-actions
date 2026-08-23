@@ -140,6 +140,10 @@ jobs:
       - name: Install linting tools
         run: uv sync --all-extras --locked
 
+      - name: Run all pre-commit hooks
+        run: |
+          uv run --locked pre-commit run --all-files --show-diff-on-failure
+
       - name: Run Ruff linter
         run: |
           uv run --locked ruff check src/ scripts/ tests/
