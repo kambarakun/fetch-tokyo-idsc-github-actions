@@ -361,7 +361,7 @@ wheels = [
 
 [[package]]
 name = "mypy"
-version = "2.2.0"
+version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ast-serialize" },
@@ -370,16 +370,16 @@ dependencies = [
     { name = "pathspec" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/7e/be536678c6ae49ef058aba4b483d8c7bc104f471479016066f345bc1f5f8/mypy-2.2.0.tar.gz", hash = "sha256:2cdd99d48590dce6f6b7f1961eda75386364398fcdaad86923bc0f0231bf9baf", size = 3950939, upload-time = "2026-07-08T01:37:27.335Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/12/af/4e516a05d3ca2eb9283e9ec45b2c02225c1514dd6da49fd3c9eaa6639370/mypy-2.3.0.tar.gz", hash = "sha256:465965d41cd9a2726694e983e8ce7113259327bec798115d1e1dfa2a52fb666e", size = 3988104, upload-time = "2026-07-13T11:34:53.387Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/2e/1ea8028583fef6561d146b51d738d91268201313ecf69e603e808a740e74/mypy-2.2.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:ea6fe1a30f3e7dc574d641497ffead2428046b0f8bc5804d13b4e4392fdc317b", size = 14739569, upload-time = "2026-07-08T01:35:33.202Z" },
-    { url = "https://files.pythonhosted.org/packages/ba/67/c0607da57d78358b3b4fbfa90ee8ca5c6bd1dbb997c9648904ad4d8861d8/mypy-2.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:6965829a6d847a0925f51149472bbeb7a39332fb4801972fdfd9cedd9f8d43a4", size = 13821442, upload-time = "2026-07-08T01:33:45.991Z" },
-    { url = "https://files.pythonhosted.org/packages/bb/56/0407007d4ec7a762bac20724af1f0a57a9d860186c39e73105b6b8396fa2/mypy-2.2.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5a906bfc9c4c5de3ece6dc4726f8076d56ce9be1720baf0c6f84e926c10262a4", size = 14049813, upload-time = "2026-07-08T01:35:44.282Z" },
-    { url = "https://files.pythonhosted.org/packages/6f/d1/d718e006c8fed4bece7a1bebeea6dcd05f31433af552fc45a82fef426379/mypy-2.2.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:91df92625cb3452758f27f4965b000fb05ad89b00c282cc3430a7bd6b0e5389e", size = 14978473, upload-time = "2026-07-08T01:36:54.064Z" },
-    { url = "https://files.pythonhosted.org/packages/82/03/dae7299c45a84efb1590875f92652a5beb2da98a2cff9a567995e2583fe4/mypy-2.2.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:d42893d15894fd34f395090e2d78315ba7c637d5ee221683e02893f578c2f548", size = 15224649, upload-time = "2026-07-08T01:35:15.988Z" },
-    { url = "https://files.pythonhosted.org/packages/ae/8e/738e4e73d030f20852a81383c74319ca4a9a4fdaadc3a75823588fe2c833/mypy-2.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:d3abaeec02cdc72e30a147d99eb81852b6b745a2c8d19607e25241d79b1abbce", size = 11049851, upload-time = "2026-07-08T01:34:39.31Z" },
-    { url = "https://files.pythonhosted.org/packages/94/09/6c58caedb3fa5831a9b179687cd7dc252c66a61dca4800e5ba19c8eff82b/mypy-2.2.0-cp311-cp311-win_arm64.whl", hash = "sha256:c39bdb7ceab252d15011e26d3a254b4aaa3bbf121b551febfa301df9b0c69abe", size = 10060307, upload-time = "2026-07-08T01:33:21.852Z" },
-    { url = "https://files.pythonhosted.org/packages/28/cb/142c2097ca02c0d295b00625ff946808bdda65acda17d163c680d8a6a474/mypy-2.2.0-py3-none-any.whl", hash = "sha256:ecc138da861e932d1344214da4bae866b21900a9c2778824b51fe2fb47f5180e", size = 2726094, upload-time = "2026-07-08T01:34:00.075Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/b9/d75b3082b05f1b3028828aeb18e74ae5ab0a0936051bbf1f32f59f654747/mypy-2.3.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:3419d00717afbc5265b50dd14b1278f29ea4884dd398ab67873489ac093fd329", size = 14838725, upload-time = "2026-07-13T11:32:44.655Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/50/79a65c6ea6e115bc73296038a4543b2d5c91f07912b918a2c616a2514bba/mypy-2.3.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:cfca8ee88544090f86b6dcce05ec55d66eb48a762412ac2507810ba4bd793b6f", size = 13911128, upload-time = "2026-07-13T11:32:02.021Z" },
+    { url = "https://files.pythonhosted.org/packages/90/48/e11ed7716c26953ca321f726e452e374dbf81a6f2b8b212ec02af29b6b8f/mypy-2.3.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:75cbb4b9ef04a0c84a957f07abc4504fbf64b8dcc145675101f2d3a78a4b1d6a", size = 14146742, upload-time = "2026-07-13T11:33:03.313Z" },
+    { url = "https://files.pythonhosted.org/packages/06/72/6807565b1c4861ef66f7fdd98b51c61556356eab80235717b46c53bb8627/mypy-2.3.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:982e3d53dd23d0a4cef67dd66791fdbede0cf38f9eb617bf47663554c51e1e36", size = 15081418, upload-time = "2026-07-13T11:31:13.899Z" },
+    { url = "https://files.pythonhosted.org/packages/00/80/1ea14c5d80e589e415973db3e47c78c2219a305b808b2b506395342c1d79/mypy-2.3.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:85c5385b93012ffa3b31479ab579aef5415f4f3a32c6cf1ae07a984d2a0ff461", size = 15328164, upload-time = "2026-07-13T11:31:35.723Z" },
+    { url = "https://files.pythonhosted.org/packages/37/28/8223157404a3d51920078459c37f80fbdc590e1d8ea049dc5ce48643022a/mypy-2.3.0-cp311-cp311-win_amd64.whl", hash = "sha256:13b1b16e2fa39f3b2e33fb1c468abc7a69369fa2e886b4b87b5afc81472325cd", size = 11136472, upload-time = "2026-07-13T11:27:37.018Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/cc/ea27e5959c5f258585a756b252031f3b313583d81b5064b2bebc41d3706b/mypy-2.3.0-cp311-cp311-win_arm64.whl", hash = "sha256:b5cd2f027a972a4a5f2278a11fac9747f5f81a53a30b714d74950b6807e55568", size = 10135800, upload-time = "2026-07-13T11:30:08.92Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/fa/fdc54fe583ba3cafbcedfb70eeeaf03849f75b1827a07096c7bd996f582d/mypy-2.3.0-py3-none-any.whl", hash = "sha256:6b1cdb579446b60432432b2b2403a6201b4b475a004d7f488511c9ba177c9e88", size = 2753292, upload-time = "2026-07-13T11:33:18.48Z" },
 ]
 
 [[package]]
@@ -774,10 +774,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = "==26.5.1" },
-    { name = "isort", marker = "extra == 'dev'", specifier = ">=5.12.0" },
+    { name = "isort", marker = "extra == 'dev'", specifier = "==7.0.0" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.18.0" },
     { name = "matplotlib", specifier = ">=3.11.1" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.2.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = "==2.3.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.0" },
