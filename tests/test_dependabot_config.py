@@ -19,9 +19,9 @@ UPSTREAM_HOOK_REPOS = {
     "https://github.com/astral-sh/ruff-pre-commit",
     "https://github.com/pre-commit/mirrors-mypy",
 }
-# The pinned uv version must live in a file uv itself never reads (issue #681). `[tool.uv]
-# required-version` is a hard guard: Dependabot runs its own bundled uv, so any mismatch aborted
-# every uv-ecosystem job (security updates included) before `uv lock`, and did so silently.
+# The pinned uv version must live in a file uv itself never reads (issue #681).
+# `[tool.uv] required-version` is a hard guard: Dependabot runs its own bundled uv, so any mismatch
+# aborted every uv-ecosystem job (security updates included) before `uv lock`, and did so silently.
 UV_VERSION_FILE = ".tool-versions"
 # Same pattern astral-sh/setup-uv applies to `version-file: .tool-versions`
 # (src/version/tool-versions-file.ts): full-line comments only, no trailing comment on the uv line.
@@ -128,7 +128,9 @@ def test_uv_version_pin_lives_outside_uv_config() -> None:
     }
 
     assert "required-version" not in pyproject.get("tool", {}).get("uv", {})
-    assert not (project_root / "uv.toml").exists()
+    # uv.toml is optional for other uv settings but must not carry the pin either.
+    if (uv_toml := project_root / "uv.toml").exists():
+        assert "required-version" not in tomllib.loads(uv_toml.read_text(encoding="utf-8"))
     assert len(uv_pins) == 1
     assert re.fullmatch(r"\d+\.\d+\.\d+", uv_pins[0])
     # mise prefers .mise.toml over .tool-versions in the same directory: keeping both would

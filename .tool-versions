@@ -1,9 +1,6 @@
-# uv のバージョン固定 (asdf 互換フォーマット)。mise と CI の astral-sh/setup-uv (version-file) が読む。
-#
-# pyproject.toml の [tool.uv] required-version には置かない: uv 自身が強制するハードガードのため、
-# 同梱 uv を使う Dependabot が起動時に落ち、uv エコシステムの更新 (セキュリティ更新含む) が
-# 無音で止まる (issue #681)。setup-uv の parser は uv 行の末尾コメントを解釈しないので、
-# コメントは必ず独立行に書く。
-# uv が未宣言だと mise が "No version is set for shim: uv" で解決に失敗するため、固定は必須。
-# Python は既存の .python-version (3.11) から解決されるため、ここでは uv のみ宣言する。
+# uv のバージョン固定。mise と CI の astral-sh/setup-uv (version-file) が読み、uv 本体は読まない。
+# pyproject.toml の [tool.uv] required-version に置くと Dependabot 同梱の uv が起動時に落ち、
+# uv エコシステムの更新が無音で止まるため、ここが唯一の置き場所 (issue #681)。
+# setup-uv は uv 行の末尾コメントを解釈しないので、コメントは独立行に書くこと。
+# Python は .python-version (3.11) から解決されるため uv のみ宣言する。
 uv 0.11.24

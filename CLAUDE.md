@@ -4,7 +4,7 @@
 
 ## 最終更新日
 
-2026-06-02
+2026-09-09
 
 ## バージョン
 
@@ -413,6 +413,15 @@ source .venv/bin/activate
 - `testing`: テスト関連 (pytest\*, pytest-cov)
 - `build-tools`: リンター・フォーマッター (ruff, black, isort, mypy, pre-commit)
 - `type-stubs`: 型定義ファイル (types-\*)
+
+#### uv 本体のバージョン固定 (issue #681)
+
+uv 本体のバージョンは **`.tool-versions`** (`uv 0.11.24`) で固定する。mise と CI の `astral-sh/setup-uv` (`version-file: .tool-versions`) が読み、uv 自身は読まない唯一の共通フォーマット。
+
+- **`pyproject.toml` の `[tool.uv] required-version` や `uv.toml` には置かない**: uv 自身が強制するハードガードのため、同梱 uv を使う Dependabot の uv エコシステム job が起動時に落ち、通常更新もセキュリティ更新も無音で止まる (2026-07-27〜09-09 に実際に発生)
+- `.mise.toml` は作らない (同一ディレクトリでは mise が `.mise.toml` を優先し、pin の二重ソースになる)
+- `astral-sh/setup-uv` は必ず `version-file: .tool-versions` を明示する (未指定だと uv.toml → pyproject.toml → latest の順で解決される)
+- `tests/test_dependabot_config.py::test_uv_version_pin_lives_outside_uv_config` が上記を検証する
 
 #### GitHub Actions の SHA Pin 運用
 
