@@ -119,13 +119,16 @@ def test_uv_version_pin_lives_outside_uv_config() -> None:
         for line in tool_versions_lines
         if not line.lstrip().startswith("#") and (match := TOOL_VERSIONS_UV_LINE.match(line))
     ]
-    setup_uv_version_files = {
-        f"{workflow.name}:{job_id}": step.get("with", {})
+    # Keyed by step index too: a job with two setup-uv steps must not collapse into one entry.
+    setup_uv_steps = {
+        f"{workflow.name}:{job_id}:{index}": step
         for workflow in sorted((project_root / ".github" / "workflows").glob("*.yml"))
         for job_id, job in yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"].items()
-        for step in job.get("steps", [])
+        for index, step in enumerate(job.get("steps", []))
         if step.get("uses", "").startswith("astral-sh/setup-uv@")
     }
+    setup_uv_version_files = {key: step.get("with", {}) for key, step in setup_uv_steps.items()}
+    setup_uv_refs = {step["uses"].removeprefix("astral-sh/setup-uv@") for step in setup_uv_steps.values()}
 
     assert "required-version" not in pyproject.get("tool", {}).get("uv", {})
     # uv.toml is optional for other uv settings but must not carry the pin either.
@@ -143,3 +146,7 @@ def test_uv_version_pin_lives_outside_uv_config() -> None:
         setup_uv_version_files, UV_VERSION_FILE
     )
     assert not any("version" in inputs for inputs in setup_uv_version_files.values())
+    # The uv pin is chosen from the checksums the pinned setup-uv commit knows (issue #682); that
+    # reasoning only holds if every workflow pins the same commit.
+    assert len(setup_uv_refs) == 1
+    assert re.fullmatch(r"[0-9a-f]{40}", next(iter(setup_uv_refs)))
