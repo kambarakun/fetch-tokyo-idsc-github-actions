@@ -32,7 +32,7 @@ jobs:
 
       - name: Run actionlint
         # SHA pinned per CLAUDE.md sec.2.1 (Dependabot github-actions 運用)
-        uses: reviewdog/action-actionlint@dbe5299849118fd6f099ba563d263d770955a64a # v1.73.2
+        uses: reviewdog/action-actionlint@49cb3ce06e5d81452e14b38ad34e4b12a8acfe2b # v1.73.3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # github-check: push/PR/dispatch すべてのトリガで動作する Check Run 形式。
