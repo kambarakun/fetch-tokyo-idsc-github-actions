@@ -1,3 +1,4 @@
+import re
 import subprocess
 import sys
 import tomllib
@@ -18,6 +19,13 @@ UPSTREAM_HOOK_REPOS = {
     "https://github.com/astral-sh/ruff-pre-commit",
     "https://github.com/pre-commit/mirrors-mypy",
 }
+# The pinned uv version must live in a file uv itself never reads (issue #681).
+# `[tool.uv] required-version` is a hard guard: Dependabot runs its own bundled uv, so any mismatch
+# aborted every uv-ecosystem job (security updates included) before `uv lock`, and did so silently.
+UV_VERSION_FILE = ".tool-versions"
+# Same pattern astral-sh/setup-uv applies to `version-file: .tool-versions`
+# (src/version/tool-versions-file.ts): full-line comments only, no trailing comment on the uv line.
+TOOL_VERSIONS_UV_LINE = re.compile(r"^\s*uv\s*v?\s*(?P<version>\S+)\s*$")
 
 
 def test_all_dependabot_version_updates_have_seven_day_cooldown():
@@ -95,3 +103,43 @@ def test_requests_uses_bundled_type_information(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert 'Argument 1 to "get" has incompatible type "int"' in result.stdout
+
+
+def test_uv_version_pin_lives_outside_uv_config() -> None:
+    """mise and setup-uv must read the uv pin from .tool-versions; uv itself must not see it.
+
+    `[tool.uv] required-version` (added by #606) stopped every uv-ecosystem Dependabot PR from
+    2026-07-27 until issue #681 moved the pin, because Dependabot's bundled uv never matched it.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    tool_versions_lines = (project_root / UV_VERSION_FILE).read_text(encoding="utf-8").splitlines()
+    uv_pins = [
+        match["version"]
+        for line in tool_versions_lines
+        if not line.lstrip().startswith("#") and (match := TOOL_VERSIONS_UV_LINE.match(line))
+    ]
+    setup_uv_version_files = {
+        f"{workflow.name}:{job_id}": step.get("with", {})
+        for workflow in sorted((project_root / ".github" / "workflows").glob("*.yml"))
+        for job_id, job in yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"].items()
+        for step in job.get("steps", [])
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    }
+
+    assert "required-version" not in pyproject.get("tool", {}).get("uv", {})
+    # uv.toml is optional for other uv settings but must not carry the pin either.
+    if (uv_toml := project_root / "uv.toml").exists():
+        assert "required-version" not in tomllib.loads(uv_toml.read_text(encoding="utf-8"))
+    assert len(uv_pins) == 1
+    assert re.fullmatch(r"\d+\.\d+\.\d+", uv_pins[0])
+    # mise prefers .mise.toml over .tool-versions in the same directory: keeping both would
+    # reintroduce a second pin source.
+    assert not any((project_root / name).exists() for name in ("mise.toml", ".mise.toml"))
+    # Without `version-file`, setup-uv searches uv.toml then pyproject.toml and otherwise installs
+    # the latest uv; an explicit `version` input would silently override the file.
+    assert setup_uv_version_files
+    assert {key: inputs.get("version-file") for key, inputs in setup_uv_version_files.items()} == dict.fromkeys(
+        setup_uv_version_files, UV_VERSION_FILE
+    )
+    assert not any("version" in inputs for inputs in setup_uv_version_files.values())
