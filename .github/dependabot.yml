@@ -66,6 +66,8 @@ updates:
           - "pytest*"
           - "pytest-cov"
       # 🔧 ビルドツール関連をまとめる（リンター・フォーマッター）
+      # isort / black / ruff / mypy の pre-commit hook は uv 管理の venv を実行する local hook
+      # のため、このグループが 4 ツール唯一の更新経路 (issue #680)
       build-tools:
         patterns:
           - "ruff"
@@ -79,6 +81,9 @@ updates:
           - "types-*"
 
   # 🪝 pre-commit フックを更新 (2026-03-10 から Dependabot ネイティブサポート)
+  # 対象は上流 `rev:` を参照する hook のみ (pre-commit-hooks / mirrors-prettier / actionlint)。
+  # isort / black / ruff / mypy は local hook (uv 管理 venv を実行) のため対象外で、
+  # uv エコシステムの build-tools グループで更新する (issue #680)
   - package-ecosystem: "pre-commit"
     directory: "/"
     schedule:
