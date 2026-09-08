@@ -36,42 +36,57 @@ repos:
         types_or: [python, markdown]
         pass_filenames: true
 
-  # Pythonコードフォーマット (isort)
-  - repo: https://github.com/PyCQA/isort
-    rev: 7.0.0
+  # Python ツール (isort / black / ruff / mypy)
+  # uv が管理するプロジェクト venv の実体を local hook として実行する (issue #680)。
+  # バージョンの単一ソースは pyproject.toml + uv.lock で、更新経路は Dependabot の uv
+  # エコシステム (build-tools グループ) のみ。上流 `rev:` 参照に戻すと pre-commit / uv の
+  # 両エコシステムが別々に更新して必ず版ずれし CI が赤くなるため、
+  # tests/test_dependabot_config.py が local hook の維持を検証している。
+  # - `--extra dev`: `uv sync` 未実施の新規 clone でも hook が自己ブートストラップする
+  # - `--locked`: uv.lock と pyproject.toml が不整合なら実行せず失敗する (fail closed)
+  # - `types_or` / `require_serial` は各上流 hook 定義と同じ値を維持している
+  - repo: local
     hooks:
+      # Pythonコードフォーマット (isort)
       - id: isort
         name: import文の整理
+        entry: uv run --locked --extra dev isort
+        language: system
+        types_or: [cython, pyi, python]
+        require_serial: true
         args: ["--profile", "black", "--line-length", "120"]
 
-  # Pythonコードフォーマット (black)
-  - repo: https://github.com/psf/black
-    rev: 26.5.1
-    hooks:
+      # Pythonコードフォーマット (black)
       - id: black
         name: Pythonコードのフォーマット
-        language_version: python3.11
+        entry: uv run --locked --extra dev black
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
         args: ["--line-length", "120"]
 
-  # Pythonコード品質チェック (Ruff リンター)
-  # 注: コードフォーマットは black に一任する。ruff-format と black を二重適用すると
-  # 両者が互いに異なる整形を要求し競合する (バージョン更新時に顕在化) ため ruff-format は使わない。
-  # CI (test.yml) も全 pre-commit hook 経由で black を実行しており、black 一本化が整合的。
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.3
-    hooks:
+      # Pythonコード品質チェック (Ruff リンター)
+      # 注: コードフォーマットは black に一任する。ruff-format と black を二重適用すると
+      # 両者が互いに異なる整形を要求し競合する (バージョン更新時に顕在化) ため ruff-format は使わない。
+      # CI (test.yml) も全 pre-commit hook 経由で black を実行しており、black 一本化が整合的。
       - id: ruff
         name: Ruff リンター
+        entry: uv run --locked --extra dev ruff check --force-exclude
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
         args: ["--fix", "--exit-non-zero-on-fix"]
 
-  # 型チェック (mypy)
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.3.0
-    hooks:
+      # 型チェック (mypy)
+      # 型情報は venv 内の実行時依存 (requests 同梱の py.typed / types-PyYAML) をそのまま使う。
+      # additional_dependencies で別途 pin すると uv.lock と二重管理になるため持たない。
       - id: mypy
         name: Python型チェック
+        entry: uv run --locked --extra dev mypy
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
         args: ["--ignore-missing-imports", "--no-strict-optional", "--python-version=3.11"]
-        additional_dependencies: [requests==2.34.2, types-PyYAML]
 
   # Markdownファイルのフォーマット
   # mirrors-prettier (pre-commit 公式) は 2024 年にアーカイブされたため後継の rbubley/mirrors-prettier を使用
@@ -129,12 +144,3 @@ exclude: |
     ^venv/|
     ^__pycache__/
   )
-
-# CI設定
-ci:
-  autofix_prs: true
-  autofix_commit_msg: "style: pre-commit自動修正を適用"
-  autoupdate_commit_msg: "chore: pre-commitフックを更新"
-  autoupdate_schedule: weekly
-  skip: []
-  submodules: false
