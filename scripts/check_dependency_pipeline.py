@@ -61,6 +61,27 @@ TOOL_VERSIONS_UV_LINE = re.compile(r"^\s*uv\s*v?\s*(?P<version>\S+)\s*$")
 SETUP_UV_REF = re.compile(r"astral-sh/setup-uv@(?P<sha>[0-9a-f]{40})")
 DEPENDABOT_UV_IMAGE = re.compile(r"ghcr\.io/astral-sh/uv:(?P<version>\d+\.\d+\.\d+)")
 
+# Check 4 (issue #656). A pinned Action ships its own lockfile, and the github-actions
+# ecosystem tracks only the Action's own version -- never the dependencies frozen inside it.
+# A CVE in one of those is invisible to Dependabot and to every other check here.
+ACTION_LOCKFILE = "https://raw.githubusercontent.com/{action}/{ref}/{lockfile}"
+# One page is enough because releases come back newest-first: a version worth moving to
+# cannot be older than the 100 most recent releases.
+ACTION_RELEASES = GITHUB_API + "/repos/{action}/releases?per_page=100"
+# The lookbehind keeps a different Action whose name merely ends in the watched one
+# (`not-anthropics/claude-code-action`) from being counted as a second pin of it.
+ACTION_PINNED_REF = "(?<![A-Za-z0-9._/-]){action}(?:/[A-Za-z0-9._/-]+)?@(?P<sha>[0-9a-f]{{40}})"
+# `/releases/latest` cannot answer "what would we move to": anthropics/claude-code-action
+# republishes a floating `v1` release, and that is the tag the endpoint returns. Take the
+# highest tag of this shape instead, which is also the one Dependabot proposes. Only that one
+# release is inspected, deliberately: a fixed release that a later one superseded is not
+# somewhere to pin, because the next github-actions bump would move straight off it again.
+ACTION_RELEASE_TAG = re.compile(r"v\d+\.\d+\.\d+")
+# Any `"name@version"` key at all. A lockfile that yields none of these is one whose layout
+# this parser does not understand, and "no match" then means "not verified", not "not
+# present" -- the same distinction known_uv_checksums draws for setup-uv's table.
+LOCKFILE_ENTRY = re.compile(r'"@?[A-Za-z0-9._/-]+@\d+[^"]*"')
+
 # The ecosystem that proposes the Python dependencies check 2 looks at.
 PYTHON_ECOSYSTEM = "uv"
 
@@ -113,6 +134,32 @@ class StaleDependency:
     locked: str
     latest: str
     released_at: datetime
+
+
+@dataclass(frozen=True)
+class BundledDependency:
+    """A dependency frozen inside an Action this repository pins, watched for one advisory."""
+
+    action: str
+    lockfile: str
+    package: str
+    fixed_in: Version
+    advisory: str
+
+
+# Every claude-code-action release so far locks shell-quote 1.8.4; GHSA-395f-4hp3-45gv
+# (quadratic-time `parse()`) is fixed in 1.9.0. Issue #656 accepts that exposure -- no
+# workflow here passes external input to `claude_args` -- so the check stays green while no
+# fixed release exists, and turns red the week upstream ships one and the bump is possible.
+WATCHED_ACTION_DEPENDENCIES = (
+    BundledDependency(
+        action="anthropics/claude-code-action",
+        lockfile="bun.lock",
+        package="shell-quote",
+        fixed_in=Version("1.9.0"),
+        advisory="GHSA-395f-4hp3-45gv",
+    ),
+)
 
 
 def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
@@ -371,11 +418,22 @@ def tool_versions_uv_pin(root: Path) -> Version:
     return Version(pins[0])
 
 
+def workflow_files(root: Path) -> list[Path]:
+    """Both extensions GitHub accepts for a workflow.
+
+    Scanning only `*.yml` is not a conservative default: a second, differently pinned use in
+    a `*.yaml` file would leave exactly one match, so the pin scanners would answer with a
+    wrong SHA instead of failing loudly.
+    """
+    workflows = root / ".github" / "workflows"
+    return sorted(path for suffix in ("*.yml", "*.yaml") for path in workflows.glob(suffix))
+
+
 def setup_uv_pinned_sha(root: Path) -> str:
     """The single setup-uv commit every workflow pins (guarded by test_dependabot_config)."""
     refs = {
         match["sha"]
-        for workflow in sorted((root / ".github" / "workflows").glob("*.yml"))
+        for workflow in workflow_files(root)
         for match in SETUP_UV_REF.finditer(workflow.read_text(encoding="utf-8"))
     }
     if len(refs) != 1:
@@ -411,6 +469,56 @@ def dependabot_bundled_uv(fetch_json: FetchJson, fetch_text: FetchText) -> tuple
     if match is None:
         raise ValueError(f"could not read the uv version from dependabot-core {ref}'s uv/Dockerfile")
     return Version(match["version"]), ref
+
+
+def action_pinned_sha(root: Path, action: str) -> str:
+    """The single commit every workflow pins `action` to.
+
+    Zero matches is an error rather than a pass: an Action that is no longer used has to be
+    dropped from WATCHED_ACTION_DEPENDENCIES deliberately, not disappear from the report.
+    """
+    pattern = re.compile(ACTION_PINNED_REF.format(action=re.escape(action)))
+    refs = {
+        match["sha"]
+        for workflow in workflow_files(root)
+        for match in pattern.finditer(workflow.read_text(encoding="utf-8"))
+    }
+    if len(refs) != 1:
+        raise ValueError(f"expected exactly one pinned {action} commit, found {len(refs)}")
+    return next(iter(refs))
+
+
+def newest_action_release(fetch_json: FetchJson, action: str) -> str:
+    """The highest semver release tag, i.e. the version Dependabot would propose next."""
+    releases = fetch_json(ACTION_RELEASES.format(action=action))
+    tags = [
+        release["tag_name"]
+        for release in releases
+        if not release.get("draft")
+        and not release.get("prerelease")
+        and ACTION_RELEASE_TAG.fullmatch(release["tag_name"])
+    ]
+    if not tags:
+        raise ValueError(f"no semver release tag found for {action}")
+    return max(tags, key=Version)
+
+
+def bundled_package_version(fetch_text: FetchText, watched: BundledDependency, ref: str) -> Version | None:
+    """The lowest `package` version locked by `action` at `ref`, or None if it locks none.
+
+    The `"name@version"` key is anchored on its opening quote so that a scoped sibling
+    (`"@types/shell-quote@1.7.5"`) cannot be mistaken for the package itself, and the lowest
+    of several copies is the one that decides exposure.
+
+    None has to mean "verified absent", never "not found", because the caller reads it as
+    proof the exposure is gone. So both ways of failing to read the file are errors: a
+    missing lockfile (the fetch raises) and a lockfile whose layout yields no entries at all.
+    """
+    body = fetch_text(ACTION_LOCKFILE.format(action=watched.action, ref=ref, lockfile=watched.lockfile))
+    if not LOCKFILE_ENTRY.search(body):
+        raise ValueError(f"no package entries found in {watched.action}'s {watched.lockfile} at {ref}")
+    pattern = re.compile(rf'"{re.escape(watched.package)}@(?P<version>[^"]+)"')
+    return min((Version(match["version"]) for match in pattern.finditer(body)), default=None)
 
 
 def check_pr_age(
@@ -519,6 +627,76 @@ def check_uv_pin(
     ]
 
 
+def check_action_bundled_dependencies(
+    fetch_json: FetchJson, fetch_text: FetchText, root: Path, watched: Sequence[BundledDependency]
+) -> list[CheckResult]:
+    """4 from issue #656.
+
+    Only the actionable state alerts. Sitting on a vulnerable copy while upstream ships no
+    fixed release is the accepted risk, and a check that stayed red for months would keep the
+    tracking issue permanently open and drown checks 1-3 in it.
+    """
+    results: list[CheckResult] = []
+    for entry in watched:
+        sha = action_pinned_sha(root, entry.action)
+        pinned = bundled_package_version(fetch_text, entry, sha)
+        # None means the Action stopped locking the package at all, i.e. this exposure is gone.
+        pin_fixed = pinned is None or pinned >= entry.fixed_in
+        tag: str | None = None
+        available: Version | None = None
+        if not pin_fixed:
+            # Upstream is only consulted while the pin is still exposed. A row left in the
+            # table after its advisory cleared -- which the runbook explicitly permits --
+            # would otherwise turn a moved lockfile upstream into a permanently red watchdog.
+            tag = newest_action_release(fetch_json, entry.action)
+            available = bundled_package_version(fetch_text, entry, tag)
+        release_fixed = available is None or available >= entry.fixed_in
+        pinned_label = "同梱なし" if pinned is None else str(pinned)
+        latest_label = "同梱なし" if available is None else str(available)
+        if pinned is None:
+            # Green, but said in its own words: the advisory this row tracks can only be
+            # cleared by dropping the package, and a package dropped in favour of a renamed
+            # fork would carry the same bug under a name this row no longer names.
+            detail = (
+                f"pin ({sha[:7]}) は {entry.package} を lock していない。"
+                f"入れ替わった依存が同じ問題を抱えていないか、テーブルの妥当性を確認する"
+            )
+        elif pin_fixed:
+            detail = f"pin ({sha[:7]}) の {entry.package} は {pinned_label} で、修正版 {entry.fixed_in} 以上"
+        elif release_fixed:
+            detail = (
+                f"pin ({sha[:7]}) は {entry.package} {pinned_label} のまま / "
+                f"最新リリース {tag} は {latest_label} -> **SHA 更新で解消できる**"
+            )
+        else:
+            detail = (
+                f"pin ({sha[:7]}) は {entry.package} {pinned_label} のまま / "
+                f"最新リリース {tag} も {latest_label} で、修正版 {entry.fixed_in} を lock した release は未公開"
+            )
+        advisory_link = f"[{entry.advisory}](https://github.com/advisories/{entry.advisory})"
+        results.append(
+            CheckResult(
+                # The row this verdict belongs to is keyed by both, and so is its id.
+                f"4:{entry.action}:{entry.package}",
+                f"{entry.action} 同梱 {entry.package} の既知脆弱性",
+                "high",
+                pin_fixed or not release_fixed,
+                f"{detail} ({advisory_link})",
+                {
+                    "action": entry.action,
+                    "package": entry.package,
+                    "fixed_in": str(entry.fixed_in),
+                    "advisory": entry.advisory,
+                    "pinned_sha": sha,
+                    "pinned_version": None if pinned is None else str(pinned),
+                    "latest_release": tag,
+                    "latest_version": None if available is None else str(available),
+                },
+            )
+        )
+    return results
+
+
 def run_checks(
     fetch_json: FetchJson,
     fetch_text: FetchText,
@@ -547,6 +725,7 @@ def run_checks(
             setup_uv_sha,
         )
     )
+    results.extend(check_action_bundled_dependencies(fetch_json, fetch_text, root, WATCHED_ACTION_DEPENDENCIES))
     return results
 
 

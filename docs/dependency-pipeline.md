@@ -26,6 +26,7 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
 | 3a   | `.tool-versions` の uv が、pin 中の setup-uv の既知 checksum に含まれる             | -          | 🔴 high   |
 | 3b   | `.tool-versions` の uv が既知 checksum の上限に達している                           | -          | 🟢 low    |
 | 3c   | `.tool-versions` の uv と dependabot-core 最新リリース同梱 uv の major.minor が一致 | -          | 🟡 medium |
+| 4    | pin 中の Action が同梱する依存の既知脆弱性に、修正版を lock した release が出た     | -          | 🔴 high   |
 
 閾値の根拠:
 
@@ -37,6 +38,10 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
   - **最後の updater 実行時点で cooldown 内だったリリース**: 判定の基準時刻は「実行時刻」ではなく **`dependabot.yml` のスケジュールから求めた直近の updater 実行時刻**である。本ワークフローは水曜、updater は月曜なので、月曜時点で 6 日だったリリースは水曜には 8 日になる。実行時刻で判定すると、Dependabot に提案の機会が無かったものを停止と誤判定する
   - なお `info.version` ではなくリリース履歴全体を走査する。頻繁にリリースされるパッケージでは、滞留中の版の上に major 版や cooldown 内の版が来た瞬間に滞留が見えなくなり、**まさに updater が止まっているときに検知できない**ため
 - **検査 3 の比較対象は upstream 最新版ではない**。setup-uv は既知 checksum の無い uv を検証をスキップしてインストールするため、pin の上限は「pin 中の setup-uv が checksum を知る最新版」である (CLAUDE.md「uv 本体の更新経路」)。upstream 最新と比較すると正常状態が常時アラートになる
+- **検査 4 は Dependabot の死角を埋める** (issue #656)。pin した Action は自身の lockfile を同梱して実行される。Dependabot の github-actions エコシステムが追跡するのは **Action 自身のバージョンだけ**で、その中で固定されている依存は見ない。したがって Action 同梱依存の CVE は検査 1〜3 のどれにも映らず、`.github/workflows` の差分にも現れない。監視対象は `scripts/check_dependency_pipeline.py` の `WATCHED_ACTION_DEPENDENCIES` テーブルに 1 行ずつ書く
+  - **アラートは「対応可能になった瞬間」だけに絞る**。脆弱版に留まっていること自体では発火させない。追随先が存在しない間に発火させると追跡 issue が数か月 open のままになり、検査 1〜3 の本物のアラートがその中に埋もれる。逆に、追随先が出た週に確実に赤くなる。追随先とは「修正版を lock した release」だけでなく「対象依存を同梱しなくなった release」も含む — どちらへ更新してもこの行が追う脆弱性は解消するため
+  - 「上流最新の release」の判定に `/releases/latest` は使えない。anthropics/claude-code-action は浮動の `v1` release を貼り替えて公開しており、このエンドポイントはそれを返す。`v1.2.3` 形式のタグのうち **semver で最大**のものを採る (文字列比較では `v1.0.9` が `v1.0.220` より大きくなる)
+  - lockfile が 404 になった場合は検査を通さずエラー終了する。「取得できなかった」を「該当依存は無い」と解釈すると、**検証していない安全宣言**になるため
 
 ## アラート別の対応
 
@@ -63,6 +68,22 @@ CI が checksum 未検証の uv バイナリを導入している状態なので
 `uv.lock` を書く側 (Dependabot) と検証する側 (CI) の系列が違う状態。同一 minor 内の乖離は許容しているため、これが出たときは major / minor の追随を検討する。
 
 比較対象は dependabot-core の**最新リリースタグ**の `uv/Dockerfile` であり、`main` ブランチではない。`main` には未リリースのコミットや後で revert されたコミットが含まれ、GitHub がホストする updater はそれを実行しないため、`main` と比較すると上流の通常の変更が 3c のアラートになる。ただし GitHub が実際にデプロイしている revision を示す公開情報は存在しないため、リリースからデプロイまでのラグは残る。レポートは比較したタグ名 (`bundled_ref`) を出力するので、アラート時はそのタグが実際にデプロイ済みかを併せて確認する。本検査を 🟡 medium に留めているのはこのラグがあるためである。
+
+### 検査 4: pin 中 Action 同梱依存の修正版 release が出た
+
+1. レポートの `latest_release` タグの lockfile を直接見て、修正版が入っている (または対象依存が消えている) ことを確認する。release 番号や公開日では判定できない
+
+   ```bash
+   lock=$(curl -fsSL https://raw.githubusercontent.com/anthropics/claude-code-action/<tag>/bun.lock) \
+     && printf '%s\n' "$lock" | grep -o '"shell-quote@[0-9.]*"' | sort -V
+   ```
+
+   `-f` を付けたうえで、**grep へパイプで直結しない**。`curl -s` は HTTP 404 でも終了コード 0 で `404: Not Found` を stdout に流すため、grep の空出力が「対象依存なし」と見分けられなくなる。かといって `curl -f ... | grep ...` と繋ぐと、`pipefail` 無しでは `$?` が最後のコマンドのものになり、今度は curl の失敗が終了コードに出ない。上の形なら curl が失敗した時点で `&&` の右側が実行されず、`$?` も curl のものになる (自動検査が lockfile の取得失敗をエラー終了させているのと同じ線)。`sort -V` の**先頭が最小のコピー**で、露出を決めるのはこれ。curl が成功したうえで出力が空なら依存自体が消えており、その release へ更新すれば解消するが、入れ替わり先が同じ問題を抱えていないかを併せて確認する
+
+2. 公式タグの実 commit SHA を確認し、`.github/workflows/claude.yml` と `claude-code-review.yml` の pin を同じ SHA へ更新する (両ファイルは同一 SHA を pin する。ずれると検査 4 自体がエラー終了する)
+3. 7 日 cooldown 後に取り込む。security release として前倒しする場合は PR にその根拠を書く
+4. Dependabot が同じ更新を提案していれば、その PR に相乗りしてよい
+5. `WATCHED_ACTION_DEPENDENCIES` の該当行は、解消後に削除してよい (残しても検査は緑のまま)
 
 ## 手動検証
 

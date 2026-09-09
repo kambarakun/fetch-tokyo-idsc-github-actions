@@ -27,6 +27,30 @@ CHECKSUM_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="kn
 CHECKSUM_JSON_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.json")
 CORE_RELEASE_TAG = "v0.395.0"
 DOCKERFILE_URL = watchdog.DEPENDABOT_UV_DOCKERFILE.format(ref=CORE_RELEASE_TAG)
+CLAUDE_ACTION = "anthropics/claude-code-action"
+CLAUDE_ACTION_SHA = "833fb0f8c9f6686b33d963a8bae0a94f4936ab2a"
+CLAUDE_ACTION_TAG = "v1.0.220"
+CHECK_4 = f"4:{CLAUDE_ACTION}:shell-quote"
+
+
+def _bun_lock(*versions: str) -> str:
+    """A bun.lock excerpt. The scoped sibling is what a naive `shell-quote@` match trips on."""
+    entries = "".join(f'    "shell-quote": ["shell-quote@{version}", "", {{}}, "sha512-b"],\n' for version in versions)
+    return '    "@types/shell-quote": ["@types/shell-quote@1.7.5", "", {}, "sha512-a"],\n' + entries
+
+
+def _action_lock_url(ref: str) -> str:
+    return watchdog.ACTION_LOCKFILE.format(action=CLAUDE_ACTION, ref=ref, lockfile="bun.lock")
+
+
+def _releases(*tags: str, prerelease: str | None = None, draft: str | None = None) -> list[dict[str, Any]]:
+    """A releases page. `v1` is the floating major tag claude-code-action republishes."""
+    entries = [{"tag_name": tag, "prerelease": False, "draft": False} for tag in ("v1", *tags)]
+    if prerelease:
+        entries.append({"tag_name": prerelease, "prerelease": True, "draft": False})
+    if draft:
+        entries.append({"tag_name": draft, "prerelease": False, "draft": True})
+    return entries
 
 
 def _pypi(
@@ -96,6 +120,10 @@ def repo(tmp_path: Path) -> Path:
         ),
         encoding="utf-8",
     )
+    (workflows / "claude.yml").write_text(
+        yaml.safe_dump({"jobs": {"claude": {"steps": [{"uses": f"{CLAUDE_ACTION}@{CLAUDE_ACTION_SHA}"}]}}}),
+        encoding="utf-8",
+    )
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nrequires-python = ">=3.11,<3.12"\ndependencies = ["requests>=2.34.2"]\n'
         '[project.optional-dependencies]\ndev = ["mypy==2.3.1", "isort==7.0.0"]\n',
@@ -123,6 +151,10 @@ def healthy_responses() -> dict[str, Any]:
         CHECKSUM_URL: '"x86_64-unknown-linux-gnu-0.12.3":\n"x86_64-unknown-linux-gnu-0.12.4":\n',
         "core-release": {"tag_name": CORE_RELEASE_TAG},
         DOCKERFILE_URL: "FROM ghcr.io/astral-sh/uv:0.12.7 AS uv\n",
+        # Today's real state: every release still locks the vulnerable shell-quote (issue #656).
+        "action-releases": _releases(CLAUDE_ACTION_TAG),
+        _action_lock_url(CLAUDE_ACTION_SHA): _bun_lock("1.8.4"),
+        _action_lock_url(CLAUDE_ACTION_TAG): _bun_lock("1.8.4"),
     }
 
 
@@ -133,6 +165,8 @@ def _fetchers(responses: dict[str, Any]):
             return responses[f"prs:{label}"]
         if url == watchdog.DEPENDABOT_CORE_LATEST_RELEASE:
             return responses["core-release"]
+        if url == watchdog.ACTION_RELEASES.format(action=CLAUDE_ACTION):
+            return responses["action-releases"]
         name = url.removeprefix("https://pypi.org/pypi/").removesuffix("/json")
         return responses[f"pypi:{name}"]
 
@@ -156,7 +190,16 @@ def _run(repo: Path, responses: dict[str, Any], **kwargs: Any) -> dict[str, watc
 def test_healthy_pipeline_passes_every_check(repo: Path, healthy_responses: dict[str, Any]) -> None:
     results = _run(repo, healthy_responses)
 
-    assert set(results) == {"1:github-actions", "1:pre-commit", "1:uv", "2", "3a", "3b", "3c"}
+    assert set(results) == {
+        "1:github-actions",
+        "1:pre-commit",
+        "1:uv",
+        "2",
+        "3a",
+        "3b",
+        "3c",
+        CHECK_4,
+    }
     assert all(result.ok for result in results.values())
     assert results["2"].facts["dependencies"] == []
 
@@ -434,10 +477,11 @@ def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.Monk
     fetch_json(f"{watchdog.GITHUB_API}/repos/owner/name/issues?labels=python")
     fetch_json(watchdog.PYPI_JSON.format(name="mypy"))
     fetch_text(DOCKERFILE_URL)
+    fetch_text(_action_lock_url(CLAUDE_ACTION_TAG))
 
     authorized = {url for url, headers in seen.items() if "Authorization" in headers}
     assert authorized == {f"{watchdog.GITHUB_API}/repos/owner/name/issues?labels=python"}
-    assert len(seen) == 3
+    assert len(seen) == 4
 
 
 def test_http_get_puts_the_response_body_into_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -529,6 +573,217 @@ def test_checksum_table_falls_back_to_the_json_layout(repo: Path, healthy_respon
     results = _run(repo, responses)
 
     assert results["3a"].ok
+
+
+def test_a_bundled_cve_without_a_fixed_release_is_not_an_alert(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Issue #656's accepted risk. Alerting every week would keep the tracking issue open forever."""
+    results = _run(repo, healthy_responses)
+
+    result = results[CHECK_4]
+    assert result.ok
+    assert result.facts["pinned_version"] == "1.8.4"
+    assert result.facts["latest_version"] == "1.8.4"
+    # The waiting state has to stay readable in the report, not just in the verdict.
+    assert CLAUDE_ACTION_TAG in result.detail
+
+
+def test_a_still_vulnerable_upstream_bump_is_reported_with_its_own_version(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Upstream can move the copy without clearing the advisory (1.8.2 -> 1.8.5, fixed in 1.9.0).
+
+    The verdict is unchanged -- there is still nothing to move to -- but the report is what a
+    human reads before checking the lockfile by hand, so it has to name both versions.
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.8.2")
+    responses[_action_lock_url(CLAUDE_ACTION_TAG)] = _bun_lock("1.8.5")
+
+    result = _run(repo, responses)[CHECK_4]
+
+    assert result.ok
+    assert result.facts["pinned_version"] == "1.8.2"
+    assert result.facts["latest_version"] == "1.8.5"
+    assert "1.8.2" in result.detail
+    assert "1.8.5" in result.detail
+
+
+def test_a_fixed_action_release_makes_the_bundled_cve_actionable(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """The one moment issue #656 is waiting for: upstream regenerates its lockfile."""
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_TAG)] = _bun_lock("1.10.0")
+
+    result = _run(repo, responses)[CHECK_4]
+
+    assert not result.ok
+    assert result.severity == "high"
+    assert result.facts == {
+        "action": CLAUDE_ACTION,
+        "package": "shell-quote",
+        "fixed_in": "1.9.0",
+        "advisory": "GHSA-395f-4hp3-45gv",
+        "pinned_sha": CLAUDE_ACTION_SHA,
+        "pinned_version": "1.8.4",
+        "latest_release": CLAUDE_ACTION_TAG,
+        "latest_version": "1.10.0",
+    }
+
+
+def test_a_pin_past_the_fix_clears_the_bundled_cve(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.10.0")
+    responses[_action_lock_url(CLAUDE_ACTION_TAG)] = _bun_lock("1.10.0")
+
+    assert _run(repo, responses)[CHECK_4].ok
+
+
+def test_a_dropped_package_is_green_but_says_so_in_its_own_words(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Dropping the package clears this advisory, but a renamed fork would carry the same bug.
+
+    The verdict stays green -- alerting on the successful outcome would be noise -- so the
+    report line is what has to tell a human to re-check the row rather than read as "we are
+    on a fixed version".
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = (
+        '    "@types/shell-quote": ["@types/shell-quote@1.7.5", "", {}, "sha512-a"],\n'
+    )
+
+    result = _run(repo, responses)[CHECK_4]
+
+    assert result.ok
+    assert result.facts["pinned_version"] is None
+    assert "テーブルの妥当性を確認する" in result.detail
+    assert "修正版" not in result.detail
+
+
+def test_the_newest_action_release_is_neither_the_floating_tag_nor_lexicographic(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """`/releases/latest` answers `v1` here, and "v1.0.9" sorts above "v1.0.220" as a string."""
+    responses = dict(healthy_responses)
+    responses["action-releases"] = _releases("v1.0.9", CLAUDE_ACTION_TAG, prerelease="v2.0.0-rc.1", draft="v2.0.0")
+    responses[_action_lock_url("v1.0.9")] = _bun_lock("1.10.0")
+
+    result = _run(repo, responses)[CHECK_4]
+
+    # Reading v1 or v1.0.9 would have raised (no lockfile) or reported the wrong version.
+    assert result.facts["latest_release"] == CLAUDE_ACTION_TAG
+    assert result.facts["latest_version"] == "1.8.4"
+
+
+def test_the_lowest_real_copy_in_the_lockfile_decides_exposure(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """A scoped sibling must not be read as the package, and a duplicate copy must not hide it."""
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.10.0", "1.8.4")
+
+    result = _run(repo, responses)[CHECK_4]
+
+    assert result.facts["pinned_version"] == "1.8.4"
+
+
+def test_an_unparsable_action_lockfile_fails_loudly(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 200 whose layout yields no entries is an unreadable file, not a package that is gone.
+
+    `None` is read by the caller as proof the exposure was removed, so it may only mean
+    "verified absent". A bun.lock serialised some other way would otherwise mark the pinned
+    Action fixed without anything having been checked.
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = '{"lockfileVersion": 1, "workspaces": {}}'
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+
+
+def test_a_release_history_without_a_semver_tag_fails_loudly(
+    repo: Path,
+    healthy_responses: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Only a floating tag and pre-releases means there is nothing to compare the pin against.
+
+    The message is asserted, not just the exit code: an unguarded `max()` over no tags also
+    exits 2, but says `max() arg is an empty sequence`, which names neither the Action nor
+    the reason and sends whoever reads the failed run looking in the wrong place.
+    """
+    responses = dict(healthy_responses)
+    responses["action-releases"] = _releases(prerelease="v2.0.0-rc.1")
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+    assert f"no semver release tag found for {CLAUDE_ACTION}" in capsys.readouterr().err
+
+
+def test_a_watched_action_pinned_in_a_yaml_file_is_seen_too(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """GitHub accepts both extensions, so scanning one would answer with a pin while a
+    second, differently pinned use sat unseen in the other -- a wrong answer, not a failure."""
+    (repo / ".github" / "workflows" / "extra.yaml").write_text(
+        yaml.safe_dump({"jobs": {"extra": {"steps": [{"uses": f"{CLAUDE_ACTION}@{'d' * 40}"}]}}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="exactly one pinned"):
+        _run(repo, healthy_responses)
+
+
+def test_upstream_is_not_consulted_once_the_pinned_copy_is_clear(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """A row left in the table after its advisory cleared must not depend on upstream at all.
+
+    The runbook permits leaving it, so a lockfile that later moves upstream would otherwise
+    make the whole watchdog exit 2 forever over a row that has nothing left to report.
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.10.0")
+    # Both upstream reads now fail: reaching either of them is the failure this guards.
+    del responses["action-releases"]
+    del responses[_action_lock_url(CLAUDE_ACTION_TAG)]
+
+    result = _run(repo, responses)[CHECK_4]
+
+    assert result.ok
+    assert result.facts["latest_release"] is None
+    assert result.facts["latest_version"] is None
+
+
+def test_a_moved_action_lockfile_fails_loudly(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Treating a 404 as "the package is gone" would be an all-clear the check never verified."""
+    responses = dict(healthy_responses)
+    del responses[_action_lock_url(CLAUDE_ACTION_TAG)]
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+
+
+def test_an_action_whose_name_ends_in_the_watched_one_is_not_counted_as_a_pin_of_it(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """`not-anthropics/claude-code-action` is a different Action, not a second pin of this one."""
+    (repo / ".github" / "workflows" / "lookalike.yml").write_text(
+        yaml.safe_dump({"jobs": {"other": {"steps": [{"uses": f"not-{CLAUDE_ACTION}@{'c' * 40}"}]}}}),
+        encoding="utf-8",
+    )
+
+    assert _run(repo, healthy_responses)[CHECK_4].facts["pinned_sha"] == CLAUDE_ACTION_SHA
+
+
+def test_a_watched_action_pinned_to_two_commits_fails_loudly(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Half-applied bumps, and a watched Action that was removed, both have to be visible."""
+    (repo / ".github" / "workflows" / "claude-review.yml").write_text(
+        yaml.safe_dump({"jobs": {"review": {"steps": [{"uses": f"{CLAUDE_ACTION}@{'b' * 40}"}]}}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="exactly one pinned"):
+        _run(repo, healthy_responses)
 
 
 def test_report_only_contains_structured_facts(repo: Path, healthy_responses: dict[str, Any]) -> None:
