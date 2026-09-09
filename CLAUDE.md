@@ -446,7 +446,7 @@ Dependabot には `.tool-versions` を扱うエコシステムが無いため、
 | 3b   | uv pin が既知 checksum の上限に達している               | -     | 🟢 low    |
 | 3c   | uv pin と dependabot-core 同梱 uv の major.minor が一致 | -     | 🟡 medium |
 
-- 検査 2 は **cooldown 未満のリリースと major バンプを数えない**。前者は PR がまだ出る時期ではなく、後者は `dependabot.yml` が `semver-major` を無視するため、数えると正常時に発火する
+- 検査 2 が数えるのは「Dependabot が提案できるのに提案していない」ものだけ。major バンプ / pre-release / yank 済み / locked Python (3.11) を切ったリリース / 直近の updater 実行時点で cooldown 内だったリリースは数えない。cooldown の基準時刻は実行時刻ではなく `dependabot.yml` のスケジュールから求めた**直近の updater 実行時刻**である (水曜に検査し月曜に updater が動くため、実行時刻で判定すると提案の機会が無かったものを停止と誤判定する)
 - 検査 3 の比較対象は upstream 最新版ではない (上記「uv 本体の更新経路」と同じ理由)
 - 終了コード 2 (検査自体の失敗) はジョブを赤くする。無音で失敗する監視は本 issue が対象とする不具合そのものを再現するため
 - 閾値の根拠、アラート別の対応手順、手動検証方法は `docs/dependency-pipeline.md` を参照

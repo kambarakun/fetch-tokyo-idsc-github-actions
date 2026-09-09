@@ -16,23 +16,37 @@ from typing import Any
 import pytest
 import requests
 import yaml
+from packaging.version import Version
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import check_dependency_pipeline as watchdog
 
+# A Wednesday, matching the watchdog's own schedule two days after the Monday updater run.
 NOW = datetime(2026, 9, 9, tzinfo=UTC)
+PYTHON_VERSION = Version("3.11.15")
 SETUP_UV_SHA = "20cfd1bf945f4377ade1205e4dbc17946fc9a30d"
 CHECKSUM_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.ts")
 CHECKSUM_JSON_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.json")
 
 
-def _pypi(*releases: tuple[str, datetime], yanked: set[str] | None = None) -> dict[str, Any]:
+def _pypi(
+    *releases: tuple[str, datetime],
+    yanked: set[str] | None = None,
+    requires_python: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """A PyPI payload. `info.version` is the last entry, mirroring "latest"."""
     yanked = yanked or set()
+    requires_python = requires_python or {}
     return {
         "info": {"version": releases[-1][0]},
         "releases": {
-            version: [{"upload_time_iso_8601": released_at.isoformat(), "yanked": version in yanked}]
+            version: [
+                {
+                    "upload_time_iso_8601": released_at.isoformat(),
+                    "yanked": version in yanked,
+                    "requires_python": requires_python.get(version),
+                }
+            ]
             for version, released_at in releases
         },
     }
@@ -54,7 +68,17 @@ def repo(tmp_path: Path) -> Path:
             {
                 "version": 2,
                 "updates": [
-                    {"package-ecosystem": eco, "cooldown": {"default-days": 7}, "labels": ["dependencies", label]}
+                    {
+                        "package-ecosystem": eco,
+                        "cooldown": {"default-days": 7},
+                        "labels": ["dependencies", label],
+                        "schedule": {
+                            "interval": "weekly",
+                            "day": "monday",
+                            "time": "09:00",
+                            "timezone": "Asia/Tokyo",
+                        },
+                    }
                     for eco, label in (
                         ("github-actions", "github-actions"),
                         ("uv", "python"),
@@ -120,7 +144,7 @@ def _fetchers(responses: dict[str, Any]):
 
 def _run(repo: Path, responses: dict[str, Any], **kwargs: Any) -> dict[str, watchdog.CheckResult]:
     fetch_json, fetch_text = _fetchers(responses)
-    options = {"max_pr_age_days": 21, "max_stale_direct": 3, **kwargs}
+    options = {"max_pr_age_days": 21, "max_stale_direct": 3, "python_version": PYTHON_VERSION, **kwargs}
     results = watchdog.run_checks(fetch_json, fetch_text, repo, "owner/name", NOW, **options)
     return {result.check_id: result for result in results}
 
@@ -205,6 +229,94 @@ def test_yanked_and_prerelease_versions_are_not_counted_as_stale(repo: Path, hea
     results = _run(repo, responses, max_stale_direct=0)
 
     assert results["2"].ok
+
+
+def test_releases_dropping_the_locked_python_are_not_counted_as_stale(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Neither Dependabot nor uv can propose a release that excludes the locked interpreter.
+
+    Counting one would make the backlog grow permanently and eventually open an outage
+    issue that no amount of updating could clear.
+    """
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=30)),
+        requires_python={"2.4.0": ">=3.12"},
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert results["2"].ok
+
+
+def test_cooldown_is_judged_at_the_last_scheduled_updater_run(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """The watchdog runs on Wednesday; the updater last ran on Monday 09:00 JST.
+
+    A release published 8 days before Wednesday was only 6 days old on Monday, so it was
+    still inside the 7-day cooldown when Dependabot last looked. Judging it against "now"
+    would report a stall that has not happened.
+    """
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=8)))
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert results["2"].ok
+    # ...while a release that was already eligible on Monday is still reported.
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=11)))
+    assert not _run(repo, responses, max_stale_direct=0)["2"].ok
+
+
+def test_duplicate_requirements_consume_one_backlog_slot(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """A package listed in both `dependencies` and an extra is still one Dependabot proposal."""
+    (repo / "pyproject.toml").write_text(
+        '[project]\ndependencies = ["requests>=2.34.2", "mypy>=2.3.1"]\n'
+        '[project.optional-dependencies]\ndev = ["mypy==2.3.1"]\ndocs = ["mypy==2.3.1"]\n',
+        encoding="utf-8",
+    )
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=30)))
+
+    results = _run(repo, responses, max_stale_direct=1)
+
+    assert results["2"].facts["count"] == 1
+    assert results["2"].ok
+
+
+def test_unparsable_checksum_table_fails_loudly(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 200 that parses to nothing is a layout change, not "this uv is unverified"."""
+    responses = dict(healthy_responses)
+    responses[CHECKSUM_URL] = "export const KNOWN_CHECKSUMS = {};"
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+
+
+def test_report_write_failure_exits_two_rather_than_signalling_an_alert(
+    repo: Path, healthy_responses: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exit 1 means "threshold exceeded"; an unwritable report must not be mistaken for one."""
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(healthy_responses))
+    unwritable = tmp_path / "missing-directory" / "report.md"
+
+    assert watchdog.main(["--repo", "owner/name", "--report", str(unwritable)]) == 2
+
+
+def test_missing_release_history_fails_loudly(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PyPI may drop `releases`; reporting an empty backlog then would be a silent failure."""
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = {"info": {"version": "2.4.0"}}
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+
+    assert watchdog.main(["--repo", "owner/name"]) == 2
 
 
 def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -301,7 +413,13 @@ def test_report_only_contains_structured_facts(repo: Path, healthy_responses: di
     }
 
     results = watchdog.run_checks(
-        *_fetchers(responses), repo, "owner/name", NOW, max_pr_age_days=21, max_stale_direct=3
+        *_fetchers(responses),
+        repo,
+        "owner/name",
+        NOW,
+        max_pr_age_days=21,
+        max_stale_direct=3,
+        python_version=PYTHON_VERSION,
     )
     report = watchdog.render_report(results, "owner/name", NOW)
 

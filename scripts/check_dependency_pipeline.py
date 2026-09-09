@@ -19,19 +19,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import re
 import sys
 import tomllib
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 import requests
 import yaml
 from packaging.requirements import Requirement
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -53,6 +56,19 @@ CHECKSUM_KEY = re.compile(rf'"{CHECKSUM_PLATFORM}-(?P<version>\d+\.\d+\.\d+)"')
 TOOL_VERSIONS_UV_LINE = re.compile(r"^\s*uv\s*v?\s*(?P<version>\S+)\s*$")
 SETUP_UV_REF = re.compile(r"astral-sh/setup-uv@(?P<sha>[0-9a-f]{40})")
 DEPENDABOT_UV_IMAGE = re.compile(r"ghcr\.io/astral-sh/uv:(?P<version>\d+\.\d+\.\d+)")
+
+# The ecosystem that proposes the Python dependencies check 2 looks at.
+PYTHON_ECOSYSTEM = "uv"
+
+WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
 
 # Three missed weekly cycles. The 2026-07-27 outage would have tripped this on 2026-08-17,
 # five weeks before a human noticed it.
@@ -112,13 +128,16 @@ def make_fetchers(token: str | None) -> tuple[FetchJson, FetchText]:
     return fetch_json, fetch_text
 
 
-def dependabot_ecosystems(root: Path) -> dict[str, str]:
+def dependabot_config(root: Path) -> dict[str, Any]:
+    return yaml.safe_load((root / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+
+
+def dependabot_ecosystems(config: dict[str, Any]) -> dict[str, str]:
     """Map each configured ecosystem to the label that identifies its PRs.
 
     `uv` PRs are labelled `python`, so the label is the only reliable join key between
     dependabot.yml and the PRs it produces.
     """
-    config = yaml.safe_load((root / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
     ecosystems: dict[str, str] = {}
     for update in config["updates"]:
         labels = [label for label in update.get("labels", []) if label != "dependencies"]
@@ -127,10 +146,34 @@ def dependabot_ecosystems(root: Path) -> dict[str, str]:
     return ecosystems
 
 
-def cooldown_days(root: Path) -> int:
+def cooldown_days(config: dict[str, Any]) -> int:
     """Read the shared cooldown so the stale-dependency window never drifts from config."""
-    config = yaml.safe_load((root / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
     return max(update.get("cooldown", {}).get("default-days", 0) for update in config["updates"])
+
+
+def last_scheduled_update(config: dict[str, Any], ecosystem: str, now: datetime) -> datetime:
+    """When the updater last had a chance to run, per dependabot.yml.
+
+    The cooldown has to be judged as of that moment rather than now. This workflow runs on
+    Wednesday while the updater is scheduled for Monday, so a release that was still inside
+    the cooldown on Monday is older than the cooldown by Wednesday even though Dependabot has
+    had no opportunity to propose it -- counting those would open a false outage issue every
+    time a few releases land in that gap.
+    """
+    empty: dict[str, Any] = {}
+    update = next((entry for entry in config["updates"] if entry["package-ecosystem"] == ecosystem), empty)
+    schedule = update.get("schedule", {})
+    # Only the weekly shape is modelled; any other interval keeps the conservative `now`.
+    if schedule.get("interval") != "weekly":
+        return now
+    local = now.astimezone(ZoneInfo(schedule.get("timezone", "UTC")))
+    hour, _, minute = str(schedule.get("time", "00:00")).partition(":")
+    scheduled = local.replace(hour=int(hour), minute=int(minute or 0), second=0, microsecond=0)
+    target_weekday = WEEKDAYS[str(schedule.get("day", "monday")).lower()]
+    scheduled -= timedelta(days=(scheduled.weekday() - target_weekday) % 7)
+    if scheduled > local:
+        scheduled -= timedelta(days=7)
+    return scheduled
 
 
 def last_dependabot_pr(fetch_json: FetchJson, repo: str, label: str) -> datetime | None:
@@ -144,13 +187,22 @@ def last_dependabot_pr(fetch_json: FetchJson, repo: str, label: str) -> datetime
 
 
 def direct_requirements(root: Path) -> list[Requirement]:
-    """Every dependency Dependabot can propose, i.e. the ones written in pyproject.toml."""
+    """Every dependency Dependabot can propose, i.e. the ones written in pyproject.toml.
+
+    Deduplicated by canonical name: a package listed both in `dependencies` and in an extra
+    (or shared by two extras) is still one Dependabot proposal, and counting it twice would
+    let a single overdue package eat several slots of the backlog threshold.
+    """
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     project = pyproject["project"]
     specs: list[str] = list(project.get("dependencies", []))
     for extra in project.get("optional-dependencies", {}).values():
         specs.extend(extra)
-    return [Requirement(spec) for spec in specs]
+    unique: dict[str, Requirement] = {}
+    for spec in specs:
+        requirement = Requirement(spec)
+        unique.setdefault(_canonical(requirement.name), requirement)
+    return list(unique.values())
 
 
 def locked_versions(root: Path) -> dict[str, str]:
@@ -162,8 +214,23 @@ def _canonical(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _runs_on(requires_python: str | None, python_version: Version) -> bool:
+    """Whether a release file can be installed on the interpreter this project locks.
+
+    Neither Dependabot nor uv can propose a release that excludes the locked Python, so a
+    package that drops 3.11 support would otherwise stay in the backlog forever and, once a
+    few of them accumulate, open a false outage issue that never clears.
+    """
+    if not requires_python:
+        return True
+    try:
+        return python_version in SpecifierSet(requires_python)
+    except InvalidSpecifier:  # pragma: no cover - defensive; PyPI validates this field
+        return True
+
+
 def newest_eligible_release(
-    payload: dict[str, Any], current: Version, now: datetime, cooldown: int
+    payload: dict[str, Any], current: Version, as_of: datetime, cooldown: int, python_version: Version
 ) -> tuple[Version, datetime] | None:
     """The newest release Dependabot is overdue to propose, or None if there is none.
 
@@ -173,8 +240,14 @@ def newest_eligible_release(
     took over `info.version`, and a stalled updater would go unnoticed exactly where the
     backlog is largest.
     """
+    # PyPI has signalled it may drop `releases` from this endpoint. Treating a missing key as
+    # "no eligible release" would report an empty backlog forever -- the silent failure this
+    # watchdog exists to catch -- so fail loudly instead (exit 2 turns the job red).
+    if "releases" not in payload:
+        raise ValueError("PyPI response has no `releases` history; the backlog check cannot run")
+
     best: tuple[Version, datetime] | None = None
-    for raw, files in payload.get("releases", {}).items():
+    for raw, files in payload["releases"].items():
         try:
             version = Version(raw)
         except InvalidVersion:  # pragma: no cover - defensive; PyPI versions are PEP 440
@@ -185,13 +258,15 @@ def newest_eligible_release(
         uploads = [
             file["upload_time_iso_8601"]
             for file in files
-            if not file.get("yanked") and file.get("upload_time_iso_8601")
+            if not file.get("yanked")
+            and file.get("upload_time_iso_8601")
+            and _runs_on(file.get("requires_python"), python_version)
         ]
         if not uploads:
             continue
         released_at = min(datetime.fromisoformat(upload) for upload in uploads)
-        # Inside the cooldown the PR is not due yet, so this release is not evidence of a stall.
-        if (now - released_at).days < cooldown:
+        # Inside the cooldown the PR was not due yet, so this release is not evidence of a stall.
+        if (as_of - released_at).days < cooldown:
             continue
         if best is None or version > best[0]:
             best = (version, released_at)
@@ -202,8 +277,9 @@ def stale_direct_dependencies(
     fetch_json: FetchJson,
     requirements: Iterable[Requirement],
     locked: dict[str, str],
-    now: datetime,
+    as_of: datetime,
     cooldown: int,
+    python_version: Version,
 ) -> list[StaleDependency]:
     """Direct dependencies Dependabot should already have proposed but has not."""
     stale: list[StaleDependency] = []
@@ -216,7 +292,7 @@ def stale_direct_dependencies(
         except InvalidVersion:  # pragma: no cover - defensive; uv.lock holds PEP 440 versions
             continue
         payload = fetch_json(PYPI_JSON.format(name=requirement.name))
-        eligible = newest_eligible_release(payload, current_version, now, cooldown)
+        eligible = newest_eligible_release(payload, current_version, as_of, cooldown, python_version)
         if eligible is None:
             continue
         version, released_at = eligible
@@ -255,7 +331,12 @@ def known_uv_checksums(fetch_text: FetchText, sha: str) -> set[Version]:
             body = fetch_text(SETUP_UV_CHECKSUMS.format(sha=sha, filename=filename))
         except requests.HTTPError:
             continue
-        return {Version(match["version"]) for match in CHECKSUM_KEY.finditer(body)}
+        versions = {Version(match["version"]) for match in CHECKSUM_KEY.finditer(body)}
+        # A 200 that parses to nothing means the layout changed. Returning the empty set
+        # would make 3a report an unverified binary that is actually fine, so keep looking
+        # and let the caller fail loudly if no candidate yields anything.
+        if versions:
+            return versions
     raise ValueError(f"no known-checksums file found for setup-uv commit {sha}")
 
 
@@ -305,18 +386,22 @@ def check_pr_age(
     return results
 
 
-def check_stale_dependencies(stale: Sequence[StaleDependency], cooldown: int, threshold: int) -> CheckResult:
+def check_stale_dependencies(
+    stale: Sequence[StaleDependency], cooldown: int, threshold: int, as_of: datetime
+) -> CheckResult:
     listing = ", ".join(f"{item.name} {item.locked} -> {item.latest}" for item in stale) or "なし"
     return CheckResult(
         "2",
         "cooldown を過ぎた直接依存の滞留",
         "high",
         len(stale) <= threshold,
-        f"{len(stale)} 件 (閾値 {threshold} 件 / cooldown {cooldown} 日): {listing}",
+        f"{len(stale)} 件 (閾値 {threshold} 件 / cooldown {cooldown} 日 / "
+        f"判定基準時刻 {as_of.isoformat(timespec='minutes')}): {listing}",
         {
             "count": len(stale),
             "threshold": threshold,
             "cooldown_days": cooldown,
+            "as_of": as_of.isoformat(),
             "dependencies": [
                 {
                     "name": item.name,
@@ -375,11 +460,16 @@ def run_checks(
     now: datetime,
     max_pr_age_days: int,
     max_stale_direct: int,
+    python_version: Version,
 ) -> list[CheckResult]:
-    cooldown = cooldown_days(root)
-    results = check_pr_age(fetch_json, repo, dependabot_ecosystems(root), now, max_pr_age_days)
-    stale = stale_direct_dependencies(fetch_json, direct_requirements(root), locked_versions(root), now, cooldown)
-    results.append(check_stale_dependencies(stale, cooldown, max_stale_direct))
+    config = dependabot_config(root)
+    cooldown = cooldown_days(config)
+    results = check_pr_age(fetch_json, repo, dependabot_ecosystems(config), now, max_pr_age_days)
+    as_of = last_scheduled_update(config, PYTHON_ECOSYSTEM, now)
+    stale = stale_direct_dependencies(
+        fetch_json, direct_requirements(root), locked_versions(root), as_of, cooldown, python_version
+    )
+    results.append(check_stale_dependencies(stale, cooldown, max_stale_direct, as_of))
     setup_uv_sha = setup_uv_pinned_sha(root)
     results.extend(
         check_uv_pin(
@@ -431,33 +521,43 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     fetch_json, fetch_text = make_fetchers(os.environ.get("GITHUB_TOKEN"))
     now = datetime.now(UTC)
+    # Rendering and writing the report stay inside the boundary: an uncaught failure there
+    # exits with 1, which the workflow reads as "threshold exceeded" and turns into a false
+    # alert issue. Everything that is not a verdict must exit 2 instead.
     try:
         results = run_checks(
-            fetch_json, fetch_text, PROJECT_ROOT, args.repo, now, args.max_pr_age_days, args.max_stale_direct
+            fetch_json,
+            fetch_text,
+            PROJECT_ROOT,
+            args.repo,
+            now,
+            args.max_pr_age_days,
+            args.max_stale_direct,
+            Version(platform.python_version()),
         )
-    except (requests.RequestException, ValueError, KeyError) as error:
+        report = render_report(results, args.repo, now)
+        print(report, end="")
+        if args.report:
+            args.report.write_text(report, encoding="utf-8")
+        if args.json:
+            payload = [
+                {
+                    "id": result.check_id,
+                    "title": result.title,
+                    "severity": result.severity,
+                    "ok": result.ok,
+                    "detail": result.detail,
+                    "facts": result.facts,
+                }
+                for result in results
+            ]
+            args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except (requests.RequestException, yaml.YAMLError, OSError, ValueError, KeyError) as error:
         # A watchdog that fails quietly reproduces the very bug it exists to catch,
         # so surface this as a red run rather than as "healthy".
         print(f"生存確認を実行できませんでした: {error}", file=sys.stderr)
         return 2
 
-    report = render_report(results, args.repo, now)
-    print(report, end="")
-    if args.report:
-        args.report.write_text(report, encoding="utf-8")
-    if args.json:
-        payload = [
-            {
-                "id": result.check_id,
-                "title": result.title,
-                "severity": result.severity,
-                "ok": result.ok,
-                "detail": result.detail,
-                "facts": result.facts,
-            }
-            for result in results
-        ]
-        args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return 0 if all(result.ok for result in results) else 1
 
 
