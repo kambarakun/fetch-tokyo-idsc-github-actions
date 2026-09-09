@@ -15,7 +15,7 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
 - `schedule`: 毎週水曜 09:23 JST (`cron: "23 0 * * 3"`)。Dependabot の週次実行 (月曜 09:00 JST) の 2 日後に見る
 - `workflow_dispatch`: 閾値を入力で下げられる。故意にアラートを起こす検証に使う
 
-判定に使うのは日時・ラベル・バージョン文字列などの構造化フィールドのみで、PR / issue の本文とタイトルは読まない (AGENTS.md のプロンプトインジェクション方針)。権限は `contents: read` + `issues: write` + `pull-requests: read` のみで、`pull_request_target` は使わない。`pull-requests: read` は検査 1 が Search API で `type:pr` を引くために必須で、外すと結果が空になり全エコシステムを誤検知する (issue #697)。
+判定に使うのは日時・ラベル・バージョン文字列などの構造化フィールドのみで、PR / issue の本文とタイトルは読まない (AGENTS.md のプロンプトインジェクション方針)。権限は `contents: read` + `issues: write` + `pull-requests: read` のみで、`pull_request_target` は使わない。`pull-requests: read` は検査 1 が `GET /repos/{owner}/{repo}/issues` の返す PR を読むために必須で、外すとトークンから PR が見えず全エコシステムを誤検知する (issue #697)。Search API はワークフロートークンでは 403 になるため使わない。
 
 ## 検査と閾値
 
@@ -69,7 +69,7 @@ CI が checksum 未検証の uv バイナリを導入している状態なので
 閾値を下げて故意にアラートを起こし、issue が起票されることを確認する。
 
 ```bash
-# ローカル: 全検査の実行 (GITHUB_TOKEN があれば search API のレート制限が緩和される)
+# ローカル: 全検査の実行 (GITHUB_TOKEN があれば未認証の 60 req/h 制限を避けられる)
 uv run --locked python scripts/check_dependency_pipeline.py --repo <owner>/<repo>
 
 # ローカル: アラート経路の確認

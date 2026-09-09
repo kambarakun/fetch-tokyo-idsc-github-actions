@@ -52,10 +52,11 @@ def _pypi(
     }
 
 
-def _search_payload(created_at: datetime | None) -> dict[str, Any]:
+def _pr_payload(created_at: datetime | None) -> list[dict[str, Any]]:
+    """A `GET /issues` page. `pull_request` is what marks an entry as a PR rather than an issue."""
     if created_at is None:
-        return {"items": []}
-    return {"items": [{"created_at": created_at.isoformat()}]}
+        return []
+    return [{"created_at": created_at.isoformat(), "pull_request": {"url": "https://example.invalid/1"}}]
 
 
 @pytest.fixture
@@ -112,9 +113,9 @@ def repo(tmp_path: Path) -> Path:
 def healthy_responses() -> dict[str, Any]:
     recent = NOW - timedelta(days=2)
     return {
-        "search:github-actions": _search_payload(recent),
-        "search:python": _search_payload(recent),
-        "search:pre-commit": _search_payload(recent),
+        "prs:github-actions": _pr_payload(recent),
+        "prs:python": _pr_payload(recent),
+        "prs:pre-commit": _pr_payload(recent),
         # requests / mypy are current; isort's newer release is a major bump Dependabot ignores.
         "pypi:requests": _pypi(("2.34.2", NOW - timedelta(days=60))),
         "pypi:mypy": _pypi(("2.3.1", NOW - timedelta(days=25))),
@@ -127,9 +128,9 @@ def healthy_responses() -> dict[str, Any]:
 
 def _fetchers(responses: dict[str, Any]):
     def fetch_json(url: str) -> Any:
-        if "/search/issues" in url:
-            label = url.split("label:")[1].split("+", maxsplit=1)[0]
-            return responses[f"search:{label}"]
+        if "/issues?" in url:
+            label = url.split("labels=")[1].split("&", maxsplit=1)[0]
+            return responses[f"prs:{label}"]
         if url == watchdog.DEPENDABOT_CORE_LATEST_RELEASE:
             return responses["core-release"]
         name = url.removeprefix("https://pypi.org/pypi/").removesuffix("/json")
@@ -163,7 +164,7 @@ def test_healthy_pipeline_passes_every_check(repo: Path, healthy_responses: dict
 def test_stalled_ecosystem_and_backlog_are_reported_together(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """The 2026-07-27 outage shape: no uv PR for six weeks while updates piled up."""
     responses = dict(healthy_responses)
-    responses["search:python"] = _search_payload(NOW - timedelta(days=44))
+    responses["prs:python"] = _pr_payload(NOW - timedelta(days=44))
     responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)))
 
     results = _run(repo, responses, max_stale_direct=0)
@@ -414,8 +415,7 @@ def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.Monk
     seen: dict[str, dict[str, str]] = {}
 
     class _Response:
-        def raise_for_status(self) -> None:
-            return None
+        ok = True
 
         def json(self) -> Any:
             return {}
@@ -431,18 +431,37 @@ def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.Monk
     monkeypatch.setattr(watchdog.requests, "get", fake_get)
     fetch_json, fetch_text = watchdog.make_fetchers("secret-token")
 
-    fetch_json(f"{watchdog.GITHUB_API}/search/issues?q=repo:owner/name")
+    fetch_json(f"{watchdog.GITHUB_API}/repos/owner/name/issues?labels=python")
     fetch_json(watchdog.PYPI_JSON.format(name="mypy"))
     fetch_text(DOCKERFILE_URL)
 
     authorized = {url for url, headers in seen.items() if "Authorization" in headers}
-    assert authorized == {f"{watchdog.GITHUB_API}/search/issues?q=repo:owner/name"}
+    assert authorized == {f"{watchdog.GITHUB_API}/repos/owner/name/issues?labels=python"}
     assert len(seen) == 3
+
+
+def test_http_get_puts_the_response_body_into_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """issue #697: a bare status code hid whether 403 was a missing permission or a rate limit."""
+
+    class _Forbidden:
+        ok = False
+        status_code = 403
+        reason = "Forbidden"
+        text = '{"message": "Resource not accessible by integration"}'
+
+    monkeypatch.setattr(watchdog.requests, "get", lambda url, headers, timeout: _Forbidden())
+    fetch_json, _ = watchdog.make_fetchers("secret-token")
+
+    with pytest.raises(requests.HTTPError) as excinfo:
+        fetch_json(f"{watchdog.GITHUB_API}/repos/owner/name/issues?labels=python")
+
+    assert "403 Forbidden" in str(excinfo.value)
+    assert "Resource not accessible by integration" in str(excinfo.value)
 
 
 def test_missing_ecosystem_pr_history_is_an_alert(repo: Path, healthy_responses: dict[str, Any]) -> None:
     responses = dict(healthy_responses)
-    responses["search:pre-commit"] = _search_payload(None)
+    responses["prs:pre-commit"] = _pr_payload(None)
 
     results = _run(repo, responses)
 
@@ -515,9 +534,14 @@ def test_checksum_table_falls_back_to_the_json_layout(repo: Path, healthy_respon
 def test_report_only_contains_structured_facts(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """PR and issue text is untrusted input, so it must never reach the rendered report."""
     responses = dict(healthy_responses)
-    responses["search:python"] = {
-        "items": [{"created_at": (NOW - timedelta(days=44)).isoformat(), "title": "<!-- injected -->", "body": "evil"}]
-    }
+    responses["prs:python"] = [
+        {
+            "created_at": (NOW - timedelta(days=44)).isoformat(),
+            "pull_request": {"url": "https://example.invalid/1"},
+            "title": "<!-- injected -->",
+            "body": "evil",
+        }
+    ]
 
     results = watchdog.run_checks(
         *_fetchers(responses),
@@ -538,7 +562,7 @@ def test_main_writes_both_report_files_and_signals_alerts(
     repo: Path, healthy_responses: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     responses = dict(healthy_responses)
-    responses["search:python"] = _search_payload(NOW - timedelta(days=44))
+    responses["prs:python"] = _pr_payload(NOW - timedelta(days=44))
     monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
     monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
     report_path, json_path = tmp_path / "report.md", tmp_path / "report.json"
