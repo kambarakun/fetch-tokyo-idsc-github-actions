@@ -618,12 +618,20 @@ def check_action_bundled_dependencies(
         tag = newest_action_release(fetch_json, entry.action)
         pinned = bundled_package_version(fetch_text, entry, sha)
         available = bundled_package_version(fetch_text, entry, tag)
-        # None means the Action stopped locking the package at all, i.e. the exposure is gone.
+        # None means the Action stopped locking the package at all, i.e. this exposure is gone.
         pin_fixed = pinned is None or pinned >= entry.fixed_in
         release_fixed = available is None or available >= entry.fixed_in
         pinned_label = "同梱なし" if pinned is None else str(pinned)
         latest_label = "同梱なし" if available is None else str(available)
-        if pin_fixed:
+        if pinned is None:
+            # Green, but said in its own words: the advisory this row tracks can only be
+            # cleared by dropping the package, and a package dropped in favour of a renamed
+            # fork would carry the same bug under a name this row no longer names.
+            detail = (
+                f"pin ({sha[:7]}) は {entry.package} を lock していない。"
+                f"入れ替わった依存が同じ問題を抱えていないか、テーブルの妥当性を確認する"
+            )
+        elif pin_fixed:
             detail = f"pin ({sha[:7]}) の {entry.package} は {pinned_label} で、修正版 {entry.fixed_in} 以上"
         elif release_fixed:
             detail = (

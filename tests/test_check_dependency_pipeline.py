@@ -615,6 +615,26 @@ def test_a_pin_past_the_fix_clears_the_bundled_cve(repo: Path, healthy_responses
     assert _run(repo, responses)["4:claude-code-action"].ok
 
 
+def test_a_dropped_package_is_green_but_says_so_in_its_own_words(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Dropping the package clears this advisory, but a renamed fork would carry the same bug.
+
+    The verdict stays green -- alerting on the successful outcome would be noise -- so the
+    report line is what has to tell a human to re-check the row rather than read as "we are
+    on a fixed version".
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = (
+        '    "@types/shell-quote": ["@types/shell-quote@1.7.5", "", {}, "sha512-a"],\n'
+    )
+
+    result = _run(repo, responses)["4:claude-code-action"]
+
+    assert result.ok
+    assert result.facts["pinned_version"] is None
+    assert "テーブルの妥当性を確認する" in result.detail
+    assert "修正版" not in result.detail
+
+
 def test_the_newest_action_release_is_neither_the_floating_tag_nor_lexicographic(
     repo: Path, healthy_responses: dict[str, Any]
 ) -> None:
