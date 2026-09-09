@@ -588,7 +588,12 @@ def test_main_requires_a_repository(capsys: pytest.CaptureFixture[str], monkeypa
 
 
 def test_watchdog_workflow_uses_least_privilege_and_no_pull_request_target() -> None:
-    """issue #683: judging on PR metadata must not need write access to code or PRs."""
+    """issue #683: judging on PR metadata must not need write access to code or PRs.
+
+    issue #697: `pull-requests: read` is required, not optional. The search API only returns
+    resources the token can see, so dropping it makes every `type:pr` query answer HTTP 200
+    with an empty list and check 1 reports a repository-wide outage that is not happening.
+    """
     project_root = Path(__file__).resolve().parent.parent
     workflow = yaml.safe_load(
         (project_root / ".github" / "workflows" / "dependency-pipeline-watchdog.yml").read_text(encoding="utf-8")
@@ -596,6 +601,6 @@ def test_watchdog_workflow_uses_least_privilege_and_no_pull_request_target() -> 
     # PyYAML parses the unquoted `on:` key as the boolean True.
     triggers = workflow[True]
 
-    assert workflow["permissions"] == {"contents": "read", "issues": "write"}
+    assert workflow["permissions"] == {"contents": "read", "issues": "write", "pull-requests": "read"}
     assert set(triggers) == {"schedule", "workflow_dispatch"}
     assert "pull_request_target" not in triggers

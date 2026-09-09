@@ -20,9 +20,13 @@ on:
 
 # 最小権限 (issue #299)。判定入力は PR / issue の構造化フィールドのみで、本文は読まない。
 # `pull_request_target` は使わない (issue #683 の注意事項)。
+# `pull-requests: read` は検査 1 に必須 (issue #697)。Search API はトークンが参照できる
+# リソースしか返さないため、この権限が無いと `type:pr` の結果が HTTP 200 + 空配列になり、
+# 全エコシステムが「PR が 1 件も存在しない」と誤検知する。
 permissions:
   contents: read
   issues: write
+  pull-requests: read
 
 concurrency:
   group: dependency-pipeline-watchdog
