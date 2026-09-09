@@ -30,7 +30,7 @@ DOCKERFILE_URL = watchdog.DEPENDABOT_UV_DOCKERFILE.format(ref=CORE_RELEASE_TAG)
 CLAUDE_ACTION = "anthropics/claude-code-action"
 CLAUDE_ACTION_SHA = "833fb0f8c9f6686b33d963a8bae0a94f4936ab2a"
 CLAUDE_ACTION_TAG = "v1.0.220"
-CHECK_4 = f"4:{CLAUDE_ACTION}"
+CHECK_4 = f"4:{CLAUDE_ACTION}:shell-quote"
 
 
 def _bun_lock(*versions: str) -> str:

@@ -676,7 +676,8 @@ def check_action_bundled_dependencies(
         advisory_link = f"[{entry.advisory}](https://github.com/advisories/{entry.advisory})"
         results.append(
             CheckResult(
-                f"4:{entry.action}",
+                # The row this verdict belongs to is keyed by both, and so is its id.
+                f"4:{entry.action}:{entry.package}",
                 f"{entry.action} 同梱 {entry.package} の既知脆弱性",
                 "high",
                 pin_fixed or not release_fixed,
