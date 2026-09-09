@@ -4,7 +4,7 @@
 
 ## 最終更新日
 
-2026-09-09
+2026-09-10
 
 ## バージョン
 
@@ -445,9 +445,11 @@ Dependabot には `.tool-versions` を扱うエコシステムが無いため、
 | 3a   | uv pin が pin 中 setup-uv の既知 checksum に含まれる                | -     | 🔴 high   |
 | 3b   | uv pin が既知 checksum の上限に達している                           | -     | 🟢 low    |
 | 3c   | uv pin と dependabot-core 最新リリース同梱 uv の major.minor が一致 | -     | 🟡 medium |
+| 4    | pin 中 Action 同梱依存の CVE に、修正版を lock した release が出た  | -     | 🔴 high   |
 
 - 検査 2 が数えるのは「Dependabot が提案できるのに提案していない」ものだけ。major バンプ / pre-release / yank 済み / `requires-python` の宣言レンジ (`>=3.11,<3.12`) を満たさないリリース / 直近の updater 実行時点で cooldown 内だったリリースは数えない。Python の判定に実行中インタプリタを使わないのは、uv がレンジ内の全インタプリタに対して解決するためである (下限を上げた `>=3.11.10`・上限を下げた `<3.11.5`・レンジ内を除外した `!=3.11.4` / `!=3.11.*` はいずれも実行環境では動くが lock できない)。cooldown の基準時刻は実行時刻ではなく `dependabot.yml` のスケジュールから求めた**直近の updater 実行時刻**である (水曜に検査し月曜に updater が動くため、実行時刻で判定すると提案の機会が無かったものを停止と誤判定する)
 - 検査 3 の比較対象は upstream 最新版ではない (上記「uv 本体の更新経路」と同じ理由)
+- 検査 4 は Dependabot の死角を埋める (issue #656)。github-actions エコシステムは Action 自身のバージョンしか追跡せず、Action が同梱する lockfile の中の CVE は検査 1〜3 のどこにも映らない。監視対象は `scripts/check_dependency_pipeline.py` の `WATCHED_ACTION_DEPENDENCIES` に 1 行ずつ書く。**発火するのは修正版を lock した release が実在するときだけ**で、脆弱版に留まっていること自体では発火させない (数か月赤いままの検査は追跡 issue を常時 open にして他のアラートを埋もれさせる)
 - 終了コード 2 (検査自体の失敗) はジョブを赤くする。無音で失敗する監視は本 issue が対象とする不具合そのものを再現するため
 - 閾値の根拠、アラート別の対応手順、手動検証方法は `docs/dependency-pipeline.md` を参照
 
