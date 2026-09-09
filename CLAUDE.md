@@ -432,7 +432,24 @@ Dependabot には `.tool-versions` を扱うエコシステムが無いため、
 - 順序: **setup-uv を上げてから uv を上げる**。Dependabot (github-actions) が setup-uv の minor / patch PR を出したら、その PR に `.tool-versions` の bump を積んで一緒にマージする。major は Dependabot が `semver-major` を ignore するため手動 PR (本 issue と同じ手順)
 - Dependabot 同梱の uv (dependabot-core `uv/Dockerfile`) とは同一 minor 内の乖離を許容する (0.12.4 と 0.12.7 で `uv lock --check` の差分なし・`revision` 不変を実測)。major / minor が食い違ったら追随する
 - `.tool-versions` に `python` 行は足さない: setup-uv v10 以降は `version-file: .tool-versions` の python 行も読み、`.python-version` と二重定義になる
-- バックストップ: issue #683 の乖離検知。同ガードテストが setup-uv の全ステップが同一 SHA であることも検証する
+- バックストップ: issue #683 の乖離検知 (下記)。同ガードテストが setup-uv の全ステップが同一 SHA であることも検証する
+
+#### 依存更新パイプラインの生存確認 (issue #683)
+
+依存更新の停止は「PR が失敗する」ではなく「**PR が来ない**」という無変化として現れ、リポジトリ上に痕跡が残らない (issue #681 は 6 週間気付かれなかった)。`.github/workflows/dependency-pipeline-watchdog.yml` が毎週水曜 09:23 JST に検査し、閾値超過なら追跡 issue を起票 / 追記、回復したら自動クローズする。
+
+| 検査 | 内容                                                    | 閾値  | 重要度    |
+| ---- | ------------------------------------------------------- | ----- | --------- |
+| 1    | エコシステム別の最終 Dependabot PR からの経過日数       | 21 日 | 🔴 high   |
+| 2    | cooldown を過ぎた直接依存の滞留件数                     | 3 件  | 🔴 high   |
+| 3a   | uv pin が pin 中 setup-uv の既知 checksum に含まれる    | -     | 🔴 high   |
+| 3b   | uv pin が既知 checksum の上限に達している               | -     | 🟢 low    |
+| 3c   | uv pin と dependabot-core 同梱 uv の major.minor が一致 | -     | 🟡 medium |
+
+- 検査 2 は **cooldown 未満のリリースと major バンプを数えない**。前者は PR がまだ出る時期ではなく、後者は `dependabot.yml` が `semver-major` を無視するため、数えると正常時に発火する
+- 検査 3 の比較対象は upstream 最新版ではない (上記「uv 本体の更新経路」と同じ理由)
+- 終了コード 2 (検査自体の失敗) はジョブを赤くする。無音で失敗する監視は本 issue が対象とする不具合そのものを再現するため
+- 閾値の根拠、アラート別の対応手順、手動検証方法は `docs/dependency-pipeline.md` を参照
 
 #### GitHub Actions の SHA Pin 運用
 

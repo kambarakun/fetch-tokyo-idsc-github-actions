@@ -1,0 +1,151 @@
+name: 🔍 依存更新パイプラインの生存確認
+
+# issue #683: Dependabot の停止は「PR が失敗する」ではなく「PR が来ない」という無変化として
+# 現れるため、リポジトリ上に痕跡が残らない (issue #681 は 6 週間気付かれなかった)。
+# 週次で検査し、閾値を超えたら Issue を起票 / 更新する。回復したら同じ Issue を閉じる。
+on:
+  schedule:
+    # 毎週水曜 09:23 JST (00:23 UTC)。Dependabot の週次実行 (月曜 09:00 JST) の 2 日後に見る。
+    - cron: "23 0 * * 3"
+  workflow_dispatch:
+    inputs:
+      max_pr_age_days:
+        description: "最終 Dependabot PR からの許容日数 (手動検証用に下げられる)"
+        required: false
+        default: "21"
+      max_stale_direct:
+        description: "cooldown を過ぎた直接依存の許容滞留件数 (手動検証用に下げられる)"
+        required: false
+        default: "3"
+
+# 最小権限 (issue #299)。判定入力は PR / issue の構造化フィールドのみで、本文は読まない。
+# `pull_request_target` は使わない (issue #683 の注意事項)。
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: dependency-pipeline-watchdog
+  cancel-in-progress: false
+
+env:
+  WATCHDOG_ISSUE_TITLE: "🔍 依存更新パイプラインの異常を検知"
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # uv の pin は .tool-versions に置く (issue #681): 未指定だと pyproject/uv.toml -> latest の順で解決される
+          version-file: .tool-versions
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
+
+      - name: Run pipeline liveness checks
+        id: checks
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # workflow_dispatch 以外では inputs が空になるため、スクリプト側の既定値へ委ねる
+          MAX_PR_AGE_DAYS: ${{ inputs.max_pr_age_days }}
+          MAX_STALE_DIRECT: ${{ inputs.max_stale_direct }}
+        run: |
+          ARGS=()
+          if [ -n "${MAX_PR_AGE_DAYS}" ]; then
+            ARGS+=(--max-pr-age-days "${MAX_PR_AGE_DAYS}")
+          fi
+          if [ -n "${MAX_STALE_DIRECT}" ]; then
+            ARGS+=(--max-stale-direct "${MAX_STALE_DIRECT}")
+          fi
+
+          set +e
+          uv run --locked python scripts/check_dependency_pipeline.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --report report.md \
+            --json report.json \
+            "${ARGS[@]}"
+          status=$?
+          set -e
+
+          # 0=正常 / 1=アラート / それ以外=検査自体の失敗。無音で失敗すると本 issue の
+          # 対象そのものを再現するので、2 以上はジョブを赤くする。
+          case "${status}" in
+            0) echo "alert=false" >> "$GITHUB_OUTPUT" ;;
+            1) echo "alert=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::生存確認スクリプトが異常終了しました (exit ${status})"; exit "${status}" ;;
+          esac
+
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependency-pipeline-report
+          path: |
+            report.md
+            report.json
+          retention-days: 30
+
+      - name: Open or update the tracking issue
+        if: steps.checks.outputs.alert == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            cat report.md
+            echo ""
+            echo "実行: ${RUN_URL}"
+          } > issue-body.md
+
+          # タイトルは env 経由で jq に渡す (プログラムへ文字列を埋め込まない)
+          EXISTING=$(gh issue list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --state open \
+            --label automated \
+            --json number,title \
+            --jq 'map(select(.title == env.WATCHDOG_ISSUE_TITLE)) | .[0].number // empty')
+
+          if [ -n "${EXISTING}" ]; then
+            gh issue comment "${EXISTING}" --repo "${GITHUB_REPOSITORY}" --body-file issue-body.md
+            echo "既存 issue #${EXISTING} に追記しました"
+          else
+            gh issue create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${WATCHDOG_ISSUE_TITLE}" \
+              --body-file issue-body.md \
+              --label "bug,automated,dependencies"
+          fi
+
+      - name: Close the tracking issue when healthy
+        if: steps.checks.outputs.alert == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          EXISTING=$(gh issue list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --state open \
+            --label automated \
+            --json number,title \
+            --jq 'map(select(.title == env.WATCHDOG_ISSUE_TITLE)) | .[0].number // empty')
+
+          if [ -n "${EXISTING}" ]; then
+            gh issue close "${EXISTING}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --comment "全ての検査を通過したため自動でクローズします。実行: ${RUN_URL}"
+            echo "issue #${EXISTING} をクローズしました"
+          else
+            echo "アラートなし。追跡 issue も存在しません"
+          fi
