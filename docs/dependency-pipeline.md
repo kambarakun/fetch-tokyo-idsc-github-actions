@@ -39,7 +39,7 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
   - なお `info.version` ではなくリリース履歴全体を走査する。頻繁にリリースされるパッケージでは、滞留中の版の上に major 版や cooldown 内の版が来た瞬間に滞留が見えなくなり、**まさに updater が止まっているときに検知できない**ため
 - **検査 3 の比較対象は upstream 最新版ではない**。setup-uv は既知 checksum の無い uv を検証をスキップしてインストールするため、pin の上限は「pin 中の setup-uv が checksum を知る最新版」である (CLAUDE.md「uv 本体の更新経路」)。upstream 最新と比較すると正常状態が常時アラートになる
 - **検査 4 は Dependabot の死角を埋める** (issue #656)。pin した Action は自身の lockfile を同梱して実行される。Dependabot の github-actions エコシステムが追跡するのは **Action 自身のバージョンだけ**で、その中で固定されている依存は見ない。したがって Action 同梱依存の CVE は検査 1〜3 のどれにも映らず、`.github/workflows` の差分にも現れない。監視対象は `scripts/check_dependency_pipeline.py` の `WATCHED_ACTION_DEPENDENCIES` テーブルに 1 行ずつ書く
-  - **アラートは「対応可能になった瞬間」だけに絞る**。脆弱版に留まっていること自体では発火させない。修正版を lock した release が存在しない間に発火させると追跡 issue が数か月 open のままになり、検査 1〜3 の本物のアラートがその中に埋もれる。逆に、修正版の release が出た週に確実に赤くなる
+  - **アラートは「対応可能になった瞬間」だけに絞る**。脆弱版に留まっていること自体では発火させない。追随先が存在しない間に発火させると追跡 issue が数か月 open のままになり、検査 1〜3 の本物のアラートがその中に埋もれる。逆に、追随先が出た週に確実に赤くなる。追随先とは「修正版を lock した release」だけでなく「対象依存を同梱しなくなった release」も含む — どちらへ更新してもこの行が追う脆弱性は解消するため
   - 「上流最新の release」の判定に `/releases/latest` は使えない。anthropics/claude-code-action は浮動の `v1` release を貼り替えて公開しており、このエンドポイントはそれを返す。`v1.2.3` 形式のタグのうち **semver で最大**のものを採る (文字列比較では `v1.0.9` が `v1.0.220` より大きくなる)
   - lockfile が 404 になった場合は検査を通さずエラー終了する。「取得できなかった」を「該当依存は無い」と解釈すると、**検証していない安全宣言**になるため
 
@@ -71,11 +71,14 @@ CI が checksum 未検証の uv バイナリを導入している状態なので
 
 ### 検査 4: pin 中 Action 同梱依存の修正版 release が出た
 
-1. レポートの `latest_release` タグの lockfile を直接見て、修正版が入っていることを確認する (release 番号や公開日では判定できない)
+1. レポートの `latest_release` タグの lockfile を直接見て、修正版が入っている (または対象依存が消えている) ことを確認する。release 番号や公開日では判定できない
 
    ```bash
-   curl -s https://raw.githubusercontent.com/anthropics/claude-code-action/<tag>/bun.lock | grep -o '"shell-quote@[0-9.]*"'
+   curl -fsSL https://raw.githubusercontent.com/anthropics/claude-code-action/<tag>/bun.lock \
+     | grep -o '"shell-quote@[0-9.]*"' | sort -V
    ```
+
+   `-f` は必須である。`curl -s` は HTTP 404 でも終了コード 0 で `404: Not Found` を stdout に流すため、grep の空出力が「対象依存なし」と見分けられなくなる (自動検査が lockfile の 404 をエラー終了させているのと同じ理由)。`sort -V` の**先頭が最小のコピー**で、露出を決めるのはこれ。curl が成功したうえで出力が空なら依存自体が消えており、その release へ更新すれば解消するが、入れ替わり先が同じ問題を抱えていないかを併せて確認する
 
 2. 公式タグの実 commit SHA を確認し、`.github/workflows/claude.yml` と `claude-code-review.yml` の pin を同じ SHA へ更新する (両ファイルは同一 SHA を pin する。ずれると検査 4 自体がエラー終了する)
 3. 7 日 cooldown 後に取り込む。security release として前倒しする場合は PR にその根拠を書く
