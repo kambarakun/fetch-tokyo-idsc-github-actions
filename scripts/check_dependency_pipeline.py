@@ -65,6 +65,8 @@ DEPENDABOT_UV_IMAGE = re.compile(r"ghcr\.io/astral-sh/uv:(?P<version>\d+\.\d+\.\
 # ecosystem tracks only the Action's own version -- never the dependencies frozen inside it.
 # A CVE in one of those is invisible to Dependabot and to every other check here.
 ACTION_LOCKFILE = "https://raw.githubusercontent.com/{action}/{ref}/{lockfile}"
+# One page is enough because releases come back newest-first: a version worth moving to
+# cannot be older than the 100 most recent releases.
 ACTION_RELEASES = GITHUB_API + "/repos/{action}/releases?per_page=100"
 # The lookbehind keeps a different Action whose name merely ends in the watched one
 # (`not-anthropics/claude-code-action`) from being counted as a second pin of it.
@@ -646,7 +648,7 @@ def check_action_bundled_dependencies(
         advisory_link = f"[{entry.advisory}](https://github.com/advisories/{entry.advisory})"
         results.append(
             CheckResult(
-                f"4:{entry.action.rsplit('/', maxsplit=1)[-1]}",
+                f"4:{entry.action}",
                 f"{entry.action} 同梱 {entry.package} の既知脆弱性",
                 "high",
                 pin_fixed or not release_fixed,

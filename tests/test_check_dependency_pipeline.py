@@ -30,6 +30,7 @@ DOCKERFILE_URL = watchdog.DEPENDABOT_UV_DOCKERFILE.format(ref=CORE_RELEASE_TAG)
 CLAUDE_ACTION = "anthropics/claude-code-action"
 CLAUDE_ACTION_SHA = "833fb0f8c9f6686b33d963a8bae0a94f4936ab2a"
 CLAUDE_ACTION_TAG = "v1.0.220"
+CHECK_4 = f"4:{CLAUDE_ACTION}"
 
 
 def _bun_lock(*versions: str) -> str:
@@ -197,7 +198,7 @@ def test_healthy_pipeline_passes_every_check(repo: Path, healthy_responses: dict
         "3a",
         "3b",
         "3c",
-        "4:claude-code-action",
+        CHECK_4,
     }
     assert all(result.ok for result in results.values())
     assert results["2"].facts["dependencies"] == []
@@ -578,7 +579,7 @@ def test_a_bundled_cve_without_a_fixed_release_is_not_an_alert(repo: Path, healt
     """Issue #656's accepted risk. Alerting every week would keep the tracking issue open forever."""
     results = _run(repo, healthy_responses)
 
-    result = results["4:claude-code-action"]
+    result = results[CHECK_4]
     assert result.ok
     assert result.facts["pinned_version"] == "1.8.4"
     assert result.facts["latest_version"] == "1.8.4"
@@ -591,7 +592,7 @@ def test_a_fixed_action_release_makes_the_bundled_cve_actionable(repo: Path, hea
     responses = dict(healthy_responses)
     responses[_action_lock_url(CLAUDE_ACTION_TAG)] = _bun_lock("1.10.0")
 
-    result = _run(repo, responses)["4:claude-code-action"]
+    result = _run(repo, responses)[CHECK_4]
 
     assert not result.ok
     assert result.severity == "high"
@@ -612,7 +613,7 @@ def test_a_pin_past_the_fix_clears_the_bundled_cve(repo: Path, healthy_responses
     responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.10.0")
     responses[_action_lock_url(CLAUDE_ACTION_TAG)] = _bun_lock("1.10.0")
 
-    assert _run(repo, responses)["4:claude-code-action"].ok
+    assert _run(repo, responses)[CHECK_4].ok
 
 
 def test_a_dropped_package_is_green_but_says_so_in_its_own_words(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -627,7 +628,7 @@ def test_a_dropped_package_is_green_but_says_so_in_its_own_words(repo: Path, hea
         '    "@types/shell-quote": ["@types/shell-quote@1.7.5", "", {}, "sha512-a"],\n'
     )
 
-    result = _run(repo, responses)["4:claude-code-action"]
+    result = _run(repo, responses)[CHECK_4]
 
     assert result.ok
     assert result.facts["pinned_version"] is None
@@ -643,7 +644,7 @@ def test_the_newest_action_release_is_neither_the_floating_tag_nor_lexicographic
     responses["action-releases"] = _releases("v1.0.9", CLAUDE_ACTION_TAG, prerelease="v2.0.0-rc.1", draft="v2.0.0")
     responses[_action_lock_url("v1.0.9")] = _bun_lock("1.10.0")
 
-    result = _run(repo, responses)["4:claude-code-action"]
+    result = _run(repo, responses)[CHECK_4]
 
     # Reading v1 or v1.0.9 would have raised (no lockfile) or reported the wrong version.
     assert result.facts["latest_release"] == CLAUDE_ACTION_TAG
@@ -655,7 +656,7 @@ def test_the_lowest_real_copy_in_the_lockfile_decides_exposure(repo: Path, healt
     responses = dict(healthy_responses)
     responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.10.0", "1.8.4")
 
-    result = _run(repo, responses)["4:claude-code-action"]
+    result = _run(repo, responses)[CHECK_4]
 
     assert result.facts["pinned_version"] == "1.8.4"
 
@@ -681,7 +682,7 @@ def test_an_action_whose_name_ends_in_the_watched_one_is_not_counted_as_a_pin_of
         encoding="utf-8",
     )
 
-    assert _run(repo, healthy_responses)["4:claude-code-action"].facts["pinned_sha"] == CLAUDE_ACTION_SHA
+    assert _run(repo, healthy_responses)[CHECK_4].facts["pinned_sha"] == CLAUDE_ACTION_SHA
 
 
 def test_a_watched_action_pinned_to_two_commits_fails_loudly(repo: Path, healthy_responses: dict[str, Any]) -> None:
