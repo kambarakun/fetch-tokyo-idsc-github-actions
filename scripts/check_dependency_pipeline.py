@@ -204,11 +204,16 @@ def last_dependabot_pr(fetch_json: FetchJson, repo: str, label: str) -> datetime
 
     `GET /issues` lists pull requests alongside issues, so `pull_request` is what separates them;
     `pull-requests: read` is still required for the token to see the pull requests at all.
+
+    One page is enough and there is no pagination: `creator` and `labels` already narrow the list
+    to what Dependabot filed under this ecosystem, and Dependabot files pull requests rather than
+    issues, so the newest entry is the answer. A full page of Dependabot-authored non-PR issues
+    would be needed to hide a real pull request, and the page is the API maximum.
     """
     url = (
         f"{GITHUB_API}/repos/{repo}/issues"
         f"?labels={quote(label)}&state=all&creator={quote(DEPENDABOT_LOGIN)}"
-        "&sort=created&direction=desc&per_page=20"
+        "&sort=created&direction=desc&per_page=100"
     )
     for item in fetch_json(url):
         if "pull_request" in item:
