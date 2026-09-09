@@ -116,9 +116,9 @@ class StaleDependency:
 
 def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
     headers = {"Accept": accept, "User-Agent": "fetch-tokyo-idsc-dependency-watchdog"}
-    # The workflow token carries `issues: write`. The same fetchers also call pypi.org and
-    # raw.githubusercontent.com, so gate the credential on the host rather than on the
-    # caller: a future check cannot leak it by picking the wrong fetcher.
+    # The workflow token carries `issues: write` and `pull-requests: read`. The same fetchers
+    # also call pypi.org and raw.githubusercontent.com, so gate the credential on the host
+    # rather than on the caller: a future check cannot leak it by picking the wrong fetcher.
     if token and urlsplit(url).hostname == GITHUB_API_HOST:
         headers["Authorization"] = f"Bearer {token}"
     response = requests.get(url, headers=headers, timeout=30)

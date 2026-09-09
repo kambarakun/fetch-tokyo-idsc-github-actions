@@ -15,7 +15,7 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
 - `schedule`: 毎週水曜 09:23 JST (`cron: "23 0 * * 3"`)。Dependabot の週次実行 (月曜 09:00 JST) の 2 日後に見る
 - `workflow_dispatch`: 閾値を入力で下げられる。故意にアラートを起こす検証に使う
 
-判定に使うのは日時・ラベル・バージョン文字列などの構造化フィールドのみで、PR / issue の本文とタイトルは読まない (AGENTS.md のプロンプトインジェクション方針)。権限は `contents: read` + `issues: write` のみで、`pull_request_target` は使わない。
+判定に使うのは日時・ラベル・バージョン文字列などの構造化フィールドのみで、PR / issue の本文とタイトルは読まない (AGENTS.md のプロンプトインジェクション方針)。権限は `contents: read` + `issues: write` + `pull-requests: read` のみで、`pull_request_target` は使わない。`pull-requests: read` は検査 1 が Search API で `type:pr` を引くために必須で、外すと結果が空になり全エコシステムを誤検知する (issue #697)。
 
 ## 検査と閾値
 
