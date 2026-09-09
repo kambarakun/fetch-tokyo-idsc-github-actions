@@ -16,14 +16,12 @@ from typing import Any
 import pytest
 import requests
 import yaml
-from packaging.version import Version
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import check_dependency_pipeline as watchdog
 
 # A Wednesday, matching the watchdog's own schedule two days after the Monday updater run.
 NOW = datetime(2026, 9, 9, tzinfo=UTC)
-PYTHON_VERSION = Version("3.11.15")
 SETUP_UV_SHA = "20cfd1bf945f4377ade1205e4dbc17946fc9a30d"
 CHECKSUM_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.ts")
 CHECKSUM_JSON_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.json")
@@ -96,7 +94,7 @@ def repo(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\ndependencies = ["requests>=2.34.2"]\n'
+        '[project]\nrequires-python = ">=3.11,<3.12"\ndependencies = ["requests>=2.34.2"]\n'
         '[project.optional-dependencies]\ndev = ["mypy==2.3.1", "isort==7.0.0"]\n',
         encoding="utf-8",
     )
@@ -144,7 +142,7 @@ def _fetchers(responses: dict[str, Any]):
 
 def _run(repo: Path, responses: dict[str, Any], **kwargs: Any) -> dict[str, watchdog.CheckResult]:
     fetch_json, fetch_text = _fetchers(responses)
-    options = {"max_pr_age_days": 21, "max_stale_direct": 3, "python_version": PYTHON_VERSION, **kwargs}
+    options = {"max_pr_age_days": 21, "max_stale_direct": 3, **kwargs}
     results = watchdog.run_checks(fetch_json, fetch_text, repo, "owner/name", NOW, **options)
     return {result.check_id: result for result in results}
 
@@ -231,10 +229,10 @@ def test_yanked_and_prerelease_versions_are_not_counted_as_stale(repo: Path, hea
     assert results["2"].ok
 
 
-def test_releases_dropping_the_locked_python_are_not_counted_as_stale(
+def test_releases_dropping_the_declared_python_are_not_counted_as_stale(
     repo: Path, healthy_responses: dict[str, Any]
 ) -> None:
-    """Neither Dependabot nor uv can propose a release that excludes the locked interpreter.
+    """Neither Dependabot nor uv can propose a release that excludes the declared interpreter.
 
     Counting one would make the backlog grow permanently and eventually open an outage
     issue that no amount of updating could clear.
@@ -248,6 +246,42 @@ def test_releases_dropping_the_locked_python_are_not_counted_as_stale(
     results = _run(repo, responses, max_stale_direct=0)
 
     assert results["2"].ok
+
+
+def test_releases_raising_the_python_floor_within_the_same_minor_are_not_counted(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """`requires-python = ">=3.11,<3.12"` covers 3.11.0, not just the runner's patch level.
+
+    A release needing `>=3.11.10` installs fine on the machine running this watchdog, yet uv
+    cannot lock it for the whole declared range, so Dependabot never proposes it. Judging by
+    the running interpreter would leave it in the backlog forever.
+    """
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=30)),
+        requires_python={"2.4.0": ">=3.11.10"},
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert results["2"].ok
+
+
+def test_releases_within_the_declared_python_range_are_still_counted(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """The floor comparison must not swallow releases Dependabot really could propose."""
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=30)),
+        requires_python={"2.4.0": ">=3.11"},
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert not results["2"].ok
+    assert [item["name"] for item in results["2"].facts["dependencies"]] == ["mypy"]
 
 
 def test_cooldown_is_judged_at_the_last_scheduled_updater_run(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -419,7 +453,6 @@ def test_report_only_contains_structured_facts(repo: Path, healthy_responses: di
         NOW,
         max_pr_age_days=21,
         max_stale_direct=3,
-        python_version=PYTHON_VERSION,
     )
     report = watchdog.render_report(results, "owner/name", NOW)
 
