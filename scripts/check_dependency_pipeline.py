@@ -66,7 +66,9 @@ DEPENDABOT_UV_IMAGE = re.compile(r"ghcr\.io/astral-sh/uv:(?P<version>\d+\.\d+\.\
 # A CVE in one of those is invisible to Dependabot and to every other check here.
 ACTION_LOCKFILE = "https://raw.githubusercontent.com/{action}/{ref}/{lockfile}"
 ACTION_RELEASES = GITHUB_API + "/repos/{action}/releases?per_page=100"
-ACTION_PINNED_REF = "{action}(?:/[A-Za-z0-9._/-]+)?@(?P<sha>[0-9a-f]{{40}})"
+# The lookbehind keeps a different Action whose name merely ends in the watched one
+# (`not-anthropics/claude-code-action`) from being counted as a second pin of it.
+ACTION_PINNED_REF = "(?<![A-Za-z0-9._/-]){action}(?:/[A-Za-z0-9._/-]+)?@(?P<sha>[0-9a-f]{{40}})"
 # `/releases/latest` cannot answer "what would we move to": anthropics/claude-code-action
 # republishes a floating `v1` release, and that is the tag the endpoint returns. Take the
 # highest tag of this shape instead, which is also the one Dependabot proposes.

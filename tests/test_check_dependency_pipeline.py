@@ -652,6 +652,18 @@ def test_a_moved_action_lockfile_fails_loudly(
     assert watchdog.main(["--repo", "owner/name"]) == 2
 
 
+def test_an_action_whose_name_ends_in_the_watched_one_is_not_counted_as_a_pin_of_it(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """`not-anthropics/claude-code-action` is a different Action, not a second pin of this one."""
+    (repo / ".github" / "workflows" / "lookalike.yml").write_text(
+        yaml.safe_dump({"jobs": {"other": {"steps": [{"uses": f"not-{CLAUDE_ACTION}@{'c' * 40}"}]}}}),
+        encoding="utf-8",
+    )
+
+    assert _run(repo, healthy_responses)["4:claude-code-action"].facts["pinned_sha"] == CLAUDE_ACTION_SHA
+
+
 def test_a_watched_action_pinned_to_two_commits_fails_loudly(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """Half-applied bumps, and a watched Action that was removed, both have to be visible."""
     (repo / ".github" / "workflows" / "claude-review.yml").write_text(
