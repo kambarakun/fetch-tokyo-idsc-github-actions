@@ -18,8 +18,8 @@ updates:
       prefix: "ci"
       include: "scope"
     open-pull-requests-limit: 5
-    # メジャーバージョンアップを無視（破壊的変更を手動でレビュー）
-    # セキュリティ更新は別途Dependabot Security Updatesで自動作成される
+    # メジャーバージョンアップを無視 (破壊的変更を手動でレビュー)
+    # セキュリティ更新は別途 Dependabot Security Updates で自動作成される
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -42,17 +42,23 @@ updates:
       prefix: "deps"
       include: "scope"
     open-pull-requests-limit: 5
-    # メジャーバージョンアップを無視（破壊的変更を手動でレビュー）
+    # メジャーバージョンアップを無視 (破壊的変更を手動でレビュー)
     # マイナー・パッチバージョンのみ自動更新
-    # セキュリティ更新は別途Dependabot Security Updatesで自動作成される
-    # 注: Dependabotはuvをネイティブサポート (2025年3月13日〜)
-    # pyproject.tomlとuv.lockの両方を自動更新
+    # セキュリティ更新は別途 Dependabot Security Updates で自動作成される。
+    # ただし version updates と同じ updater を通るため、下記の uv pin の注意はそちらにも効く。
+    # また Settings の Dependabot alerts / security updates が有効であることが前提
+    # (このリポジトリでは 2026-09-09 まで両方無効で、それまでは CI の `uv audit --locked` だけが安全網だった)
+    # 注: Dependabot は uv をネイティブサポート (2025年3月13日~)
+    # pyproject.toml と uv.lock の両方を自動更新
+    # uv 本体の pin は .tool-versions に置く。pyproject.toml の [tool.uv] required-version や uv.toml に
+    # 置くと Dependabot 同梱の uv (dependabot-core uv/Dockerfile) が起動時に落ち、この ecosystem の
+    # 更新が無音で止まる (2026-07-27~09-09 に発生。issue #681。tests/test_dependabot_config.py が検証)
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-    # 依存関係のグループ化（関連する更新をまとめる）
+    # 依存関係のグループ化 (関連する更新をまとめる)
     groups:
-      # 🏭 本番依存関係をまとめる（慎重にレビュー）
+      # 🏭 本番依存関係をまとめる (慎重にレビュー)
       production:
         patterns:
           - "requests"
@@ -65,7 +71,7 @@ updates:
         patterns:
           - "pytest*"
           - "pytest-cov"
-      # 🔧 ビルドツール関連をまとめる（リンター・フォーマッター）
+      # 🔧 ビルドツール関連をまとめる (リンター・フォーマッター)
       # isort / black / ruff / mypy の pre-commit hook は uv 管理の venv を実行する local hook
       # のため、このグループが 4 ツール唯一の更新経路 (issue #680)
       build-tools:
