@@ -73,8 +73,14 @@ ACTION_RELEASES = GITHUB_API + "/repos/{action}/releases?per_page=100"
 ACTION_PINNED_REF = "(?<![A-Za-z0-9._/-]){action}(?:/[A-Za-z0-9._/-]+)?@(?P<sha>[0-9a-f]{{40}})"
 # `/releases/latest` cannot answer "what would we move to": anthropics/claude-code-action
 # republishes a floating `v1` release, and that is the tag the endpoint returns. Take the
-# highest tag of this shape instead, which is also the one Dependabot proposes.
+# highest tag of this shape instead, which is also the one Dependabot proposes. Only that one
+# release is inspected, deliberately: a fixed release that a later one superseded is not
+# somewhere to pin, because the next github-actions bump would move straight off it again.
 ACTION_RELEASE_TAG = re.compile(r"v\d+\.\d+\.\d+")
+# Any `"name@version"` key at all. A lockfile that yields none of these is one whose layout
+# this parser does not understand, and "no match" then means "not verified", not "not
+# present" -- the same distinction known_uv_checksums draws for setup-uv's table.
+LOCKFILE_ENTRY = re.compile(r'"@?[A-Za-z0-9._/-]+@\d+[^"]*"')
 
 # The ecosystem that proposes the Python dependencies check 2 looks at.
 PYTHON_ECOSYSTEM = "uv"
@@ -491,10 +497,15 @@ def bundled_package_version(fetch_text: FetchText, watched: BundledDependency, r
 
     The `"name@version"` key is anchored on its opening quote so that a scoped sibling
     (`"@types/shell-quote@1.7.5"`) cannot be mistaken for the package itself, and the lowest
-    of several copies is the one that decides exposure. A missing lockfile propagates as an
-    error: a moved lockfile is the one way this check could report an unverified all-clear.
+    of several copies is the one that decides exposure.
+
+    None has to mean "verified absent", never "not found", because the caller reads it as
+    proof the exposure is gone. So both ways of failing to read the file are errors: a
+    missing lockfile (the fetch raises) and a lockfile whose layout yields no entries at all.
     """
     body = fetch_text(ACTION_LOCKFILE.format(action=watched.action, ref=ref, lockfile=watched.lockfile))
+    if not LOCKFILE_ENTRY.search(body):
+        raise ValueError(f"no package entries found in {watched.action}'s {watched.lockfile} at {ref}")
     pattern = re.compile(rf'"{re.escape(watched.package)}@(?P<version>[^"]+)"')
     return min((Version(match["version"]) for match in pattern.finditer(body)), default=None)
 

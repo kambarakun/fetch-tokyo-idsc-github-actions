@@ -682,6 +682,23 @@ def test_the_lowest_real_copy_in_the_lockfile_decides_exposure(repo: Path, healt
     assert result.facts["pinned_version"] == "1.8.4"
 
 
+def test_an_unparsable_action_lockfile_fails_loudly(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 200 whose layout yields no entries is an unreadable file, not a package that is gone.
+
+    `None` is read by the caller as proof the exposure was removed, so it may only mean
+    "verified absent". A bun.lock serialised some other way would otherwise mark the pinned
+    Action fixed without anything having been checked.
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = '{"lockfileVersion": 1, "workspaces": {}}'
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+
+
 def test_a_moved_action_lockfile_fails_loudly(
     repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
