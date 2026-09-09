@@ -42,7 +42,11 @@ GITHUB_API_HOST = "api.github.com"
 GITHUB_API = f"https://{GITHUB_API_HOST}"
 PYPI_JSON = "https://pypi.org/pypi/{name}/json"
 SETUP_UV_CHECKSUMS = "https://raw.githubusercontent.com/astral-sh/setup-uv/{sha}/src/download/checksum/{filename}"
-DEPENDABOT_UV_DOCKERFILE = "https://raw.githubusercontent.com/dependabot/dependabot-core/main/uv/Dockerfile"
+DEPENDABOT_CORE_LATEST_RELEASE = f"{GITHUB_API}/repos/dependabot/dependabot-core/releases/latest"
+# Read at a release tag rather than `main`: the hosted updater runs a shipped release, so an
+# unreleased (or since reverted) commit on `main` is not what rewrites this repository's
+# uv.lock, and comparing against it turns ordinary upstream churn into a 3c alert.
+DEPENDABOT_UV_DOCKERFILE = "https://raw.githubusercontent.com/dependabot/dependabot-core/{ref}/uv/Dockerfile"
 
 # setup-uv moved the table from a generated .ts module to plain JSON on 2026-08-19
 # (astral-sh/setup-uv#1025). The pinned commit decides which one exists, so try both.
@@ -58,6 +62,13 @@ DEPENDABOT_UV_IMAGE = re.compile(r"ghcr\.io/astral-sh/uv:(?P<version>\d+\.\d+\.\
 
 # The ecosystem that proposes the Python dependencies check 2 looks at.
 PYTHON_ECOSYSTEM = "uv"
+
+# Interpreters `requires-python` is enumerated over, see declared_python_versions. CPython
+# has never shipped a minor or patch anywhere near 40, so this brackets every version a
+# Requires-Python can meaningfully bound.
+INTERPRETER_GRID = [
+    Version(f"{major}.{minor}.{patch}") for major in (2, 3, 4) for minor in range(40) for patch in range(40)
+]
 
 WEEKDAYS = {
     "monday": 0,
@@ -213,90 +224,47 @@ def _canonical(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def declared_python_range(root: Path) -> SpecifierSet | None:
-    """The interpreter range pyproject.toml declares, or None if it declares none."""
+def declared_python_versions(root: Path) -> list[Version]:
+    """The interpreters pyproject.toml declares support for, as concrete versions.
+
+    Enumerating the range instead of keeping the SpecifierSet leaves every later comparison
+    to `packaging`: a Requires-Python may use wildcards and exclusions (`!=3.9.*`) whose
+    semantics no hand-rolled bound arithmetic gets right, and `SpecifierSet.contains` rejects
+    a wildcard outright when handed one as its argument. An empty list means the project
+    declares no range, in which case there is nothing to compare against.
+    """
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     declared = pyproject["project"].get("requires-python")
     if not declared:
-        return None
+        return []
     try:
-        return SpecifierSet(declared)
+        specifiers = SpecifierSet(declared)
     except InvalidSpecifier:  # pragma: no cover - defensive; uv validates this field
-        return None
+        return []
+    return [version for version in INTERPRETER_GRID if specifiers.contains(version)]
 
 
-# One end of a range, as (version, whether the version itself is included). Ordering the
-# pair is what "starts later" and "ends earlier" mean on each end, see _starts_later below.
-Bound = tuple[Version, bool]
+def _runs_on(requires_python: str | None, declared: Sequence[Version]) -> bool:
+    """Whether uv could lock a release on every interpreter the project declares.
 
-
-def _bounds(specifiers: SpecifierSet, inclusive_by_operator: dict[str, bool]) -> list[Bound]:
-    bounds: list[Bound] = []
-    for specifier in specifiers:
-        if specifier.operator not in inclusive_by_operator:
-            continue
-        try:
-            bounds.append((Version(specifier.version), inclusive_by_operator[specifier.operator]))
-        except InvalidVersion:  # pragma: no cover - defensive; wildcards carry no bound
-            continue
-    return bounds
-
-
-def _floor(specifiers: SpecifierSet) -> Bound | None:
-    """The lowest interpreter the set admits, or None when it is open below."""
-    bounds = _bounds(specifiers, {">=": True, "~=": True, "==": True, ">": False})
-    return max(bounds, key=lambda bound: (bound[0], not bound[1])) if bounds else None
-
-
-def _ceiling(specifiers: SpecifierSet) -> Bound | None:
-    """The highest interpreter the set admits, or None when it is open above."""
-    bounds = _bounds(specifiers, {"<=": True, "<": False})
-    return min(bounds, key=lambda bound: (bound[0], bound[1])) if bounds else None
-
-
-def _starts_later(bound: Bound, other: Bound) -> bool:
-    # `>x` starts after `>=x`, so an excluded bound sorts above an included one here.
-    return (bound[0], not bound[1]) > (other[0], not other[1])
-
-
-def _ends_earlier(bound: Bound, other: Bound) -> bool:
-    # `<x` ends before `<=x`, so an excluded bound sorts below an included one here.
-    return (bound[0], bound[1]) < (other[0], other[1])
-
-
-def _runs_on(requires_python: str | None, declared: SpecifierSet | None) -> bool:
-    """Whether uv could lock a release across the whole Python range the project declares.
-
-    uv resolves for every interpreter in `requires-python` (`>=3.11,<3.12` here), not for the
-    one the watchdog happens to run on, so any release that narrows that range anywhere is
+    uv resolves for the whole `requires-python` range (`>=3.11,<3.12` here), not for the one
+    the watchdog happens to run on, so a release that narrows that range anywhere is
     unresolvable for this project: raising the floor to a newer 3.11 patch, capping below the
-    project's ceiling, or excluding a version outright. Neither Dependabot nor uv can propose
+    project's ceiling, or excluding versions outright. Neither Dependabot nor uv can propose
     such a release, and counting it would keep an unfixable entry in the backlog until it
     opens a false outage issue.
-
-    `packaging` offers no subset test for two specifier sets, but a Requires-Python is always
-    an interval plus optional exclusions, so comparing both ends and the exclusions is
-    equivalent to one -- and far cheaper than asking uv's resolver on every check.
     """
-    if not requires_python or declared is None:
+    if not requires_python or not declared:
         return True
     try:
         candidate = SpecifierSet(requires_python)
     except InvalidSpecifier:  # pragma: no cover - defensive; PyPI validates this field
         return True
-    if any(specifier.operator == "!=" and declared.contains(specifier.version) for specifier in candidate):
-        return False
-    candidate_floor, declared_floor = _floor(candidate), _floor(declared)
-    if candidate_floor is not None and (declared_floor is None or _starts_later(candidate_floor, declared_floor)):
-        return False
-    candidate_ceiling, declared_ceiling = _ceiling(candidate), _ceiling(declared)
-    return candidate_ceiling is None or (
-        declared_ceiling is not None and not _ends_earlier(candidate_ceiling, declared_ceiling)
-    )
+    return all(candidate.contains(version) for version in declared)
 
 
 def newest_eligible_release(
-    payload: dict[str, Any], current: Version, as_of: datetime, cooldown: int, python_range: SpecifierSet | None
+    payload: dict[str, Any], current: Version, as_of: datetime, cooldown: int, python_versions: Sequence[Version]
 ) -> tuple[Version, datetime] | None:
     """The newest release Dependabot is overdue to propose, or None if there is none.
 
@@ -326,7 +294,7 @@ def newest_eligible_release(
             for file in files
             if not file.get("yanked")
             and file.get("upload_time_iso_8601")
-            and _runs_on(file.get("requires_python"), python_range)
+            and _runs_on(file.get("requires_python"), python_versions)
         ]
         if not uploads:
             continue
@@ -345,7 +313,7 @@ def stale_direct_dependencies(
     locked: dict[str, str],
     as_of: datetime,
     cooldown: int,
-    python_range: SpecifierSet | None,
+    python_versions: Sequence[Version],
 ) -> list[StaleDependency]:
     """Direct dependencies Dependabot should already have proposed but has not."""
     stale: list[StaleDependency] = []
@@ -358,7 +326,7 @@ def stale_direct_dependencies(
         except InvalidVersion:  # pragma: no cover - defensive; uv.lock holds PEP 440 versions
             continue
         payload = fetch_json(PYPI_JSON.format(name=requirement.name))
-        eligible = newest_eligible_release(payload, current_version, as_of, cooldown, python_range)
+        eligible = newest_eligible_release(payload, current_version, as_of, cooldown, python_versions)
         if eligible is None:
             continue
         version, released_at = eligible
@@ -406,12 +374,18 @@ def known_uv_checksums(fetch_text: FetchText, sha: str) -> set[Version]:
     raise ValueError(f"no known-checksums file found for setup-uv commit {sha}")
 
 
-def dependabot_bundled_uv(fetch_text: FetchText) -> Version:
-    """The uv image dependabot-core ships, i.e. the binary that rewrites uv.lock."""
-    match = DEPENDABOT_UV_IMAGE.search(fetch_text(DEPENDABOT_UV_DOCKERFILE))
+def dependabot_bundled_uv(fetch_json: FetchJson, fetch_text: FetchText) -> tuple[Version, str]:
+    """The uv image dependabot-core ships, i.e. the binary that rewrites uv.lock.
+
+    Returns the version and the release tag it was read from. No public source names the
+    revision GitHub actually has deployed, so the newest release is the closest identifiable
+    stand-in; naming it in the report is what lets a human judge the remaining lag.
+    """
+    ref = fetch_json(DEPENDABOT_CORE_LATEST_RELEASE)["tag_name"]
+    match = DEPENDABOT_UV_IMAGE.search(fetch_text(DEPENDABOT_UV_DOCKERFILE.format(ref=ref)))
     if match is None:
-        raise ValueError("could not read the uv version from dependabot-core's uv/Dockerfile")
-    return Version(match["version"])
+        raise ValueError(f"could not read the uv version from dependabot-core {ref}'s uv/Dockerfile")
+    return Version(match["version"]), ref
 
 
 def check_pr_age(
@@ -481,7 +455,9 @@ def check_stale_dependencies(
     )
 
 
-def check_uv_pin(pinned: Version, known: set[Version], bundled: Version, setup_uv_sha: str) -> list[CheckResult]:
+def check_uv_pin(
+    pinned: Version, known: set[Version], bundled: Version, bundled_ref: str, setup_uv_sha: str
+) -> list[CheckResult]:
     """3a/3b/3c from issue #683.
 
     The pin is deliberately behind upstream uv: setup-uv installs an unknown version
@@ -512,8 +488,8 @@ def check_uv_pin(pinned: Version, known: set[Version], bundled: Version, setup_u
             "Dependabot 同梱 uv との系列一致",
             "medium",
             (pinned.major, pinned.minor) == (bundled.major, bundled.minor),
-            f"pin {pinned} / dependabot-core 同梱 {bundled} (major.minor の一致を要求)",
-            {"pinned": str(pinned), "bundled": str(bundled)},
+            f"pin {pinned} / dependabot-core {bundled_ref} 同梱 {bundled} (major.minor の一致を要求)",
+            {"pinned": str(pinned), "bundled": str(bundled), "bundled_ref": bundled_ref},
         ),
     ]
 
@@ -532,15 +508,17 @@ def run_checks(
     results = check_pr_age(fetch_json, repo, dependabot_ecosystems(config), now, max_pr_age_days)
     as_of = last_scheduled_update(config, PYTHON_ECOSYSTEM, now)
     stale = stale_direct_dependencies(
-        fetch_json, direct_requirements(root), locked_versions(root), as_of, cooldown, declared_python_range(root)
+        fetch_json, direct_requirements(root), locked_versions(root), as_of, cooldown, declared_python_versions(root)
     )
     results.append(check_stale_dependencies(stale, cooldown, max_stale_direct, as_of))
     setup_uv_sha = setup_uv_pinned_sha(root)
+    bundled, bundled_ref = dependabot_bundled_uv(fetch_json, fetch_text)
     results.extend(
         check_uv_pin(
             tool_versions_uv_pin(root),
             known_uv_checksums(fetch_text, setup_uv_sha),
-            dependabot_bundled_uv(fetch_text),
+            bundled,
+            bundled_ref,
             setup_uv_sha,
         )
     )

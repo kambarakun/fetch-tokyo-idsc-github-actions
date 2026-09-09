@@ -25,6 +25,8 @@ NOW = datetime(2026, 9, 9, tzinfo=UTC)
 SETUP_UV_SHA = "20cfd1bf945f4377ade1205e4dbc17946fc9a30d"
 CHECKSUM_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.ts")
 CHECKSUM_JSON_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.json")
+CORE_RELEASE_TAG = "v0.395.0"
+DOCKERFILE_URL = watchdog.DEPENDABOT_UV_DOCKERFILE.format(ref=CORE_RELEASE_TAG)
 
 
 def _pypi(
@@ -118,7 +120,8 @@ def healthy_responses() -> dict[str, Any]:
         "pypi:mypy": _pypi(("2.3.1", NOW - timedelta(days=25))),
         "pypi:isort": _pypi(("9.0.1", NOW - timedelta(days=30))),
         CHECKSUM_URL: '"x86_64-unknown-linux-gnu-0.12.3":\n"x86_64-unknown-linux-gnu-0.12.4":\n',
-        watchdog.DEPENDABOT_UV_DOCKERFILE: "FROM ghcr.io/astral-sh/uv:0.12.7 AS uv\n",
+        "core-release": {"tag_name": CORE_RELEASE_TAG},
+        DOCKERFILE_URL: "FROM ghcr.io/astral-sh/uv:0.12.7 AS uv\n",
     }
 
 
@@ -127,6 +130,8 @@ def _fetchers(responses: dict[str, Any]):
         if "/search/issues" in url:
             label = url.split("label:")[1].split("+", maxsplit=1)[0]
             return responses[f"search:{label}"]
+        if url == watchdog.DEPENDABOT_CORE_LATEST_RELEASE:
+            return responses["core-release"]
         name = url.removeprefix("https://pypi.org/pypi/").removesuffix("/json")
         return responses[f"pypi:{name}"]
 
@@ -298,7 +303,27 @@ def test_releases_excluding_a_python_inside_the_declared_range_are_not_counted(
     assert results["2"].ok
 
 
-@pytest.mark.parametrize("requires_python", [">=3.11", ">=3.9,<3.12", ">=3.9,<=3.12", ">=3.9,!=3.10.2"])
+def test_releases_excluding_the_declared_python_series_are_not_counted(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """A wildcard exclusion is a valid Requires-Python and must not crash the comparison.
+
+    `SpecifierSet.contains("3.11.*")` raises, so a release declaring `!=3.11.*` used to take
+    the whole run down with it -- a watchdog that dies on ordinary upstream metadata is the
+    silent failure this check exists to catch.
+    """
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=30)),
+        requires_python={"2.4.0": ">=3.6,!=3.11.*"},
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert results["2"].ok
+
+
+@pytest.mark.parametrize("requires_python", [">=3.11", ">=3.9,<3.12", ">=3.9,<=3.12", ">=3.9,!=3.10.*"])
 def test_releases_covering_the_declared_python_range_are_still_counted(
     repo: Path, healthy_responses: dict[str, Any], requires_python: str
 ) -> None:
@@ -408,7 +433,7 @@ def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.Monk
 
     fetch_json(f"{watchdog.GITHUB_API}/search/issues?q=repo:owner/name")
     fetch_json(watchdog.PYPI_JSON.format(name="mypy"))
-    fetch_text(watchdog.DEPENDABOT_UV_DOCKERFILE)
+    fetch_text(DOCKERFILE_URL)
 
     authorized = {url for url, headers in seen.items() if "Authorization" in headers}
     assert authorized == {f"{watchdog.GITHUB_API}/search/issues?q=repo:owner/name"}
@@ -441,12 +466,29 @@ def test_uv_pin_outside_known_checksums_is_high_severity(repo: Path, healthy_res
 def test_uv_pin_on_a_different_minor_than_dependabot_is_an_alert(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """Different minors mean the binary writing uv.lock and the one verifying it diverged."""
     responses = dict(healthy_responses)
-    responses[watchdog.DEPENDABOT_UV_DOCKERFILE] = "FROM ghcr.io/astral-sh/uv:0.13.0 AS uv\n"
+    responses[DOCKERFILE_URL] = "FROM ghcr.io/astral-sh/uv:0.13.0 AS uv\n"
 
     results = _run(repo, responses)
 
     assert not results["3c"].ok
     assert results["3c"].severity == "medium"
+    # The report names the revision compared against: no public source identifies the
+    # revision GitHub has deployed, so a human has to be able to judge the remaining lag.
+    assert results["3c"].facts["bundled_ref"] == CORE_RELEASE_TAG
+
+
+def test_the_bundled_uv_is_read_from_a_release_not_from_main(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """`main` can carry an unreleased or since-reverted bump the hosted updater never ran."""
+    responses = dict(healthy_responses)
+    responses["core-release"] = {"tag_name": "v0.400.0"}
+    responses[watchdog.DEPENDABOT_UV_DOCKERFILE.format(ref="v0.400.0")] = "FROM ghcr.io/astral-sh/uv:0.12.7 AS uv\n"
+    responses[watchdog.DEPENDABOT_UV_DOCKERFILE.format(ref="main")] = "FROM ghcr.io/astral-sh/uv:0.13.0 AS uv\n"
+
+    results = _run(repo, responses)
+
+    assert results["3c"].ok
+    assert results["3c"].facts["bundled"] == "0.12.7"
+    assert results["3c"].facts["bundled_ref"] == "v0.400.0"
 
 
 def test_uv_pin_behind_known_checksums_is_low_severity(repo: Path, healthy_responses: dict[str, Any]) -> None:
