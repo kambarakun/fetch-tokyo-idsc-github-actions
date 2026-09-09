@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 import yaml
@@ -35,7 +36,8 @@ from packaging.version import InvalidVersion, Version
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-GITHUB_API = "https://api.github.com"
+GITHUB_API_HOST = "api.github.com"
+GITHUB_API = f"https://{GITHUB_API_HOST}"
 PYPI_JSON = "https://pypi.org/pypi/{name}/json"
 SETUP_UV_CHECKSUMS = "https://raw.githubusercontent.com/astral-sh/setup-uv/{sha}/src/download/checksum/{filename}"
 DEPENDABOT_UV_DOCKERFILE = "https://raw.githubusercontent.com/dependabot/dependabot-core/main/uv/Dockerfile"
@@ -88,7 +90,10 @@ class StaleDependency:
 
 def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
     headers = {"Accept": accept, "User-Agent": "fetch-tokyo-idsc-dependency-watchdog"}
-    if token:
+    # The workflow token carries `issues: write`. The same fetchers also call pypi.org and
+    # raw.githubusercontent.com, so gate the credential on the host rather than on the
+    # caller: a future check cannot leak it by picking the wrong fetcher.
+    if token and urlsplit(url).hostname == GITHUB_API_HOST:
         headers["Authorization"] = f"Bearer {token}"
     response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
@@ -157,6 +162,42 @@ def _canonical(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def newest_eligible_release(
+    payload: dict[str, Any], current: Version, now: datetime, cooldown: int
+) -> tuple[Version, datetime] | None:
+    """The newest release Dependabot is overdue to propose, or None if there is none.
+
+    Scanning the whole release history rather than `info.version` matters for frequently
+    released packages: with 1.0 locked, an overdue 1.1 would be invisible as soon as 2.0
+    (a major bump dependabot.yml ignores) or a same-day 1.2 (still inside the cooldown)
+    took over `info.version`, and a stalled updater would go unnoticed exactly where the
+    backlog is largest.
+    """
+    best: tuple[Version, datetime] | None = None
+    for raw, files in payload.get("releases", {}).items():
+        try:
+            version = Version(raw)
+        except InvalidVersion:  # pragma: no cover - defensive; PyPI versions are PEP 440
+            continue
+        # Major bumps are ignored by dependabot.yml, and pre-releases are never proposed.
+        if version <= current or version.major != current.major or version.is_prerelease:
+            continue
+        uploads = [
+            file["upload_time_iso_8601"]
+            for file in files
+            if not file.get("yanked") and file.get("upload_time_iso_8601")
+        ]
+        if not uploads:
+            continue
+        released_at = min(datetime.fromisoformat(upload) for upload in uploads)
+        # Inside the cooldown the PR is not due yet, so this release is not evidence of a stall.
+        if (now - released_at).days < cooldown:
+            continue
+        if best is None or version > best[0]:
+            best = (version, released_at)
+    return best
+
+
 def stale_direct_dependencies(
     fetch_json: FetchJson,
     requirements: Iterable[Requirement],
@@ -164,32 +205,22 @@ def stale_direct_dependencies(
     now: datetime,
     cooldown: int,
 ) -> list[StaleDependency]:
-    """Direct dependencies Dependabot should already have proposed but has not.
-
-    Major bumps are skipped because dependabot.yml ignores `version-update:semver-major`,
-    and releases younger than the cooldown are skipped because their PR is not due yet.
-    Counting either would make the check fire during healthy operation.
-    """
+    """Direct dependencies Dependabot should already have proposed but has not."""
     stale: list[StaleDependency] = []
     for requirement in requirements:
         current = locked.get(_canonical(requirement.name))
         if current is None:
             continue
-        payload = fetch_json(PYPI_JSON.format(name=requirement.name))
-        latest = payload["info"]["version"]
         try:
-            current_version, latest_version = Version(current), Version(latest)
-        except InvalidVersion:  # pragma: no cover - defensive; PyPI versions are PEP 440
+            current_version = Version(current)
+        except InvalidVersion:  # pragma: no cover - defensive; uv.lock holds PEP 440 versions
             continue
-        if latest_version <= current_version or latest_version.major != current_version.major:
+        payload = fetch_json(PYPI_JSON.format(name=requirement.name))
+        eligible = newest_eligible_release(payload, current_version, now, cooldown)
+        if eligible is None:
             continue
-        uploads = [url["upload_time_iso_8601"] for url in payload.get("urls", []) if url.get("upload_time_iso_8601")]
-        if not uploads:
-            continue
-        released_at = min(datetime.fromisoformat(upload) for upload in uploads)
-        if (now - released_at).days < cooldown:
-            continue
-        stale.append(StaleDependency(requirement.name, current, latest, released_at))
+        version, released_at = eligible
+        stale.append(StaleDependency(requirement.name, current, str(version), released_at))
     return stale
 
 

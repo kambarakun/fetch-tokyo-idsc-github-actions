@@ -109,11 +109,14 @@ jobs:
             echo "実行: ${RUN_URL}"
           } > issue-body.md
 
-          # タイトルは env 経由で jq に渡す (プログラムへ文字列を埋め込まない)
+          # タイトルは env 経由で jq に渡す (プログラムへ文字列を埋め込まない)。
+          # --limit は既定 30 件。データ取得系ワークフローも automated ラベルの issue を作るため、
+          # 既定のままだと追跡 issue が範囲外に落ちて重複起票する。
           EXISTING=$(gh issue list \
             --repo "${GITHUB_REPOSITORY}" \
             --state open \
             --label automated \
+            --limit 200 \
             --json number,title \
             --jq 'map(select(.title == env.WATCHDOG_ISSUE_TITLE)) | .[0].number // empty')
 
@@ -138,6 +141,7 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --state open \
             --label automated \
+            --limit 200 \
             --json number,title \
             --jq 'map(select(.title == env.WATCHDOG_ISSUE_TITLE)) | .[0].number // empty')
 

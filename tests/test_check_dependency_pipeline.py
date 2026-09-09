@@ -26,8 +26,16 @@ CHECKSUM_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="kn
 CHECKSUM_JSON_URL = watchdog.SETUP_UV_CHECKSUMS.format(sha=SETUP_UV_SHA, filename="known-checksums.json")
 
 
-def _pypi(version: str, released_at: datetime) -> dict[str, Any]:
-    return {"info": {"version": version}, "urls": [{"upload_time_iso_8601": released_at.isoformat()}]}
+def _pypi(*releases: tuple[str, datetime], yanked: set[str] | None = None) -> dict[str, Any]:
+    """A PyPI payload. `info.version` is the last entry, mirroring "latest"."""
+    yanked = yanked or set()
+    return {
+        "info": {"version": releases[-1][0]},
+        "releases": {
+            version: [{"upload_time_iso_8601": released_at.isoformat(), "yanked": version in yanked}]
+            for version, released_at in releases
+        },
+    }
 
 
 def _search_payload(created_at: datetime | None) -> dict[str, Any]:
@@ -84,9 +92,9 @@ def healthy_responses() -> dict[str, Any]:
         "search:python": _search_payload(recent),
         "search:pre-commit": _search_payload(recent),
         # requests / mypy are current; isort's newer release is a major bump Dependabot ignores.
-        "pypi:requests": _pypi("2.34.2", NOW - timedelta(days=60)),
-        "pypi:mypy": _pypi("2.3.1", NOW - timedelta(days=25)),
-        "pypi:isort": _pypi("9.0.1", NOW - timedelta(days=30)),
+        "pypi:requests": _pypi(("2.34.2", NOW - timedelta(days=60))),
+        "pypi:mypy": _pypi(("2.3.1", NOW - timedelta(days=25))),
+        "pypi:isort": _pypi(("9.0.1", NOW - timedelta(days=30))),
         CHECKSUM_URL: '"x86_64-unknown-linux-gnu-0.12.3":\n"x86_64-unknown-linux-gnu-0.12.4":\n',
         watchdog.DEPENDABOT_UV_DOCKERFILE: "FROM ghcr.io/astral-sh/uv:0.12.7 AS uv\n",
     }
@@ -129,7 +137,7 @@ def test_stalled_ecosystem_and_backlog_are_reported_together(repo: Path, healthy
     """The 2026-07-27 outage shape: no uv PR for six weeks while updates piled up."""
     responses = dict(healthy_responses)
     responses["search:python"] = _search_payload(NOW - timedelta(days=44))
-    responses["pypi:mypy"] = _pypi("2.4.0", NOW - timedelta(days=20))
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)))
 
     results = _run(repo, responses, max_stale_direct=0)
 
@@ -143,7 +151,7 @@ def test_stalled_ecosystem_and_backlog_are_reported_together(repo: Path, healthy
 def test_releases_inside_the_cooldown_are_not_counted_as_stale(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """A release younger than dependabot.yml's cooldown has no PR due yet."""
     responses = dict(healthy_responses)
-    responses["pypi:mypy"] = _pypi("2.4.0", NOW - timedelta(days=3))
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=3)))
 
     results = _run(repo, responses, max_stale_direct=0)
 
@@ -156,6 +164,78 @@ def test_major_bumps_are_not_counted_as_stale(repo: Path, healthy_responses: dic
     results = _run(repo, healthy_responses, max_stale_direct=0)
 
     assert results["2"].ok
+
+
+def test_overdue_release_is_found_behind_a_newer_ineligible_one(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """`info.version` alone hides a backlog on frequently released packages.
+
+    mypy 2.3.1 is locked. 2.4.0 has been overdue for 20 days, but a major 3.0.0 and a
+    same-day 2.5.0 both sit above it, so looking only at "latest" would report nothing
+    exactly when the updater is stalled.
+    """
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=20)),
+        ("3.0.0", NOW - timedelta(days=10)),
+        ("2.5.0", NOW - timedelta(days=1)),
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert not results["2"].ok
+    assert results["2"].facts["dependencies"] == [
+        {
+            "name": "mypy",
+            "locked": "2.3.1",
+            "latest": "2.4.0",
+            "released_at": (NOW - timedelta(days=20)).isoformat(),
+        }
+    ]
+
+
+def test_yanked_and_prerelease_versions_are_not_counted_as_stale(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Dependabot proposes neither, so counting them would fire during healthy operation."""
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=30)),
+        ("2.5.0rc1", NOW - timedelta(days=20)),
+        yanked={"2.4.0"},
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert results["2"].ok
+
+
+def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The token carries `issues: write`; pypi.org and raw.githubusercontent.com must not see it."""
+    seen: dict[str, dict[str, str]] = {}
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> Any:
+            return {}
+
+        @property
+        def text(self) -> str:
+            return ""
+
+    def fake_get(url: str, headers: dict[str, str], timeout: int) -> _Response:
+        seen[url] = headers
+        return _Response()
+
+    monkeypatch.setattr(watchdog.requests, "get", fake_get)
+    fetch_json, fetch_text = watchdog.make_fetchers("secret-token")
+
+    fetch_json(f"{watchdog.GITHUB_API}/search/issues?q=repo:owner/name")
+    fetch_json(watchdog.PYPI_JSON.format(name="mypy"))
+    fetch_text(watchdog.DEPENDABOT_UV_DOCKERFILE)
+
+    authorized = {url for url, headers in seen.items() if "Authorization" in headers}
+    assert authorized == {f"{watchdog.GITHUB_API}/search/issues?q=repo:owner/name"}
+    assert len(seen) == 3
 
 
 def test_missing_ecosystem_pr_history_is_an_alert(repo: Path, healthy_responses: dict[str, Any]) -> None:
