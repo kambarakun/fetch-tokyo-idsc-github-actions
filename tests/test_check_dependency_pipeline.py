@@ -587,6 +587,27 @@ def test_a_bundled_cve_without_a_fixed_release_is_not_an_alert(repo: Path, healt
     assert CLAUDE_ACTION_TAG in result.detail
 
 
+def test_a_still_vulnerable_upstream_bump_is_reported_with_its_own_version(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Upstream can move the copy without clearing the advisory (1.8.2 -> 1.8.5, fixed in 1.9.0).
+
+    The verdict is unchanged -- there is still nothing to move to -- but the report is what a
+    human reads before checking the lockfile by hand, so it has to name both versions.
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.8.2")
+    responses[_action_lock_url(CLAUDE_ACTION_TAG)] = _bun_lock("1.8.5")
+
+    result = _run(repo, responses)[CHECK_4]
+
+    assert result.ok
+    assert result.facts["pinned_version"] == "1.8.2"
+    assert result.facts["latest_version"] == "1.8.5"
+    assert "1.8.2" in result.detail
+    assert "1.8.5" in result.detail
+
+
 def test_a_fixed_action_release_makes_the_bundled_cve_actionable(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """The one moment issue #656 is waiting for: upstream regenerates its lockfile."""
     responses = dict(healthy_responses)

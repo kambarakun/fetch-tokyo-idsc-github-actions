@@ -642,8 +642,8 @@ def check_action_bundled_dependencies(
             )
         else:
             detail = (
-                f"pin ({sha[:7]}) / 最新リリース {tag} とも {entry.package} {pinned_label} で、"
-                f"修正版 {entry.fixed_in} を lock した release は未公開"
+                f"pin ({sha[:7]}) は {entry.package} {pinned_label} のまま / "
+                f"最新リリース {tag} も {latest_label} で、修正版 {entry.fixed_in} を lock した release は未公開"
             )
         advisory_link = f"[{entry.advisory}](https://github.com/advisories/{entry.advisory})"
         results.append(
