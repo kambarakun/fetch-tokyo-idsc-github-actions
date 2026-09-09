@@ -418,11 +418,22 @@ def tool_versions_uv_pin(root: Path) -> Version:
     return Version(pins[0])
 
 
+def workflow_files(root: Path) -> list[Path]:
+    """Both extensions GitHub accepts for a workflow.
+
+    Scanning only `*.yml` is not a conservative default: a second, differently pinned use in
+    a `*.yaml` file would leave exactly one match, so the pin scanners would answer with a
+    wrong SHA instead of failing loudly.
+    """
+    workflows = root / ".github" / "workflows"
+    return sorted(path for suffix in ("*.yml", "*.yaml") for path in workflows.glob(suffix))
+
+
 def setup_uv_pinned_sha(root: Path) -> str:
     """The single setup-uv commit every workflow pins (guarded by test_dependabot_config)."""
     refs = {
         match["sha"]
-        for workflow in sorted((root / ".github" / "workflows").glob("*.yml"))
+        for workflow in workflow_files(root)
         for match in SETUP_UV_REF.finditer(workflow.read_text(encoding="utf-8"))
     }
     if len(refs) != 1:
@@ -469,7 +480,7 @@ def action_pinned_sha(root: Path, action: str) -> str:
     pattern = re.compile(ACTION_PINNED_REF.format(action=re.escape(action)))
     refs = {
         match["sha"]
-        for workflow in sorted((root / ".github" / "workflows").glob("*.yml"))
+        for workflow in workflow_files(root)
         for match in pattern.finditer(workflow.read_text(encoding="utf-8"))
     }
     if len(refs) != 1:
@@ -628,11 +639,17 @@ def check_action_bundled_dependencies(
     results: list[CheckResult] = []
     for entry in watched:
         sha = action_pinned_sha(root, entry.action)
-        tag = newest_action_release(fetch_json, entry.action)
         pinned = bundled_package_version(fetch_text, entry, sha)
-        available = bundled_package_version(fetch_text, entry, tag)
         # None means the Action stopped locking the package at all, i.e. this exposure is gone.
         pin_fixed = pinned is None or pinned >= entry.fixed_in
+        tag: str | None = None
+        available: Version | None = None
+        if not pin_fixed:
+            # Upstream is only consulted while the pin is still exposed. A row left in the
+            # table after its advisory cleared -- which the runbook explicitly permits --
+            # would otherwise turn a moved lockfile upstream into a permanently red watchdog.
+            tag = newest_action_release(fetch_json, entry.action)
+            available = bundled_package_version(fetch_text, entry, tag)
         release_fixed = available is None or available >= entry.fixed_in
         pinned_label = "同梱なし" if pinned is None else str(pinned)
         latest_label = "同梱なし" if available is None else str(available)

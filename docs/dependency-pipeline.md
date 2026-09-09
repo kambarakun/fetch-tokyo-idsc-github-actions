@@ -74,11 +74,11 @@ CI が checksum 未検証の uv バイナリを導入している状態なので
 1. レポートの `latest_release` タグの lockfile を直接見て、修正版が入っている (または対象依存が消えている) ことを確認する。release 番号や公開日では判定できない
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/anthropics/claude-code-action/<tag>/bun.lock \
-     | grep -o '"shell-quote@[0-9.]*"' | sort -V
+   lock=$(curl -fsSL https://raw.githubusercontent.com/anthropics/claude-code-action/<tag>/bun.lock) \
+     && printf '%s\n' "$lock" | grep -o '"shell-quote@[0-9.]*"' | sort -V
    ```
 
-   `-f` は必須である。`curl -s` は HTTP 404 でも終了コード 0 で `404: Not Found` を stdout に流すため、grep の空出力が「対象依存なし」と見分けられなくなる (自動検査が lockfile の 404 をエラー終了させているのと同じ理由)。`sort -V` の**先頭が最小のコピー**で、露出を決めるのはこれ。curl が成功したうえで出力が空なら依存自体が消えており、その release へ更新すれば解消するが、入れ替わり先が同じ問題を抱えていないかを併せて確認する
+   `-f` を付けたうえで、**grep へパイプで直結しない**。`curl -s` は HTTP 404 でも終了コード 0 で `404: Not Found` を stdout に流すため、grep の空出力が「対象依存なし」と見分けられなくなる。かといって `curl -f ... | grep ...` と繋ぐと、`pipefail` 無しでは `$?` が最後のコマンドのものになり、今度は curl の失敗が終了コードに出ない。上の形なら curl が失敗した時点で `&&` の右側が実行されず、`$?` も curl のものになる (自動検査が lockfile の取得失敗をエラー終了させているのと同じ線)。`sort -V` の**先頭が最小のコピー**で、露出を決めるのはこれ。curl が成功したうえで出力が空なら依存自体が消えており、その release へ更新すれば解消するが、入れ替わり先が同じ問題を抱えていないかを併せて確認する
 
 2. 公式タグの実 commit SHA を確認し、`.github/workflows/claude.yml` と `claude-code-review.yml` の pin を同じ SHA へ更新する (両ファイルは同一 SHA を pin する。ずれると検査 4 自体がエラー終了する)
 3. 7 日 cooldown 後に取り込む。security release として前倒しする場合は PR にその根拠を書く

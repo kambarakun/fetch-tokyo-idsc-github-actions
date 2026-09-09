@@ -699,6 +699,58 @@ def test_an_unparsable_action_lockfile_fails_loudly(
     assert watchdog.main(["--repo", "owner/name"]) == 2
 
 
+def test_a_release_history_without_a_semver_tag_fails_loudly(
+    repo: Path,
+    healthy_responses: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Only a floating tag and pre-releases means there is nothing to compare the pin against.
+
+    The message is asserted, not just the exit code: an unguarded `max()` over no tags also
+    exits 2, but says `max() arg is an empty sequence`, which names neither the Action nor
+    the reason and sends whoever reads the failed run looking in the wrong place.
+    """
+    responses = dict(healthy_responses)
+    responses["action-releases"] = _releases(prerelease="v2.0.0-rc.1")
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+    assert f"no semver release tag found for {CLAUDE_ACTION}" in capsys.readouterr().err
+
+
+def test_a_watched_action_pinned_in_a_yaml_file_is_seen_too(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """GitHub accepts both extensions, so scanning one would answer with a pin while a
+    second, differently pinned use sat unseen in the other -- a wrong answer, not a failure."""
+    (repo / ".github" / "workflows" / "extra.yaml").write_text(
+        yaml.safe_dump({"jobs": {"extra": {"steps": [{"uses": f"{CLAUDE_ACTION}@{'d' * 40}"}]}}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="exactly one pinned"):
+        _run(repo, healthy_responses)
+
+
+def test_upstream_is_not_consulted_once_the_pinned_copy_is_clear(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """A row left in the table after its advisory cleared must not depend on upstream at all.
+
+    The runbook permits leaving it, so a lockfile that later moves upstream would otherwise
+    make the whole watchdog exit 2 forever over a row that has nothing left to report.
+    """
+    responses = dict(healthy_responses)
+    responses[_action_lock_url(CLAUDE_ACTION_SHA)] = _bun_lock("1.10.0")
+    # Both upstream reads now fail: reaching either of them is the failure this guards.
+    del responses["action-releases"]
+    del responses[_action_lock_url(CLAUDE_ACTION_TAG)]
+
+    result = _run(repo, responses)[CHECK_4]
+
+    assert result.ok
+    assert result.facts["latest_release"] is None
+    assert result.facts["latest_version"] is None
+
+
 def test_a_moved_action_lockfile_fails_loudly(
     repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
