@@ -410,7 +410,7 @@ def test_missing_release_history_fails_loudly(
 
 
 def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The token carries `issues: write`; pypi.org and raw.githubusercontent.com must not see it."""
+    """The token carries write scope; pypi.org and raw.githubusercontent.com must not see it."""
     seen: dict[str, dict[str, str]] = {}
 
     class _Response:
