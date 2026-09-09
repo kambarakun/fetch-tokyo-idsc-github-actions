@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
 import requests
@@ -43,6 +43,7 @@ GITHUB_API = f"https://{GITHUB_API_HOST}"
 PYPI_JSON = "https://pypi.org/pypi/{name}/json"
 SETUP_UV_CHECKSUMS = "https://raw.githubusercontent.com/astral-sh/setup-uv/{sha}/src/download/checksum/{filename}"
 DEPENDABOT_CORE_LATEST_RELEASE = f"{GITHUB_API}/repos/dependabot/dependabot-core/releases/latest"
+DEPENDABOT_LOGIN = "dependabot[bot]"
 # Read at a release tag rather than `main`: the hosted updater runs a shipped release, so an
 # unreleased (or since reverted) commit on `main` is not what rewrites this repository's
 # uv.lock, and comparing against it turns ordinary upstream churn into a 3c alert.
@@ -122,7 +123,12 @@ def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
     if token and urlsplit(url).hostname == GITHUB_API_HOST:
         headers["Authorization"] = f"Bearer {token}"
     response = requests.get(url, headers=headers, timeout=30)
-    response.raise_for_status()
+    if not response.ok:
+        # issue #697: a bare status code sent two runs chasing the wrong cause. GitHub explains
+        # itself in the body ("Resource not accessible by integration", rate limits, ...), so
+        # carry the first part of it into the exception the workflow prints.
+        detail = " ".join(response.text.split())[:200]
+        raise requests.HTTPError(f"{response.status_code} {response.reason} for {url}: {detail}", response=response)
     return response
 
 
@@ -187,13 +193,32 @@ def last_scheduled_update(config: dict[str, Any], ecosystem: str, now: datetime)
 
 
 def last_dependabot_pr(fetch_json: FetchJson, repo: str, label: str) -> datetime | None:
-    """Creation time of the newest Dependabot PR carrying `label`, or None if there is none."""
-    query = f"repo:{repo}+type:pr+label:{label}+author:app/dependabot"
-    payload = fetch_json(f"{GITHUB_API}/search/issues?q={query}&sort=created&order=desc&per_page=1")
-    items = payload.get("items", [])
-    if not items:
-        return None
-    return datetime.fromisoformat(items[0]["created_at"])
+    """Creation time of the newest Dependabot PR carrying `label`, or None if there is none.
+
+    The repository issues endpoint is used rather than the search API (issue #697): the workflow
+    token is refused there, and refused in a way that hid the problem. Without
+    `pull-requests: read` the search answered HTTP 200 with an empty list, so every ecosystem
+    looked dead; with the permission it answers HTTP 403. This endpoint also costs the core rate
+    limit (5,000/h) instead of the search limit (30/min), and does not depend on the migration
+    of the legacy issue-search syntax.
+
+    `GET /issues` lists pull requests alongside issues, so `pull_request` is what separates them;
+    `pull-requests: read` is still required for the token to see the pull requests at all.
+
+    One page is enough and there is no pagination: `creator` and `labels` already narrow the list
+    to what Dependabot filed under this ecosystem, and Dependabot files pull requests rather than
+    issues, so the newest entry is the answer. A full page of Dependabot-authored non-PR issues
+    would be needed to hide a real pull request, and the page is the API maximum.
+    """
+    url = (
+        f"{GITHUB_API}/repos/{repo}/issues"
+        f"?labels={quote(label)}&state=all&creator={quote(DEPENDABOT_LOGIN)}"
+        "&sort=created&direction=desc&per_page=100"
+    )
+    for item in fetch_json(url):
+        if "pull_request" in item:
+            return datetime.fromisoformat(item["created_at"])
+    return None
 
 
 def direct_requirements(root: Path) -> list[Requirement]:
