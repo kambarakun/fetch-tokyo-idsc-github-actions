@@ -268,14 +268,45 @@ def test_releases_raising_the_python_floor_within_the_same_minor_are_not_counted
     assert results["2"].ok
 
 
-def test_releases_within_the_declared_python_range_are_still_counted(
+def test_releases_capping_python_inside_the_declared_range_are_not_counted(
     repo: Path, healthy_responses: dict[str, Any]
 ) -> None:
-    """The floor comparison must not swallow releases Dependabot really could propose."""
+    """Narrowing the range from above is as unresolvable as narrowing it from below."""
     responses = dict(healthy_responses)
     responses["pypi:mypy"] = _pypi(
         ("2.4.0", NOW - timedelta(days=30)),
-        requires_python={"2.4.0": ">=3.11"},
+        requires_python={"2.4.0": ">=3.11,<3.11.5"},
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert results["2"].ok
+
+
+def test_releases_excluding_a_python_inside_the_declared_range_are_not_counted(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """A `!=` hole leaves an interpreter the project declares without a resolvable release."""
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=30)),
+        requires_python={"2.4.0": ">=3.11,!=3.11.4"},
+    )
+
+    results = _run(repo, responses, max_stale_direct=0)
+
+    assert results["2"].ok
+
+
+@pytest.mark.parametrize("requires_python", [">=3.11", ">=3.9,<3.12", ">=3.9,<=3.12", ">=3.9,!=3.10.2"])
+def test_releases_covering_the_declared_python_range_are_still_counted(
+    repo: Path, healthy_responses: dict[str, Any], requires_python: str
+) -> None:
+    """The range comparison must not swallow releases Dependabot really could propose."""
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(
+        ("2.4.0", NOW - timedelta(days=30)),
+        requires_python={"2.4.0": requires_python},
     )
 
     results = _run(repo, responses, max_stale_direct=0)
