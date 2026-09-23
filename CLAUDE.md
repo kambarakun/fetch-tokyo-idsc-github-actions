@@ -4,7 +4,7 @@
 
 ## 最終更新日
 
-2026-09-10
+2026-09-24
 
 ## バージョン
 
@@ -416,7 +416,7 @@ source .venv/bin/activate
 
 #### uv 本体のバージョン固定 (issue #681)
 
-uv 本体のバージョンは **`.tool-versions`** (`uv 0.12.4`) で固定する。mise と CI の `astral-sh/setup-uv` (`version-file: .tool-versions`) が読み、uv 自身は読まない唯一の共通フォーマット。
+uv 本体のバージョンは **`.tool-versions`** (`uv 0.12.12`) で固定する。mise と CI の `astral-sh/setup-uv` (`version-file: .tool-versions`) が読み、uv 自身は読まない唯一の共通フォーマット。
 
 - **`pyproject.toml` の `[tool.uv] required-version` や `uv.toml` には置かない**: uv 自身が強制するハードガードのため、同梱 uv を使う Dependabot の uv エコシステム job が起動時に落ち、通常更新もセキュリティ更新も無音で止まる (2026-07-27〜09-09 に実際に発生)
 - `.mise.toml` は作らない (同一ディレクトリでは mise が `.mise.toml` を優先し、pin の二重ソースになる)
@@ -428,7 +428,7 @@ uv 本体のバージョンは **`.tool-versions`** (`uv 0.12.4`) で固定す�
 Dependabot には `.tool-versions` を扱うエコシステムが無いため、uv 本体の pin は手動で更新する。**ルール: `.tool-versions` の uv は「pin している `astral-sh/setup-uv` が checksum を知る最新版」に合わせる。**
 
 - 根拠: setup-uv は既知 checksum の無い uv を**検証をスキップして**インストールする (`src/download/checksum/checksum.ts`。debug ログにしか出ない)。uv だけ先に上げると CI の uv バイナリが未検証になる
-- 判定: setup-uv の release notes (`chore: update known checksums for X`) または `src/download/checksum/known-checksums.ts` の `x86_64-unknown-linux-gnu-<version>` キー。現在 pin している v10.0.1 が知る上限は 0.12.4 (issue #682 で確認)
+- 判定: setup-uv の release notes (`chore: update known checksums for X`) または `src/download/checksum/known-checksums.json` (v10.1.0 で `.ts` から分離) の `x86_64-unknown-linux-gnu-<version>` キー。現在 pin している v10.1.0 が知る上限は 0.12.12 (PR #718 で確認)
 - 順序: **setup-uv を上げてから uv を上げる**。Dependabot (github-actions) が setup-uv の minor / patch PR を出したら、その PR に `.tool-versions` の bump を積んで一緒にマージする。major は Dependabot が `semver-major` を ignore するため手動 PR (本 issue と同じ手順)
 - Dependabot 同梱の uv (dependabot-core `uv/Dockerfile`) とは同一 minor 内の乖離を許容する (0.12.4 と 0.12.7 で `uv lock --check` の差分なし・`revision` 不変を実測)。major / minor が食い違ったら追随する
 - `.tool-versions` に `python` 行は足さない: setup-uv v10 以降は `version-file: .tool-versions` の python 行も読み、`.python-version` と二重定義になる
