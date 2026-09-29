@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +81,19 @@ def _pr_payload(created_at: datetime | None) -> list[dict[str, Any]]:
     if created_at is None:
         return []
     return [{"created_at": created_at.isoformat(), "pull_request": {"url": "https://example.invalid/1"}}]
+
+
+class _FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> _FrozenDatetime:
+        return cls.fromtimestamp(NOW.timestamp(), tz)
+
+
+@pytest.fixture(autouse=True)
+def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin `main()`'s wall clock to NOW: fixtures are dated relative to NOW, so a real clock
+    ages them past the thresholds and the tests start failing on their own (2026-09-29)."""
+    monkeypatch.setattr(watchdog, "datetime", _FrozenDatetime)
 
 
 @pytest.fixture
