@@ -91,12 +91,14 @@ repos:
   # Markdownファイルのフォーマット
   # mirrors-prettier (pre-commit 公式) は 2024 年にアーカイブされたため後継の rbubley/mirrors-prettier を使用
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.8.5
+    rev: v3.9.8
     hooks:
       - id: prettier
         name: Markdown/YAML/JSONのフォーマット
         types_or: [markdown, yaml, json]
-        args: ["--print-width", "120", "--prose-wrap", "preserve"]
+        # Prettier 3.9+ reformats the body of ```markdown fences, rewriting `[*]` in escaped Mermaid
+        # examples to `[_]` (tests/formatter_regressions/prettier-markdown.md). Keep fenced code verbatim.
+        args: ["--print-width", "120", "--prose-wrap", "preserve", "--embedded-language-formatting", "off"]
 
   # プロジェクト固有のチェック
   - repo: local
