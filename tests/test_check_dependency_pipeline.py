@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import pytest
 import requests
@@ -813,6 +813,23 @@ def test_report_only_contains_structured_facts(repo: Path, healthy_responses: di
     assert "🚨 1 件の検査が閾値を超えた。" in report
 
 
+@pytest.fixture
+def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin `main()`'s clock to NOW so the fixtures' relative dates do not age out.
+
+    The fixtures date the healthy PRs relative to NOW, but `main()` reads the wall clock;
+    once the real date passed NOW + max_pr_age_days, check 1 started failing on its own.
+    """
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> Self:
+            return cls.fromtimestamp(NOW.timestamp(), tz)
+
+    monkeypatch.setattr(watchdog, "datetime", FrozenDatetime)
+
+
+@pytest.mark.usefixtures("frozen_clock")
 def test_main_writes_both_report_files_and_signals_alerts(
     repo: Path, healthy_responses: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -832,6 +849,7 @@ def test_main_writes_both_report_files_and_signals_alerts(
     assert [entry["id"] for entry in payload if not entry["ok"]] == ["1:uv"]
 
 
+@pytest.mark.usefixtures("frozen_clock")
 def test_main_reports_healthy_pipelines_with_exit_zero(
     repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
