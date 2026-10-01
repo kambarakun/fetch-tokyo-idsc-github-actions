@@ -1,0 +1,12 @@
+{
+  "total_files": 240,
+  "successful": 227,
+  "failed": 0,
+  "duplicates": 0,
+  "skipped": 13,
+  "new_files": 0,
+  "updated_files": 227,
+  "errors": [],
+  "start_time": "2026-10-01T08:49:38.785333+00:00",
+  "end_time": "2026-10-01T08:55:47.660649+00:00"
+}
