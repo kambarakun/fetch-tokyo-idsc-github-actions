@@ -1,0 +1,839 @@
+"""Tests for the Dependabot PR vetting script (issue #762).
+
+Every check runs through `vet_pull_request` against a synthetic PR assembled from URL-keyed
+responses, so the tests cover which file feeds which parser and which API answers which
+check. The numbers mirror the PRs the issue was designed against (#745, #747, #748).
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import pytest
+import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+import vet_dependabot_prs as vet
+
+# The `created_at` of #748.
+NOW = datetime(2026, 9, 28, 0, 7, 14, tzinfo=UTC)
+REPO = "owner/name"
+API = f"{vet.GITHUB_API}/repos/{REPO}"
+BASE_SHA = "b" * 40
+MERGE_BASE = "c" * 40
+HEAD_SHA = "d" * 40
+SETUP_UV_OLD = "1" * 40
+SETUP_UV_NEW = "c18668ad3cf93ea998bef934396af7bb5c839dc7"
+ACTIONLINT_SHA = "320fcdd9c860767cf17fab3b20e22e739d5d02b8"
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "vet_dependabot_prs" / "pr-748"
+PYPROJECT = '[project]\nname = "app"\nrequires-python = ">=3.11"\n'
+DEPENDABOT_YML = """
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "uv"
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "pre-commit"
+    cooldown:
+      default-days: 7
+"""
+GREEN_RUNS = [("codecov/patch", "success"), ("lint", "success"), ("test", "success"), ("claude-review", "skipped")]
+
+
+def _iso(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _not_found() -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = 404
+    return requests.HTTPError(response=response)
+
+
+def _fetchers(responses: dict[str, Any]) -> vet.Fetchers:
+    def fetch_json(url: str) -> Any:
+        if url not in responses:
+            raise _not_found()
+        return responses[url]
+
+    def fetch_text(url: str) -> str:
+        if url not in responses:
+            raise _not_found()
+        return responses[url]
+
+    def post_json(url: str, payload: dict[str, Any]) -> Any:
+        assert url == vet.OSV_QUERY
+        return responses.get(f"osv:{vet._osv_key(payload)}", {})
+
+    return fetch_json, fetch_text, post_json
+
+
+def _uv_lock(**versions: str) -> str:
+    project = '[[package]]\nname = "app"\nversion = "1.0.0"\nsource = { editable = "." }\n\n'
+    return project + "".join(
+        f'[[package]]\nname = "{name}"\nversion = "{version}"\nsource = {{ registry = "https://pypi.org/simple" }}\n\n'
+        for name, version in versions.items()
+    )
+
+
+def _workflow(action: str, sha: str, tag: str) -> str:
+    return f"jobs:\n  test:\n    steps:\n      - name: Step\n        uses: {action}@{sha} # {tag}\n"
+
+
+def _pre_commit(repo: str, rev: str, comment: str = "") -> str:
+    suffix = f"  # {comment}" if comment else ""
+    return f"repos:\n  - repo: {repo}\n    rev: {rev}{suffix}\n    hooks:\n      - id: hook\n  - repo: local\n    hooks: []\n"
+
+
+def _pr(
+    responses: dict[str, Any],
+    *,
+    head_ref: str,
+    files: Mapping[str, tuple[str | None, str | None]],
+    number: int = 748,
+    head_sha: str = HEAD_SHA,
+    created_at: datetime = NOW,
+    author: str = vet.DEPENDABOT_AUTHOR,
+    human_commits: int = 0,
+    check_runs: list[tuple[str, str]] | None = None,
+) -> None:
+    """Register one PR: its metadata, changed files at both refs, commits and check runs."""
+    responses[f"{API}/pulls/{number}"] = {
+        "number": number,
+        "user": {"login": author},
+        "created_at": _iso(created_at),
+        "head": {"ref": head_ref, "sha": head_sha},
+        "base": {"sha": BASE_SHA},
+    }
+    responses[f"{API}/pulls/{number}/files?per_page=100&page=1"] = [{"filename": path} for path in files]
+    responses[f"{API}/pulls/{number}/commits?per_page=100&page=1"] = [{"author": {"login": vet.DEPENDABOT_AUTHOR}}] + [
+        {"author": {"login": "human"}} for _ in range(human_commits)
+    ]
+    responses[f"{API}/compare/{BASE_SHA}...{head_sha}"] = {"merge_base_commit": {"sha": MERGE_BASE}}
+    for path, (before, after) in files.items():
+        if before is not None:
+            responses[f"{API}/contents/{path}?ref={MERGE_BASE}"] = before
+        if after is not None:
+            responses[f"{API}/contents/{path}?ref={head_sha}"] = after
+    responses.setdefault(f"{API}/contents/pyproject.toml?ref={head_sha}", PYPROJECT)
+    responses[f"{API}/contents/.github/dependabot.yml?ref={head_sha}"] = DEPENDABOT_YML
+    runs = GREEN_RUNS if check_runs is None else check_runs
+    responses[f"{API}/commits/{head_sha}/check-runs?per_page=100&page=1"] = {
+        "total_count": len(runs),
+        "check_runs": [
+            {"name": name, "status": "in_progress" if state == "in_progress" else "completed", "conclusion": state}
+            for name, state in runs
+        ],
+    }
+
+
+def _pypi(
+    responses: dict[str, Any],
+    name: str,
+    releases: dict[str, datetime],
+    *,
+    yanked: tuple[str, ...] = (),
+    requires_python: str = ">=3.7",
+) -> None:
+    for version, uploaded in releases.items():
+        files = [{"upload_time_iso_8601": _iso(uploaded), "yanked": version in yanked, "packagetype": "sdist"}]
+        responses[vet.PYPI_RELEASE.format(name=name, version=version)] = {
+            "info": {
+                "yanked": version in yanked,
+                "yanked_reason": "broken" if version in yanked else None,
+                "requires_python": requires_python,
+            },
+            "urls": files,
+        }
+    responses[vet.PYPI_PROJECT.format(name=name)] = {
+        "releases": {
+            version: [{"upload_time_iso_8601": _iso(at), "yanked": version in yanked}]
+            for version, at in releases.items()
+        }
+    }
+
+
+def _tag(responses: dict[str, Any], repo: str, tag: str, sha: str, *, annotated_at: datetime | None = None) -> None:
+    base = f"{vet.GITHUB_API}/repos/{repo}/git"
+    if annotated_at is None:
+        responses[f"{base}/ref/tags/{tag}"] = {"object": {"type": "commit", "sha": sha}}
+        return
+    tag_object = "e" * 40
+    responses[f"{base}/ref/tags/{tag}"] = {"object": {"type": "tag", "sha": tag_object}}
+    responses[f"{base}/tags/{tag_object}"] = {
+        "tagger": {"date": _iso(annotated_at)},
+        "object": {"type": "commit", "sha": sha},
+    }
+
+
+def _releases(responses: dict[str, Any], repo: str, releases: dict[str, datetime]) -> None:
+    responses[f"{vet.GITHUB_API}/repos/{repo}/releases?per_page=100"] = [
+        {"tag_name": tag, "published_at": _iso(at), "draft": False, "prerelease": False} for tag, at in releases.items()
+    ]
+    for tag, at in releases.items():
+        responses[f"{vet.GITHUB_API}/repos/{repo}/releases/tags/{tag}"] = {"published_at": _iso(at)}
+
+
+@pytest.fixture
+def uv_pr() -> dict[str, Any]:
+    """#748: ruff 0.16.7 -> 0.16.8 in the build-tools group, every check OK."""
+    responses: dict[str, Any] = {}
+    _pr(
+        responses,
+        head_ref="dependabot/uv/build-tools-564d0085cf",
+        files={
+            "pyproject.toml": (PYPROJECT, PYPROJECT),
+            "uv.lock": (_uv_lock(ruff="0.16.7", requests="2.34.2"), _uv_lock(ruff="0.16.8", requests="2.34.2")),
+        },
+    )
+    _pypi(
+        responses,
+        "ruff",
+        {
+            "0.16.7": datetime(2026, 9, 10, tzinfo=UTC),
+            "0.16.8": datetime(2026, 9, 16, 15, 53, 57, tzinfo=UTC),
+            "0.16.9": datetime(2026, 9, 24, 20, 37, tzinfo=UTC),
+            "0.16.10": datetime(2026, 10, 1, tzinfo=UTC),
+        },
+    )
+    return responses
+
+
+@pytest.fixture
+def action_pr() -> dict[str, Any]:
+    """#745: setup-uv v10.1.0 -> v10.2.0 across two workflows, lightweight tag, no later release."""
+    responses: dict[str, Any] = {}
+    files = {
+        f".github/workflows/{name}.yml": (
+            _workflow("astral-sh/setup-uv", SETUP_UV_OLD, "v10.1.0"),
+            _workflow("astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0"),
+        )
+        for name in ("test", "watchdog")
+    }
+    _pr(responses, head_ref="dependabot/github_actions/astral-sh/setup-uv-10.2.0", files=files)
+    _tag(responses, "astral-sh/setup-uv", "v10.2.0", SETUP_UV_NEW)
+    _releases(
+        responses,
+        "astral-sh/setup-uv",
+        {"v10.1.0": datetime(2026, 9, 1, tzinfo=UTC), "v10.2.0": datetime(2026, 9, 21, 13, 15, 15, tzinfo=UTC)},
+    )
+    return responses
+
+
+def _vet(responses: dict[str, Any], number: int = 748) -> vet.PullRequestVerdict:
+    fetch_json, fetch_text, post_json = _fetchers(responses)
+    return vet.vet_pull_request(fetch_json, fetch_text, post_json, repo=REPO, number=number)
+
+
+def _checks(verdict: vet.PullRequestVerdict) -> dict[tuple[str, str], vet.CheckResult]:
+    return {(check.check_id, check.dependency): check for check in verdict.checks}
+
+
+def _main(monkeypatch: pytest.MonkeyPatch, responses: dict[str, Any], *argv: str) -> int:
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(responses))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    return vet.main(["--repo", REPO, *argv])
+
+
+# --- parsers ---------------------------------------------------------------------------------
+
+
+def test_uv_lock_bumps_are_parsed_from_merge_base_and_head(uv_pr: dict[str, Any]) -> None:
+    verdict = _vet(uv_pr)
+
+    assert verdict.ecosystem == "uv"
+    assert verdict.bumps == [vet.Bump("ruff", "0.16.7", "0.16.8", "pypi")]
+    # A dependency added by the lock is vetted too; the editable project itself is not a bump.
+    assert vet.uv_lock_bumps(_uv_lock(), _uv_lock(idna="3.10")) == [vet.Bump("idna", None, "3.10", "pypi")]
+
+
+def test_workflow_uses_bumps_are_parsed_with_sha_and_version_comment(action_pr: dict[str, Any]) -> None:
+    verdict = _vet(action_pr)
+
+    # Two workflows move the same pin: one bump, one row per check.
+    assert verdict.bumps == [vet.Bump("astral-sh/setup-uv", "v10.1.0", "v10.2.0", "action", sha=SETUP_UV_NEW)]
+    assert sum(check.check_id == "tag_sha" for check in verdict.checks) == 1
+    subpath = vet.workflow_bumps(None, _workflow("github/codeql-action/init", SETUP_UV_NEW, "v4.1.0"))
+    assert subpath == [vet.Bump("github/codeql-action", None, "v4.1.0", "action", sha=SETUP_UV_NEW)]
+
+
+def test_pre_commit_rev_bumps_are_parsed_including_sha_pinned_rev() -> None:
+    by_tag = vet.pre_commit_bumps(
+        _pre_commit("https://github.com/rbubley/mirrors-prettier", "v3.8.5"),
+        _pre_commit("https://github.com/rbubley/mirrors-prettier", "v3.9.8"),
+    )
+    by_sha = vet.pre_commit_bumps(
+        _pre_commit("https://github.com/rhysd/actionlint", "a" * 40, "frozen: v1.7.11"),
+        _pre_commit("https://github.com/rhysd/actionlint", ACTIONLINT_SHA, "frozen: v1.7.12"),
+    )
+
+    assert by_tag == [vet.Bump("rbubley/mirrors-prettier", "v3.8.5", "v3.9.8", "pre-commit")]
+    assert by_sha == [vet.Bump("rhysd/actionlint", "v1.7.11", "v1.7.12", "pre-commit", sha=ACTIONLINT_SHA)]
+
+
+# --- per-dependency checks -----------------------------------------------------------------
+
+
+def test_yanked_release_is_a_block(uv_pr: dict[str, Any]) -> None:
+    _pypi(uv_pr, "ruff", {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC)}, yanked=("0.16.8",))
+
+    check = _checks(_vet(uv_pr))[("yanked", "ruff")]
+
+    assert check.verdict == "BLOCK"
+    assert "broken" in check.detail
+
+
+def test_pypi_advisory_is_a_block(uv_pr: dict[str, Any]) -> None:
+    uv_pr["osv:PyPI/ruff@0.16.8"] = {"vulns": [{"id": "GHSA-9wx4-h78v-vm56"}]}
+
+    check = _checks(_vet(uv_pr))[("advisory", "ruff")]
+
+    assert check.verdict == "BLOCK"
+    assert check.links == ["https://osv.dev/vulnerability/GHSA-9wx4-h78v-vm56"]
+
+
+@pytest.mark.parametrize(("tag", "expected"), [("v45.0.7", "BLOCK"), ("v46.0.1", "OK")])
+def test_github_action_advisory_is_matched_against_ranges_client_side(tag: str, expected: str) -> None:
+    sha = "f" * 40
+    responses: dict[str, Any] = {}
+    files = {".github/workflows/ci.yml": (None, _workflow("tj-actions/changed-files", sha, tag))}
+    _pr(responses, head_ref="dependabot/github_actions/tj-actions/changed-files", files=files)
+    _tag(responses, "tj-actions/changed-files", tag, sha)
+    responses[f"{vet.GITHUB_API}/repos/tj-actions/changed-files/git/commits/{sha}"] = {
+        "committer": {"date": "2026-09-01T00:00:00Z"}
+    }
+    responses[f"{vet.GITHUB_API}/repos/tj-actions/changed-files/releases?per_page=100"] = []
+    # OSV ignores `version` for this ecosystem, so the script must ask without it.
+    responses["osv:GitHub Actions/tj-actions/changed-files@*"] = {
+        "vulns": [
+            {
+                "id": "GHSA-mrrh-fwg8-r2c3",
+                "affected": [
+                    {
+                        "package": {"ecosystem": "GitHub Actions", "name": "tj-actions/changed-files"},
+                        "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "46.0.1"}]}],
+                        "versions": [],
+                    }
+                ],
+            },
+            {
+                # An advisory for another action must not match by accident.
+                "id": "GHSA-other",
+                "affected": [{"package": {"ecosystem": "GitHub Actions", "name": "other/action"}, "versions": [tag]}],
+            },
+        ]
+    }
+
+    assert _checks(_vet(responses))[("advisory", "tj-actions/changed-files")].verdict == expected
+
+
+def test_github_action_advisory_listing_the_exact_version_is_a_block(action_pr: dict[str, Any]) -> None:
+    action_pr["osv:GitHub Actions/astral-sh/setup-uv@*"] = {
+        "vulns": [
+            {
+                "id": "GHSA-listed",
+                "affected": [
+                    {"package": {"ecosystem": "GitHub Actions", "name": "astral-sh/setup-uv"}, "versions": ["10.2.0"]}
+                ],
+            }
+        ]
+    }
+
+    check = _checks(_vet(action_pr))[("advisory", "astral-sh/setup-uv")]
+
+    assert check.verdict == "BLOCK"
+    assert "GHSA-listed" in check.detail
+
+
+def test_github_action_advisory_with_git_range_is_unevaluable_not_block(action_pr: dict[str, Any]) -> None:
+    action_pr["osv:GitHub Actions/astral-sh/setup-uv@*"] = {
+        "vulns": [
+            {
+                "id": "GHSA-xxxx-git",
+                "affected": [
+                    {
+                        "package": {"ecosystem": "GitHub Actions", "name": "astral-sh/setup-uv"},
+                        "ranges": [{"type": "GIT", "events": [{"introduced": "abc"}]}],
+                    }
+                ],
+            }
+        ]
+    }
+
+    check = _checks(_vet(action_pr))[("advisory", "astral-sh/setup-uv")]
+
+    assert check.verdict == "OK"
+    assert "評価不能" in check.detail
+
+
+def test_release_dropping_the_python_floor_is_a_block(uv_pr: dict[str, Any]) -> None:
+    _pypi(uv_pr, "ruff", {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC)}, requires_python=">=3.12")
+
+    check = _checks(_vet(uv_pr))[("python_range", "ruff")]
+
+    assert check.verdict == "BLOCK"
+    assert "3.11" in check.detail
+
+
+def test_release_younger_than_cooldown_is_a_warn(uv_pr: dict[str, Any]) -> None:
+    _pypi(uv_pr, "ruff", {"0.16.8": NOW - timedelta(days=2)})
+
+    assert _checks(_vet(uv_pr))[("cooldown", "ruff")].verdict == "WARN"
+
+
+def test_cooldown_counts_calendar_days_like_dependabot(action_pr: dict[str, Any]) -> None:
+    # #745: published 2026-09-21T13:15Z, proposed 2026-09-28T00:07Z -- 6.45 days, 7 calendar days.
+    assert _checks(_vet(action_pr))[("cooldown", "astral-sh/setup-uv")].verdict == "OK"
+
+    action_pr[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/releases/tags/v10.2.0"] = {
+        "published_at": "2026-09-22T00:00:00Z"
+    }
+    check = _checks(_vet(action_pr))[("cooldown", "astral-sh/setup-uv")]
+
+    assert check.verdict == "WARN"
+    assert "6 日" in check.detail
+
+
+def test_release_superseded_within_seven_days_is_a_warn(uv_pr: dict[str, Any]) -> None:
+    _pypi(
+        uv_pr,
+        "ruff",
+        {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC), "0.16.9": datetime(2026, 9, 19, tzinfo=UTC)},
+    )
+
+    check = _checks(_vet(uv_pr))[("superseded", "ruff")]
+
+    assert check.verdict == "WARN"
+    assert "0.16.9" in check.detail
+
+
+def test_release_superseded_after_seven_days_is_ok(uv_pr: dict[str, Any]) -> None:
+    check = _checks(_vet(uv_pr))[("superseded", "ruff")]
+
+    # 0.16.9 followed 0.16.8 by 8.2 days, outside the window.
+    assert check.verdict == "OK"
+    assert "8.2 日後" in check.detail
+
+
+def test_superseded_is_not_evaluated_for_repositories_without_releases() -> None:
+    responses: dict[str, Any] = {}
+    repo_url = "https://github.com/rbubley/mirrors-prettier"
+    files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "v3.8.5"), _pre_commit(repo_url, "v3.9.8"))}
+    _pr(responses, head_ref="dependabot/pre_commit/https-/github.com/rbubley/mirrors-prettier-3.9.8", files=files)
+    _tag(responses, "rbubley/mirrors-prettier", "v3.9.8", "a" * 40)
+    responses[f"{vet.GITHUB_API}/repos/rbubley/mirrors-prettier/releases?per_page=100"] = []
+    responses[f"{vet.GITHUB_API}/repos/rbubley/mirrors-prettier/git/commits/{'a' * 40}"] = {
+        "committer": {"date": "2026-09-18T08:31:09Z"}
+    }
+
+    checks = _checks(_vet(responses))
+
+    assert checks[("superseded", "rbubley/mirrors-prettier")].verdict == "OK"
+    assert "評価不能" in checks[("superseded", "rbubley/mirrors-prettier")].detail
+    # With neither a release nor an annotated tag, the commit date stands in for publication.
+    assert "2026-09-18 → 2026-09-28 = 10 日" in checks[("cooldown", "rbubley/mirrors-prettier")].detail
+
+
+def test_action_sha_matching_lightweight_tag_is_ok(action_pr: dict[str, Any]) -> None:
+    check = _checks(_vet(action_pr))[("tag_sha", "astral-sh/setup-uv")]
+
+    assert check.verdict == "OK"
+    assert SETUP_UV_NEW in check.detail
+
+
+def test_action_sha_matching_dereferenced_annotated_tag_is_ok() -> None:
+    # #747: reviewdog/action-actionlint v1.76.0 is annotated and has no release object.
+    responses: dict[str, Any] = {}
+    files = {
+        ".github/workflows/actionlint.yml": (
+            _workflow("reviewdog/action-actionlint", "a" * 40, "v1.74.0"),
+            _workflow("reviewdog/action-actionlint", ACTIONLINT_SHA, "v1.76.0"),
+        )
+    }
+    _pr(responses, head_ref="dependabot/github_actions/reviewdog/action-actionlint-1.76.0", files=files)
+    _tag(
+        responses,
+        "reviewdog/action-actionlint",
+        "v1.76.0",
+        ACTIONLINT_SHA,
+        annotated_at=datetime(2026, 9, 18, tzinfo=UTC),
+    )
+    responses[f"{vet.GITHUB_API}/repos/reviewdog/action-actionlint/releases?per_page=100"] = [
+        {"tag_name": "v1.76.1", "published_at": "2026-09-22T01:48:00Z", "draft": False, "prerelease": False},
+        {"tag_name": "v1.77.0-rc1", "published_at": "2026-09-23T00:00:00Z", "draft": False, "prerelease": True},
+    ]
+
+    verdict = _vet(responses)
+    checks = _checks(verdict)
+
+    assert checks[("tag_sha", "reviewdog/action-actionlint")].verdict == "OK"
+    assert checks[("cooldown", "reviewdog/action-actionlint")].detail.startswith("2026-09-18 → 2026-09-28 = 10 日")
+    assert checks[("superseded", "reviewdog/action-actionlint")].verdict == "WARN"
+    assert vet.verdict_line(verdict) == "判定: WARN (1 件)"
+
+
+def test_action_sha_not_matching_tag_is_a_block(action_pr: dict[str, Any]) -> None:
+    _tag(action_pr, "astral-sh/setup-uv", "v10.2.0", "9" * 40)
+
+    check = _checks(_vet(action_pr))[("tag_sha", "astral-sh/setup-uv")]
+
+    assert check.verdict == "BLOCK"
+    assert "不一致" in check.detail
+
+
+def test_action_tag_missing_is_a_block(action_pr: dict[str, Any]) -> None:
+    del action_pr[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/git/ref/tags/v10.2.0"]
+
+    check = _checks(_vet(action_pr))[("tag_sha", "astral-sh/setup-uv")]
+
+    assert check.verdict == "BLOCK"
+    assert "404" in check.detail
+
+
+@pytest.mark.parametrize(("comment", "expected"), [("frozen: v1.7.12", "OK"), ("", "WARN")])
+def test_sha_pinned_pre_commit_rev_is_checked_against_its_version_comment(comment: str, expected: str) -> None:
+    responses: dict[str, Any] = {}
+    repo_url = "https://github.com/rhysd/actionlint"
+    files = {
+        ".pre-commit-config.yaml": (
+            _pre_commit(repo_url, "a" * 40, "frozen: v1.7.11"),
+            _pre_commit(repo_url, ACTIONLINT_SHA, comment),
+        )
+    }
+    _pr(responses, head_ref="dependabot/pre_commit/https-/github.com/rhysd/actionlint-1.7.12", files=files)
+    _tag(responses, "rhysd/actionlint", "v1.7.12", ACTIONLINT_SHA)
+    _releases(responses, "rhysd/actionlint", {"v1.7.12": datetime(2026, 9, 1, tzinfo=UTC)})
+
+    checks = _checks(_vet(responses))
+
+    # Without a version comment there is no tag to compare the SHA against: ask a human.
+    assert checks[("tag_sha", "rhysd/actionlint")].verdict == expected
+    assert ("tag_exists", "rhysd/actionlint") not in checks
+
+
+def test_pre_commit_repo_outside_github_is_a_warn() -> None:
+    responses: dict[str, Any] = {}
+    repo_url = "https://gitlab.com/pycqa/flake8"
+    files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "7.0.0"), _pre_commit(repo_url, "7.1.0"))}
+    _pr(responses, head_ref="dependabot/pre_commit/https-/gitlab.com/pycqa/flake8-7.1.0", files=files)
+
+    checks = _checks(_vet(responses))
+
+    assert checks[("tag_exists", repo_url)].verdict == "WARN"
+    assert checks[("cooldown", repo_url)].verdict == "WARN"
+    assert checks[("superseded", repo_url)].verdict == "OK"
+
+
+def test_release_without_requires_python_is_ok(uv_pr: dict[str, Any]) -> None:
+    _pypi(uv_pr, "ruff", {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC)}, requires_python="")
+
+    check = _checks(_vet(uv_pr))[("python_range", "ruff")]
+
+    assert check.verdict == "OK"
+    assert "宣言なし" in check.detail
+
+
+def test_missing_pre_commit_tag_is_a_block() -> None:
+    responses: dict[str, Any] = {}
+    repo_url = "https://github.com/pre-commit/pre-commit-hooks"
+    files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "v6.0.0"), _pre_commit(repo_url, "v6.0.1"))}
+    _pr(responses, head_ref="dependabot/pre_commit/https-/github.com/pre-commit/pre-commit-hooks-6.0.1", files=files)
+    responses[f"{vet.GITHUB_API}/repos/pre-commit/pre-commit-hooks/releases?per_page=100"] = []
+
+    verdict = _vet(responses)
+    checks = _checks(verdict)
+
+    assert checks[("tag_exists", "pre-commit/pre-commit-hooks")].verdict == "BLOCK"
+    # The missing tag also hides the publication time; that is a question, not a second BLOCK.
+    assert checks[("cooldown", "pre-commit/pre-commit-hooks")].verdict == "WARN"
+    assert verdict.verdict == "BLOCK"
+
+
+def test_major_bump_is_a_warn(uv_pr: dict[str, Any]) -> None:
+    uv_pr[f"{API}/contents/uv.lock?ref={HEAD_SHA}"] = _uv_lock(ruff="1.0.0", requests="2.34.2")
+    _pypi(uv_pr, "ruff", {"1.0.0": datetime(2026, 9, 1, tzinfo=UTC)})
+
+    check = _checks(_vet(uv_pr))[("major_bump", "ruff")]
+
+    assert check.verdict == "WARN"
+    assert check.detail == "major 0 → 1"
+
+
+# --- per-PR checks -------------------------------------------------------------------------
+
+
+def test_extra_files_and_human_commits_are_a_warn(action_pr: dict[str, Any]) -> None:
+    # #745: the uv pin follows setup-uv, so a human stacks .tool-versions and CLAUDE.md.
+    files = action_pr[f"{API}/pulls/748/files?per_page=100&page=1"]
+    files += [{"filename": ".tool-versions"}, {"filename": "CLAUDE.md"}]
+    action_pr[f"{API}/pulls/748/commits?per_page=100&page=1"] += [{"author": {"login": "human"}}, {"author": None}]
+
+    verdict = _vet(action_pr)
+    check = _checks(verdict)[("pr_hygiene", "-")]
+
+    assert check.verdict == "WARN"
+    assert ".tool-versions, CLAUDE.md" in check.detail
+    assert "Dependabot 以外の commit 2 件" in check.detail
+    assert vet.verdict_line(verdict) == "判定: WARN (1 件)"
+
+
+def test_unknown_branch_prefix_is_a_warn_and_runs_every_parser(uv_pr: dict[str, Any]) -> None:
+    uv_pr[f"{API}/pulls/748"]["head"]["ref"] = "dependabot/npm_and_yarn/ruff"
+
+    verdict = _vet(uv_pr)
+
+    assert verdict.bumps == [vet.Bump("ruff", "0.16.7", "0.16.8", "pypi")]
+    assert "接頭辞" in _checks(verdict)[("pr_hygiene", "-")].detail
+
+
+@pytest.mark.parametrize("state", ["failure", "in_progress"])
+def test_non_green_check_runs_are_a_warn(uv_pr: dict[str, Any], state: str) -> None:
+    _pr_runs(uv_pr, [("lint", "success"), ("test", state)])
+
+    check = _checks(_vet(uv_pr))[("ci_green", "-")]
+
+    assert check.verdict == "WARN"
+    assert f"test: {state}" in check.detail
+
+
+def test_no_check_runs_is_a_warn(uv_pr: dict[str, Any]) -> None:
+    _pr_runs(uv_pr, [])
+
+    assert _checks(_vet(uv_pr))[("ci_green", "-")].verdict == "WARN"
+
+
+def test_skipped_and_neutral_check_runs_are_green(uv_pr: dict[str, Any]) -> None:
+    _pr_runs(uv_pr, [("lint", "success"), ("claude-review", "skipped"), ("codeql", "neutral")])
+
+    check = _checks(_vet(uv_pr))[("ci_green", "-")]
+
+    assert check.verdict == "OK"
+    assert check.detail == "neutral ×1 + skipped ×1 + success ×1"
+
+
+def test_the_vetting_job_ignores_its_own_check_run(uv_pr: dict[str, Any]) -> None:
+    _pr_runs(uv_pr, [("lint", "success"), (vet.SELF_CHECK_NAME, "in_progress")])
+
+    assert _checks(_vet(uv_pr))[("ci_green", "-")].verdict == "OK"
+
+
+def _pr_runs(responses: dict[str, Any], runs: list[tuple[str, str]]) -> None:
+    responses[f"{API}/commits/{HEAD_SHA}/check-runs?per_page=100&page=1"] = {
+        "check_runs": [
+            {"name": name, "status": "in_progress" if state == "in_progress" else "completed", "conclusion": state}
+            for name, state in runs
+        ]
+    }
+
+
+def test_healthy_uv_pr_is_ok_on_every_check(uv_pr: dict[str, Any]) -> None:
+    verdict = _vet(uv_pr)
+
+    assert {check.check_id: check.verdict for check in verdict.checks} == dict.fromkeys(
+        ["yanked", "advisory", "python_range", "cooldown", "superseded", "major_bump", "pr_hygiene", "ci_green"], "OK"
+    )
+    assert vet.verdict_line(verdict) == "判定: OK"
+
+
+# --- CLI -----------------------------------------------------------------------------------
+
+
+def test_non_dependabot_pr_exits_two(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], capsys: pytest.CaptureFixture[str]
+) -> None:
+    uv_pr[f"{API}/pulls/748"]["user"]["login"] = "kambarakun"
+
+    assert _main(monkeypatch, uv_pr, "--pr", "748") == 2
+    assert "Dependabot の PR ではない" in capsys.readouterr().err
+
+
+def test_network_failure_exits_two_not_block(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def broken(url: str) -> Any:
+        raise requests.ConnectionError("network down")
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (broken, broken, lambda url, payload: broken(url)))
+    report, report_json = tmp_path / "report.md", tmp_path / "report.json"
+
+    status = vet.main(["--pr", "748", "--repo", REPO, "--report", str(report), "--json", str(report_json)])
+
+    assert status == 2
+    # The workflow's `[ -f report.md ]` guard relies on no report being written.
+    assert not report.exists()
+    assert not report_json.exists()
+
+
+def test_pypi_server_error_exits_two(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:
+    def fetch_json(url: str) -> Any:
+        if "pypi.org" in url:
+            response = requests.Response()
+            response.status_code = 503
+            raise requests.HTTPError(response=response)
+        return _fetchers(uv_pr)[0](url)
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (fetch_json, *_fetchers(uv_pr)[1:]))
+
+    assert vet.main(["--pr", "748", "--repo", REPO]) == 2
+
+
+def test_all_open_filters_dependabot_authors_and_aggregates_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+    uv_pr: dict[str, Any],
+    action_pr: dict[str, Any],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    responses = dict(uv_pr)
+    yanked_head, action_head = "5" * 40, "6" * 40
+    _pr(
+        responses,
+        number=750,
+        head_sha=yanked_head,
+        head_ref="dependabot/uv/requests-2.34.3",
+        files={"uv.lock": (_uv_lock(requests="2.34.2"), _uv_lock(requests="2.34.3"))},
+    )
+    _pypi(responses, "requests", {"2.34.3": datetime(2026, 9, 1, tzinfo=UTC)}, yanked=("2.34.3",))
+    for key, value in action_pr.items():
+        responses.setdefault(key.replace("/pulls/748", "/pulls/751").replace(HEAD_SHA, action_head), value)
+    responses[f"{API}/pulls/751"] = {
+        **action_pr[f"{API}/pulls/748"],
+        "head": {**action_pr[f"{API}/pulls/748"]["head"], "sha": action_head},
+    }
+    responses[f"{API}/pulls?state=open&per_page=100&page=1"] = [
+        {"number": 748, "user": {"login": vet.DEPENDABOT_AUTHOR}},
+        {"number": 750, "user": {"login": vet.DEPENDABOT_AUTHOR}},
+        {"number": 751, "user": {"login": vet.DEPENDABOT_AUTHOR}},
+        {"number": 752, "user": {"login": "kambarakun"}},
+    ]
+
+    status = _main(monkeypatch, responses, "--all-open")
+    out = capsys.readouterr().out
+
+    assert status == 1
+    assert [line for line in out.splitlines() if line.startswith("## PR")] == [
+        "## PR #748 (uv)",
+        "## PR #750 (uv)",
+        "## PR #751 (github-actions)",
+    ]
+    assert "判定: BLOCK (1 件)" in out
+
+
+def test_all_open_without_prs_exits_zero(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    responses: dict[str, Any] = {f"{API}/pulls?state=open&per_page=100&page=1": []}
+
+    assert _main(monkeypatch, responses, "--all-open") == 0
+    assert "open な Dependabot PR はない" in capsys.readouterr().out
+
+
+def test_json_mirrors_the_markdown_verdicts(
+    monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    _releases(
+        action_pr,
+        "astral-sh/setup-uv",
+        {"v10.2.0": datetime(2026, 9, 21, 13, 15, tzinfo=UTC), "v10.2.1": datetime(2026, 9, 23, tzinfo=UTC)},
+    )
+    report, report_json = tmp_path / "report.md", tmp_path / "report.json"
+
+    status = _main(monkeypatch, action_pr, "--pr", "748", "--report", str(report), "--json", str(report_json))
+    payload = json.loads(report_json.read_text(encoding="utf-8"))
+    rows = [line.split(" | ") for line in report.read_text(encoding="utf-8").splitlines() if line.startswith("| ")][2:]
+
+    assert status == 0
+    assert payload[0]["verdict"] == "WARN"
+    assert payload[0]["bumps"] == [{"name": "astral-sh/setup-uv", "old": "v10.1.0", "new": "v10.2.0", "kind": "action"}]
+    assert [(row[2], row[3]) for row in rows] == [(check["id"], check["verdict"]) for check in payload[0]["checks"]]
+    assert rows[0][1] == "v10.1.0 → v10.2.0"
+
+
+def test_comment_is_refused_inside_github_actions(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+
+    assert vet.main(["--pr", "748", "--repo", REPO, "--comment"]) == 2
+
+
+def test_comment_posts_each_pr_report_locally(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:
+    posted: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(vet, "make_poster", lambda token: lambda url, payload: posted.append((url, payload)))
+
+    assert _main(monkeypatch, uv_pr, "--pr", "748", "--comment") == 0
+    assert posted[0][0] == f"{API}/issues/748/comments"
+    assert posted[0][1]["body"].startswith("## PR #748 (uv)")
+
+
+def test_fixture_mode_replays_recorded_responses(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def offline(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("fixture mode must not touch the network")
+
+    monkeypatch.setattr(requests, "get", offline)
+    monkeypatch.setattr(requests, "post", offline)
+
+    status = vet.main(
+        ["--pr", "748", "--repo", "kambarakun/fetch-tokyo-idsc-github-actions", "--fixture", str(FIXTURE_DIR)]
+    )
+    out = capsys.readouterr().out
+
+    assert status == 0
+    assert "| ruff | 0.16.7 → 0.16.8 | yanked | OK |" in out
+    assert out.rstrip().endswith("判定: OK")
+
+
+def test_recording_writes_a_fixture_that_replays_identically(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    uv_pr[f"{API}/pulls/748"]["body"] = "untrusted text"
+    uv_pr[f"{API}/pulls/748/files?per_page=100&page=1"][0]["patch"] = "@@ -1 +1 @@"
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
+    fetch_json, fetch_text, post_json = vet.make_recording_fetchers(None, tmp_path)
+
+    recorded = vet.vet_pull_request(fetch_json, fetch_text, post_json, REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+
+    assert recorded.checks == replayed.checks
+    assert "untrusted text" not in stored
+    assert "@@ -1 +1 @@" not in stored
+
+
+def test_the_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, dict[str, str]] = {}
+
+    class Response:
+        ok = True
+
+        def json(self) -> Any:
+            return {}
+
+    def record(url: str, headers: dict[str, str], **kwargs: Any) -> Response:
+        seen[url] = headers
+        return Response()
+
+    monkeypatch.setattr(requests, "get", record)
+    monkeypatch.setattr(requests, "post", record)
+    fetch_json, _, post_json = vet.make_fetchers("secret-token")
+
+    fetch_json(f"{API}/pulls/748")
+    fetch_json(vet.PYPI_PROJECT.format(name="ruff"))
+    post_json(vet.OSV_QUERY, {"package": {"name": "ruff", "ecosystem": "PyPI"}})
+
+    assert seen[f"{API}/pulls/748"]["Authorization"] == "Bearer secret-token"
+    assert "Authorization" not in seen[vet.PYPI_PROJECT.format(name="ruff")]
+    assert "Authorization" not in seen[vet.OSV_QUERY]
+
+
+def test_repository_is_resolved_from_the_environment_then_git_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "env/repo")
+    assert vet.resolve_repo(None) == "env/repo"
+
+    monkeypatch.delenv("GITHUB_REPOSITORY")
+    assert vet.resolve_repo(None) == "kambarakun/fetch-tokyo-idsc-github-actions"
+    assert vet.resolve_repo("given/repo") == "given/repo"
