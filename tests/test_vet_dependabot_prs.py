@@ -457,6 +457,25 @@ def test_floating_major_tag_is_not_evaluated_as_dot_zero() -> None:
     assert "GHSA-ranged" in check.detail
 
 
+@pytest.mark.parametrize(
+    ("comment", "advisory", "expected"),
+    [("v10", False, "OK"), ("v10.2.1", True, "BLOCK")],
+)
+def test_floating_tag_without_advisory_and_exact_tag_with_one(comment: str, advisory: bool, expected: str) -> None:
+    responses: dict[str, Any] = {}
+    files = {".github/workflows/ci.yml": (None, _workflow("astral-sh/setup-uv", SETUP_UV_NEW, comment))}
+    _pr(responses, head_ref="dependabot/github_actions/astral-sh/setup-uv", files=files)
+    _tag(responses, "astral-sh/setup-uv", comment, SETUP_UV_NEW)
+    responses[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/git/commits/{SETUP_UV_NEW}"] = {
+        "committer": {"date": "2026-09-01T00:00:00Z"}
+    }
+    responses[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/releases?per_page=100&page=1"] = []
+    if advisory:
+        _setup_uv_advisory(responses, [{"introduced": "10.1.0"}, {"fixed": "10.3.0"}])
+
+    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == expected
+
+
 def test_action_names_are_canonicalized_before_querying_osv(action_pr: dict[str, Any]) -> None:
     # OSV package names are case-sensitive; GitHub accepts any casing in `uses:`.
     for name in ("test", "watchdog"):
@@ -567,6 +586,21 @@ def test_newer_line_published_before_the_candidate_does_not_supersede_it(uv_pr: 
 
     assert check.verdict == "OK"
     assert check.detail == "後続 release 無し"
+
+
+def test_later_release_with_unknown_publication_time_is_a_warn(action_pr: dict[str, Any]) -> None:
+    # Without the candidate's own publication time a later release cannot be ruled out.
+    repo = f"{vet.GITHUB_API}/repos/astral-sh/setup-uv"
+    del action_pr[f"{repo}/git/ref/tags/v10.2.0"]
+    action_pr[f"{repo}/releases?per_page=100&page=1"] = [
+        {"tag_name": "v10.2.1", "published_at": "2026-09-23T00:00:00Z", "draft": False, "prerelease": False}
+    ]
+    del action_pr[f"{repo}/releases/tags/v10.2.0"]
+
+    check = _checks(_vet(action_pr))[("superseded", "astral-sh/setup-uv")]
+
+    assert check.verdict == "WARN"
+    assert "評価不能" in check.detail
 
 
 def test_release_superseded_after_seven_days_is_ok(uv_pr: dict[str, Any]) -> None:

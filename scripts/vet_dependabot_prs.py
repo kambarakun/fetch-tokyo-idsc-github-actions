@@ -762,8 +762,11 @@ def check_superseded(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
     if published is not None:
         # A higher line released before this backport (2.0.0 months before 1.9.1) is not a successor.
         later = [(version, at) for version, at in later if at >= published]
-    if not later or published is None:
+    if not later:
         return [_result("superseded", bump, "OK", "後続 release 無し")]
+    if published is None:
+        # Later releases exist but none can be ruled out without the candidate's own date.
+        return [_result("superseded", bump, "WARN", "当該版の公開時刻を取得できず評価不能")]
     window = timedelta(days=SUPERSEDED_WINDOW_DAYS)
     quick = [(version, at) for version, at in later if at - published <= window]
     first_version, first_at = (quick or later)[0]
