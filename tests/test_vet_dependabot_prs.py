@@ -650,6 +650,25 @@ def test_semver_prerelease_or_build_pin_is_not_ordered_with_pep_440(comment: str
     assert "GHSA-test" in check.detail
 
 
+@pytest.mark.parametrize(
+    ("closing", "comment", "expected"),
+    [
+        ({"last_affected": "0"}, "v0.0.0", "BLOCK"),  # 0 itself is the last affected version
+        ({"last_affected": "0"}, "v0.0.1", "OK"),
+        ({"fixed": "0"}, "v0.0.0", "OK"),  # fixed at 0 leaves nothing affected
+        ({"fixed": "1.0.0"}, "v0.9.0", "BLOCK"),
+    ],
+)
+def test_zero_is_a_sentinel_only_for_introduced(closing: dict[str, str], comment: str, expected: str) -> None:
+    # OSV gives `"0"` its "before every version" meaning only in `introduced`; elsewhere it is literal 0.
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, comment)
+    _action_advisory(
+        responses, "astral-sh/setup-uv", {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, closing]}]}
+    )
+
+    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == expected
+
+
 def test_semver_prerelease_range_bound_is_unevaluable() -> None:
     # `fixed: 2.0.0-1` precedes 2.0.0 in SemVer but follows it in PEP 440 (a false BLOCK there).
     responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "v2.0.0")

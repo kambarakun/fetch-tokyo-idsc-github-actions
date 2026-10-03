@@ -45,7 +45,7 @@ CI の `🔎 Dependabot PR の事前検証` ワークフローも同じ表を各
 - 公開時刻は、PyPI は当該版の全ファイルの最小アップロード時刻、GitHub は `releases/tags/{tag}` の `published_at` → annotated tag の `tagger.date` → タグが指す commit の `committer.date` の順に取る
 - cooldown を暦日差で数えるのは Dependabot に合わせるため。#745 (setup-uv v10.2.0 の公開 2026-09-21T13:15Z、PR 作成 2026-09-28T00:07Z) は経過 6.45 日だが暦日差 7 日で、Dependabot 自身は cooldown 充足として提案している
 - 同じ bump (同じ依存・旧版・新版・SHA) は複数ファイルにあっても 1 回だけ検査する。同じ版コメントでも SHA が違えば別々に `tag_sha` を評価する
-- OSV スキーマの特殊値に従う: `affected[].package.name` の `*` はエコシステム内の全 Action に当てる。`introduced: "0"` はどの版よりも前として扱う
+- OSV スキーマの特殊値に従う: `affected[].package.name` の `*` はエコシステム内の全 Action に当てる。`introduced: "0"` はどの版よりも前として扱う (`fixed` / `last_affected` / `limit` の `"0"` は数値の 0)
 - Action の版と range の境界は、数値だけ (`1.2.3` / `7` など) のときに限って順序づける。`1.0.0-1` のような SemVer の prerelease / build は、PEP 440 では post-release (1.0.0 より後) と解釈され SemVer と順序が逆になるため使わない。版がそうなら「不明」と同じ扱い、境界がそうなら評価できない range として WARN にする
 - OSV の range に `limit` イベントがあれば、OSV の評価手順どおり、どの `limit` より前でもない版 (`*` は無限大) は非該当とする
 - レポートの表のセルは PR 由来の文字列 (repo URL・`rev`・action 名) を含むので、`|` / バッククォート / `[` / `]` / `<` をエスケープし、リンク先は percent-encode する。PyPI の `yanked_reason` (公開者が書く自由文) は表に載せない

@@ -45,6 +45,7 @@ PYPI_PROJECT = "https://pypi.org/pypi/{name}/json"
 OSV_QUERY = "https://api.osv.dev/v1/query"
 OSV_MAX_PAGES = 20
 # OSV's `introduced: "0"` sorts before every version; Version("0") would sit above 0.0.0-alpha.
+# Only `introduced` carries that meaning: `fixed` / `last_affected` / `limit` of "0" stay literal 0.
 OSV_ZERO = Version("0.dev0")
 # Action versions follow SemVer, whose prerelease / build order PEP 440 does not share (`1.0.0-1` is a
 # post-release there), so only purely numeric versions are ordered; anything else is unevaluable.
@@ -635,7 +636,7 @@ def _affected_intervals(events: list[dict[str, str]]) -> tuple[list[Interval], V
         if bound == "*":
             parsed.append((kind, None))
             continue
-        limit = OSV_ZERO if bound == "0" else _numeric_version(bound)
+        limit = OSV_ZERO if kind == "introduced" and bound == "0" else _numeric_version(bound)
         if limit is None:
             return None
         parsed.append((kind, limit))
