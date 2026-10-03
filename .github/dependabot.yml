@@ -56,7 +56,14 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+    # 推移依存 (uv.lock にだけ載る依存) も更新対象にする (issue #728)。既定では manifest の
+    # 直接依存しか対象にならず、certifi (TLS 検証の CA バンドル) などはどこからも更新されなかった。
+    # 注: 上の semver-major ignore は CalVer の年替わり (certifi / tzdata / pytz の 2025.x -> 2026.x)
+    # も major とみなして除外する。年替わりの遅れは watchdog でも検知していない (follow-up)。
+    allow:
+      - dependency-type: "all"
     # 依存関係のグループ化 (関連する更新をまとめる)
+    # Dependabot は最初に一致したグループを採るため、全件に一致する transitive は必ず最後に置く。
     groups:
       # 🏭 本番依存関係をまとめる (慎重にレビュー)
       production:
@@ -85,6 +92,20 @@ updates:
       type-stubs:
         patterns:
           - "types-*"
+      # 🧬 推移依存をまとめる (必ず最後)。exclude-patterns は上のどのグループにも属さない直接依存で、
+      # 従来どおり単独 PR にする。直接依存を足したときはここか上のグループに加える
+      # (tests/test_dependabot_config.py が検証)
+      transitive:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "matplotlib"
+          - "seaborn"
+          - "packaging"
+          - "jsonschema"
+        update-types:
+          - "minor"
+          - "patch"
 
   # 🪝 pre-commit フックを更新 (2026-03-10 から Dependabot ネイティブサポート)
   # 対象は上流 `rev:` を参照する hook のみ (pre-commit-hooks / mirrors-prettier / actionlint)。

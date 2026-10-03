@@ -1,3 +1,4 @@
+import fnmatch
 import re
 import subprocess
 import sys
@@ -7,6 +8,7 @@ from pathlib import Path
 import requests
 import yaml
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 # Python tools whose pre-commit hooks must run from the uv-managed project venv (issue #680).
 PROJECT_VENV_TOOLS = {"black", "isort", "mypy", "ruff"}
@@ -185,3 +187,33 @@ def test_setup_uv_steps_include_yaml_workflows(tmp_path: Path) -> None:
 
     assert set(steps) == {"test.yml:test:0", "release.yaml:release:0"}
     assert "version-file" not in steps["release.yaml:release:0"].get("with", {})
+
+
+def test_uv_updates_cover_transitive_dependencies_without_absorbing_direct_ones() -> None:
+    """Transitive packages had no update path at all: certifi sat on 2025.10.5 for a year.
+
+    Dependabot puts an update into the first group whose patterns match, so the catch-all
+    `transitive` group must come last, and every direct dependency must be claimed either by
+    an earlier group or by its `exclude-patterns`. Otherwise a direct dependency added later
+    would silently move from its own reviewed PR into the transitive bundle.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    config = yaml.safe_load((project_root / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    project = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    uv = next(update for update in config["updates"] if update["package-ecosystem"] == "uv")
+    *earlier, (last_name, transitive) = uv["groups"].items()
+    specs = list(project.get("dependencies", []))
+    for extra in project.get("optional-dependencies", {}).values():
+        specs.extend(extra)
+    direct = {canonicalize_name(Requirement(spec).name) for spec in specs}
+    claiming = [pattern for _, group in earlier for pattern in group.get("patterns", [])]
+    claiming += transitive.get("exclude-patterns", [])
+
+    assert uv["allow"] == [{"dependency-type": "all"}]
+    assert last_name == "transitive"
+    assert transitive["patterns"] == ["*"]
+    # Dependabot matches group patterns case-insensitively (`PyYAML` claims `pyyaml`).
+    assert sorted(name for name in direct if not any(fnmatch.fnmatch(name, p.lower()) for p in claiming)) == []
+    # Major bumps stay manual everywhere, transitive ones included (pandas 3, virtualenv 21, ...).
+    major = {"dependency-name": "*", "update-types": ["version-update:semver-major"]}
+    assert all(major in update["ignore"] for update in config["updates"])
