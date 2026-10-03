@@ -633,16 +633,33 @@ def test_wildcard_package_advisory_applies_to_every_action() -> None:
     assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
 
 
-def test_introduced_zero_sorts_before_prereleases_of_zero() -> None:
-    # `introduced: "0"` is a sentinel below every version, including 0.0.0-alpha < Version("0").
-    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "v0.0.0-alpha")
+@pytest.mark.parametrize("comment", ["v0.0.0-alpha", "v1.0.0-1"])
+def test_semver_prerelease_or_build_pin_is_not_ordered_with_pep_440(comment: str) -> None:
+    # PEP 440 reads `1.0.0-1` as the post-release 1.0.0.post1, after 1.0.0; SemVer puts it before.
+    # Neither order is trusted for an Action, so a range that may cover the pin is a WARN, never OK.
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, comment)
     _action_advisory(
         responses,
         "astral-sh/setup-uv",
         {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.0.0"}]}]},
     )
 
-    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
+    check = _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")]
+
+    assert check.verdict == "WARN"
+    assert "GHSA-test" in check.detail
+
+
+def test_semver_prerelease_range_bound_is_unevaluable() -> None:
+    # `fixed: 2.0.0-1` precedes 2.0.0 in SemVer but follows it in PEP 440 (a false BLOCK there).
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "v2.0.0")
+    _action_advisory(
+        responses,
+        "astral-sh/setup-uv",
+        {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "2.0.0-1"}]}]},
+    )
+
+    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "WARN"
 
 
 def test_sha_pin_without_version_comment_and_any_advisory_is_a_warn() -> None:

@@ -46,6 +46,9 @@ OSV_QUERY = "https://api.osv.dev/v1/query"
 OSV_MAX_PAGES = 20
 # OSV's `introduced: "0"` sorts before every version; Version("0") would sit above 0.0.0-alpha.
 OSV_ZERO = Version("0.dev0")
+# Action versions follow SemVer, whose prerelease / build order PEP 440 does not share (`1.0.0-1` is a
+# post-release there), so only purely numeric versions are ordered; anything else is unevaluable.
+NUMERIC_VERSION = re.compile(r"v?\d+(?:\.\d+)*")
 DEPENDABOT_AUTHOR = "dependabot[bot]"
 ECOSYSTEM_BY_PREFIX = {
     "dependabot/github_actions/": "github-actions",
@@ -381,6 +384,10 @@ def _parse_version(text: str | None) -> Version | None:
         return None
 
 
+def _numeric_version(text: str | None) -> Version | None:
+    return Version(text.removeprefix("v")) if text and NUMERIC_VERSION.fullmatch(text) else None
+
+
 def _parse_time(text: str) -> datetime:
     return datetime.fromisoformat(text)
 
@@ -628,7 +635,7 @@ def _affected_intervals(events: list[dict[str, str]]) -> tuple[list[Interval], V
         if bound == "*":
             parsed.append((kind, None))
             continue
-        limit = OSV_ZERO if bound == "0" else _parse_version(bound)
+        limit = OSV_ZERO if bound == "0" else _numeric_version(bound)
         if limit is None:
             return None
         parsed.append((kind, limit))
@@ -671,10 +678,16 @@ def _range_overlaps(events: list[dict[str, str]], low: Version, high: Version | 
 
 def _action_precision(bump: Bump) -> tuple[str, Version | None]:
     """How exactly the version comment names a release: exact `vX.Y.Z`, floating `vN` / `vN.M`, or unknown."""
-    version = _parse_version(_tag(bump))
+    version = _numeric_version(_tag(bump))
     if version is None:
         return "unknown", None
     return ("exact" if len(version.release) >= 3 else "floating"), version
+
+
+def _imprecise_label(bump: Bump, precision: str) -> str:
+    if precision == "floating":
+        return f"浮動タグ {bump.new}"
+    return "版コメントが無い SHA pin" if _tag(bump) is None else f"数値だけでない版 {bump.new}"
 
 
 def _prefix_bounds(prefix: tuple[int, ...]) -> tuple[Version, Version]:
@@ -764,8 +777,7 @@ def check_advisory(fetch_json: FetchJson, post_json: PostJson, bump: Bump) -> li
         return [_result("advisory", bump, "BLOCK", f"OSV に該当 ({', '.join(hits)})", _osv_links(hits))]
     reasons: list[str] = []
     if possible:
-        precision = _action_precision(bump)[0]
-        label = f"浮動タグ {bump.new}" if precision == "floating" else "版コメントが無い SHA pin"
+        label = _imprecise_label(bump, _action_precision(bump)[0])
         reasons.append(f"{label} のため厳密判定不能 ({', '.join(possible)})。pin の SHA に対応する release を確認")
     if unevaluable:
         reasons.append(f"評価できない range ({', '.join(unevaluable)})")
@@ -827,8 +839,7 @@ def check_cooldown(fetch_json: FetchJson, bump: Bump, created_at: datetime, days
 def check_superseded(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
     if bump.kind == "action" and (precision := _action_precision(bump)[0]) != "exact":
         # `# v7` may pin 7.1.0; without the concrete release every 7.x would count as a successor.
-        reason = f"浮動タグ {bump.new}" if precision == "floating" else "版コメントが無い SHA pin"
-        return [_result("superseded", bump, "OK", f"{reason} のため評価不能")]
+        return [_result("superseded", bump, "OK", f"{_imprecise_label(bump, precision)} のため評価不能")]
     later = later_releases(fetch_json, bump)
     if later is None:
         return [_result("superseded", bump, "OK", "release が無いため評価不能")]
