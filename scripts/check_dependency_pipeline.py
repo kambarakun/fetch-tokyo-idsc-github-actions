@@ -82,6 +82,22 @@ ACTION_RELEASE_TAG = re.compile(r"v\d+\.\d+\.\d+")
 # present" -- the same distinction known_uv_checksums draws for setup-uv's table.
 LOCKFILE_ENTRY = re.compile(r'"@?[A-Za-z0-9._/-]+@\d+[^"]*"')
 
+# Check 1r (issue #728). Every Dependabot version-update job is a run of this dynamic
+# workflow, and its conclusion is public through the Actions API even though the job log is
+# not. One page is enough: the runs come back newest-first, and a weekly schedule leaves the
+# last full run of every ecosystem well inside the 100 most recent ones (2026-04-27 onwards
+# on 2026-09-24).
+DEPENDABOT_UPDATES_PATH = "dynamic/dependabot/dependabot-updates"
+ACTIONS_WORKFLOWS = GITHUB_API + "/repos/{repo}/actions/workflows?per_page=100"
+# No `event=` / `actor=` filter: `event=dynamic&actor=dependabot[bot]` dropped the
+# 2026-09-14 and 09-21 runs, i.e. the very runs this check has to see.
+ACTIONS_WORKFLOW_RUNS = GITHUB_API + "/repos/{repo}/actions/workflows/{workflow_id}/runs?per_page=100"
+# `uv in /. - Update #N` updates the whole manifest; `uv in / for ruff - Update #N` (or
+# `for ruff, mypy, pre-commit` for a group) only refreshes one open PR. The run name uses
+# the ecosystem with `_` where dependabot.yml uses `-` (`github_actions`, `pre_commit`).
+FULL_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in (?P<directory>\S+) - Update #\d+$")
+REFRESH_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in \S+ for .+ - Update #\d+$")
+
 # The ecosystem that proposes the Python dependencies check 2 looks at.
 PYTHON_ECOSYSTEM = "uv"
 
@@ -171,7 +187,8 @@ WATCHED_ACTION_DEPENDENCIES = (
 
 def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
     headers = {"Accept": accept, "User-Agent": "fetch-tokyo-idsc-dependency-watchdog"}
-    # The workflow token carries `issues: write` and `pull-requests: read`. The same fetchers
+    # The workflow token carries `issues: write` (plus read scopes for contents, pull requests
+    # and Actions runs). The same fetchers
     # also call pypi.org and raw.githubusercontent.com, so gate the credential on the host
     # rather than on the caller: a future check cannot leak it by picking the wrong fetcher.
     if token and urlsplit(url).hostname == GITHUB_API_HOST:
@@ -273,6 +290,28 @@ def last_dependabot_pr(fetch_json: FetchJson, repo: str, label: str) -> datetime
         if "pull_request" in item:
             return datetime.fromisoformat(item["created_at"])
     return None
+
+
+def dependabot_update_runs(fetch_json: FetchJson, repo: str) -> list[dict[str, Any]]:
+    """The newest page of Dependabot Updates runs.
+
+    A missing workflow or an empty list is an error rather than "no runs": like the search
+    API in issue #697, a token that lacks `actions: read` may well answer 200 with nothing in
+    it, and reading that as "the updater never ran" would raise an outage that is not there.
+    """
+    workflows = fetch_json(ACTIONS_WORKFLOWS.format(repo=repo))["workflows"]
+    workflow_id = next(
+        (workflow["id"] for workflow in workflows if workflow["path"] == DEPENDABOT_UPDATES_PATH),
+        None,
+    )
+    if workflow_id is None:
+        raise ValueError(f"workflow {DEPENDABOT_UPDATES_PATH} not found; is `actions: read` granted?")
+    runs: list[dict[str, Any]] = fetch_json(ACTIONS_WORKFLOW_RUNS.format(repo=repo, workflow_id=workflow_id))[
+        "workflow_runs"
+    ]
+    if not runs:
+        raise ValueError(f"no runs listed for {DEPENDABOT_UPDATES_PATH}; is `actions: read` granted?")
+    return runs
 
 
 def direct_requirements(root: Path) -> list[Requirement]:
@@ -566,6 +605,60 @@ def check_pr_age(
     return results
 
 
+def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], now: datetime) -> list[CheckResult]:
+    """1r from issue #728: did each ecosystem's updater run, and did its last full run succeed?
+
+    Check 1 only sees PRs, so a uv full run that failed every week from 2026-05-18 to 09-08
+    stayed green as long as some other dependency still got a PR. This reads the run itself,
+    and covers every configured ecosystem whether or not it has a label check 1 can join on.
+
+    Only the ecosystem, conclusion, date and URL are reported: run names carry dependency
+    names, which are not this report's business.
+    """
+    results: list[CheckResult] = []
+    for ecosystem in sorted({update["package-ecosystem"] for update in config["updates"]}):
+        run_ecosystem = ecosystem.replace("-", "_")
+        full_runs = [
+            run for run in runs if (match := FULL_UPDATE_RUN.match(run["name"])) and match["eco"] == run_ecosystem
+        ]
+        refresh_runs = [
+            run for run in runs if (match := REFRESH_UPDATE_RUN.match(run["name"])) and match["eco"] == run_ecosystem
+        ]
+        completed = [run for run in full_runs if run["status"] == "completed"]
+        latest = max(completed, key=lambda run: datetime.fromisoformat(run["created_at"]), default=None)
+        # A day of slack: Dependabot does not start exactly on the scheduled minute. Refresh
+        # runs count as a sign of life because a week with five open PRs has no full run.
+        since = last_scheduled_update(config, ecosystem, now) - timedelta(days=1)
+        ran_since_schedule = any(datetime.fromisoformat(run["created_at"]) >= since for run in full_runs + refresh_runs)
+        conclusion = latest["conclusion"] if latest else None
+        if latest is None:
+            detail = "取得した run に full run が見つからない"
+        else:
+            created = datetime.fromisoformat(latest["created_at"]).date().isoformat()
+            detail = f"最新の full run は {conclusion} ({created} / [run]({latest['html_url']}))"
+        detail += f" / 前回スケジュールの前日 ({since.date().isoformat()}) 以降の実行: " + (
+            "あり" if ran_since_schedule else "**なし**"
+        )
+        results.append(
+            CheckResult(
+                f"1r:{ecosystem}",
+                f"{ecosystem} エコシステムの Dependabot updater 実行結果",
+                "high",
+                conclusion == "success" and ran_since_schedule,
+                detail,
+                {
+                    "ecosystem": ecosystem,
+                    "conclusion": conclusion,
+                    "last_full_run_at": latest["created_at"] if latest else None,
+                    "last_full_run_url": latest["html_url"] if latest else None,
+                    "ran_since_schedule": ran_since_schedule,
+                    "since": since.isoformat(),
+                },
+            )
+        )
+    return results
+
+
 def check_stale_dependencies(
     stale: Sequence[StaleDependency], cooldown: int, threshold: int, as_of: datetime
 ) -> CheckResult:
@@ -772,6 +865,7 @@ def run_checks(
 
     families: list[tuple[str, Callable[[], list[CheckResult]]]] = [
         ("1", lambda: check_pr_age(fetch_json, repo, dependabot_ecosystems(config), now, max_pr_age_days)),
+        ("1r", lambda: check_updater_runs(config, dependabot_update_runs(fetch_json, repo), now)),
         ("2", stale_backlog),
         ("3", uv_pin),
         ("4", lambda: check_action_bundled_dependencies(fetch_json, fetch_text, root, WATCHED_ACTION_DEPENDENCIES)),

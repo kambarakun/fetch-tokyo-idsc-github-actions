@@ -23,7 +23,10 @@ on:
 # `pull-requests: read` は検査 1 に必須 (issue #697)。検査 1 は `GET /repos/{repo}/issues` が
 # 返す PR を読むため、この権限が無いとトークンから PR が見えず、全エコシステムが
 # 「PR が 1 件も存在しない」と誤検知する。Search API はこのトークンでは 403 になるため使わない。
+# `actions: read` は検査 1r に必須 (issue #728)。Dependabot Updates (dynamic ワークフロー) の
+# run の結論を読む。無いと run が見えず、1r が毎週「検査不能」になる。
 permissions:
+  actions: read
   contents: read
   issues: write
   pull-requests: read
