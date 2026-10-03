@@ -209,9 +209,12 @@ def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
     if not response.ok:
         # issue #697: a bare status code sent two runs chasing the wrong cause. GitHub explains
         # itself in the body ("Resource not accessible by integration", rate limits, ...), so
-        # carry the first part of it into the exception the workflow prints.
+        # print the first part of it to the job log. It stays out of the exception, whose text
+        # reaches the report table and the tracking issue: third-party text does not belong there.
         detail = " ".join(response.text.split())[:200]
-        raise requests.HTTPError(f"{response.status_code} {response.reason} for {url}: {detail}", response=response)
+        message = f"{response.status_code} {response.reason} for {url}"
+        print(f"{message}: {detail}", file=sys.stderr)
+        raise requests.HTTPError(message, response=response)
     return response
 
 
@@ -691,9 +694,12 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
         ]
         completed = [run for run in full_runs if run["status"] == "completed"]
         latest = max(completed, key=lambda run: datetime.fromisoformat(run["created_at"]), default=None)
-        # A day of slack: Dependabot does not start exactly on the scheduled minute. Refresh
-        # runs count as a sign of life because a week with five open PRs has no full run.
-        since = last_scheduled_update(config, ecosystem, now) - timedelta(days=1)
+        # A day of slack for a late start: Dependabot does not begin on the scheduled minute, so
+        # a schedule only counts once a day has passed since it. Moving the cut-off a day
+        # earlier instead would count the previous day's runs as this week's, and demand a run
+        # for a schedule that has only just arrived. Refresh runs count as a sign of life
+        # because a week with five open PRs has no full run.
+        since = last_scheduled_update(config, ecosystem, now - timedelta(days=1))
         ran_since_schedule = any(datetime.fromisoformat(run["created_at"]) >= since for run in full_runs + refresh_runs)
         conclusion = latest["conclusion"] if latest else None
         if latest is None:
@@ -701,7 +707,7 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
         else:
             created = datetime.fromisoformat(latest["created_at"]).date().isoformat()
             detail = f"最新の full run は {conclusion} ({created} / [run]({latest['html_url']}))"
-        detail += f" / 前回スケジュールの前日 ({since.date().isoformat()}) 以降の実行: " + (
+        detail += f" / 前回スケジュール ({since.date().isoformat()}) 以降の実行 (起動の遅れは 1 日まで許容): " + (
             "あり" if ran_since_schedule else "**なし**"
         )
         results.append(
@@ -962,9 +968,9 @@ def render_report(results: Sequence[CheckResult], repo: str, now: datetime) -> s
     ]
     for result in results:
         mark = "⚠️" if is_error(result) else "✅" if result.ok else "🚨"
-        lines.append(
-            f"| {mark} | {result.title} | {SEVERITY_MARK[result.severity]} {result.severity} | {result.detail} |"
-        )
+        # A bare `|` (e.g. inside an error message) would split the row into extra columns.
+        title, detail = (cell.replace("|", "\\|") for cell in (result.title, result.detail))
+        lines.append(f"| {mark} | {title} | {SEVERITY_MARK[result.severity]} {result.severity} | {detail} |")
     if alerts or errors:
         lines += ["", "## 対応", ""]
         lines.append("`docs/dependency-pipeline.md` の「アラート別の対応」を参照する。")

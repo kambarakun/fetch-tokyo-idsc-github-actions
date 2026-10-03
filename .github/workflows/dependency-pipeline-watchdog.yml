@@ -90,11 +90,20 @@ jobs:
           # 2 以上でもこの step は失敗させず、出せた report の掲載・アラートの起票まで進めてから
           # 最終 step でジョブを赤くする。無音で失敗すると本 issue の対象そのものを再現するため。
           # exit 2 のときの alert は、report.json に「検査できたうえでの不合格」行があるかで決める。
+          # 未捕捉の例外 (TypeError など) でも Python は exit 1 を返すが report は書かれないため、
+          # exit 1 は report.json があるときだけアラートとして扱い、無ければ検査不能とする。
           alert=false
           error=false
           case "${status}" in
             0) ;;
-            1) alert=true ;;
+            1)
+              if [ -f report.json ]; then
+                alert=true
+              else
+                error=true
+                echo "::error::生存確認が report を書かずに終了しました (exit ${status})"
+              fi
+              ;;
             *)
               error=true
               echo "::error::生存確認の一部または全部を実行できませんでした (exit ${status})"

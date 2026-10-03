@@ -8,6 +8,7 @@ isolation. Network access is replaced by dictionaries keyed on URL.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
@@ -388,6 +389,34 @@ def test_updater_runs_are_matched_on_their_documented_title_field(
     assert all(results[f"1r:{eco}"].ok for eco in ("github-actions", "pre-commit", "uv"))
 
 
+def test_a_run_just_after_the_schedule_does_not_yet_expect_this_weeks_updater(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Monday 09:30 JST, before Dependabot has started: last week's run is still the latest due.
+
+    The slack has to absorb a late start. Moving the cut-off a day earlier instead demanded a
+    run for a schedule that had only just arrived, so a manual run right after it went red
+    for every ecosystem at once.
+    """
+    monday_after_schedule = datetime(2026, 9, 7, 0, 30, tzinfo=UTC)  # 09:30 JST
+    last_week = datetime(2026, 8, 31, 0, 6, tzinfo=UTC)  # the previous Monday's run
+    responses = dict(healthy_responses)
+    responses["dependabot-runs"] = _runs(
+        *(_update_run(eco, last_week) for eco in ("github_actions", "uv", "pre_commit"))
+    )
+
+    results = {
+        result.check_id: result
+        for result in watchdog.run_checks(
+            *_fetchers(responses), repo, "owner/name", monday_after_schedule, max_pr_age_days=21, max_stale_direct=3
+        )
+    }
+
+    assert all(results[f"1r:{eco}"].ok for eco in ("github-actions", "pre-commit", "uv"))
+    # By Wednesday the slack is used up, and last week's run no longer covers this schedule.
+    assert _run(repo, responses)["1r:uv"].ok is False
+
+
 @pytest.mark.usefixtures("frozen_clock")
 def test_no_dependabot_runs_at_all_cannot_be_judged(
     repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
@@ -744,14 +773,21 @@ def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.Monk
     assert len(seen) == 4
 
 
-def test_http_get_puts_the_response_body_into_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """issue #697: a bare status code hid whether 403 was a missing permission or a rate limit."""
+def test_http_get_logs_the_response_body_but_keeps_it_out_of_the_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """issue #697: a bare status code hid whether 403 was a missing permission or a rate limit.
+
+    The body goes to the job log for that diagnosis, not into the exception: the exception
+    text ends up in the report table, and a third-party body with `|` or Markdown in it
+    would break the table that becomes the tracking issue.
+    """
 
     class _Forbidden:
         ok = False
         status_code = 403
         reason = "Forbidden"
-        text = '{"message": "Resource not accessible by integration"}'
+        text = '{"message": "Resource not accessible | by integration"}'
 
     monkeypatch.setattr(watchdog.requests, "get", lambda url, headers, timeout: _Forbidden())
     fetch_json, _ = watchdog.make_fetchers("secret-token")
@@ -760,7 +796,22 @@ def test_http_get_puts_the_response_body_into_the_error(monkeypatch: pytest.Monk
         fetch_json(f"{watchdog.GITHUB_API}/repos/owner/name/issues?labels=python")
 
     assert "403 Forbidden" in str(excinfo.value)
-    assert "Resource not accessible by integration" in str(excinfo.value)
+    assert "Resource not accessible" not in str(excinfo.value)
+    assert "Resource not accessible | by integration" in capsys.readouterr().err
+
+
+def test_report_cells_cannot_break_the_table(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """A `|` in a cell would split the row and shift every column after it."""
+    result = watchdog.CheckResult(
+        "4:error", "検査 4 | の実行", "high", False, "検査不能: KeyError: 'a|b'", {"error": True}
+    )
+
+    report = watchdog.render_report([result], "owner/name", NOW)
+
+    row = next(line for line in report.splitlines() if line.startswith("| ⚠️"))
+    assert row.replace("\\|", "").count("|") == 5
+    assert "検査 4 \\| の実行" in row
+    assert "'a\\|b'" in row
 
 
 def test_missing_ecosystem_pr_history_is_an_alert(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -1179,6 +1230,10 @@ def test_watchdog_workflow_reports_partial_results_before_failing() -> None:
     checks = next(step for step in steps.values() if step.get("id") == "checks")
 
     assert 'exit "${status}"' not in checks["run"]
+    # An uncaught exception also exits 1, but without a report: exit 1 alone is not an alert.
+    exit_one = re.search(r"^\s*1\)(.*?);;", checks["run"], re.MULTILINE | re.DOTALL)
+    assert exit_one is not None
+    assert "report.json" in exit_one.group(1)
     assert "error == 'false'" in steps["Close the tracking issue when healthy"]["if"]
     assert "error == 'true'" in steps["Fail when a check could not run"]["if"]
     assert list(steps)[-1] == "Fail when a check could not run"
