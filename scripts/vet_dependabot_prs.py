@@ -51,7 +51,8 @@ ECOSYSTEM_BY_PREFIX = {
 }
 EXPECTED_FILES = {
     "uv": ("pyproject.toml", "uv.lock"),
-    "github-actions": (".github/workflows/*.yml",),
+    # GitHub accepts both extensions for workflow files.
+    "github-actions": (".github/workflows/*.yml", ".github/workflows/*.yaml"),
     "pre-commit": (".pre-commit-config.yaml",),
 }
 # The dependabot.yml ecosystem whose cooldown applies to each kind of bump.
@@ -65,7 +66,11 @@ DEFAULT_COOLDOWN_DAYS = 3
 PAGE_SIZE = 100
 
 # A trailing subpath (`github/codeql-action/init@...`) still names the `owner/repo` that owns the tag.
-USES_PATTERN = re.compile(r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)(?:/[\w./-]+)?@([0-9a-f]{40})\s*#\s*(v?\d[\w.-]*)")
+# The version comment is optional: a bare SHA pin is still a bump, vetted as "no tag to compare".
+USES_PATTERN = re.compile(r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)(?:/[\w./-]+)?@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.-]*))?")
+# Report cells are plain text: escape what could open a link, image, code span, HTML or a new cell.
+MARKDOWN_SPECIAL = re.compile(r"([\\|`\[\]<])")
+SHORT_SHA = 12
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 GITHUB_URL_PATTERN = re.compile(r"github\.com/([^/]+/[^/]+?)(?:\.git)?/?$")
 REMOTE_PATTERN = re.compile(r"github\.com[:/]([^/]+/[^/.]+)")
@@ -405,7 +410,7 @@ def _workflow_pins(text: str | None) -> dict[str, dict[str, str]]:
     pins: dict[str, dict[str, str]] = {}
     for line in (text or "").splitlines():
         if match := USES_PATTERN.match(line):
-            pins.setdefault(match[1], {})[match[2]] = match[3]
+            pins.setdefault(match[1], {})[match[2]] = match[3] or match[2][:SHORT_SHA]
     return pins
 
 
@@ -478,11 +483,9 @@ def cooldown_days(dependabot_yml_text: str | None, ecosystem: str) -> int:
 
 
 def _dedupe(bumps: Iterable[Bump]) -> list[Bump]:
-    # #745 moved the same setup-uv pin in five workflows; vet it once.
-    unique: dict[tuple[str, str | None, str], Bump] = {}
-    for bump in bumps:
-        unique.setdefault((bump.name, bump.old, bump.new), bump)
-    return list(unique.values())
+    # #745 moved the same setup-uv pin in five workflows; vet it once. Two different SHAs under
+    # the same version comment stay separate so the one that does not match its tag still BLOCKs.
+    return list(dict.fromkeys(bumps))
 
 
 # --- release metadata ----------------------------------------------------------------------
@@ -495,7 +498,7 @@ def _github_repo(bump: Bump) -> str | None:
 
 def _tag(bump: Bump) -> str | None:
     """The tag a GitHub bump claims: the `rev:` itself, or the version comment beside a SHA."""
-    if bump.sha and SHA_PATTERN.fullmatch(bump.new):
+    if bump.sha and bump.sha.startswith(bump.new):  # no version comment beside the SHA
         return None
     return bump.new
 
@@ -540,7 +543,7 @@ def release_published_at(fetch_json: FetchJson, bump: Bump) -> datetime | None:
 def later_releases(fetch_json: FetchJson, bump: Bump) -> list[tuple[Version, datetime]] | None:
     """Stable releases newer than the bump, or None when the source publishes no releases."""
     current = _parse_version(bump.new)
-    if current is None:
+    if current is None or (bump.kind != "pypi" and _tag(bump) is None):
         return None
     found: list[tuple[Version, datetime]] = []
     if bump.kind == "pypi":
@@ -586,8 +589,8 @@ def check_yanked(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
     release = fetch_json(PYPI_RELEASE.format(name=bump.name, version=bump.new))
     files = release["urls"]
     if release["info"].get("yanked") or (files and all(item.get("yanked", False) for item in files)):
-        reason = release["info"].get("yanked_reason") or "理由の記載なし"
-        return [_result("yanked", bump, "BLOCK", f"PyPI で yank 済み ({reason})", [_release_link(bump)])]
+        # `yanked_reason` is publisher-written free text and stays out of a report agents read.
+        return [_result("yanked", bump, "BLOCK", "PyPI で yank 済み (理由は PyPI で確認)", [_release_link(bump)])]
     return [_result("yanked", bump, "OK", "PyPI で yank されていない", [_release_link(bump)])]
 
 
@@ -596,13 +599,28 @@ def _osv_links(ids: Iterable[str]) -> list[str]:
 
 
 def _range_hit(version: Version, events: list[dict[str, str]]) -> bool | None:
-    """Evaluate one OSV ECOSYSTEM range; None when a bound is not a parseable version."""
-    affected = False
+    """Evaluate one OSV ECOSYSTEM range; None when a bound is not a parseable version.
+
+    Follows the OSV evaluation algorithm: a version that is not before any `limit` (`*` being
+    infinite) is outside the range, whatever the introduced / fixed events say.
+    """
+    parsed: list[tuple[str, Version | None]] = []
     for event in events:
         (kind, bound), *_ = event.items()
+        if bound == "*":
+            parsed.append((kind, None))
+            continue
         limit = Version("0") if bound == "0" else _parse_version(bound)
         if limit is None:
             return None
+        parsed.append((kind, limit))
+    limits = [limit for kind, limit in parsed if kind == "limit"]
+    if limits and not any(limit is None or version < limit for limit in limits):
+        return False
+    affected = False
+    for kind, limit in parsed:
+        if limit is None or kind == "limit":
+            continue
         if kind == "introduced" and version >= limit:
             affected = True
         elif (kind == "fixed" and version >= limit) or (kind == "last_affected" and version > limit):
@@ -662,7 +680,7 @@ def check_python_range(fetch_json: FetchJson, bump: Bump, floor: Version) -> lis
         ]
     verdict = "OK" if supported else "BLOCK"
     relation = "⊇" if supported else "⊉"
-    return [_result("python_range", bump, verdict, f"`{spec}` {relation} {floor}", [_release_link(bump)])]
+    return [_result("python_range", bump, verdict, f"{spec} {relation} {floor}", [_release_link(bump)])]
 
 
 def check_tag_sha(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
@@ -732,9 +750,11 @@ def _expected(path: str, ecosystem: str | None) -> bool:
 
 
 def check_pr_hygiene(
-    pr: dict[str, Any], files: list[str], commits: list[dict[str, Any]], ecosystem: str | None
+    pr: dict[str, Any], files: list[str], commits: list[dict[str, Any]], ecosystem: str | None, bumps: list[Bump]
 ) -> list[CheckResult]:
     problems: list[str] = []
+    if not bumps:
+        problems.append("bump を検出できなかった (SHA pin 以外の uses: など。変更を手で確認する)")
     if ecosystem is None:
         problems.append("head.ref の接頭辞がどのエコシステムにも一致しない")
     if extra := [path for path in files if not _expected(path, ecosystem)]:
@@ -745,7 +765,7 @@ def check_pr_hygiene(
     if problems:
         return [_result("pr_hygiene", None, "WARN", "; ".join(problems))]
     prefix = next(p for p, eco in ECOSYSTEM_BY_PREFIX.items() if eco == ecosystem)
-    detail = f"`{prefix}`、{', '.join(files)}、commit {len(commits)}"
+    detail = f"{prefix}、{', '.join(files)}、commit {len(commits)}"
     return [_result("pr_hygiene", None, "OK", detail, [pr.get("html_url", "")] if pr.get("html_url") else [])]
 
 
@@ -766,7 +786,7 @@ def check_ci_green(fetch_json: FetchJson, repo: str, head_sha: str) -> list[Chec
 
 PARSERS: dict[str, tuple[Callable[[str | None, str | None], list[Bump]], Callable[[str], bool]]] = {
     "uv": (uv_lock_bumps, lambda path: path == "uv.lock"),
-    "github-actions": (workflow_bumps, lambda path: PurePosixPath(path).match(".github/workflows/*.yml")),
+    "github-actions": (workflow_bumps, lambda path: _expected(path, "github-actions")),
     "pre-commit": (pre_commit_bumps, lambda path: path == ".pre-commit-config.yaml"),
 }
 
@@ -824,7 +844,7 @@ def vet_pull_request(
         checks += check_cooldown(fetch_json, bump, created_at, days)
         checks += check_superseded(fetch_json, bump)
         checks += check_major_bump(bump)
-    checks += check_pr_hygiene(pr, files, commits, ecosystem)
+    checks += check_pr_hygiene(pr, files, commits, ecosystem, bumps)
     checks += check_ci_green(fetch_json, repo, head_sha)
     return PullRequestVerdict(number, ecosystem, head_sha, bumps, checks)
 
@@ -833,7 +853,13 @@ def vet_pull_request(
 
 
 def _cell(text: str) -> str:
-    return text.replace("|", "\\|").replace("\n", " ")
+    return MARKDOWN_SPECIAL.sub(r"\\\1", " ".join(text.split()))
+
+
+def _link(url: str) -> str:
+    # Repository and tag names in URLs come from the PR; percent-encode anything that could
+    # close the link target or the table cell.
+    return quote(url, safe=":/?#=&%@+,;~")
 
 
 def verdict_line(verdict: PullRequestVerdict) -> str:
@@ -856,10 +882,11 @@ def render_pull_request(verdict: PullRequestVerdict) -> str:
     ]
     for check in verdict.checks:
         bump = bumps.get(check.dependency)
-        change = f"{bump.old or '(新規)'} → {bump.new}" if bump else "-"
-        links = " ".join(f"[{index}]({link})" for index, link in enumerate(check.links, start=1))
-        evidence = _cell(f"{check.detail} {links}".strip())
-        lines.append(f"| {check.dependency} | {change} | {check.check_id} | {check.verdict} | {evidence} |")
+        change = _cell(f"{bump.old or '(新規)'} → {bump.new}") if bump else "-"
+        links = " ".join(f"[{index}]({_link(link)})" for index, link in enumerate(check.links, start=1))
+        evidence = f"{_cell(check.detail)} {links}".strip()
+        cells = [_cell(check.dependency), change, _cell(check.check_id), _cell(check.verdict), evidence]
+        lines.append(f"| {' | '.join(cells)} |")
     lines += ["", verdict_line(verdict)]
     return "\n".join(lines) + "\n"
 

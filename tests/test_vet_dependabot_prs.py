@@ -8,6 +8,7 @@ check. The numbers mirror the PRs the issue was designed against (#745, #747, #7
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
@@ -85,7 +86,8 @@ def _uv_lock(**versions: str) -> str:
 
 
 def _workflow(action: str, sha: str, tag: str) -> str:
-    return f"jobs:\n  test:\n    steps:\n      - name: Step\n        uses: {action}@{sha} # {tag}\n"
+    comment = f" # {tag}" if tag else ""
+    return f"jobs:\n  test:\n    steps:\n      - name: Step\n        uses: {action}@{sha}{comment}\n"
 
 
 def _pre_commit(repo: str, rev: str, comment: str = "") -> str:
@@ -288,7 +290,8 @@ def test_yanked_release_is_a_block(uv_pr: dict[str, Any]) -> None:
     check = _checks(_vet(uv_pr))[("yanked", "ruff")]
 
     assert check.verdict == "BLOCK"
-    assert "broken" in check.detail
+    # `yanked_reason` is publisher-written free text; only the structured flag reaches the report.
+    assert "broken" not in check.detail
 
 
 def test_pypi_advisory_is_a_block(uv_pr: dict[str, Any]) -> None:
@@ -351,6 +354,33 @@ def test_github_action_advisory_listing_the_exact_version_is_a_block(action_pr: 
 
     assert check.verdict == "BLOCK"
     assert "GHSA-listed" in check.detail
+
+
+@pytest.mark.parametrize(
+    ("limits", "expected"),
+    [
+        (["2.0.0"], "OK"),  # v10.2.0 is not before the only limit
+        (["2.0.0", "11.0.0"], "BLOCK"),  # ... but is before one of several
+        (["*"], "BLOCK"),  # `*` is an infinite limit
+    ],
+)
+def test_osv_limit_events_bound_the_affected_range(action_pr: dict[str, Any], limits: list[str], expected: str) -> None:
+    events = [{"introduced": "1.0.0"}] + [{"limit": limit} for limit in limits]
+    action_pr["osv:GitHub Actions/astral-sh/setup-uv@*"] = {
+        "vulns": [
+            {
+                "id": "GHSA-limited",
+                "affected": [
+                    {
+                        "package": {"ecosystem": "GitHub Actions", "name": "astral-sh/setup-uv"},
+                        "ranges": [{"type": "ECOSYSTEM", "events": events}],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert _checks(_vet(action_pr))[("advisory", "astral-sh/setup-uv")].verdict == expected
 
 
 def test_github_action_advisory_with_git_range_is_unevaluable_not_block(action_pr: dict[str, Any]) -> None:
@@ -480,6 +510,63 @@ def test_action_sha_matching_dereferenced_annotated_tag_is_ok() -> None:
     assert vet.verdict_line(verdict) == "判定: WARN (1 件)"
 
 
+def test_sha_pin_without_version_comment_is_still_vetted(action_pr: dict[str, Any]) -> None:
+    path = ".github/workflows/test.yml"
+    action_pr[f"{API}/contents/{path}?ref={HEAD_SHA}"] = _workflow("astral-sh/setup-uv", SETUP_UV_NEW, "")
+
+    verdict = _vet(action_pr)
+    bare = [bump for bump in verdict.bumps if bump.new == SETUP_UV_NEW[:12]]
+
+    assert bare == [vet.Bump("astral-sh/setup-uv", "v10.1.0", SETUP_UV_NEW[:12], "action", sha=SETUP_UV_NEW)]
+    tag_sha = [check for check in verdict.checks if check.check_id == "tag_sha"]
+    assert sorted(check.verdict for check in tag_sha) == ["OK", "WARN"]
+
+
+def test_pr_without_detected_bumps_is_a_warn(action_pr: dict[str, Any]) -> None:
+    # A tag-only `uses:` (no SHA pin) is invisible to the parser: say so instead of reporting OK.
+    for name in ("test", "watchdog"):
+        path = f".github/workflows/{name}.yml"
+        action_pr[f"{API}/contents/{path}?ref={HEAD_SHA}"] = (
+            "jobs:\n  t:\n    steps:\n      - uses: astral-sh/setup-uv@v10\n"
+        )
+
+    verdict = _vet(action_pr)
+
+    assert verdict.bumps == []
+    assert verdict.verdict == "WARN"
+    assert "bump を検出できなかった" in _checks(verdict)[("pr_hygiene", "-")].detail
+
+
+def test_distinct_sha_pins_for_the_same_version_are_each_checked(action_pr: dict[str, Any]) -> None:
+    wrong = "9" * 40
+    path = ".github/workflows/watchdog.yml"
+    action_pr[f"{API}/contents/{path}?ref={HEAD_SHA}"] = _workflow("astral-sh/setup-uv", wrong, "v10.2.0")
+
+    verdict = _vet(action_pr)
+    tag_sha = sorted(check.verdict for check in verdict.checks if check.check_id == "tag_sha")
+
+    assert tag_sha == ["BLOCK", "OK"]
+    assert verdict.verdict == "BLOCK"
+
+
+def test_yaml_extension_workflows_are_parsed() -> None:
+    responses: dict[str, Any] = {}
+    files = {
+        ".github/workflows/ci.yaml": (
+            _workflow("astral-sh/setup-uv", SETUP_UV_OLD, "v10.1.0"),
+            _workflow("astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0"),
+        )
+    }
+    _pr(responses, head_ref="dependabot/github_actions/astral-sh/setup-uv-10.2.0", files=files)
+    _tag(responses, "astral-sh/setup-uv", "v10.2.0", SETUP_UV_NEW)
+    _releases(responses, "astral-sh/setup-uv", {"v10.2.0": datetime(2026, 9, 21, tzinfo=UTC)})
+
+    verdict = _vet(responses)
+
+    assert [bump.new for bump in verdict.bumps] == ["v10.2.0"]
+    assert _checks(verdict)[("pr_hygiene", "-")].verdict == "OK"
+
+
 def test_action_sha_not_matching_tag_is_a_block(action_pr: dict[str, Any]) -> None:
     _tag(action_pr, "astral-sh/setup-uv", "v10.2.0", "9" * 40)
 
@@ -568,6 +655,24 @@ def test_major_bump_is_a_warn(uv_pr: dict[str, Any]) -> None:
 
 
 # --- per-PR checks -------------------------------------------------------------------------
+
+
+def test_pr_controlled_strings_cannot_break_the_report_table() -> None:
+    responses: dict[str, Any] = {}
+    repo_url = "https://gitlab.com/evil/hooks"
+    rev = "v2|<img src=x>[x](https://evil.example)`"
+    files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "v1"), _pre_commit(repo_url, f"'{rev}'"))}
+    _pr(responses, head_ref="dependabot/pre_commit/https-/gitlab.com/evil/hooks-2", files=files)
+
+    report = vet.render_pull_request(_vet(responses))
+    rows = [line for line in report.splitlines() if line.startswith("| ") and "evil" in line]
+
+    assert rows
+    for row in rows:
+        # Five cells means six unescaped separators, whatever the PR wrote.
+        assert len(re.findall(r"(?<!\\)\|", row)) == 6
+        assert "[x](" not in row
+        assert not re.search(r"(?<!\\)<img", row)
 
 
 def test_extra_files_and_human_commits_are_a_warn(action_pr: dict[str, Any]) -> None:
