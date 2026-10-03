@@ -16,7 +16,7 @@ Usage:
     # 未処理・改訂後未再処理のrawパスを1行1件で出力 (--json とは併用不可)
     uv run check-data-status --list-needs-processing
 
-    # 未処理・改訂後未再処理のrawがあれば終了コード1 (CIのゲート用)
+    # 未完了 (処理できないものを含む)・改訂後未再処理のrawがあれば終了コード1 (CIのゲート用)
     uv run check-data-status --fail-on-incomplete
 """
 
@@ -56,7 +56,7 @@ def main() -> int:
     """メイン処理
 
     Returns:
-        終了コード (--fail-on-incomplete 指定時に未処理・改訂後未再処理のrawがあれば1、それ以外は0)
+        終了コード (--fail-on-incomplete 指定時に未完了 (処理できないものを含む)・改訂後未再処理のrawがあれば1、それ以外は0)
     """
     parser = argparse.ArgumentParser(description="データ処理状況確認スクリプト")
 
@@ -75,7 +75,7 @@ def main() -> int:
     parser.add_argument(
         "--fail-on-incomplete",
         action="store_true",
-        help="出力欠損または改訂後未再処理のrawがあれば終了コード1で終了",
+        help="未完了 (出力欠損・処理できないraw) または改訂後未再処理のrawがあれば終了コード1で終了",
     )
 
     args = parser.parse_args()
@@ -104,7 +104,10 @@ def main() -> int:
         # 人間可読形式で出力
         print_status(status, args.verbose)
 
-    if args.fail_on_incomplete and needs_processing_raw_files(status["coverage"]):
+    # Sources reprocessing cannot fix (unsupported name, nested path, unprocessable content) still
+    # fail the gate even though --list-needs-processing omits them.
+    coverage = status["coverage"]
+    if args.fail_on_incomplete and (coverage["incomplete_source_count"] > 0 or coverage["stale_source_count"] > 0):
         return 1
     return 0
 

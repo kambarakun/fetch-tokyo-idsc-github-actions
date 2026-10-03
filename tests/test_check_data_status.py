@@ -311,3 +311,28 @@ def test_orphaned_outputs_alone_do_not_fail(
     # Assert
     assert exit_code == 0
     assert capsys.readouterr().out == ""
+
+
+def test_unfixable_sources_alone_still_fail_but_are_not_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Arrange: only sources reprocessing cannot fix (unsupported name, nested path, unprocessable content)
+    data_dir = tmp_path / "data"
+    _write_raw(data_dir, "invalid.csv", NOTIFIABLE_ROWS)
+    _write_raw(data_dir, "a/notifiable_weekly_2025_03.csv", NOTIFIABLE_ROWS)
+    _write_raw(data_dir, "sentinel_weekly_gender_2025_02.csv", ["h1,h2", "1,2"])
+
+    # Act
+    list_exit_code = _run_main(
+        monkeypatch, "--data-dir", str(data_dir), "--list-needs-processing", "--fail-on-incomplete"
+    )
+    list_out = capsys.readouterr().out
+    json_exit_code = _run_main(monkeypatch, "--data-dir", str(data_dir), "--json", "--fail-on-incomplete")
+    coverage = json.loads(capsys.readouterr().out)["coverage"]
+
+    # Assert
+    assert list_exit_code == 1
+    assert list_out == ""
+    assert json_exit_code == 1
+    assert coverage["incomplete_source_count"] == 3
+    assert coverage["stale_source_count"] == 0
