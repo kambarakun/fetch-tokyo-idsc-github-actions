@@ -12,9 +12,16 @@ Usage:
 
     # JSON形式で出力
     uv run check-data-status --json
+
+    # 未処理・改訂後未再処理のrawパスを1行1件で出力 (--json とは併用不可)
+    uv run check-data-status --list-needs-processing
+
+    # 未処理・改訂後未再処理のrawがあれば終了コード1 (CIのゲート用)
+    uv run check-data-status --fail-on-incomplete
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -45,15 +52,31 @@ DATA_TYPE_OUTPUT_KINDS = {
 }
 
 
-def main():
-    """メイン処理"""
+def main() -> int:
+    """メイン処理
+
+    Returns:
+        終了コード (--fail-on-incomplete 指定時に未処理・改訂後未再処理のrawがあれば1、それ以外は0)
+    """
     parser = argparse.ArgumentParser(description="データ処理状況確認スクリプト")
 
     parser.add_argument("--data-dir", type=str, default="data", help="dataディレクトリのパス(デフォルト: data)")
 
     parser.add_argument("-v", "--verbose", action="store_true", help="詳細情報を表示")
 
-    parser.add_argument("--json", action="store_true", help="JSON形式で出力")
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("--json", action="store_true", help="JSON形式で出力")
+    output_group.add_argument(
+        "--list-needs-processing",
+        action="store_true",
+        help="処理が必要なraw (出力欠損・改訂後未再処理) のパスを1行1件で出力",
+    )
+
+    parser.add_argument(
+        "--fail-on-incomplete",
+        action="store_true",
+        help="出力欠損または改訂後未再処理のrawがあれば終了コード1で終了",
+    )
 
     args = parser.parse_args()
 
@@ -70,12 +93,31 @@ def main():
         print(f"❌ データディレクトリの読み取りに失敗しました: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    if args.json:
+    if args.list_needs_processing:
+        # stdout is consumed as a file list (e.g. by process-data --files), so print paths only.
+        for raw_file in needs_processing_raw_files(status["coverage"]):
+            print(str(Path(args.data_dir) / "raw" / raw_file))
+    elif args.json:
         # JSON形式で出力
         print(json.dumps(status, ensure_ascii=False, indent=2))
     else:
         # 人間可読形式で出力
         print_status(status, args.verbose)
+
+    if args.fail_on_incomplete and needs_processing_raw_files(status["coverage"]):
+        return 1
+    return 0
+
+
+def needs_processing_raw_files(coverage: dict[str, Any]) -> list[str]:
+    """Return raw files that re-running the processor would fix (missing outputs or stale outputs).
+
+    Sources with a ``reason`` (unsupported name, noncanonical path, unprocessable content) are
+    excluded because reprocessing cannot fix them.
+    """
+    raw_files = {source["raw_file"] for source in coverage["incomplete_sources"] if source.get("reason") is None}
+    raw_files.update(source["raw_file"] for source in coverage["stale_sources"])
+    return sorted(raw_files)
 
 
 def check_status(data_dir: Path, verbose: bool = False) -> dict[str, Any]:
@@ -156,14 +198,54 @@ def find_csv_files(dir_path: Path) -> list[Path]:
     )
 
 
+def _calculate_file_hash(file_path: Path) -> str:
+    """Return the sha256 hex digest of a file, matching the processor's ``source_hash``."""
+    sha256 = hashlib.sha256()
+    with file_path.open("rb") as f:
+        while chunk := f.read(65536):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def _recorded_source_hash(metadata_file: Path) -> object:
+    """Return ``_process.source_hash`` from processed metadata, or None when it cannot be read."""
+    try:
+        metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    process = metadata.get("_process") if isinstance(metadata, dict) else None
+    return process.get("source_hash") if isinstance(process, dict) else None
+
+
+def find_stale_outputs(raw_file: Path, expected_outputs: list[str], metadata_dir: Path) -> list[str]:
+    """Return outputs whose metadata does not record the current raw file hash.
+
+    Missing or unreadable metadata counts as stale: the output cannot be proven to reflect
+    the current raw content (e.g. the raw file was revised after processing).
+    """
+    raw_hash = _calculate_file_hash(raw_file)
+    return sorted(
+        output
+        for output in expected_outputs
+        if _recorded_source_hash(metadata_dir / f"{Path(output).stem}.json") != raw_hash
+    )
+
+
 def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, Any]:
-    """Calculate source-based processing coverage and identify mismatched artifacts."""
+    """Calculate source-based processing coverage and identify mismatched artifacts.
+
+    A source counts as processed only when every expected output exists and its metadata
+    records the current raw file hash; otherwise it is reported as incomplete (missing outputs)
+    or stale (outputs predate a raw revision).
+    """
     raw_files = find_csv_files(raw_dir)
     processed_files = find_csv_files(processed_dir)
     processed_paths = {path.relative_to(processed_dir).as_posix() for path in processed_files}
+    metadata_dir = processed_dir / ".metadata"
 
     expected_paths: set[str] = set()
     incomplete_sources: list[dict[str, Any]] = []
+    stale_sources: list[dict[str, Any]] = []
     processed_source_count = 0
 
     for raw_file in raw_files:
@@ -186,10 +268,15 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
 
         expected_paths.update(expected_outputs)
         missing_outputs = sorted(set(expected_outputs) - processed_paths)
-        if not missing_outputs:
-            processed_source_count += 1
-        else:
+        if missing_outputs:
             incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_outputs})
+            continue
+
+        stale_outputs = find_stale_outputs(raw_file, expected_outputs, metadata_dir)
+        if stale_outputs:
+            stale_sources.append({"raw_file": raw_path, "stale_outputs": stale_outputs})
+        else:
+            processed_source_count += 1
 
     raw_source_count = len(raw_files)
     processed_rate = (processed_source_count / raw_source_count * 100) if raw_source_count else 0.0
@@ -201,6 +288,8 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
         "processed_source_count": processed_source_count,
         "incomplete_source_count": len(incomplete_sources),
         "incomplete_sources": incomplete_sources,
+        "stale_source_count": len(stale_sources),
+        "stale_sources": stale_sources,
         "orphaned_processed_count": len(orphaned_processed_files),
         "orphaned_processed_files": orphaned_processed_files,
     }
@@ -275,6 +364,7 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
         f"処理済みraw: {status['coverage']['processed_source_count']} / " f"{status['coverage']['raw_source_count']}件"
     )
     print(f"未完了raw: {status['coverage']['incomplete_source_count']}件")
+    print(f"改訂後未再処理raw: {status['coverage']['stale_source_count']}件")
     print(f"rawに対応しない処理済みファイル: {status['coverage']['orphaned_processed_count']}件")
 
     if verbose and status["coverage"]["incomplete_sources"]:
@@ -289,6 +379,12 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
             else:
                 missing = ", ".join(source["missing_outputs"])
                 print(f"    - {source['raw_file']} (欠損: {missing})")
+
+    if verbose and status["coverage"]["stale_sources"]:
+        print("  改訂後未再処理raw一覧:")
+        for source in status["coverage"]["stale_sources"]:
+            stale = ", ".join(source["stale_outputs"])
+            print(f"    - {source['raw_file']} (再処理が必要: {stale})")
 
     if verbose and status["coverage"]["orphaned_processed_files"]:
         print("  孤立processed一覧:")
@@ -306,6 +402,7 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
     unprocessable_sources = [
         source for source in status["coverage"]["incomplete_sources"] if source.get("reason") is not None
     ]
+    stale_sources = status["coverage"]["stale_sources"]
 
     if status["raw"]["file_count"] == 0:
         print("⚠️  data/raw/にデータがありません")
@@ -317,7 +414,14 @@ def print_status(status: dict[str, Any], verbose: bool = False) -> None:
                 print("⚠️  データ処理が必要です")
             else:
                 print("⚠️  一部のファイルが処理されていません")
-            print("   → uv run process-data --all")
+
+        if stale_sources:
+            print("⚠️  改訂後に再処理されていないrawがあります")
+
+        if processable_incomplete_sources or stale_sources:
+            print(
+                "   → uv run check-data-status --list-needs-processing の一覧を process-data --files に渡してください"
+            )
 
         elif not unprocessable_sources:
             print("✅ すべての処理が完了しています")
@@ -359,4 +463,4 @@ def print_dir_status(dir_status: dict[str, Any], verbose: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

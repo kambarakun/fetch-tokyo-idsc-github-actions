@@ -34,7 +34,7 @@ from requests.exceptions import HTTPError
 
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchResult, RetryHandler
 from src.managers.config_manager import ConfigurationManager
-from src.managers.storage_manager import CommitResult, GitHandler, StorageManager
+from src.managers.storage_manager import StorageManager
 from src.models.metadata import HashInfo, Metadata, TemporalInfo
 from src.validators.gender_sum_validator import GenderSumValidator
 from src.validators.quality_validator import QualityValidator
@@ -371,113 +371,6 @@ def test_metadata_from_legacy_processed_detects_female_and_total_gender() -> Non
         metadata = Metadata.from_legacy_processed(legacy, source_meta)
         assert metadata._process is not None
         assert metadata._process.gender == marker
-
-
-def test_git_handler_add_files_skips_missing_files(tmp_path: Path) -> None:
-    """Test that add_files returns True without calling git for non-existent files."""
-    # Arrange
-    git_handler = GitHandler(auto_commit=True)
-    missing_file = tmp_path / "missing.csv"
-
-    # Act & Assert
-    with patch("subprocess.run") as mock_run:
-        result = git_handler.add_files([missing_file])
-        assert result is True
-        mock_run.assert_not_called()
-
-
-def test_git_handler_add_files_returns_false_on_git_error(tmp_path: Path) -> None:
-    """Test that add_files returns False when git add command fails."""
-    # Arrange
-    git_handler = GitHandler(auto_commit=True)
-    existing_file = tmp_path / "exists.csv"
-    existing_file.write_text("x", encoding="utf-8")
-
-    # Act & Assert
-    with patch(
-        "subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, ["git", "add"], stderr="fatal"),
-    ):
-        result = git_handler.add_files([existing_file])
-        assert result is False
-
-
-def test_git_handler_commit_returns_failure_on_commit_error() -> None:
-    """Test that commit returns failure result when git commit fails."""
-    # Arrange
-    git_handler = GitHandler(auto_commit=True)
-
-    # Act
-    with patch("subprocess.run") as mock_run:
-        mock_run.side_effect = [
-            Mock(returncode=1),  # git diff exits with 1 (changes exist)
-            subprocess.CalledProcessError(1, ["git", "commit"], stderr="commit failed"),
-        ]
-        result = git_handler.commit("msg")
-
-    # Assert
-    assert result.success is False
-    assert "commit failed" in (result.error or "")
-
-
-def test_git_handler_configure_user_returns_false_on_config_error() -> None:
-    """Test that configure_user returns False when git config fails."""
-    # Arrange
-    git_handler = GitHandler(auto_commit=True)
-
-    # Act & Assert
-    with patch(
-        "subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, ["git", "config"], stderr="config failed"),
-    ):
-        result = git_handler.configure_user()
-        assert result is False
-
-
-def test_storage_manager_commit_changes_skips_when_auto_commit_disabled(tmp_path: Path) -> None:
-    """Test that commit_changes returns early when auto_commit is disabled."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-
-    # Act
-    result = storage.commit_changes()
-
-    # Assert
-    assert result.message == "Auto commit disabled"
-
-
-def test_storage_manager_commit_changes_skips_when_not_git_repo(tmp_path: Path) -> None:
-    """Test that commit_changes returns early when not in a git repository."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": True})
-
-    # Act
-    with patch.object(storage.git_handler, "is_git_repo", return_value=False):
-        result = storage.commit_changes()
-
-    # Assert
-    assert result.message == "Not a git repository"
-
-
-def test_storage_manager_commit_changes_creates_commit_with_japanese_message(tmp_path: Path) -> None:
-    """Test that commit_changes creates commit with Japanese message including データ更新."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": True})
-
-    # Act
-    with (
-        patch.object(storage.git_handler, "is_git_repo", return_value=True),
-        patch.object(storage.git_handler, "add_files", return_value=True),
-        patch.object(
-            storage.git_handler,
-            "commit",
-            return_value=CommitResult(success=True, commit_hash="abc", message="ok"),
-        ) as mock_commit,
-    ):
-        storage.commit_changes()
-
-    # Assert
-    assert "データ更新" in mock_commit.call_args.args[0]
 
 
 def test_storage_manager_load_hash_index_returns_empty_dict_on_invalid_json(tmp_path: Path) -> None:

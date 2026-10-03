@@ -42,8 +42,6 @@ storage:
   processed_directory: "data/processed"
   log_directory: "data/logs"
   directory_structure: "{year}/{month}/week_{week}" # (現状未使用) config_manager は読み込むが StorageManager はフラット構造を採用しており参照しない
-  auto_commit: true
-  commit_message_template: "データ更新: {data_type} - {date_range}"
   keep_shift_jis: true # Shift_JIS エンコーディングを維持
 
 # 品質管理設定

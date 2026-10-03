@@ -235,6 +235,10 @@ jobs:
             echo "VALIDATION_BEFORE_SUCCESS=true" >> "$GITHUB_ENV"
           fi
 
+      # Process epidemic data detects raw changes against this commit (issue #725)
+      - name: Record pre-fetch commit
+        run: echo "PRE_FETCH_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: Fetch epidemic data
         id: fetch
         shell: bash
@@ -354,12 +358,53 @@ jobs:
 
           echo "Starting data processing at $(date +'%Y-%m-%d %H:%M:%S')"
 
-          # 変更されたdata/raw/*.csvファイルのみを取得 (working treeから)
-          # git statusを使用してunstaged/staged両方の変更を検出
-          # POSIX準拠の空白クラス [[:space:]] を使用
-          mapfile -t CHANGED_RAW_FILES < <(git status --porcelain | grep -E '^[[:space:]]*[AM].*data/raw/.*\.csv$' | sed 's/^...//')
+          # 処理失敗時の動作制御
+          # 真理値表:
+          # continue_on_failure | force_merge_on_failure | 動作
+          # -------------------|----------------------|------
+          # true               | (any)                | 継続
+          # false              | true                 | 継続（警告）
+          # false              | false                | 終了（exit 1）
+          handle_process_failure() {
+            echo "❌ データ処理: 失敗"
+            {
+              echo "PROCESS_RESULT=failed"
+              echo "PROCESS_CONTINUED_REASON=none"
+            } >> "$GITHUB_ENV"
 
-          if [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
+            if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
+              REASON="continue_on_failure=true により継続"
+              echo "⚠️ 警告: データ処理に失敗しましたが、${REASON}します。"
+              echo "PROCESS_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
+            else
+              # force_merge_on_failureがfalseの場合は終了
+              if [ "${{ inputs.force_merge_on_failure }}" = "false" ]; then
+                exit 1
+              else
+                REASON="force_merge_on_failure=true により継続"
+                echo "⚠️ 警告: データ処理に失敗しましたが、${REASON}します。"
+                echo "PROCESS_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
+              fi
+            fi
+          }
+
+          # このジョブで追加・変更された data/raw/*.csv (未追跡の新規ファイルを含む) を
+          # fetch 前のコミット (PRE_FETCH_SHA) との比較で取得する (issue #725)
+          # 検出自体に失敗したら件数を unknown とし、処理失敗として扱う (fail-closed)
+          CHANGED_RAW_LIST="$RUNNER_TEMP/changed_raw_files_${FETCH_TIMESTAMP}.txt"
+          CHANGED_RAW_FILES=()
+          if bash scripts/list_changed_raw_files.sh "${PRE_FETCH_SHA:-}" > "$CHANGED_RAW_LIST"; then
+            mapfile -t CHANGED_RAW_FILES < "$CHANGED_RAW_LIST"
+            RAW_CHANGED_COUNT=${#CHANGED_RAW_FILES[@]}
+          else
+            RAW_CHANGED_COUNT="unknown"
+            echo "::error title=Raw change detection failed::scripts/list_changed_raw_files.sh failed (PRE_FETCH_SHA=${PRE_FETCH_SHA:-unset})"
+          fi
+          echo "RAW_CHANGED_COUNT=${RAW_CHANGED_COUNT}" >> "$GITHUB_ENV"
+
+          if [ "$RAW_CHANGED_COUNT" = "unknown" ]; then
+            handle_process_failure
+          elif [ ${#CHANGED_RAW_FILES[@]} -eq 0 ]; then
             echo "ℹ️ 処理対象のrawファイルがありません。処理をスキップします。"
             {
               echo "PROCESS_RESULT=skipped"
@@ -417,33 +462,7 @@ jobs:
                 fi
               fi
             else
-              echo "❌ データ処理: 失敗"
-              {
-                echo "PROCESS_RESULT=failed"
-                echo "PROCESS_CONTINUED_REASON=none"
-              } >> "$GITHUB_ENV"
-
-              # 処理失敗時の動作制御
-              # 真理値表:
-              # continue_on_failure | force_merge_on_failure | 動作
-              # -------------------|----------------------|------
-              # true               | (any)                | 継続
-              # false              | true                 | 継続（警告）
-              # false              | false                | 終了（exit 1）
-              if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
-                REASON="continue_on_failure=true により継続"
-                echo "⚠️ 警告: データ処理に失敗しましたが、${REASON}します。"
-                echo "PROCESS_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
-              else
-                # force_merge_on_failureがfalseの場合は終了
-                if [ "${{ inputs.force_merge_on_failure }}" = "false" ]; then
-                  exit 1
-                else
-                  REASON="force_merge_on_failure=true により継続"
-                  echo "⚠️ 警告: データ処理に失敗しましたが、${REASON}します。"
-                  echo "PROCESS_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
-                fi
-              fi
+              handle_process_failure
             fi
           fi
 
@@ -479,6 +498,24 @@ jobs:
             --body "${ISSUE_BODY}" \
             --label "bug,automated,data-processing,${{ inputs.workflow_type }}" \
             --assignee "${SAFE_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
+
+      # raw に対して processed が欠落・改訂後未再処理なら自動マージを止める (issue #725)
+      # ステップ自体は失敗させない。判定は Evaluate auto-merge gate の blocker "coverage" が行う
+      - name: Check processing coverage
+        if: inputs.dry_run != true
+        shell: bash
+        run: |
+          # レポートは data/ に置かない (PR に混入するため)
+          COVERAGE_REPORT="$RUNNER_TEMP/processing_coverage_${FETCH_TIMESTAMP}.json"
+          if uv run --locked check-data-status --json --fail-on-incomplete > "$COVERAGE_REPORT"; then
+            STATUS=complete
+            echo "✅ 処理カバレッジ: 完了"
+          else
+            STATUS=incomplete
+            echo "::error title=Processing coverage incomplete::未処理または改訂後未再処理のrawがあります (check-data-status --list-needs-processing で一覧を確認)"
+          fi
+          echo "PROCESSING_COVERAGE_STATUS=${STATUS}" >> "$GITHUB_ENV"
+          jq '.coverage | {raw_source_count, processed_source_count, incomplete_source_count, stale_source_count}' "$COVERAGE_REPORT" || echo "⚠️ レポート解析に失敗しました"
 
       - name: Validate fetched data
         id: validate-after
@@ -629,6 +666,8 @@ jobs:
           FORCE_MERGE_ON_FAILURE: ${{ inputs.force_merge_on_failure }}
           FETCH_STATUS: ${{ env.FETCH_STATUS }}
           PROCESS_RESULT: ${{ env.PROCESS_RESULT }}
+          RAW_CHANGED_COUNT: ${{ env.RAW_CHANGED_COUNT }}
+          PROCESSING_COVERAGE_STATUS: ${{ env.PROCESSING_COVERAGE_STATUS }}
           VERIFY_CONTINUITY: ${{ inputs.verify_continuity }}
           CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}
           VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}

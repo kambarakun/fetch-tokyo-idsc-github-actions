@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sys
@@ -41,14 +42,22 @@ def _write_sectioned_raw(path: Path, genders: tuple[str, ...] = ("男性", "女�
     _write_raw_csv(path, rows)
 
 
+def _write_process_metadata(data_dir: Path, output_name: str, raw_path: Path) -> None:
+    """Record the raw file hash the way the processor does, so the output is not reported as stale."""
+    metadata_file = data_dir / "processed" / ".metadata" / f"{Path(output_name).stem}.json"
+    metadata_file.parent.mkdir(parents=True, exist_ok=True)
+    source_hash = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+    metadata_file.write_text(json.dumps({"_process": {"source_hash": source_hash}}), encoding="utf-8")
+
+
 def test_check_data_status_directory_and_status_flow(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data_dir = tmp_path / "data"
-    _write_sectioned_raw(data_dir / "raw" / "sentinel_weekly_age_2025_01.csv")
+    raw_file = data_dir / "raw" / "sentinel_weekly_age_2025_01.csv"
+    _write_sectioned_raw(raw_file)
     for gender in ("male", "female", "total"):
-        _write_csv(
-            data_dir / "processed" / f"normalized_sentinel_weekly_age_{gender}_2025_01.csv",
-            ["h1,h2", "1,2"],
-        )
+        output_name = f"normalized_sentinel_weekly_age_{gender}_2025_01.csv"
+        _write_csv(data_dir / "processed" / output_name, ["h1,h2", "1,2"])
+        _write_process_metadata(data_dir, output_name, raw_file)
     _write_csv(data_dir / "processed" / "normalized_notifiable_weekly_2025_99.csv", ["h1,h2", "3,4"])
 
     missing = cds.check_directory(data_dir / "missing")
@@ -66,6 +75,8 @@ def test_check_data_status_directory_and_status_flow(tmp_path: Path, capsys: pyt
         "processed_source_count": 1,
         "incomplete_source_count": 0,
         "incomplete_sources": [],
+        "stale_source_count": 0,
+        "stale_sources": [],
         "orphaned_processed_count": 1,
         "orphaned_processed_files": ["normalized_notifiable_weekly_2025_99.csv"],
     }
@@ -90,8 +101,10 @@ def test_check_data_status_directory_and_status_flow(tmp_path: Path, capsys: pyt
     assert "データ処理が必要です" in out
 
     partial_dir = tmp_path / "partial"
-    _write_raw_csv(partial_dir / "raw" / "notifiable_weekly_2025_01.csv", ["疾病名,報告数", "病気,1"])
+    partial_raw = partial_dir / "raw" / "notifiable_weekly_2025_01.csv"
+    _write_raw_csv(partial_raw, ["疾病名,報告数", "病気,1"])
     _write_csv(partial_dir / "processed" / "normalized_notifiable_weekly_2025_01.csv", ["h1,h2", "1,2"])
+    _write_process_metadata(partial_dir, "normalized_notifiable_weekly_2025_01.csv", partial_raw)
     _write_sectioned_raw(partial_dir / "raw" / "sentinel_weekly_age_2025_02.csv")
     for gender in ("male", "female"):
         _write_csv(
@@ -138,7 +151,7 @@ def test_check_data_status_marks_unsupported_raw_as_incomplete(
     out = capsys.readouterr().out
     assert "invalid.csv (未対応のファイル名)" in out
     assert "ファイル名または配置を修正してください" in out
-    assert "uv run process-data --all" not in out
+    assert "--list-needs-processing" not in out
 
 
 def test_check_data_status_marks_unprocessable_medical_district_as_incomplete(
@@ -164,7 +177,7 @@ def test_check_data_status_marks_unprocessable_medical_district_as_incomplete(
     out = capsys.readouterr().out
     assert "処理可能なデータ構造なし" in out
     assert "rawの内容を修正してください" in out
-    assert "uv run process-data --all" not in out
+    assert "--list-needs-processing" not in out
 
 
 def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -187,7 +200,7 @@ def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: py
     out = capsys.readouterr().out
     assert "a/notifiable_weekly_2025_01.csv (raw直下ではないファイル)" in out
     assert "ファイル名または配置を修正してください" in out
-    assert "uv run process-data --all" not in out
+    assert "--list-needs-processing" not in out
 
 
 @pytest.mark.parametrize(
@@ -271,8 +284,10 @@ def test_check_data_status_defines_expected_outputs_per_data_type(
 )
 def test_check_data_status_accepts_unsuffixed_sentinel_fallback(tmp_path: Path, data_type: str) -> None:
     data_dir = tmp_path / "data"
-    _write_raw_csv(data_dir / "raw" / f"{data_type}_2025_01.csv", ["年齢区分,男性,女性", "0歳,1,2"])
+    raw_file = data_dir / "raw" / f"{data_type}_2025_01.csv"
+    _write_raw_csv(raw_file, ["年齢区分,男性,女性", "0歳,1,2"])
     _write_csv(data_dir / "processed" / f"normalized_{data_type}_2025_01.csv", ["h1,h2", "1,2"])
+    _write_process_metadata(data_dir, f"normalized_{data_type}_2025_01.csv", raw_file)
 
     coverage = cds.check_status(data_dir)["coverage"]
 
@@ -299,12 +314,12 @@ def test_check_data_status_marks_missing_data_start_line_as_unprocessable(tmp_pa
 
 def test_check_data_status_accepts_only_gender_sections_present_in_raw(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
-    _write_sectioned_raw(data_dir / "raw" / "sentinel_weekly_age_2025_01.csv", ("男性", "女性"))
+    raw_file = data_dir / "raw" / "sentinel_weekly_age_2025_01.csv"
+    _write_sectioned_raw(raw_file, ("男性", "女性"))
     for gender in ("male", "female"):
-        _write_csv(
-            data_dir / "processed" / f"normalized_sentinel_weekly_age_{gender}_2025_01.csv",
-            ["h1,h2", "1,2"],
-        )
+        output_name = f"normalized_sentinel_weekly_age_{gender}_2025_01.csv"
+        _write_csv(data_dir / "processed" / output_name, ["h1,h2", "1,2"])
+        _write_process_metadata(data_dir, output_name, raw_file)
 
     coverage = cds.check_status(data_dir)["coverage"]
 
@@ -315,8 +330,9 @@ def test_check_data_status_accepts_only_gender_sections_present_in_raw(tmp_path:
 
 def test_check_data_status_ignores_gender_sections_the_processor_cannot_extract(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
+    raw_file = data_dir / "raw" / "sentinel_weekly_age_2025_01.csv"
     _write_raw_csv(
-        data_dir / "raw" / "sentinel_weekly_age_2025_01.csv",
+        raw_file,
         [
             '性別,"女性"',
             "年齢区分,インフルエンザ,RSウイルス",
@@ -330,6 +346,7 @@ def test_check_data_status_ignores_gender_sections_the_processor_cannot_extract(
         data_dir / "processed" / "normalized_sentinel_weekly_age_female_2025_01.csv",
         ["h1,h2", "1,2"],
     )
+    _write_process_metadata(data_dir, "normalized_sentinel_weekly_age_female_2025_01.csv", raw_file)
 
     coverage = cds.check_status(data_dir)["coverage"]
 

@@ -1,6 +1,6 @@
 """Phase 2 coverage tests focused on storage manager edge and failure paths.
 
-These tests target remaining untested branches in `storage_manager` and `GitHandler`
+These tests target remaining untested branches in `storage_manager`
 with explicit AAA structure and isolated fixtures.
 """
 
@@ -9,31 +9,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
-from src.managers.storage_manager import CommitResult, GitHandler, StorageManager
+from src.managers.storage_manager import StorageManager
 
 
-def _build_storage(tmp_path: Path, *, auto_commit: bool = False) -> StorageManager:
+def _build_storage(tmp_path: Path) -> StorageManager:
     """Create a storage manager configured for isolated filesystem tests."""
-    return StorageManager(tmp_path / "data", {"auto_commit": auto_commit})
-
-
-def test_git_handler_configure_user_success() -> None:
-    """GitHandler returns True when both git config commands succeed."""
-    # Arrange
-    git_handler = GitHandler(auto_commit=True)
-
-    # Act
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = Mock(returncode=0)
-        result = git_handler.configure_user()
-
-    # Assert
-    assert result is True
-    assert mock_run.call_count == 2
+    return StorageManager(tmp_path / "data", {})
 
 
 def test_save_with_metadata_returns_failure_when_atomic_replace_fails(tmp_path: Path) -> None:
@@ -52,28 +37,6 @@ def test_save_with_metadata_returns_failure_when_atomic_replace_fails(tmp_path: 
     assert "replace failed" in result.error
     temp_files = list((tmp_path / "data").glob(".phase2_test_2025_01_*.tmp"))
     assert temp_files == []
-
-
-def test_commit_changes_uses_explicit_message_without_template_resolution(tmp_path: Path) -> None:
-    """commit_changes passes explicit message through without reformatting."""
-    # Arrange
-    storage = _build_storage(tmp_path, auto_commit=True)
-
-    # Act
-    with (
-        patch.object(storage.git_handler, "is_git_repo", return_value=True),
-        patch.object(storage.git_handler, "add_files", return_value=True),
-        patch.object(
-            storage.git_handler,
-            "commit",
-            return_value=CommitResult(success=True, commit_hash="abc", message="ok"),
-        ) as mock_commit,
-    ):
-        result = storage.commit_changes(message="manual commit message", data_type="x", date_range="y")
-
-    # Assert
-    assert result.success is True
-    mock_commit.assert_called_once_with("manual commit message")
 
 
 def test_remove_from_hash_index_returns_early_for_unknown_hash(tmp_path: Path) -> None:
