@@ -43,6 +43,7 @@ GITHUB_API_HOST = "api.github.com"
 PYPI_RELEASE = "https://pypi.org/pypi/{name}/{version}/json"
 PYPI_PROJECT = "https://pypi.org/pypi/{name}/json"
 OSV_QUERY = "https://api.osv.dev/v1/query"
+OSV_MAX_PAGES = 20
 DEPENDABOT_AUTHOR = "dependabot[bot]"
 ECOSYSTEM_BY_PREFIX = {
     "dependabot/github_actions/": "github-actions",
@@ -102,6 +103,8 @@ class CheckResult:
     verdict: str
     detail: str
     links: list[str] = field(default_factory=list)
+    # "old → new" of the bump this row was computed for; two bumps can share a dependency name.
+    change: str = "-"
 
 
 @dataclass
@@ -172,7 +175,8 @@ def make_poster(token: str | None) -> PostJson:
 
 def _osv_key(payload: dict[str, Any]) -> str:
     package = payload["package"]
-    return f"{package['ecosystem']}/{package['name']}@{payload.get('version', '*')}"
+    page = f"#{payload['page_token']}" if "page_token" in payload else ""
+    return f"{package['ecosystem']}/{package['name']}@{payload.get('version', '*')}{page}"
 
 
 def _is_not_found(exc: Exception) -> bool:
@@ -388,8 +392,13 @@ def _pair_bumps(before: dict[str, set[str]], after: dict[str, set[str]], kind: s
     bumps: list[Bump] = []
     for name in sorted(after):
         old_versions = before.get(name, set())
-        old = max(old_versions, key=_version_key) if old_versions else None
-        bumps.extend(Bump(name, old, new, kind) for new in sorted(after[name] - old_versions, key=_version_key))
+        removed = sorted(old_versions - after[name], key=_version_key)
+        for new in sorted(after[name] - old_versions, key=_version_key):
+            # A lock can hold several versions of one package (resolution forks): the predecessor
+            # is the highest removed version not above the new one, else the lowest removed one.
+            below = [old for old in removed if _version_key(old) <= _version_key(new)]
+            old = below[-1] if below else removed[0] if removed else None
+            bumps.append(Bump(name, old, new, kind))
     return bumps
 
 
@@ -582,7 +591,9 @@ def _release_link(bump: Bump) -> str:
 
 
 def _result(check_id: str, bump: Bump | None, verdict: str, detail: str, links: Sequence[str] = ()) -> CheckResult:
-    return CheckResult(check_id, bump.name if bump else "-", verdict, detail, list(links))
+    if bump is None:
+        return CheckResult(check_id, "-", verdict, detail, list(links))
+    return CheckResult(check_id, bump.name, verdict, detail, list(links), f"{bump.old or '(新規)'} → {bump.new}")
 
 
 def check_yanked(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
@@ -617,10 +628,12 @@ def _range_hit(version: Version, events: list[dict[str, str]]) -> bool | None:
     limits = [limit for kind, limit in parsed if kind == "limit"]
     if limits and not any(limit is None or version < limit for limit in limits):
         return False
+    # Publishers are only asked to pre-sort events; the evaluation itself walks them sorted.
+    status = sorted(
+        ((kind, limit) for kind, limit in parsed if kind != "limit" and limit is not None), key=lambda item: item[1]
+    )
     affected = False
-    for kind, limit in parsed:
-        if limit is None or kind == "limit":
-            continue
+    for kind, limit in status:
         if kind == "introduced" and version >= limit:
             affected = True
         elif (kind == "fixed" and version >= limit) or (kind == "last_affected" and version > limit):
@@ -652,14 +665,26 @@ def _action_hits(vulns: list[dict[str, Any]], bump: Bump) -> tuple[list[str], li
     return sorted(set(hits)), sorted(set(unevaluable) - set(hits))
 
 
+def _osv_vulns(post_json: PostJson, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Collect every page: OSV may answer with nothing but a `next_page_token`."""
+    vulns: list[dict[str, Any]] = []
+    for _ in range(OSV_MAX_PAGES):
+        response = post_json(OSV_QUERY, payload)
+        vulns.extend(response.get("vulns", []))
+        if not response.get("next_page_token"):
+            return vulns
+        payload = {**payload, "page_token": response["next_page_token"]}
+    raise ValueError(f"OSV returned more than {OSV_MAX_PAGES} pages for {_osv_key(payload)}")
+
+
 def check_advisory(fetch_json: FetchJson, post_json: PostJson, bump: Bump) -> list[CheckResult]:
     if bump.kind == "pypi":
         payload = {"package": {"name": bump.name, "ecosystem": "PyPI"}, "version": bump.new}
-        hits = sorted(vuln["id"] for vuln in post_json(OSV_QUERY, payload).get("vulns", []))
+        hits = sorted(vuln["id"] for vuln in _osv_vulns(post_json, payload))
         unevaluable: list[str] = []
     else:
         payload = {"package": {"name": bump.name, "ecosystem": "GitHub Actions"}}
-        hits, unevaluable = _action_hits(post_json(OSV_QUERY, payload).get("vulns", []), bump)
+        hits, unevaluable = _action_hits(_osv_vulns(post_json, payload), bump)
     if hits:
         return [_result("advisory", bump, "BLOCK", f"OSV に該当 ({', '.join(hits)})", _osv_links(hits))]
     if unevaluable:
@@ -723,6 +748,9 @@ def check_superseded(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
     if later is None:
         return [_result("superseded", bump, "OK", "release が無いため評価不能")]
     published = release_published_at(fetch_json, bump)
+    if published is not None:
+        # A higher line released before this backport (2.0.0 months before 1.9.1) is not a successor.
+        later = [(version, at) for version, at in later if at >= published]
     if not later or published is None:
         return [_result("superseded", bump, "OK", "後続 release 無し")]
     window = timedelta(days=SUPERSEDED_WINDOW_DAYS)
@@ -871,7 +899,6 @@ def verdict_line(verdict: PullRequestVerdict) -> str:
 
 def render_pull_request(verdict: PullRequestVerdict) -> str:
     # PR titles and bodies are deliberately absent: agents read this report (AGENTS.md).
-    bumps = {bump.name: bump for bump in verdict.bumps}
     lines = [
         f"## PR #{verdict.number} ({verdict.ecosystem or 'unknown'})",
         "",
@@ -881,8 +908,7 @@ def render_pull_request(verdict: PullRequestVerdict) -> str:
         "| --- | --- | --- | --- | --- |",
     ]
     for check in verdict.checks:
-        bump = bumps.get(check.dependency)
-        change = _cell(f"{bump.old or '(新規)'} → {bump.new}") if bump else "-"
+        change = _cell(check.change)
         links = " ".join(f"[{index}]({_link(link)})" for index, link in enumerate(check.links, start=1))
         evidence = f"{_cell(check.detail)} {links}".strip()
         cells = [_cell(check.dependency), change, _cell(check.check_id), _cell(check.verdict), evidence]
@@ -909,6 +935,7 @@ def render_json(verdicts: Sequence[PullRequestVerdict]) -> list[dict[str, Any]]:
                 {
                     "id": check.check_id,
                     "dependency": check.dependency,
+                    "change": check.change,
                     "verdict": check.verdict,
                     "detail": check.detail,
                     "links": check.links,

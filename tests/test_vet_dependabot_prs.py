@@ -257,6 +257,16 @@ def test_uv_lock_bumps_are_parsed_from_merge_base_and_head(uv_pr: dict[str, Any]
     assert vet.uv_lock_bumps(_uv_lock(), _uv_lock(idna="3.10")) == [vet.Bump("idna", None, "3.10", "pypi")]
 
 
+def test_lock_with_two_versions_pairs_each_new_version_with_the_one_it_replaced() -> None:
+    before = _uv_lock() + "".join(
+        f'[[package]]\nname = "numpy"\nversion = "{version}"\nsource = {{ registry = "https://pypi.org/simple" }}\n\n'
+        for version in ("1.9.0", "2.0.0")
+    )
+    after = before.replace('version = "1.9.0"', 'version = "1.10.0"')
+
+    assert vet.uv_lock_bumps(before, after) == [vet.Bump("numpy", "1.9.0", "1.10.0", "pypi")]
+
+
 def test_workflow_uses_bumps_are_parsed_with_sha_and_version_comment(action_pr: dict[str, Any]) -> None:
     verdict = _vet(action_pr)
 
@@ -383,6 +393,47 @@ def test_osv_limit_events_bound_the_affected_range(action_pr: dict[str, Any], li
     assert _checks(_vet(action_pr))[("advisory", "astral-sh/setup-uv")].verdict == expected
 
 
+def _setup_uv_advisory(responses: dict[str, Any], events: list[dict[str, str]], key: str = "*") -> None:
+    responses[f"osv:GitHub Actions/astral-sh/setup-uv@{key}"] = {
+        "vulns": [
+            {
+                "id": "GHSA-ranged",
+                "affected": [
+                    {
+                        "package": {"ecosystem": "GitHub Actions", "name": "astral-sh/setup-uv"},
+                        "ranges": [{"type": "ECOSYSTEM", "events": events}],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_unsorted_osv_events_are_sorted_before_evaluation(action_pr: dict[str, Any]) -> None:
+    # Valid but unsorted intervals [10, 11) and [1, 2): v10.2.0 sits in the first one.
+    events = [{"introduced": "10.0.0"}, {"fixed": "11.0.0"}, {"introduced": "1.0.0"}, {"fixed": "2.0.0"}]
+    _setup_uv_advisory(action_pr, events)
+
+    assert _checks(_vet(action_pr))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
+
+
+def test_osv_pagination_is_followed_before_reporting_no_advisory(action_pr: dict[str, Any]) -> None:
+    # OSV may answer with nothing but a page token; the match can sit on a later page.
+    action_pr["osv:GitHub Actions/astral-sh/setup-uv@*"] = {"next_page_token": "page-2"}
+    _setup_uv_advisory(action_pr, [{"introduced": "0"}, {"fixed": "11.0.0"}], key="*#page-2")
+
+    assert _checks(_vet(action_pr))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
+
+
+def test_endless_osv_pagination_exits_two(monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any]) -> None:
+    fetch_json, fetch_text, _ = _fetchers(action_pr)
+    monkeypatch.setattr(
+        vet, "make_fetchers", lambda token: (fetch_json, fetch_text, lambda url, payload: {"next_page_token": "again"})
+    )
+
+    assert vet.main(["--pr", "748", "--repo", REPO]) == 2
+
+
 def test_github_action_advisory_with_git_range_is_unevaluable_not_block(action_pr: dict[str, Any]) -> None:
     action_pr["osv:GitHub Actions/astral-sh/setup-uv@*"] = {
         "vulns": [
@@ -443,6 +494,20 @@ def test_release_superseded_within_seven_days_is_a_warn(uv_pr: dict[str, Any]) -
 
     assert check.verdict == "WARN"
     assert "0.16.9" in check.detail
+
+
+def test_newer_line_published_before_the_candidate_does_not_supersede_it(uv_pr: dict[str, Any]) -> None:
+    # A 0.16.x backport released after 0.17.0 is not superseded by the older-but-higher 0.17.0.
+    _pypi(
+        uv_pr,
+        "ruff",
+        {"0.17.0": datetime(2026, 9, 1, tzinfo=UTC), "0.16.8": datetime(2026, 9, 16, tzinfo=UTC)},
+    )
+
+    check = _checks(_vet(uv_pr))[("superseded", "ruff")]
+
+    assert check.verdict == "OK"
+    assert check.detail == "後続 release 無し"
 
 
 def test_release_superseded_after_seven_days_is_ok(uv_pr: dict[str, Any]) -> None:
@@ -673,6 +738,30 @@ def test_pr_controlled_strings_cannot_break_the_report_table() -> None:
         assert len(re.findall(r"(?<!\\)\|", row)) == 6
         assert "[x](" not in row
         assert not re.search(r"(?<!\\)<img", row)
+
+
+def test_each_row_shows_the_bump_it_was_computed_for(action_pr: dict[str, Any]) -> None:
+    # Two bumps of one action: rows must not borrow the other bump's versions.
+    path = ".github/workflows/watchdog.yml"
+    action_pr[f"{API}/contents/{path}?ref={MERGE_BASE}"] = _workflow("astral-sh/setup-uv", "8" * 40, "v9.0.0")
+    action_pr[f"{API}/contents/{path}?ref={HEAD_SHA}"] = _workflow("astral-sh/setup-uv", "9" * 40, "v9.1.0")
+    _tag(action_pr, "astral-sh/setup-uv", "v9.1.0", "9" * 40)
+    action_pr[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/releases/tags/v9.1.0"] = {
+        "published_at": "2026-09-01T00:00:00Z"
+    }
+
+    verdict = _vet(action_pr)
+    rows = {
+        (cells[2], cells[1])
+        for line in vet.render_pull_request(verdict).splitlines()
+        if line.startswith("| astral-sh") and (cells := line.split(" | "))
+    }
+
+    assert ("tag_sha", "v10.1.0 → v10.2.0") in rows
+    assert ("tag_sha", "v10.1.0 → v9.1.0") in rows or ("tag_sha", "v9.0.0 → v9.1.0") in rows
+    assert {check.change for check in verdict.checks if check.check_id == "tag_sha"} == {
+        f"{bump.old} → {bump.new}" for bump in verdict.bumps
+    }
 
 
 def test_extra_files_and_human_commits_are_a_warn(action_pr: dict[str, Any]) -> None:
