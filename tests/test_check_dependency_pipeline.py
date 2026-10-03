@@ -350,6 +350,53 @@ def test_an_updater_run_stuck_past_the_grace_period_is_not_activity(
     assert result.facts["ran_since_schedule"] is False
 
 
+def test_a_completed_refresh_run_does_not_hide_a_stuck_full_run(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Issue #767: a week with open PRs always has finished refresh runs.
+
+    Letting one stand in for this week's full run would pair last week's success with a full
+    run stuck for days and report the updater healthy.
+    """
+    responses = dict(healthy_responses)
+    stuck = {**_update_run("uv", NOW - timedelta(days=2)), "status": "in_progress", "conclusion": None}
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+        stuck,
+        _update_run("uv", NOW - timedelta(days=2) + timedelta(hours=1), refresh_for="ruff"),
+    )
+
+    result = _run(repo, responses)["1r:uv"]
+
+    assert not result.ok
+    assert result.facts["ran_since_schedule"] is False
+    assert result.facts["stuck_full_run"] is True
+
+
+def test_a_full_run_still_running_within_the_grace_period_is_alive(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Merging a dependabot.yml change starts a full run at once (issue #767).
+
+    A watchdog dispatched right after the merge must not call that run stuck; until it
+    finishes, the previous completed full run decides.
+    """
+    responses = dict(healthy_responses)
+    running = {**_update_run("uv", NOW - timedelta(hours=2)), "status": "in_progress", "conclusion": None}
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+        running,
+    )
+
+    result = _run(repo, responses)["1r:uv"]
+
+    assert result.ok
+    assert result.facts["ran_since_schedule"] is True
+    assert result.facts["stuck_full_run"] is False
+
+
 def test_refresh_runs_prove_a_live_updater_but_not_a_healthy_full_run(
     repo: Path, healthy_responses: dict[str, Any]
 ) -> None:

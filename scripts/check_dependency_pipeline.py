@@ -697,15 +697,29 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
         # A day of slack for a late start: Dependabot does not begin on the scheduled minute, so
         # a schedule only counts once a day has passed since it. Moving the cut-off a day
         # earlier instead would count the previous day's runs as this week's, and demand a run
-        # for a schedule that has only just arrived. Refresh runs count as a sign of life
-        # because a week with five open PRs has no full run. Only finished runs count: one still
-        # queued or running past the grace period is stuck, and counting it would pair last
-        # week's success with this week's hang and call the updater healthy.
+        # for a schedule that has only just arrived.
+        # Once a full run has started since the schedule, it alone decides (issue #767): finished
+        # is alive, unfinished for a day or more is stuck even if refresh runs finished around
+        # it, and unfinished for less than a day is still running -- merging a dependabot.yml
+        # change starts one at once, and the check dispatched right after must not call it
+        # stuck. Only a week with no full run falls back to finished refresh runs, because a
+        # week with five open PRs has none. An unfinished refresh run proves nothing either way.
         since = last_scheduled_update(config, ecosystem, now - timedelta(days=1))
-        ran_since_schedule = any(
-            run["status"] == "completed" and datetime.fromisoformat(run["created_at"]) >= since
-            for run in full_runs + refresh_runs
-        )
+        full_since = [run for run in full_runs if datetime.fromisoformat(run["created_at"]) >= since]
+        finished = [run for run in full_since if run["status"] == "completed"]
+        stale_unfinished = [
+            run
+            for run in full_since
+            if run["status"] != "completed" and datetime.fromisoformat(run["created_at"]) <= now - timedelta(days=1)
+        ]
+        stuck_full_run = not finished and bool(stale_unfinished)
+        if full_since:
+            ran_since_schedule = not stuck_full_run
+        else:
+            ran_since_schedule = any(
+                run["status"] == "completed" and datetime.fromisoformat(run["created_at"]) >= since
+                for run in refresh_runs
+            )
         conclusion = latest["conclusion"] if latest else None
         if latest is None:
             detail = "取得した run に full run が見つからない"
@@ -715,6 +729,9 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
         detail += f" / 前回スケジュール ({since.date().isoformat()}) 以降の実行 (起動の遅れは 1 日まで許容): " + (
             "あり" if ran_since_schedule else "**なし**"
         )
+        if stuck_full_run:
+            statuses = ", ".join(sorted({run["status"] for run in stale_unfinished}))
+            detail += f" / 前回スケジュール以降の full run が 1 日以上未完了 ({statuses})"
         results.append(
             CheckResult(
                 f"1r:{ecosystem}",
@@ -728,6 +745,7 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
                     "last_full_run_at": latest["created_at"] if latest else None,
                     "last_full_run_url": latest["html_url"] if latest else None,
                     "ran_since_schedule": ran_since_schedule,
+                    "stuck_full_run": stuck_full_run,
                     "since": since.isoformat(),
                 },
             )
