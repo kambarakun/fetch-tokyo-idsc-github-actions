@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Liveness check for the dependency update pipeline (issue #683).
 
-The uv-ecosystem outage that started on 2026-07-27 (issue #681) was invisible for six
+The uv-ecosystem outage that started on 2026-07-27 (issue #681) went unnoticed for six
 weekly cycles: Dependabot aborted before ``uv lock`` and opened no PR, and "no PR" is
-indistinguishable from "nothing to update" when you only look at the repository. The
-failure lived in job logs only the repository owner can read, and Dependabot Security
-Updates run through the same updater, so CVE fixes were stalled too.
+indistinguishable from "nothing to update" when you only look at pull requests. Each
+updater run did end as a failed "Dependabot Updates" run in the Actions API; only its log,
+which says why, is limited to the repository owner. Dependabot Security Updates run
+through the same updater, so CVE fixes were stalled too.
 
 These checks turn that silence into a signal. Every input is a structured field --
-timestamps, labels, version strings -- so PR and issue text never reaches the report
-(AGENTS.md treats that text as untrusted input).
+timestamps, labels, run conclusions, version strings -- so PR, issue and run text never
+reaches the report (AGENTS.md treats that text as untrusted input).
 
-Exit codes: 0 healthy, 1 at least one alert, 2 the check itself could not run.
+Exit codes: 0 healthy, 1 at least one alert, 2 at least one check family (or the shared
+setup) could not run. Families are isolated (issue #728), so exit 2 still comes with a
+report carrying every verdict that could be reached.
 """
 
 from __future__ import annotations
