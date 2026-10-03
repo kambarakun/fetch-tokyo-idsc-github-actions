@@ -96,8 +96,10 @@ ACTIONS_WORKFLOWS = GITHUB_API + "/repos/{repo}/actions/workflows?per_page=100"
 # 2026-09-14 and 09-21 runs, i.e. the very runs this check has to see.
 ACTIONS_WORKFLOW_RUNS = GITHUB_API + "/repos/{repo}/actions/workflows/{workflow_id}/runs?per_page=100"
 # `uv in /. - Update #N` updates the whole manifest; `uv in / for ruff - Update #N` (or
-# `for ruff, mypy, pre-commit` for a group) only refreshes one open PR. The run name uses
+# `for ruff, mypy, pre-commit` for a group) only refreshes one open PR. The run title uses
 # the ecosystem with `_` where dependabot.yml uses `-` (`github_actions`, `pre_commit`).
+# The title is read from `display_title`, the field the API documents for it; `name` carries
+# the same text today but is documented as the workflow's name.
 FULL_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in (?P<directory>\S+) - Update #\d+$")
 REFRESH_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in \S+ for .+ - Update #\d+$")
 
@@ -671,17 +673,21 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
     stayed green as long as some other dependency still got a PR. This reads the run itself,
     and covers every configured ecosystem whether or not it has a label check 1 can join on.
 
-    Only the ecosystem, conclusion, date and URL are reported: run names carry dependency
+    Only the ecosystem, conclusion, date and URL are reported: run titles carry dependency
     names, which are not this report's business.
     """
     results: list[CheckResult] = []
     for ecosystem in sorted({update["package-ecosystem"] for update in config["updates"]}):
         run_ecosystem = ecosystem.replace("-", "_")
         full_runs = [
-            run for run in runs if (match := FULL_UPDATE_RUN.match(run["name"])) and match["eco"] == run_ecosystem
+            run
+            for run in runs
+            if (match := FULL_UPDATE_RUN.match(run["display_title"])) and match["eco"] == run_ecosystem
         ]
         refresh_runs = [
-            run for run in runs if (match := REFRESH_UPDATE_RUN.match(run["name"])) and match["eco"] == run_ecosystem
+            run
+            for run in runs
+            if (match := REFRESH_UPDATE_RUN.match(run["display_title"])) and match["eco"] == run_ecosystem
         ]
         completed = [run for run in full_runs if run["status"] == "completed"]
         latest = max(completed, key=lambda run: datetime.fromisoformat(run["created_at"]), default=None)

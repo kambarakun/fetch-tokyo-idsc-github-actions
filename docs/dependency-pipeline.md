@@ -34,7 +34,7 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
 - **検査 1 の 21 日** は週次スケジュール 3 回分。issue #681 の停止 (2026-07-27 開始) なら 2026-08-17 に発火しており、人間が気付いた 2026-09-09 より 3 週間早い
 - **検査 1r に閾値は無い**。最新の full run が success でない、または前回スケジュールの前日以降に full run も refresh run も無ければ赤にする (issue #728)
   - 検査 1 は PR の経過日数しか見ないため、updater が毎週失敗していても他の依存の PR が届く限り緑のままになる。実際に uv の full run は 2026-05-18〜09-08 に 06-01 を除いて毎週 failure だったが、検査 1 が初めて赤くなるのは 08-19 だった
-  - run 名は `uv in /. - Update #N` (full run: マニフェスト全体の更新) と `uv in / for ruff - Update #N` (refresh run: open PR 1 本の更新) の 2 形式。成否の判定は full run だけで行う
+  - run の題名 (API の `display_title`) は `uv in /. - Update #N` (full run: マニフェスト全体の更新) と `uv in / for ruff - Update #N` (refresh run: open PR 1 本の更新) の 2 形式。成否の判定は full run だけで行う
   - refresh run も「動いている」証拠に数えるのは、open PR が上限 (5) の週は Dependabot が refresh run だけを行うため (2026-05-04 / 05-11 に発生)
   - `dependabot.yml` の全エコシステムを対象にし、ラベルは問わない (検査 1 はラベルの無いエコシステムを黙って外す)
   - run を 1 件も取得できないときは「検査不能」にする。権限不足が空の 200 に見える可能性があるため (issue #697 と同じ理由)。`event=dynamic&actor=dependabot[bot]` の絞り込みは run を取りこぼす (2026-09-14 / 09-21 が欠けた) ので使わない

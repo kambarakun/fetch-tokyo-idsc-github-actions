@@ -90,10 +90,14 @@ def _update_run(
     """A Dependabot Updates run, named the way the real `dynamic/dependabot/dependabot-updates` names it.
 
     A full run is `uv in /. - Update #N`; a refresh of one open PR is `uv in / for ruff - Update #N`.
+    The API documents that title as `display_title` and `name` as the workflow's name. Today
+    both carry the title, so `name` is set to the workflow name here to keep the check on the
+    documented field.
     """
     target = f"/ for {refresh_for}" if refresh_for else "/."
     return {
-        "name": f"{ecosystem} in {target} - Update #1",
+        "name": "Dependabot Updates",
+        "display_title": f"{ecosystem} in {target} - Update #1",
         "status": "completed",
         "conclusion": conclusion,
         "created_at": created_at.isoformat(),
