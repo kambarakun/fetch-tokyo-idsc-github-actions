@@ -107,6 +107,30 @@ def _runs(*runs: dict[str, Any]) -> dict[str, Any]:
     return {"total_count": len(ordered), "workflow_runs": ordered}
 
 
+def _uv_lock(**versions: str) -> str:
+    """A uv.lock excerpt in the `name = ...` / `version = ...` layout the watchdog parses."""
+    return "".join(f'name = "{name}"\nversion = "{version}"\n\n' for name, version in versions.items())
+
+
+def _open_pr(
+    sha: str,
+    ref: str = "dependabot/uv/build-tools-0123456789",
+    login: str = "dependabot[bot]",
+    head_repo: str | None = "owner/name",
+) -> dict[str, Any]:
+    """One entry of `GET /pulls?state=open`; title and body are there to prove nobody reads them."""
+    return {
+        "user": {"login": login},
+        "head": {"ref": ref, "sha": sha, "repo": None if head_repo is None else {"full_name": head_repo}},
+        "title": "<!-- injected -->",
+        "body": "evil",
+    }
+
+
+def _pr_lock_url(sha: str) -> str:
+    return watchdog.PR_HEAD_LOCKFILE.format(repo="owner/name", sha=sha)
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A minimal but faithful copy of the files the watchdog reads."""
@@ -179,6 +203,7 @@ def healthy_responses() -> dict[str, Any]:
         "action-releases": _releases(CLAUDE_ACTION_TAG),
         _action_lock_url(CLAUDE_ACTION_SHA): _bun_lock("1.8.4"),
         _action_lock_url(CLAUDE_ACTION_TAG): _bun_lock("1.8.4"),
+        "open-prs": [],
         "workflows": {
             "total_count": 1,
             "workflows": [{"id": DEPENDABOT_WORKFLOW_ID, "path": "dynamic/dependabot/dependabot-updates"}],
@@ -191,20 +216,23 @@ def healthy_responses() -> dict[str, Any]:
 
 
 def _fetchers(responses: dict[str, Any]):
+    # URL fragment -> response key. Anything unmatched is a PyPI lookup.
+    routes = {
+        watchdog.DEPENDABOT_CORE_LATEST_RELEASE: "core-release",
+        watchdog.ACTION_RELEASES.format(action=CLAUDE_ACTION): "action-releases",
+        "/pulls?": "open-prs",
+        "/actions/workflows?": "workflows",
+        f"/actions/workflows/{DEPENDABOT_WORKFLOW_ID}/runs": "dependabot-runs",
+    }
+
     def fetch_json(url: str) -> Any:
         if "/issues?" in url:
             label = url.split("labels=")[1].split("&", maxsplit=1)[0]
             return responses[f"prs:{label}"]
-        if url == watchdog.DEPENDABOT_CORE_LATEST_RELEASE:
-            return responses["core-release"]
-        if url == watchdog.ACTION_RELEASES.format(action=CLAUDE_ACTION):
-            return responses["action-releases"]
-        if "/actions/workflows?" in url:
-            return responses["workflows"]
-        if f"/actions/workflows/{DEPENDABOT_WORKFLOW_ID}/runs" in url:
-            return responses["dependabot-runs"]
-        name = url.removeprefix("https://pypi.org/pypi/").removesuffix("/json")
-        return responses[f"pypi:{name}"]
+        key = next((key for fragment, key in routes.items() if fragment in url), None)
+        if key is None:
+            key = "pypi:" + url.removeprefix("https://pypi.org/pypi/").removesuffix("/json")
+        return responses[key]
 
     def fetch_text(url: str) -> str:
         if url not in responses:
@@ -353,6 +381,78 @@ def test_no_dependabot_runs_at_all_cannot_be_judged(
     assert results["1r:error"].facts["error"] is True
     assert not any(check_id.startswith("1r:") and check_id != "1r:error" for check_id in results)
     assert results["1:uv"].ok
+
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+
+
+def test_releases_already_proposed_in_open_dependabot_prs_are_not_stale(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """2026-09-23: all three "stale" packages sat in open Dependabot PRs awaiting review.
+
+    A proposal waiting on a human is not a stalled updater; counting it let one more pending
+    review open a high-severity outage issue. A release newer than the proposal still counts.
+    """
+    responses = dict(healthy_responses)
+    responses["pypi:requests"] = _pypi(("2.34.2", NOW - timedelta(days=60)), ("2.35.0", NOW - timedelta(days=20)))
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)))
+    responses["open-prs"] = [_open_pr("a" * 40)]
+    responses[_pr_lock_url("a" * 40)] = _uv_lock(requests="2.35.0", mypy="2.4.0", isort="7.0.0")
+
+    result = _run(repo, responses, max_stale_direct=0)["2"]
+
+    assert result.ok
+    assert result.facts["count"] == 0
+    assert result.facts["proposed_excluded"] == 2
+    assert "提案済みで除外 2 件" in result.detail
+
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)), ("2.5.0", NOW - timedelta(days=15)))
+
+    result = _run(repo, responses, max_stale_direct=0)["2"]
+
+    assert not result.ok
+    assert [(item["name"], item["latest"]) for item in result.facts["dependencies"]] == [("mypy", "2.5.0")]
+    assert result.facts["proposed_excluded"] == 1
+
+
+def test_prs_from_other_authors_or_ecosystems_do_not_hide_a_backlog(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Only Dependabot's own uv PRs from this repository speak for what the updater proposed."""
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)))
+    responses["open-prs"] = [
+        _open_pr("1" * 40, login="someone"),
+        _open_pr("2" * 40, ref="dependabot/github_actions/actions/checkout-6.2.0"),
+        _open_pr("3" * 40, ref="dependabot/pre_commit/mirrors-prettier-3.9.9"),
+        _open_pr("4" * 40, head_repo="fork/name"),
+        _open_pr("5" * 40, head_repo=None),
+    ]
+    for sha in ("1", "2", "3", "4", "5"):
+        responses[_pr_lock_url(sha * 40)] = _uv_lock(requests="2.34.2", mypy="2.4.0", isort="7.0.0")
+
+    result = _run(repo, responses, max_stale_direct=0)["2"]
+
+    assert not result.ok
+    assert [item["name"] for item in result.facts["dependencies"]] == ["mypy"]
+    assert result.facts["proposed_excluded"] == 0
+
+
+@pytest.mark.usefixtures("frozen_clock")
+def test_unreadable_pr_head_lockfile_cannot_be_judged(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lockfile that cannot be read is not "no proposal": that would bring back the false backlog."""
+    responses = dict(healthy_responses)
+    responses["open-prs"] = [_open_pr("a" * 40)]
+
+    results = _run(repo, responses)
+
+    assert results["2:error"].facts["error"] is True
+    assert "2" not in results
+    assert results["1r:uv"].ok
 
     monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
     monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))

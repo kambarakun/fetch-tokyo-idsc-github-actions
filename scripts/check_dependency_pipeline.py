@@ -100,6 +100,11 @@ REFRESH_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in \S+ for .+ - Update #\d+$
 
 # The ecosystem that proposes the Python dependencies check 2 looks at.
 PYTHON_ECOSYSTEM = "uv"
+# Check 2 leaves out releases an open Dependabot PR already proposes (issue #728). One page
+# is enough: open-pull-requests-limit caps every ecosystem at 5 open PRs.
+OPEN_PULLS = GITHUB_API + "/repos/{repo}/pulls?state=open&per_page=100"
+DEPENDABOT_UV_BRANCH_PREFIX = f"dependabot/{PYTHON_ECOSYSTEM}/"
+PR_HEAD_LOCKFILE = "https://raw.githubusercontent.com/{repo}/{sha}/uv.lock"
 
 # Interpreters `requires-python` is enumerated over, see declared_python_versions. CPython
 # has never shipped a minor or patch anywhere near 40, so this brackets every version a
@@ -121,8 +126,10 @@ WEEKDAYS = {
 # Three missed weekly cycles. The 2026-07-27 outage would have tripped this on 2026-08-17,
 # five weeks before a human noticed it.
 DEFAULT_MAX_PR_AGE_DAYS = 21
-# Steady state is 0-2: a release inside the cooldown window is not yet actionable and is
-# excluded below, so anything above this means proposals are not landing.
+# Releases inside the cooldown and releases an open Dependabot PR already proposes are both
+# excluded, so what remains is what the updater could have proposed and did not. Before the
+# second exclusion existed, 2026-09-16 counted 2 and 09-23 counted 3, every one of them a PR
+# awaiting review; the threshold keeps headroom above that rather than above zero.
 DEFAULT_MAX_STALE_DIRECT = 3
 
 # What a check family may raise when an input cannot be read. Anything else (TypeError,
@@ -333,9 +340,46 @@ def direct_requirements(root: Path) -> list[Requirement]:
     return list(unique.values())
 
 
-def locked_versions(root: Path) -> dict[str, str]:
-    lock_text = (root / "uv.lock").read_text(encoding="utf-8")
+def parse_locked_versions(lock_text: str) -> dict[str, str]:
     return dict(re.findall(r'name = "([^"]+)"\nversion = "([^"]+)"', lock_text))
+
+
+def locked_versions(root: Path) -> dict[str, str]:
+    return parse_locked_versions((root / "uv.lock").read_text(encoding="utf-8"))
+
+
+def proposed_versions(fetch_json: FetchJson, fetch_text: FetchText, repo: str) -> dict[str, Version]:
+    """The highest version each package reaches in the uv.lock of an open Dependabot uv PR.
+
+    The head lockfile is read rather than the PR title or body, which are untrusted text and
+    would also need parsing per grouping style. A package the PR does not touch carries the
+    version it had on main, so taking the maximum with main's lock leaves it unchanged.
+
+    Only Dependabot's own uv branches in this repository count: anyone can open a PR whose
+    lockfile claims a newer version, and a github-actions or pre-commit PR proposes nothing
+    here. A lockfile that cannot be read is an error, never "no proposal".
+    """
+    proposed: dict[str, Version] = {}
+    for pull in fetch_json(OPEN_PULLS.format(repo=repo)):
+        head = pull["head"]
+        if (
+            pull["user"]["login"] != DEPENDABOT_LOGIN
+            or not head["ref"].startswith(DEPENDABOT_UV_BRANCH_PREFIX)
+            or head["repo"] is None
+            or head["repo"]["full_name"] != repo
+        ):
+            continue
+        versions = parse_locked_versions(fetch_text(PR_HEAD_LOCKFILE.format(repo=repo, sha=head["sha"])))
+        if not versions:
+            raise ValueError(f"no package entries found in the uv.lock of {head['sha']}")
+        for name, raw in versions.items():
+            try:
+                version = Version(raw)
+            except InvalidVersion:  # pragma: no cover - defensive; uv.lock holds PEP 440 versions
+                continue
+            key = _canonical(name)
+            proposed[key] = max(proposed.get(key, version), version)
+    return proposed
 
 
 def _canonical(name: str) -> str:
@@ -429,27 +473,39 @@ def stale_direct_dependencies(
     fetch_json: FetchJson,
     requirements: Iterable[Requirement],
     locked: dict[str, str],
+    proposed: dict[str, Version],
     as_of: datetime,
     cooldown: int,
     python_versions: Sequence[Version],
-) -> list[StaleDependency]:
-    """Direct dependencies Dependabot should already have proposed but has not."""
+) -> tuple[list[StaleDependency], int]:
+    """Direct dependencies Dependabot should already have proposed but has not.
+
+    Also returns how many packages were left out only because an open PR already proposes
+    their overdue release, so the report can say the exclusion happened.
+    """
     stale: list[StaleDependency] = []
+    excluded = 0
     for requirement in requirements:
-        current = locked.get(_canonical(requirement.name))
+        name = _canonical(requirement.name)
+        current = locked.get(name)
         if current is None:
             continue
         try:
-            current_version = Version(current)
+            locked_version = Version(current)
         except InvalidVersion:  # pragma: no cover - defensive; uv.lock holds PEP 440 versions
             continue
         payload = fetch_json(PYPI_JSON.format(name=requirement.name))
+        current_version = max(locked_version, proposed.get(name, locked_version))
         eligible = newest_eligible_release(payload, current_version, as_of, cooldown, python_versions)
         if eligible is None:
+            if current_version > locked_version and newest_eligible_release(
+                payload, locked_version, as_of, cooldown, python_versions
+            ):
+                excluded += 1
             continue
         version, released_at = eligible
         stale.append(StaleDependency(requirement.name, current, str(version), released_at))
-    return stale
+    return stale, excluded
 
 
 def tool_versions_uv_pin(root: Path) -> Version:
@@ -660,7 +716,7 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
 
 
 def check_stale_dependencies(
-    stale: Sequence[StaleDependency], cooldown: int, threshold: int, as_of: datetime
+    stale: Sequence[StaleDependency], proposed_excluded: int, cooldown: int, threshold: int, as_of: datetime
 ) -> CheckResult:
     listing = ", ".join(f"{item.name} {item.locked} -> {item.latest}" for item in stale) or "なし"
     return CheckResult(
@@ -669,9 +725,11 @@ def check_stale_dependencies(
         "high",
         len(stale) <= threshold,
         f"{len(stale)} 件 (閾値 {threshold} 件 / cooldown {cooldown} 日 / "
-        f"判定基準時刻 {as_of.isoformat(timespec='minutes')}): {listing}",
+        f"判定基準時刻 {as_of.isoformat(timespec='minutes')} / "
+        f"提案済みで除外 {proposed_excluded} 件): {listing}",
         {
             "count": len(stale),
+            "proposed_excluded": proposed_excluded,
             "threshold": threshold,
             "cooldown_days": cooldown,
             "as_of": as_of.isoformat(),
@@ -842,15 +900,16 @@ def run_checks(
 
     def stale_backlog() -> list[CheckResult]:
         as_of = last_scheduled_update(config, PYTHON_ECOSYSTEM, now)
-        stale = stale_direct_dependencies(
+        stale, proposed_excluded = stale_direct_dependencies(
             fetch_json,
             direct_requirements(root),
             locked_versions(root),
+            proposed_versions(fetch_json, fetch_text, repo),
             as_of,
             cooldown,
             declared_python_versions(root),
         )
-        return [check_stale_dependencies(stale, cooldown, max_stale_direct, as_of)]
+        return [check_stale_dependencies(stale, proposed_excluded, cooldown, max_stale_direct, as_of)]
 
     def uv_pin() -> list[CheckResult]:
         setup_uv_sha = setup_uv_pinned_sha(root)
