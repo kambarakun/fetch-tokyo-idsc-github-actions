@@ -610,11 +610,15 @@ def _osv_links(ids: Iterable[str]) -> list[str]:
     return [f"https://osv.dev/vulnerability/{vuln_id}" for vuln_id in ids]
 
 
-def _range_hit(version: Version, events: list[dict[str, str]]) -> bool | None:
-    """Evaluate one OSV ECOSYSTEM range; None when a bound is not a parseable version.
+Interval = tuple[Version, Version | None, bool]  # start, end (None = unbounded), end inclusive
 
-    Follows the OSV evaluation algorithm: a version that is not before any `limit` (`*` being
-    infinite) is outside the range, whatever the introduced / fixed events say.
+
+def _affected_intervals(events: list[dict[str, str]]) -> tuple[list[Interval], Version | None] | None:
+    """Turn one OSV ECOSYSTEM range into affected intervals plus an exclusive upper cap.
+
+    None when a bound is not a parseable version. Follows the OSV evaluation algorithm: a
+    version that is not before any `limit` (`*` being infinite) is outside the range, whatever
+    the introduced / fixed events say, so the limits collapse into a single cap.
     """
     parsed: list[tuple[str, Version | None]] = []
     for event in events:
@@ -627,46 +631,95 @@ def _range_hit(version: Version, events: list[dict[str, str]]) -> bool | None:
             return None
         parsed.append((kind, limit))
     limits = [limit for kind, limit in parsed if kind == "limit"]
-    if limits and not any(limit is None or version < limit for limit in limits):
-        return False
+    cap = None if not limits or None in limits else max(limit for limit in limits if limit is not None)
     # Publishers are only asked to pre-sort events; the evaluation itself walks them sorted.
     status = sorted(
         ((kind, limit) for kind, limit in parsed if kind != "limit" and limit is not None), key=lambda item: item[1]
     )
-    affected = False
+    intervals: list[Interval] = []
+    start: Version | None = None
     for kind, limit in status:
-        if kind == "introduced" and version >= limit:
-            affected = True
-        elif (kind == "fixed" and version >= limit) or (kind == "last_affected" and version > limit):
-            affected = False
-    return affected
+        if kind == "introduced" and start is None:
+            start = limit
+        elif kind in {"fixed", "last_affected"} and start is not None:
+            intervals.append((start, limit, kind == "last_affected"))
+            start = None
+    if start is not None:
+        intervals.append((start, None, False))
+    return intervals, cap
 
 
-def _action_hits(vulns: list[dict[str, Any]], bump: Bump) -> tuple[list[str], list[str]]:
-    """Match GitHub Actions advisories client side: OSV ignores `version` for this ecosystem."""
-    version = _parse_version(bump.new)
-    if version is not None and len(version.release) < 3:
-        # `# v10` / `# v10.2` name a moving tag; reading it as 10.0.0 would misplace it in ranges.
-        version = None
+def _range_overlaps(events: list[dict[str, str]], low: Version, high: Version | None) -> bool | None:
+    """Whether a range affects any version in [low, high); high None means "only `low` itself"."""
+    evaluated = _affected_intervals(events)
+    if evaluated is None:
+        return None
+    intervals, cap = evaluated
+    if high is None:
+        return (cap is None or low < cap) and any(
+            start <= low and (end is None or low < end or (inclusive and low == end))
+            for start, end, inclusive in intervals
+        )
+    if cap is not None:
+        high = min(high, cap)
+    return low < high and any(
+        start < high and (end is None or low < end or (inclusive and low == end)) for start, end, inclusive in intervals
+    )
+
+
+def _action_precision(bump: Bump) -> tuple[str, Version | None]:
+    """How exactly the version comment names a release: exact `vX.Y.Z`, floating `vN` / `vN.M`, or unknown."""
+    version = _parse_version(_tag(bump))
+    if version is None:
+        return "unknown", None
+    return ("exact" if len(version.release) >= 3 else "floating"), version
+
+
+def _prefix_bounds(prefix: tuple[int, ...]) -> tuple[Version, Version]:
+    # `v7` spans [7.0.0, 8.0.0); `v7.1` spans [7.1.0, 7.2.0).
+    upper = (*prefix[:-1], prefix[-1] + 1)
+    return Version(".".join(map(str, prefix))), Version(".".join(map(str, upper)))
+
+
+def _action_hits(vulns: list[dict[str, Any]], bump: Bump, names: set[str]) -> tuple[list[str], list[str], list[str]]:
+    """Match GitHub Actions advisories client side: OSV ignores `version` for this ecosystem.
+
+    Returns (hits, possible, unevaluable): a hit pins the exact version, a possible match is an
+    advisory that may cover a floating or unknown version, and an unevaluable range is neither.
+    """
+    precision, version = _action_precision(bump)
     hits: list[str] = []
+    possible: list[str] = []
     unevaluable: list[str] = []
     for vuln in vulns:
         for affected in vuln.get("affected", []):
             package = affected.get("package", {})
-            if package.get("ecosystem") != "GitHub Actions" or package.get("name", "").lower() != bump.name.lower():
+            if package.get("ecosystem") != "GitHub Actions" or package.get("name", "").lower() not in names:
                 continue
-            if bump.new.removeprefix("v") in {item.removeprefix("v") for item in affected.get("versions", [])}:
-                hits.append(vuln["id"])
+            if version is None:
+                possible.append(vuln["id"])
                 continue
-            for item in affected.get("ranges", []):
-                hit = (
-                    _range_hit(version, item.get("events", [])) if version and item.get("type") == "ECOSYSTEM" else None
-                )
-                if hit is None:
-                    unevaluable.append(vuln["id"])
-                elif hit:
+            listed = [item.removeprefix("v") for item in affected.get("versions", [])]
+            if precision == "exact":
+                low, high = version, None
+                if bump.new.removeprefix("v") in listed:
                     hits.append(vuln["id"])
-    return sorted(set(hits)), sorted(set(unevaluable) - set(hits))
+                    continue
+            else:
+                prefix = version.release
+                low, high = _prefix_bounds(prefix)
+                if any((v := _parse_version(item)) and v.release[: len(prefix)] == prefix for item in listed):
+                    possible.append(vuln["id"])
+                    continue
+            for item in affected.get("ranges", []):
+                overlap = (
+                    _range_overlaps(item.get("events", []), low, high) if item.get("type") == "ECOSYSTEM" else None
+                )
+                if overlap is None:
+                    unevaluable.append(vuln["id"])
+                elif overlap:
+                    (hits if precision == "exact" else possible).append(vuln["id"])
+    return sorted(set(hits)), sorted(set(possible)), sorted(set(unevaluable) - set(hits) - set(possible))
 
 
 def _osv_vulns(post_json: PostJson, payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -681,26 +734,39 @@ def _osv_vulns(post_json: PostJson, payload: dict[str, Any]) -> list[dict[str, A
     raise ValueError(f"OSV returned more than {OSV_MAX_PAGES} pages for {_osv_key(payload)}")
 
 
+def _active(vulns: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    # A withdrawn advisory was retracted by its publisher and no longer says anything.
+    return [vuln for vuln in vulns if not vuln.get("withdrawn")]
+
+
 def check_advisory(fetch_json: FetchJson, post_json: PostJson, bump: Bump) -> list[CheckResult]:
     if bump.kind == "pypi":
         payload = {"package": {"name": bump.name, "ecosystem": "PyPI"}, "version": bump.new}
-        hits = sorted(vuln["id"] for vuln in _osv_vulns(post_json, payload))
+        hits = sorted(vuln["id"] for vuln in _active(_osv_vulns(post_json, payload)))
+        possible: list[str] = []
         unevaluable: list[str] = []
     else:
-        # OSV package names are case-sensitive while GitHub accepts any casing in `uses:`.
+        # OSV package names are case-sensitive while GitHub accepts any casing in `uses:`, and a
+        # transferred repository keeps answering to its old name through a redirect.
         repository = _get_or_none(fetch_json, f"{GITHUB_API}/repos/{bump.name}")
-        name = repository["full_name"] if repository else bump.name
-        payload = {"package": {"name": name, "ecosystem": "GitHub Actions"}}
-        hits, unevaluable = _action_hits(_osv_vulns(post_json, payload), bump)
+        spellings = list(dict.fromkeys([bump.name, repository["full_name"] if repository else bump.name]))
+        vulns: dict[str, dict[str, Any]] = {}
+        for name in spellings:
+            payload = {"package": {"name": name, "ecosystem": "GitHub Actions"}}
+            vulns.update((vuln["id"], vuln) for vuln in _active(_osv_vulns(post_json, payload)))
+        names = {name.lower() for name in spellings}
+        hits, possible, unevaluable = _action_hits(list(vulns.values()), bump, names)
     if hits:
         return [_result("advisory", bump, "BLOCK", f"OSV に該当 ({', '.join(hits)})", _osv_links(hits))]
-    floating = (parsed := _parse_version(bump.new)) is not None and len(parsed.release) < 3
-    if unevaluable and floating:
-        detail = f"浮動タグ {bump.new} のため range を評価できない ({', '.join(unevaluable)})"
-        return [_result("advisory", bump, "WARN", detail, _osv_links(unevaluable))]
+    reasons: list[str] = []
+    if possible:
+        precision = _action_precision(bump)[0]
+        label = f"浮動タグ {bump.new}" if precision == "floating" else "版コメントが無い SHA pin"
+        reasons.append(f"{label} のため厳密判定不能 ({', '.join(possible)})。pin の SHA に対応する release を確認")
     if unevaluable:
-        detail = f"OSV に該当なし (評価不能な range: {', '.join(unevaluable)})"
-        return [_result("advisory", bump, "OK", detail, _osv_links(unevaluable))]
+        reasons.append(f"評価できない range ({', '.join(unevaluable)})")
+    if reasons:
+        return [_result("advisory", bump, "WARN", "; ".join(reasons), _osv_links([*possible, *unevaluable]))]
     return [_result("advisory", bump, "OK", "OSV に該当なし")]
 
 
@@ -755,6 +821,10 @@ def check_cooldown(fetch_json: FetchJson, bump: Bump, created_at: datetime, days
 
 
 def check_superseded(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
+    if bump.kind == "action" and (precision := _action_precision(bump)[0]) != "exact":
+        # `# v7` may pin 7.1.0; without the concrete release every 7.x would count as a successor.
+        reason = f"浮動タグ {bump.new}" if precision == "floating" else "版コメントが無い SHA pin"
+        return [_result("superseded", bump, "OK", f"{reason} のため評価不能")]
     later = later_releases(fetch_json, bump)
     if later is None:
         return [_result("superseded", bump, "OK", "release が無いため評価不能")]
@@ -1028,6 +1098,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     except (requests.RequestException, ValueError, KeyError, TypeError, OSError, yaml.YAMLError) as exc:
         print(f"検査自体が失敗した: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # exit 1 means BLOCK, so even a bug must surface as 2
+        print(f"検査自体が想定外の例外で失敗した: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
     return 1 if any(verdict.verdict == "BLOCK" for verdict in verdicts) else 0
 

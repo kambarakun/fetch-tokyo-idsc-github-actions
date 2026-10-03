@@ -505,7 +505,9 @@ def test_releases_beyond_the_first_page_are_considered(action_pr: dict[str, Any]
     assert "10.2.1" in check.detail
 
 
-def test_github_action_advisory_with_git_range_is_unevaluable_not_block(action_pr: dict[str, Any]) -> None:
+@pytest.mark.parametrize("range_type", ["GIT", "SEMVER"])
+def test_github_action_advisory_with_unevaluable_range_is_a_warn(action_pr: dict[str, Any], range_type: str) -> None:
+    # "Could not evaluate" must not read as "not affected": the rule leaves no fail-open path.
     action_pr["osv:GitHub Actions/astral-sh/setup-uv@*"] = {
         "vulns": [
             {
@@ -513,7 +515,7 @@ def test_github_action_advisory_with_git_range_is_unevaluable_not_block(action_p
                 "affected": [
                     {
                         "package": {"ecosystem": "GitHub Actions", "name": "astral-sh/setup-uv"},
-                        "ranges": [{"type": "GIT", "events": [{"introduced": "abc"}]}],
+                        "ranges": [{"type": range_type, "events": [{"introduced": "abc"}]}],
                     }
                 ],
             }
@@ -521,6 +523,132 @@ def test_github_action_advisory_with_git_range_is_unevaluable_not_block(action_p
     }
 
     check = _checks(_vet(action_pr))[("advisory", "astral-sh/setup-uv")]
+
+    assert check.verdict == "WARN"
+    assert "GHSA-xxxx-git" in check.detail
+
+
+def _single_action_pr(action: str, sha: str, comment: str) -> dict[str, Any]:
+    """A PR adding one `uses:` line; the tag resolves and the repository publishes no releases."""
+    responses: dict[str, Any] = {}
+    files = {".github/workflows/ci.yml": (None, _workflow(action, sha, comment))}
+    _pr(responses, head_ref=f"dependabot/github_actions/{action}", files=files)
+    if comment:
+        _tag(responses, action, comment, sha)
+    responses[f"{vet.GITHUB_API}/repos/{action}/git/commits/{sha}"] = {"committer": {"date": "2026-09-01T00:00:00Z"}}
+    responses[f"{vet.GITHUB_API}/repos/{action}/releases?per_page=100&page=1"] = []
+    return responses
+
+
+def _action_advisory(
+    responses: dict[str, Any], name: str, affected: dict[str, Any], *, vuln_id: str = "GHSA-test", **extra: Any
+) -> None:
+    responses[f"osv:GitHub Actions/{name}@*"] = {
+        "vulns": [
+            {
+                "id": vuln_id,
+                "affected": [{"package": {"ecosystem": "GitHub Actions", "name": name}, **affected}],
+                **extra,
+            }
+        ]
+    }
+
+
+def test_floating_tag_with_advisory_listing_a_version_under_its_prefix_is_a_warn() -> None:
+    # `# v7` stands for some 7.x release; an advisory listing 7.0.1 may cover the pinned SHA.
+    responses = _single_action_pr("actions/github-script", SETUP_UV_NEW, "v7")
+    _action_advisory(responses, "actions/github-script", {"versions": ["7.0.1"]})
+
+    check = _checks(_vet(responses))[("advisory", "actions/github-script")]
+
+    assert check.verdict == "WARN"
+    assert "GHSA-test" in check.detail
+    assert "pin の SHA に対応する release" in check.detail
+
+
+@pytest.mark.parametrize(
+    ("comment", "affected", "expected"),
+    [
+        ("v7", {"versions": ["6.4.1", "8.0.0"]}, "OK"),
+        ("v7.1", {"versions": ["7.1.3"]}, "WARN"),
+        ("v7.1", {"versions": ["7.2.0"]}, "OK"),
+        ("v7", {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "8.0.0"}, {"fixed": "8.1.0"}]}]}, "OK"),
+        ("v7", {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "7.0.0"}]}]}, "OK"),
+        # `last_affected` closes the interval: 7.0.0 itself is affected.
+        (
+            "v7",
+            {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"last_affected": "7.0.0"}]}]},
+            "WARN",
+        ),
+        ("v7.1", {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "7.1.5"}]}]}, "WARN"),
+        ("v7.1", {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "7.0.0"}, {"limit": "7.1.0"}]}]}, "OK"),
+    ],
+)
+def test_floating_tag_warns_only_when_the_advisory_can_reach_its_prefix(
+    comment: str, affected: dict[str, Any], expected: str
+) -> None:
+    responses = _single_action_pr("actions/github-script", SETUP_UV_NEW, comment)
+    _action_advisory(responses, "actions/github-script", affected)
+
+    assert _checks(_vet(responses))[("advisory", "actions/github-script")].verdict == expected
+
+
+def test_transferred_repository_advisory_is_matched_under_its_canonical_name() -> None:
+    # Workflows keep the old name working through GitHub's redirect; OSV files it under the new one.
+    responses = _single_action_pr("old-owner/old-action", SETUP_UV_NEW, "v2.3.4")
+    responses[f"{vet.GITHUB_API}/repos/old-owner/old-action"] = {"full_name": "new-owner/new-action"}
+    _action_advisory(responses, "new-owner/new-action", {"versions": ["2.3.4"]}, vuln_id="GHSA-moved")
+
+    check = _checks(_vet(responses))[("advisory", "old-owner/old-action")]
+
+    assert check.verdict == "BLOCK"
+    assert "GHSA-moved" in check.detail
+
+
+def test_transferred_repository_is_queried_under_both_names() -> None:
+    responses = _single_action_pr("old-owner/old-action", SETUP_UV_NEW, "v2.3.4")
+    responses[f"{vet.GITHUB_API}/repos/old-owner/old-action"] = {"full_name": "new-owner/new-action"}
+    _action_advisory(responses, "old-owner/old-action", {"versions": ["2.3.4"]}, vuln_id="GHSA-old-name")
+
+    assert _checks(_vet(responses))[("advisory", "old-owner/old-action")].verdict == "BLOCK"
+
+
+def test_sha_pin_without_version_comment_and_any_advisory_is_a_warn() -> None:
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "")
+    _action_advisory(responses, "astral-sh/setup-uv", {"versions": ["1.0.0"]})
+
+    check = _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")]
+
+    assert check.verdict == "WARN"
+    assert "GHSA-test" in check.detail
+
+
+def test_sha_pin_without_version_comment_and_no_advisory_is_ok() -> None:
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "")
+
+    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "OK"
+
+
+def test_withdrawn_advisories_are_ignored(uv_pr: dict[str, Any]) -> None:
+    uv_pr["osv:PyPI/ruff@0.16.8"] = {"vulns": [{"id": "GHSA-gone", "withdrawn": "2026-09-20T00:00:00Z"}]}
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0")
+    _action_advisory(responses, "astral-sh/setup-uv", {"versions": ["10.2.0"]}, withdrawn="2026-09-20T00:00:00Z")
+
+    assert _checks(_vet(uv_pr))[("advisory", "ruff")].verdict == "OK"
+    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "OK"
+
+
+@pytest.mark.parametrize("comment", ["v7", ""])
+def test_superseded_is_not_evaluated_without_an_exact_version(comment: str) -> None:
+    # The pinned SHA may itself be 7.1.0; every 7.x release would otherwise count as its successor.
+    responses = _single_action_pr("actions/github-script", SETUP_UV_NEW, comment)
+    _releases(
+        responses,
+        "actions/github-script",
+        {"v7.0.0": datetime(2026, 9, 2, tzinfo=UTC), "v7.1.0": datetime(2026, 9, 3, tzinfo=UTC)},
+    )
+
+    check = _checks(_vet(responses))[("superseded", "actions/github-script")]
 
     assert check.verdict == "OK"
     assert "評価不能" in check.detail
@@ -940,6 +1068,18 @@ def test_non_dependabot_pr_exits_two(
 
     assert _main(monkeypatch, uv_pr, "--pr", "748") == 2
     assert "Dependabot の PR ではない" in capsys.readouterr().err
+
+
+def test_unexpected_exception_exits_two_not_block(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A comment-only `.pre-commit-config.yaml` loads as None; exit 1 would claim a BLOCK.
+    responses: dict[str, Any] = {}
+    files = {".pre-commit-config.yaml": ("# nothing yet\n", "# still nothing\n")}
+    _pr(responses, head_ref="dependabot/pre_commit/hooks", files=files)
+
+    assert _main(monkeypatch, responses, "--pr", "748") == 2
+    assert "AttributeError" in capsys.readouterr().err
 
 
 def test_network_failure_exits_two_not_block(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
