@@ -351,6 +351,7 @@ def test_common_workflow_processes_raw_changed_since_pre_fetch_commit() -> None:
     coverage_run = steps["Check processing coverage"]["run"]
     assert "check-data-status" in coverage_run
     assert "--fail-on-incomplete" in coverage_run
+    assert "select(.reason != null)" in coverage_run
 
 
 def test_common_workflow_captures_canonical_continuity_result() -> None:

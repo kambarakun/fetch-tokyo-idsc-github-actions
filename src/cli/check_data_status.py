@@ -75,7 +75,10 @@ def main() -> int:
     parser.add_argument(
         "--fail-on-incomplete",
         action="store_true",
-        help="未完了 (出力欠損・処理できないraw) または改訂後未再処理のrawがあれば終了コード1で終了",
+        help=(
+            "未完了 (出力欠損・処理できないraw) または改訂後未再処理のrawがあれば終了コード1で終了"
+            " (rawに対応しない processed は対象外、報告のみ)"
+        ),
     )
 
     args = parser.parse_args()
@@ -106,6 +109,7 @@ def main() -> int:
 
     # Sources reprocessing cannot fix (unsupported name, nested path, unprocessable content) still
     # fail the gate even though --list-needs-processing omits them.
+    # Orphaned processed files stay report-only: issue #725 decided so, and the fetch job never renames or deletes raw.
     coverage = status["coverage"]
     if args.fail_on_incomplete and (coverage["incomplete_source_count"] > 0 or coverage["stale_source_count"] > 0):
         return 1
