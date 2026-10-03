@@ -464,6 +464,13 @@ def test_release_dropping_the_python_floor_is_a_block(uv_pr: dict[str, Any]) -> 
     assert "3.11" in check.detail
 
 
+def test_python_floor_is_the_tightest_lower_bound() -> None:
+    # `>=3.10,>=3.11` admits nothing below 3.11, so a release needing 3.11 must not BLOCK.
+    pyproject = '[project]\nrequires-python = ">=3.10,>=3.11"\n'
+
+    assert str(vet.requires_python_floor(pyproject)) == "3.11"
+
+
 def test_release_younger_than_cooldown_is_a_warn(uv_pr: dict[str, Any]) -> None:
     _pypi(uv_pr, "ruff", {"0.16.8": NOW - timedelta(days=2)})
 
@@ -862,6 +869,28 @@ def test_network_failure_exits_two_not_block(monkeypatch: pytest.MonkeyPatch, tm
     # The workflow's `[ -f report.md ]` guard relies on no report being written.
     assert not report.exists()
     assert not report_json.exists()
+
+
+def test_broken_fixture_index_exits_two(tmp_path: Path) -> None:
+    (tmp_path / "index.json").write_text("{not json", encoding="utf-8")
+
+    assert vet.main(["--pr", "748", "--repo", REPO, "--fixture", str(tmp_path)]) == 2
+
+
+def test_unwritable_report_exits_two_not_block(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    # A failed write must not surface as exit 1, which means BLOCK.
+    assert _main(monkeypatch, uv_pr, "--pr", "748", "--report", str(tmp_path / "missing" / "report.md")) == 2
+
+
+def test_failed_comment_post_exits_two(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:
+    def post(url: str, payload: dict[str, Any]) -> Any:
+        raise requests.ConnectionError("network down")
+
+    monkeypatch.setattr(vet, "make_poster", lambda token: post)
+
+    assert _main(monkeypatch, uv_pr, "--pr", "748", "--comment") == 2
 
 
 def test_pypi_server_error_exits_two(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:

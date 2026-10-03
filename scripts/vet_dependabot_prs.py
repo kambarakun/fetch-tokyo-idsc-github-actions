@@ -480,7 +480,8 @@ def requires_python_floor(pyproject_text: str | None) -> Version:
     floors = [Version(item.version) for item in SpecifierSet(spec) if item.operator in {">=", "~=", "=="}]
     if not floors:
         raise ValueError(f"requires-python {spec!r} has no lower bound")
-    return min(floors)
+    # Every lower bound applies at once, so the tightest one is the effective floor.
+    return max(floors)
 
 
 def cooldown_days(dependabot_yml_text: str | None, ecosystem: str) -> int:
@@ -985,33 +986,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("--repo、GITHUB_REPOSITORY、git remote origin のいずれからもリポジトリを特定できない", file=sys.stderr)
         return 2
     token = os.environ.get("GITHUB_TOKEN") or None
-    if args.fixture:
-        fetch_json, fetch_text, post_json = make_fixture_fetchers(args.fixture)
-    elif args.record:
-        fetch_json, fetch_text, post_json = make_recording_fetchers(token, args.record)
-    else:
-        fetch_json, fetch_text, post_json = make_fetchers(token)
 
+    # Setup, output and posting fail the same way as the checks: exit 1 means BLOCK, so any
+    # other failure must surface as 2 (a broken fixture or an unwritable report is not a verdict).
     try:
+        if args.fixture:
+            fetch_json, fetch_text, post_json = make_fixture_fetchers(args.fixture)
+        elif args.record:
+            fetch_json, fetch_text, post_json = make_recording_fetchers(token, args.record)
+        else:
+            fetch_json, fetch_text, post_json = make_fetchers(token)
         numbers = args.pr or open_dependabot_prs(fetch_json, repo)
         verdicts = [vet_pull_request(fetch_json, fetch_text, post_json, repo, number) for number in numbers]
+        markdown = render_markdown(verdicts)
+        print(markdown, end="")
+        if args.report:
+            args.report.write_text(markdown, encoding="utf-8")
+        if args.json:
+            report = json.dumps(render_json(verdicts), ensure_ascii=False, indent=2) + "\n"
+            args.json.write_text(report, encoding="utf-8")
+        if args.comment:
+            post = make_poster(token)
+            for verdict in verdicts:
+                url = f"{GITHUB_API}/repos/{repo}/issues/{verdict.number}/comments"
+                post(url, {"body": render_pull_request(verdict)})
     except NotDependabotPullRequestError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    except (requests.RequestException, ValueError, KeyError, TypeError, yaml.YAMLError) as exc:
+    except (requests.RequestException, ValueError, KeyError, TypeError, OSError, yaml.YAMLError) as exc:
         print(f"検査自体が失敗した: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
-
-    markdown = render_markdown(verdicts)
-    print(markdown, end="")
-    if args.report:
-        args.report.write_text(markdown, encoding="utf-8")
-    if args.json:
-        args.json.write_text(json.dumps(render_json(verdicts), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    if args.comment:
-        post = make_poster(token)
-        for verdict in verdicts:
-            post(f"{GITHUB_API}/repos/{repo}/issues/{verdict.number}/comments", {"body": render_pull_request(verdict)})
     return 1 if any(verdict.verdict == "BLOCK" for verdict in verdicts) else 0
 
 
