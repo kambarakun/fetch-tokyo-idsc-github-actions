@@ -698,9 +698,14 @@ def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], n
         # a schedule only counts once a day has passed since it. Moving the cut-off a day
         # earlier instead would count the previous day's runs as this week's, and demand a run
         # for a schedule that has only just arrived. Refresh runs count as a sign of life
-        # because a week with five open PRs has no full run.
+        # because a week with five open PRs has no full run. Only finished runs count: one still
+        # queued or running past the grace period is stuck, and counting it would pair last
+        # week's success with this week's hang and call the updater healthy.
         since = last_scheduled_update(config, ecosystem, now - timedelta(days=1))
-        ran_since_schedule = any(datetime.fromisoformat(run["created_at"]) >= since for run in full_runs + refresh_runs)
+        ran_since_schedule = any(
+            run["status"] == "completed" and datetime.fromisoformat(run["created_at"]) >= since
+            for run in full_runs + refresh_runs
+        )
         conclusion = latest["conclusion"] if latest else None
         if latest is None:
             detail = "取得した run に full run が見つからない"

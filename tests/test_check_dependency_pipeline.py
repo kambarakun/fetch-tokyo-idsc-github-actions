@@ -326,6 +326,30 @@ def test_missing_updater_run_since_the_last_schedule_is_an_alert(repo: Path, hea
     assert results["1r:uv"].facts["ran_since_schedule"] is False
 
 
+def test_an_updater_run_stuck_past_the_grace_period_is_not_activity(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """A run that started this week but never finished says nothing about this week's update.
+
+    Counting it would pair last week's successful full run with a stuck current one and
+    report the updater healthy.
+    """
+    responses = dict(healthy_responses)
+    stuck = {**_update_run("uv", NOW - timedelta(days=2)), "status": "in_progress", "conclusion": None}
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+        stuck,
+    )
+
+    result = _run(repo, responses)["1r:uv"]
+
+    assert not result.ok
+    assert result.facts["conclusion"] == "success"
+    assert result.facts["ran_since_schedule"] is False
+
+
 def test_refresh_runs_prove_a_live_updater_but_not_a_healthy_full_run(
     repo: Path, healthy_responses: dict[str, Any]
 ) -> None:
