@@ -82,15 +82,31 @@ jobs:
           status=$?
           set -e
 
-          # 0=正常 / 1=アラート / それ以外=検査自体の失敗。無音で失敗すると本 issue の
-          # 対象そのものを再現するので、2 以上はジョブを赤くする。
+          # 0=正常 / 1=アラート / それ以外=一部または全部の検査が実行できなかった (issue #728)。
+          # 2 以上でもこの step は失敗させず、出せた report の掲載・アラートの起票まで進めてから
+          # 最終 step でジョブを赤くする。無音で失敗すると本 issue の対象そのものを再現するため。
+          # exit 2 のときの alert は、report.json に「検査できたうえでの不合格」行があるかで決める。
+          alert=false
+          error=false
           case "${status}" in
-            0) echo "alert=false" >> "$GITHUB_OUTPUT" ;;
-            1) echo "alert=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::生存確認スクリプトが異常終了しました (exit ${status})"; exit "${status}" ;;
+            0) ;;
+            1) alert=true ;;
+            *)
+              error=true
+              echo "::error::生存確認の一部または全部を実行できませんでした (exit ${status})"
+              if [ -f report.json ] && python3 -c 'import json,sys; sys.exit(0 if any(not r["ok"] and not r["error"] for r in json.load(open("report.json"))) else 1)'; then
+                alert=true
+              fi
+              ;;
           esac
+          {
+            echo "alert=${alert}"
+            echo "error=${error}"
+          } >> "$GITHUB_OUTPUT"
 
-          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f report.md ]; then
+            cat report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -135,8 +151,9 @@ jobs:
               --label "bug,automated,dependencies"
           fi
 
+      # 検査不能が 1 つでもあれば閉じない。見えていない検査が停止を隠している可能性がある。
       - name: Close the tracking issue when healthy
-        if: steps.checks.outputs.alert == 'false'
+        if: steps.checks.outputs.alert == 'false' && steps.checks.outputs.error == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -157,3 +174,9 @@ jobs:
           else
             echo "アラートなし。追跡 issue も存在しません"
           fi
+
+      - name: Fail when a check could not run
+        if: steps.checks.outputs.error == 'true'
+        run: |
+          echo "::error::検査不能の項目があります。step summary の ⚠️ 行と docs/dependency-pipeline.md を参照してください"
+          exit 1

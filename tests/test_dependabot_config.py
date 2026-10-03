@@ -105,6 +105,22 @@ def test_requests_uses_bundled_type_information(tmp_path: Path) -> None:
     assert 'Argument 1 to "get" has incompatible type "int"' in result.stdout
 
 
+def _setup_uv_steps(workflows_dir: Path) -> dict[str, dict]:
+    """Every setup-uv step in every workflow, under both extensions GitHub accepts.
+
+    Scanning only `*.yml` let a `*.yaml` workflow install an unpinned uv past this guard while
+    the watchdog (scripts/check_dependency_pipeline.py::workflow_files) still saw one SHA.
+    Keyed by step index too: a job with two setup-uv steps must not collapse into one entry.
+    """
+    return {
+        f"{workflow.name}:{job_id}:{index}": step
+        for workflow in sorted(path for suffix in ("*.yml", "*.yaml") for path in workflows_dir.glob(suffix))
+        for job_id, job in yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"].items()
+        for index, step in enumerate(job.get("steps", []))
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    }
+
+
 def test_uv_version_pin_lives_outside_uv_config() -> None:
     """mise and setup-uv must read the uv pin from .tool-versions; uv itself must not see it.
 
@@ -119,14 +135,7 @@ def test_uv_version_pin_lives_outside_uv_config() -> None:
         for line in tool_versions_lines
         if not line.lstrip().startswith("#") and (match := TOOL_VERSIONS_UV_LINE.match(line))
     ]
-    # Keyed by step index too: a job with two setup-uv steps must not collapse into one entry.
-    setup_uv_steps = {
-        f"{workflow.name}:{job_id}:{index}": step
-        for workflow in sorted((project_root / ".github" / "workflows").glob("*.yml"))
-        for job_id, job in yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"].items()
-        for index, step in enumerate(job.get("steps", []))
-        if step.get("uses", "").startswith("astral-sh/setup-uv@")
-    }
+    setup_uv_steps = _setup_uv_steps(project_root / ".github" / "workflows")
     setup_uv_version_files = {key: step.get("with", {}) for key, step in setup_uv_steps.items()}
     setup_uv_refs = {step["uses"].removeprefix("astral-sh/setup-uv@") for step in setup_uv_steps.values()}
 
@@ -150,3 +159,29 @@ def test_uv_version_pin_lives_outside_uv_config() -> None:
     # reasoning only holds if every workflow pins the same commit.
     assert len(setup_uv_refs) == 1
     assert re.fullmatch(r"[0-9a-f]{40}", next(iter(setup_uv_refs)))
+
+
+def test_setup_uv_steps_include_yaml_workflows(tmp_path: Path) -> None:
+    """A `*.yaml` workflow without `version-file` must reach the assertions above."""
+    sha = "c18668ad3cf93ea998bef934396af7bb5c839dc7"
+    (tmp_path / "test.yml").write_text(
+        yaml.safe_dump(
+            {
+                "jobs": {
+                    "test": {
+                        "steps": [{"uses": f"astral-sh/setup-uv@{sha}", "with": {"version-file": UV_VERSION_FILE}}]
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "release.yaml").write_text(
+        yaml.safe_dump({"jobs": {"release": {"steps": [{"uses": f"astral-sh/setup-uv@{sha}"}]}}}),
+        encoding="utf-8",
+    )
+
+    steps = _setup_uv_steps(tmp_path)
+
+    assert set(steps) == {"test.yml:test:0", "release.yaml:release:0"}
+    assert "version-file" not in steps["release.yaml:release:0"].get("with", {})

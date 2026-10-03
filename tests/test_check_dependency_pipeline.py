@@ -720,6 +720,17 @@ def test_a_release_history_without_a_semver_tag_fails_loudly(
     assert f"no semver release tag found for {CLAUDE_ACTION}" in capsys.readouterr().err
 
 
+def _assert_only_check_4_could_not_run(results: dict[str, watchdog.CheckResult]) -> None:
+    """An ambiguous pin is reported as "could not judge", and the other families still report."""
+    error = results["4:error"]
+    assert not error.ok
+    assert error.facts["error"] is True
+    assert "exactly one pinned" in error.detail
+    assert CHECK_4 not in results
+    assert {"1:github-actions", "1:pre-commit", "1:uv", "2", "3a"} <= set(results)
+    assert all(result.ok for check_id, result in results.items() if check_id != "4:error")
+
+
 def test_a_watched_action_pinned_in_a_yaml_file_is_seen_too(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """GitHub accepts both extensions, so scanning one would answer with a pin while a
     second, differently pinned use sat unseen in the other -- a wrong answer, not a failure."""
@@ -728,8 +739,9 @@ def test_a_watched_action_pinned_in_a_yaml_file_is_seen_too(repo: Path, healthy_
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="exactly one pinned"):
-        _run(repo, healthy_responses)
+    results = _run(repo, healthy_responses)
+
+    _assert_only_check_4_could_not_run(results)
 
 
 def test_upstream_is_not_consulted_once_the_pinned_copy_is_clear(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -782,8 +794,9 @@ def test_a_watched_action_pinned_to_two_commits_fails_loudly(repo: Path, healthy
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="exactly one pinned"):
-        _run(repo, healthy_responses)
+    results = _run(repo, healthy_responses)
+
+    _assert_only_check_4_could_not_run(results)
 
 
 def test_report_only_contains_structured_facts(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -857,6 +870,58 @@ def test_main_reports_healthy_pipelines_with_exit_zero(
     monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(healthy_responses))
 
     assert watchdog.main(["--repo", "owner/name"]) == 0
+
+
+@pytest.mark.usefixtures("frozen_clock")
+def test_one_failing_family_does_not_discard_the_others(
+    repo: Path,
+    healthy_responses: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A stalled uv updater must still be reported when an unrelated upstream file moves.
+
+    Before the families were isolated, the 404 below took the whole run down with exit 2: no
+    report, no issue, and the 44-day outage of check 1 was lost along with it.
+    """
+    responses = dict(healthy_responses)
+    responses["prs:python"] = _pr_payload(NOW - timedelta(days=44))
+    del responses[_action_lock_url(CLAUDE_ACTION_TAG)]
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+    report_path, json_path = tmp_path / "report.md", tmp_path / "report.json"
+
+    exit_code = watchdog.main(["--repo", "owner/name", "--report", str(report_path), "--json", str(json_path)])
+
+    assert exit_code == 2
+    report = report_path.read_text(encoding="utf-8")
+    assert "🚨 1 件の検査が閾値を超えた。" in report
+    assert "⚠️ 1 件の検査を実行できなかった。" in report
+    rows = {entry["id"]: entry for entry in json.loads(json_path.read_text(encoding="utf-8"))}
+    assert (rows["1:uv"]["ok"], rows["1:uv"]["error"]) == (False, False)
+    assert (rows["4:error"]["ok"], rows["4:error"]["error"]) == (False, True)
+    assert all(entry["error"] is False for check_id, entry in rows.items() if check_id != "4:error")
+    assert "生存確認を実行できませんでした" in capsys.readouterr().err
+
+
+def test_watchdog_workflow_reports_partial_results_before_failing() -> None:
+    """Exit 2 must still publish the report and file the alerts, then fail the job.
+
+    The close step is the dangerous one: run on "no alert" alone, it would close the tracking
+    issue while a check that could not run might be hiding the very outage it tracks.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    workflow = yaml.safe_load(
+        (project_root / ".github" / "workflows" / "dependency-pipeline-watchdog.yml").read_text(encoding="utf-8")
+    )
+    steps = {step["name"]: step for step in workflow["jobs"]["watchdog"]["steps"]}
+    checks = next(step for step in steps.values() if step.get("id") == "checks")
+
+    assert 'exit "${status}"' not in checks["run"]
+    assert "error == 'false'" in steps["Close the tracking issue when healthy"]["if"]
+    assert "error == 'true'" in steps["Fail when a check could not run"]["if"]
+    assert list(steps)[-1] == "Fail when a check could not run"
 
 
 def test_network_failure_exits_two_rather_than_reporting_healthy(

@@ -109,6 +109,13 @@ DEFAULT_MAX_PR_AGE_DAYS = 21
 # excluded below, so anything above this means proposals are not landing.
 DEFAULT_MAX_STALE_DIRECT = 3
 
+# What a check family may raise when an input cannot be read. Anything else (TypeError,
+# AttributeError, ...) is a bug in this script and has to crash rather than be reported as
+# "could not judge" week after week.
+CHECK_ERRORS = (requests.RequestException, yaml.YAMLError, OSError, ValueError, KeyError)
+# Keeps one unreadable response from flooding the report table and the tracking issue.
+ERROR_DETAIL_LIMIT = 200
+
 Severity = str
 FetchJson = Callable[[str], Any]
 FetchText = Callable[[str], str]
@@ -697,6 +704,36 @@ def check_action_bundled_dependencies(
     return results
 
 
+def is_error(result: CheckResult) -> bool:
+    """Whether `result` stands for a family that could not be judged, rather than a verdict."""
+    return bool(result.facts.get("error", False))
+
+
+def _guarded(family: str, run: Callable[[], list[CheckResult]]) -> list[CheckResult]:
+    """Run one check family, turning an unreadable input into a "could not judge" row.
+
+    Each family reads different third-party files, so one of them moving must not discard the
+    verdicts of the others: a stalled updater went unreported on 2026-09-09 because an
+    unrelated lockfile 404 ended the whole run before any report was written.
+    """
+    try:
+        return run()
+    except CHECK_ERRORS as error:
+        print(f"生存確認を実行できませんでした (検査 {family}): {error}", file=sys.stderr)
+        # Collapsed onto one line: a newline in the message would break the report table.
+        message = " ".join(f"検査不能: {type(error).__name__}: {error}".split())
+        return [
+            CheckResult(
+                f"{family}:error",
+                f"検査 {family} の実行",
+                "high",
+                False,
+                message[:ERROR_DETAIL_LIMIT],
+                {"error": True, "family": family},
+            )
+        ]
+
+
 def run_checks(
     fetch_json: FetchJson,
     fetch_text: FetchText,
@@ -706,48 +743,67 @@ def run_checks(
     max_pr_age_days: int,
     max_stale_direct: int,
 ) -> list[CheckResult]:
+    # Shared by every family, so a failure here still ends the run without a report.
     config = dependabot_config(root)
     cooldown = cooldown_days(config)
-    results = check_pr_age(fetch_json, repo, dependabot_ecosystems(config), now, max_pr_age_days)
-    as_of = last_scheduled_update(config, PYTHON_ECOSYSTEM, now)
-    stale = stale_direct_dependencies(
-        fetch_json, direct_requirements(root), locked_versions(root), as_of, cooldown, declared_python_versions(root)
-    )
-    results.append(check_stale_dependencies(stale, cooldown, max_stale_direct, as_of))
-    setup_uv_sha = setup_uv_pinned_sha(root)
-    bundled, bundled_ref = dependabot_bundled_uv(fetch_json, fetch_text)
-    results.extend(
-        check_uv_pin(
+
+    def stale_backlog() -> list[CheckResult]:
+        as_of = last_scheduled_update(config, PYTHON_ECOSYSTEM, now)
+        stale = stale_direct_dependencies(
+            fetch_json,
+            direct_requirements(root),
+            locked_versions(root),
+            as_of,
+            cooldown,
+            declared_python_versions(root),
+        )
+        return [check_stale_dependencies(stale, cooldown, max_stale_direct, as_of)]
+
+    def uv_pin() -> list[CheckResult]:
+        setup_uv_sha = setup_uv_pinned_sha(root)
+        bundled, bundled_ref = dependabot_bundled_uv(fetch_json, fetch_text)
+        return check_uv_pin(
             tool_versions_uv_pin(root),
             known_uv_checksums(fetch_text, setup_uv_sha),
             bundled,
             bundled_ref,
             setup_uv_sha,
         )
-    )
-    results.extend(check_action_bundled_dependencies(fetch_json, fetch_text, root, WATCHED_ACTION_DEPENDENCIES))
-    return results
+
+    families: list[tuple[str, Callable[[], list[CheckResult]]]] = [
+        ("1", lambda: check_pr_age(fetch_json, repo, dependabot_ecosystems(config), now, max_pr_age_days)),
+        ("2", stale_backlog),
+        ("3", uv_pin),
+        ("4", lambda: check_action_bundled_dependencies(fetch_json, fetch_text, root, WATCHED_ACTION_DEPENDENCIES)),
+    ]
+    return [result for family, run in families for result in _guarded(family, run)]
 
 
 SEVERITY_MARK = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 
 
 def render_report(results: Sequence[CheckResult], repo: str, now: datetime) -> str:
-    alerts = [result for result in results if not result.ok]
+    errors = [result for result in results if is_error(result)]
+    alerts = [result for result in results if not result.ok and not is_error(result)]
+    summary: list[str] = []
+    if alerts:
+        summary.append(f"🚨 {len(alerts)} 件の検査が閾値を超えた。")
+    if errors:
+        summary.append(f"⚠️ {len(errors)} 件の検査を実行できなかった。")
     lines = [
         f"依存更新パイプラインの生存確認 ({repo} / {now.isoformat(timespec='seconds')})",
         "",
-        ("✅ 全ての検査を通過した。" if not alerts else f"🚨 {len(alerts)} 件の検査が閾値を超えた。"),
+        " ".join(summary) or "✅ 全ての検査を通過した。",
         "",
         "| | 検査 | 重要度 | 結果 |",
         "| --- | --- | --- | --- |",
     ]
     for result in results:
-        mark = "✅" if result.ok else "🚨"
+        mark = "⚠️" if is_error(result) else "✅" if result.ok else "🚨"
         lines.append(
             f"| {mark} | {result.title} | {SEVERITY_MARK[result.severity]} {result.severity} | {result.detail} |"
         )
-    if alerts:
+    if alerts or errors:
         lines += ["", "## 対応", ""]
         lines.append("`docs/dependency-pipeline.md` の「アラート別の対応」を参照する。")
     return "\n".join(lines) + "\n"
@@ -770,7 +826,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     now = datetime.now(UTC)
     # Rendering and writing the report stay inside the boundary: an uncaught failure there
     # exits with 1, which the workflow reads as "threshold exceeded" and turns into a false
-    # alert issue. Everything that is not a verdict must exit 2 instead.
+    # alert issue. Everything that is not a verdict must exit 2 instead. A single family that
+    # cannot run is caught inside run_checks; what reaches this handler is the shared setup.
     try:
         results = run_checks(
             fetch_json,
@@ -792,18 +849,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "title": result.title,
                     "severity": result.severity,
                     "ok": result.ok,
+                    # Present on every row so the workflow can tell alerts from errors on exit 2.
+                    "error": is_error(result),
                     "detail": result.detail,
                     "facts": result.facts,
                 }
                 for result in results
             ]
             args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    except (requests.RequestException, yaml.YAMLError, OSError, ValueError, KeyError) as error:
+    except CHECK_ERRORS as error:
         # A watchdog that fails quietly reproduces the very bug it exists to catch,
         # so surface this as a red run rather than as "healthy".
         print(f"生存確認を実行できませんでした: {error}", file=sys.stderr)
         return 2
 
+    if any(is_error(result) for result in results):
+        return 2
     return 0 if all(result.ok for result in results) else 1
 
 
