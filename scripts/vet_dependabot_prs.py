@@ -568,7 +568,7 @@ def later_releases(fetch_json: FetchJson, bump: Bump) -> list[tuple[Version, dat
     if repo is None:
         return None
     # `/releases/latest` follows floating tags (docs/dependency-pipeline.md check 4), so sort ourselves.
-    releases = fetch_json(f"{GITHUB_API}/repos/{repo}/releases?per_page={PAGE_SIZE}")
+    releases = _paged(fetch_json, f"{GITHUB_API}/repos/{repo}/releases")
     if not releases:
         return None
     for release in releases:
@@ -645,6 +645,9 @@ def _range_hit(version: Version, events: list[dict[str, str]]) -> bool | None:
 def _action_hits(vulns: list[dict[str, Any]], bump: Bump) -> tuple[list[str], list[str]]:
     """Match GitHub Actions advisories client side: OSV ignores `version` for this ecosystem."""
     version = _parse_version(bump.new)
+    if version is not None and len(version.release) < 3:
+        # `# v10` / `# v10.2` name a moving tag; reading it as 10.0.0 would misplace it in ranges.
+        version = None
     hits: list[str] = []
     unevaluable: list[str] = []
     for vuln in vulns:
@@ -684,10 +687,17 @@ def check_advisory(fetch_json: FetchJson, post_json: PostJson, bump: Bump) -> li
         hits = sorted(vuln["id"] for vuln in _osv_vulns(post_json, payload))
         unevaluable: list[str] = []
     else:
-        payload = {"package": {"name": bump.name, "ecosystem": "GitHub Actions"}}
+        # OSV package names are case-sensitive while GitHub accepts any casing in `uses:`.
+        repository = _get_or_none(fetch_json, f"{GITHUB_API}/repos/{bump.name}")
+        name = repository["full_name"] if repository else bump.name
+        payload = {"package": {"name": name, "ecosystem": "GitHub Actions"}}
         hits, unevaluable = _action_hits(_osv_vulns(post_json, payload), bump)
     if hits:
         return [_result("advisory", bump, "BLOCK", f"OSV に該当 ({', '.join(hits)})", _osv_links(hits))]
+    floating = (parsed := _parse_version(bump.new)) is not None and len(parsed.release) < 3
+    if unevaluable and floating:
+        detail = f"浮動タグ {bump.new} のため range を評価できない ({', '.join(unevaluable)})"
+        return [_result("advisory", bump, "WARN", detail, _osv_links(unevaluable))]
     if unevaluable:
         detail = f"OSV に該当なし (評価不能な range: {', '.join(unevaluable)})"
         return [_result("advisory", bump, "OK", detail, _osv_links(unevaluable))]

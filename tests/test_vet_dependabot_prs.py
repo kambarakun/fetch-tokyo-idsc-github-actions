@@ -177,7 +177,7 @@ def _tag(responses: dict[str, Any], repo: str, tag: str, sha: str, *, annotated_
 
 
 def _releases(responses: dict[str, Any], repo: str, releases: dict[str, datetime]) -> None:
-    responses[f"{vet.GITHUB_API}/repos/{repo}/releases?per_page=100"] = [
+    responses[f"{vet.GITHUB_API}/repos/{repo}/releases?per_page=100&page=1"] = [
         {"tag_name": tag, "published_at": _iso(at), "draft": False, "prerelease": False} for tag, at in releases.items()
     ]
     for tag, at in releases.items():
@@ -323,7 +323,7 @@ def test_github_action_advisory_is_matched_against_ranges_client_side(tag: str, 
     responses[f"{vet.GITHUB_API}/repos/tj-actions/changed-files/git/commits/{sha}"] = {
         "committer": {"date": "2026-09-01T00:00:00Z"}
     }
-    responses[f"{vet.GITHUB_API}/repos/tj-actions/changed-files/releases?per_page=100"] = []
+    responses[f"{vet.GITHUB_API}/repos/tj-actions/changed-files/releases?per_page=100&page=1"] = []
     # OSV ignores `version` for this ecosystem, so the script must ask without it.
     responses["osv:GitHub Actions/tj-actions/changed-files@*"] = {
         "vulns": [
@@ -434,6 +434,58 @@ def test_endless_osv_pagination_exits_two(monkeypatch: pytest.MonkeyPatch, actio
     assert vet.main(["--pr", "748", "--repo", REPO]) == 2
 
 
+def test_floating_major_tag_is_not_evaluated_as_dot_zero() -> None:
+    # `# v10` names a moving tag; reading it as 10.0.0 would place it outside [10.1.0, 10.3.0).
+    responses: dict[str, Any] = {}
+    files = {
+        ".github/workflows/ci.yml": (
+            _workflow("astral-sh/setup-uv", SETUP_UV_OLD, "v9"),
+            _workflow("astral-sh/setup-uv", SETUP_UV_NEW, "v10"),
+        )
+    }
+    _pr(responses, head_ref="dependabot/github_actions/astral-sh/setup-uv-10", files=files)
+    _tag(responses, "astral-sh/setup-uv", "v10", SETUP_UV_NEW)
+    responses[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/git/commits/{SETUP_UV_NEW}"] = {
+        "committer": {"date": "2026-09-01T00:00:00Z"}
+    }
+    responses[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/releases?per_page=100&page=1"] = []
+    _setup_uv_advisory(responses, [{"introduced": "10.1.0"}, {"fixed": "10.3.0"}])
+
+    check = _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")]
+
+    assert check.verdict == "WARN"
+    assert "GHSA-ranged" in check.detail
+
+
+def test_action_names_are_canonicalized_before_querying_osv(action_pr: dict[str, Any]) -> None:
+    # OSV package names are case-sensitive; GitHub accepts any casing in `uses:`.
+    for name in ("test", "watchdog"):
+        path = f".github/workflows/{name}.yml"
+        action_pr[f"{API}/contents/{path}?ref={HEAD_SHA}"] = _workflow("Astral-SH/Setup-UV", SETUP_UV_NEW, "v10.2.0")
+    _tag(action_pr, "Astral-SH/Setup-UV", "v10.2.0", SETUP_UV_NEW)
+    _releases(action_pr, "Astral-SH/Setup-UV", {"v10.2.0": datetime(2026, 9, 21, 13, 15, tzinfo=UTC)})
+    action_pr[f"{vet.GITHUB_API}/repos/Astral-SH/Setup-UV"] = {"full_name": "astral-sh/setup-uv"}
+    _setup_uv_advisory(action_pr, [{"introduced": "0"}, {"fixed": "11.0.0"}])
+
+    assert _checks(_vet(action_pr))[("advisory", "Astral-SH/Setup-UV")].verdict == "BLOCK"
+
+
+def test_releases_beyond_the_first_page_are_considered(action_pr: dict[str, Any]) -> None:
+    repo = f"{vet.GITHUB_API}/repos/astral-sh/setup-uv"
+    action_pr[f"{repo}/releases?per_page=100&page=1"] = [
+        {"tag_name": f"v1.0.{index}", "published_at": "2026-01-01T00:00:00Z", "draft": False, "prerelease": False}
+        for index in range(100)
+    ]
+    action_pr[f"{repo}/releases?per_page=100&page=2"] = [
+        {"tag_name": "v10.2.1", "published_at": "2026-09-23T00:00:00Z", "draft": False, "prerelease": False}
+    ]
+
+    check = _checks(_vet(action_pr))[("superseded", "astral-sh/setup-uv")]
+
+    assert check.verdict == "WARN"
+    assert "10.2.1" in check.detail
+
+
 def test_github_action_advisory_with_git_range_is_unevaluable_not_block(action_pr: dict[str, Any]) -> None:
     action_pr["osv:GitHub Actions/astral-sh/setup-uv@*"] = {
         "vulns": [
@@ -531,7 +583,7 @@ def test_superseded_is_not_evaluated_for_repositories_without_releases() -> None
     files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "v3.8.5"), _pre_commit(repo_url, "v3.9.8"))}
     _pr(responses, head_ref="dependabot/pre_commit/https-/github.com/rbubley/mirrors-prettier-3.9.8", files=files)
     _tag(responses, "rbubley/mirrors-prettier", "v3.9.8", "a" * 40)
-    responses[f"{vet.GITHUB_API}/repos/rbubley/mirrors-prettier/releases?per_page=100"] = []
+    responses[f"{vet.GITHUB_API}/repos/rbubley/mirrors-prettier/releases?per_page=100&page=1"] = []
     responses[f"{vet.GITHUB_API}/repos/rbubley/mirrors-prettier/git/commits/{'a' * 40}"] = {
         "committer": {"date": "2026-09-18T08:31:09Z"}
     }
@@ -568,7 +620,7 @@ def test_action_sha_matching_dereferenced_annotated_tag_is_ok() -> None:
         ACTIONLINT_SHA,
         annotated_at=datetime(2026, 9, 18, tzinfo=UTC),
     )
-    responses[f"{vet.GITHUB_API}/repos/reviewdog/action-actionlint/releases?per_page=100"] = [
+    responses[f"{vet.GITHUB_API}/repos/reviewdog/action-actionlint/releases?per_page=100&page=1"] = [
         {"tag_name": "v1.76.1", "published_at": "2026-09-22T01:48:00Z", "draft": False, "prerelease": False},
         {"tag_name": "v1.77.0-rc1", "published_at": "2026-09-23T00:00:00Z", "draft": False, "prerelease": True},
     ]
@@ -705,7 +757,7 @@ def test_missing_pre_commit_tag_is_a_block() -> None:
     repo_url = "https://github.com/pre-commit/pre-commit-hooks"
     files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "v6.0.0"), _pre_commit(repo_url, "v6.0.1"))}
     _pr(responses, head_ref="dependabot/pre_commit/https-/github.com/pre-commit/pre-commit-hooks-6.0.1", files=files)
-    responses[f"{vet.GITHUB_API}/repos/pre-commit/pre-commit-hooks/releases?per_page=100"] = []
+    responses[f"{vet.GITHUB_API}/repos/pre-commit/pre-commit-hooks/releases?per_page=100&page=1"] = []
 
     verdict = _vet(responses)
     checks = _checks(verdict)
