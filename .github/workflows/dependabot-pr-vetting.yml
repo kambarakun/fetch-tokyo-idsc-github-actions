@@ -1,0 +1,81 @@
+name: 🔎 Dependabot PR の事前検証
+
+# issue #762: Dependabot が提案した版そのもの (yank・advisory・タグと SHA の一致・cooldown) を
+# 公開 API で検査し、判定表を step summary に残す。判定 → 行動は docs/dependabot-pr-review.md。
+# 判定材料を出すだけで、マージ可否の最終判断と required check 化は人間が行う。
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# 最小権限 (issue #299)。読み取りしか使わないので、Dependabot トリガで token が
+# read-only になっても影響しない。`pull_request_target` は使わない (issue #683 の注意事項)。
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vet:
+    # `github.actor` ではなく PR の author を見る。人間が commit を積んで push しても
+    # (#745 の uv pin 運用) author は Dependabot のままで、再検査が走るべきだから。
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      # 提案された uv.lock を vetter 自身の環境に入れないため、スクリプト・uv.lock・.tool-versions は
+      # base (main) の revision から取る。提案内容は API 経由でだけ読む (スクリプトは checkout を読まない)。
+      - name: Checkout base revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          # uv の pin は .tool-versions に置く (issue #681): 未指定だと pyproject/uv.toml -> latest の順で解決される
+          version-file: .tool-versions
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Setup Python 3.11
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --all-extras --locked
+
+      - name: Vet the Dependabot pull request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          uv run --locked python scripts/vet_dependabot_prs.py \
+            --pr "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" \
+            --report report.md --json report.json
+          status=$?
+          set -e
+          # exit 2 (検査自体の失敗) ではレポートが無いことがある
+          if [ -f report.md ]; then cat report.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f report.json ]; then
+            warns=$(jq '[.[].checks[] | select(.verdict == "WARN")] | length' report.json)
+            if [ "${warns}" -gt 0 ]; then echo "::warning::WARN が ${warns} 件あります。docs/dependabot-pr-review.md の判定別の対応を参照"; fi
+          fi
+          case "${status}" in
+            0) ;;
+            1) echo "::error::BLOCK 判定の依存があります。docs/dependabot-pr-review.md を参照"; exit 1 ;;
+            *) echo "::error::検証スクリプトが異常終了しました (exit ${status})"; exit "${status}" ;;
+          esac
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dependabot-pr-vetting-report
+          path: |
+            report.md
+            report.json
+          retention-days: 30
