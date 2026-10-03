@@ -1,0 +1,24 @@
+[
+ {
+  "sha": "cf62dc1c5c7eb43cf8f9dc4178add0da2a9d8bdc",
+  "filename": "pyproject.toml",
+  "status": "modified",
+  "additions": 1,
+  "deletions": 1,
+  "changes": 2,
+  "blob_url": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/blob/47086fe60b6a9ac12cd6861ba7f7a14df516aa35/pyproject.toml",
+  "raw_url": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/raw/47086fe60b6a9ac12cd6861ba7f7a14df516aa35/pyproject.toml",
+  "contents_url": "https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/contents/pyproject.toml?ref=47086fe60b6a9ac12cd6861ba7f7a14df516aa35"
+ },
+ {
+  "sha": "dcddad31c7f526880c241475f60f8a98b053d71c",
+  "filename": "uv.lock",
+  "status": "modified",
+  "additions": 22,
+  "deletions": 22,
+  "changes": 44,
+  "blob_url": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/blob/47086fe60b6a9ac12cd6861ba7f7a14df516aa35/uv.lock",
+  "raw_url": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/raw/47086fe60b6a9ac12cd6861ba7f7a14df516aa35/uv.lock",
+  "contents_url": "https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/contents/uv.lock?ref=47086fe60b6a9ac12cd6861ba7f7a14df516aa35"
+ }
+]

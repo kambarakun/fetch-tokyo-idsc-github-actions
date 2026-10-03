@@ -1,0 +1,114 @@
+version: 2
+updates:
+  # 🔄 GitHub Actionsの依存関係を更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    # Delay version-update PRs for supply-chain observation; security updates are exempt.
+    cooldown:
+      default-days: 7
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    open-pull-requests-limit: 5
+    # メジャーバージョンアップを無視 (破壊的変更を手動でレビュー)
+    # セキュリティ更新は別途 Dependabot Security Updates で自動作成される
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # 📦 Python依存関係を更新 (uvネイティブサポート)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    # Delay version-update PRs for supply-chain observation; security updates are exempt.
+    cooldown:
+      default-days: 7
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    open-pull-requests-limit: 5
+    # メジャーバージョンアップを無視 (破壊的変更を手動でレビュー)
+    # マイナー・パッチバージョンのみ自動更新
+    # セキュリティ更新は別途 Dependabot Security Updates で自動作成される。
+    # ただし version updates と同じ updater を通るため、下記の uv pin の注意はそちらにも効く。
+    # また Settings の Dependabot alerts / security updates が有効であることが前提
+    # (このリポジトリでは 2026-09-09 まで両方無効で、それまでは CI の `uv audit --locked` だけが安全網だった)
+    # 注: Dependabot は uv をネイティブサポート (2025年3月13日~)
+    # pyproject.toml と uv.lock の両方を自動更新
+    # uv 本体の pin は .tool-versions に置く。pyproject.toml の [tool.uv] required-version や uv.toml に
+    # 置くと Dependabot 同梱の uv (dependabot-core uv/Dockerfile) が起動時に落ち、この ecosystem の
+    # 更新が無音で止まる (2026-07-27~09-09 に発生。issue #681。tests/test_dependabot_config.py が検証)
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    # 依存関係のグループ化 (関連する更新をまとめる)
+    groups:
+      # 🏭 本番依存関係をまとめる (慎重にレビュー)
+      production:
+        patterns:
+          - "requests"
+          - "PyYAML"
+        update-types:
+          - "minor"
+          - "patch"
+      # 🧪 テスト関連の依存関係をまとめる
+      testing:
+        patterns:
+          - "pytest*"
+          - "pytest-cov"
+      # 🔧 ビルドツール関連をまとめる (リンター・フォーマッター)
+      # isort / black / ruff / mypy の pre-commit hook は uv 管理の venv を実行する local hook
+      # のため、このグループが 4 ツール唯一の更新経路 (issue #680)
+      build-tools:
+        patterns:
+          - "ruff"
+          - "black"
+          - "isort"
+          - "mypy"
+          - "pre-commit"
+      # 📝 型定義ファイルをまとめる
+      type-stubs:
+        patterns:
+          - "types-*"
+
+  # 🪝 pre-commit フックを更新 (2026-03-10 から Dependabot ネイティブサポート)
+  # 対象は上流 `rev:` を参照する hook のみ (pre-commit-hooks / mirrors-prettier / actionlint)。
+  # isort / black / ruff / mypy は local hook (uv 管理 venv を実行) のため対象外で、
+  # uv エコシステムの build-tools グループで更新する (issue #680)
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    # Delay version-update PRs for supply-chain observation; security updates are exempt.
+    cooldown:
+      default-days: 7
+    labels:
+      - "dependencies"
+      - "pre-commit"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    open-pull-requests-limit: 5
+    # メジャーバージョンアップは無視 (破壊的変更を手動でレビュー)
+    # actionlint は SHA pin 運用のため Dependabot も SHA を更新する。github-actions 同様レビュー必須。
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

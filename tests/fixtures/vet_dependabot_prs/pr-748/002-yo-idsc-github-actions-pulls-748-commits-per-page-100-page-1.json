@@ -1,0 +1,84 @@
+[
+ {
+  "sha": "47086fe60b6a9ac12cd6861ba7f7a14df516aa35",
+  "node_id": "C_kwDOP1z5wdoAKDQ3MDg2ZmU2MGI2YTlhYzEyY2Q2ODYxYmE3ZjdhMTRkZjUxNmFhMzU",
+  "commit": {
+   "author": {
+    "name": "dependabot[bot]",
+    "email": "49699333+dependabot[bot]@users.noreply.github.com",
+    "date": "2026-09-28T00:07:13Z"
+   },
+   "committer": {
+    "name": "GitHub",
+    "email": "noreply@github.com",
+    "date": "2026-09-28T00:07:13Z"
+   },
+   "message": "deps(deps): bump ruff from 0.16.7 to 0.16.8 in the build-tools group\n\nBumps the build-tools group with 1 update: [ruff](https://github.com/astral-sh/ruff).\n\n\nUpdates `ruff` from 0.16.7 to 0.16.8\n- [Release notes](https://github.com/astral-sh/ruff/releases)\n- [Changelog](https://github.com/astral-sh/ruff/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/astral-sh/ruff/compare/0.16.7...0.16.8)\n\n---\nupdated-dependencies:\n- dependency-name: ruff\n  dependency-version: 0.16.8\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: build-tools\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>",
+   "tree": {
+    "sha": "8a08a8e8eb602e6f9f12b13ce38a02edfd025940",
+    "url": "https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/git/trees/8a08a8e8eb602e6f9f12b13ce38a02edfd025940"
+   },
+   "url": "https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/git/commits/47086fe60b6a9ac12cd6861ba7f7a14df516aa35",
+   "comment_count": 0,
+   "verification": {
+    "verified": true,
+    "reason": "valid",
+    "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqua+xCRC1aQ7uu5UhlAAA//YQABDQVEAsca0RK2mpK/c1nqOn\nbmyD37hNSqAGCnwVybYWa0gBs4kK+TedHa/1CDx5xnvI0rIUpDalLcpW0a+dYkz0\nBTCQRv7iJcG/sJTTdeM1dmS0Kq2FswIvyogUlg+R3ynAjo4Am/bC1N3zruP9SAME\nAsi452Q08K11LZfoDH8mYOHIJIKpT3r2htOZ1Yd2upHDc8GCesnkit1tbJt5NpsA\nvt3a3V6QV0CRw4pOdIf3OAAZmRfEs2FPG6wqWPobfDE772TClRZQwK6OD3sW23vr\nkqz995wVatVD/VTCaInjEJI4yrgVbWVlOZBowL0vXUtNY4xPa80y5PbmHfMKCfvk\nfsUm9g93VMGfovdzvqLXAXnOolx3/fZmbxSI4VP1QCDee1k0YyrTqMeBj3jS0R9f\nR4JJEMQhd5vvI3vQMnYp/eDDdpNj3Idlcvoj5jVEmQNiAUAN7s0wj/6fe1QyfXL1\nVBGmmD4hKkDTt9MCc16EJGvZcwJ5P4fnBCHm3vk1I5TYPl0aFFkhm06SnDl+xF0L\nm7QWpc+fW4xFUpX1LXP56lvFfhBmh0BUhaCtnMcdJzANtcFODqudXVOotJTZtZbd\nSs8b0ZecHP5NUhlCiFKHIR1Od49mzWOjSkPN+jnGyiYVIQYbkXlUulAhq45W1Ion\nlYE8cpEpQgb8veQU1Csu\n=0uvN\n-----END PGP SIGNATURE-----\n",
+    "payload": "tree 8a08a8e8eb602e6f9f12b13ce38a02edfd025940\nparent 3cecd8407a10794bb2210e59a171fe63f3a877e0\nauthor dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com> 1790554033 +0000\ncommitter GitHub <noreply@github.com> 1790554033 +0000\n\ndeps(deps): bump ruff from 0.16.7 to 0.16.8 in the build-tools group\n\nBumps the build-tools group with 1 update: [ruff](https://github.com/astral-sh/ruff).\n\n\nUpdates `ruff` from 0.16.7 to 0.16.8\n- [Release notes](https://github.com/astral-sh/ruff/releases)\n- [Changelog](https://github.com/astral-sh/ruff/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/astral-sh/ruff/compare/0.16.7...0.16.8)\n\n---\nupdated-dependencies:\n- dependency-name: ruff\n  dependency-version: 0.16.8\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: build-tools\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>",
+    "verified_at": "2026-09-28T00:07:13Z"
+   }
+  },
+  "url": "https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/commits/47086fe60b6a9ac12cd6861ba7f7a14df516aa35",
+  "html_url": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/commit/47086fe60b6a9ac12cd6861ba7f7a14df516aa35",
+  "comments_url": "https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/commits/47086fe60b6a9ac12cd6861ba7f7a14df516aa35/comments",
+  "author": {
+   "login": "dependabot[bot]",
+   "id": 49699333,
+   "node_id": "MDM6Qm90NDk2OTkzMzM=",
+   "avatar_url": "https://avatars.githubusercontent.com/in/29110?v=4",
+   "gravatar_id": "",
+   "url": "https://api.github.com/users/dependabot%5Bbot%5D",
+   "html_url": "https://github.com/apps/dependabot",
+   "followers_url": "https://api.github.com/users/dependabot%5Bbot%5D/followers",
+   "following_url": "https://api.github.com/users/dependabot%5Bbot%5D/following{/other_user}",
+   "gists_url": "https://api.github.com/users/dependabot%5Bbot%5D/gists{/gist_id}",
+   "starred_url": "https://api.github.com/users/dependabot%5Bbot%5D/starred{/owner}{/repo}",
+   "subscriptions_url": "https://api.github.com/users/dependabot%5Bbot%5D/subscriptions",
+   "organizations_url": "https://api.github.com/users/dependabot%5Bbot%5D/orgs",
+   "repos_url": "https://api.github.com/users/dependabot%5Bbot%5D/repos",
+   "events_url": "https://api.github.com/users/dependabot%5Bbot%5D/events{/privacy}",
+   "received_events_url": "https://api.github.com/users/dependabot%5Bbot%5D/received_events",
+   "type": "Bot",
+   "user_view_type": "public",
+   "site_admin": false
+  },
+  "committer": {
+   "login": "web-flow",
+   "id": 19864447,
+   "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+   "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+   "gravatar_id": "",
+   "url": "https://api.github.com/users/web-flow",
+   "html_url": "https://github.com/web-flow",
+   "followers_url": "https://api.github.com/users/web-flow/followers",
+   "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+   "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+   "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+   "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+   "organizations_url": "https://api.github.com/users/web-flow/orgs",
+   "repos_url": "https://api.github.com/users/web-flow/repos",
+   "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+   "received_events_url": "https://api.github.com/users/web-flow/received_events",
+   "type": "User",
+   "user_view_type": "public",
+   "site_admin": false
+  },
+  "parents": [
+   {
+    "sha": "3cecd8407a10794bb2210e59a171fe63f3a877e0",
+    "url": "https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/commits/3cecd8407a10794bb2210e59a171fe63f3a877e0",
+    "html_url": "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions/commit/3cecd8407a10794bb2210e59a171fe63f3a877e0"
+   }
+  ]
+ }
+]
