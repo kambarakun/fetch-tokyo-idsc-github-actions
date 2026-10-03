@@ -90,14 +90,13 @@ def _update_run(
     """A Dependabot Updates run, named the way the real `dynamic/dependabot/dependabot-updates` names it.
 
     A full run is `uv in /. - Update #N`; a refresh of one open PR is `uv in / for ruff - Update #N`.
-    The API documents that title as `display_title` and `name` as the workflow's name. Today
-    both carry the title, so `name` is set to the workflow name here to keep the check on the
-    documented field.
+    Like the real API (2026-10-03), `name` and `display_title` both carry that title.
     """
     target = f"/ for {refresh_for}" if refresh_for else "/."
+    title = f"{ecosystem} in {target} - Update #1"
     return {
-        "name": "Dependabot Updates",
-        "display_title": f"{ecosystem} in {target} - Update #1",
+        "name": title,
+        "display_title": title,
         "status": "completed",
         "conclusion": conclusion,
         "created_at": created_at.isoformat(),
@@ -370,6 +369,23 @@ def test_unlabelled_ecosystem_is_still_checked_through_its_runs(repo: Path, heal
     assert "1:docker" not in results
     assert not results["1r:docker"].ok
     assert results["1r:docker"].facts["last_full_run_at"] is None
+
+
+def test_updater_runs_are_matched_on_their_documented_title_field(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """The API documents the run title as `display_title` and `name` as the workflow's name.
+
+    Both carry the title today, so this pins the check to the documented field: were `name`
+    ever to become "Dependabot Updates", every ecosystem must not turn red at once.
+    """
+    responses = dict(healthy_responses)
+    runs = responses["dependabot-runs"]["workflow_runs"]
+    responses["dependabot-runs"] = _runs(*({**run, "name": "Dependabot Updates"} for run in runs))
+
+    results = _run(repo, responses)
+
+    assert all(results[f"1r:{eco}"].ok for eco in ("github-actions", "pre-commit", "uv"))
 
 
 @pytest.mark.usefixtures("frozen_clock")
