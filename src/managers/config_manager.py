@@ -41,8 +41,6 @@ class StorageConfig:
     processed_directory: str = "data/processed"
     log_directory: str = "data/logs"
     directory_structure: str = "{year}/{month}/week_{week}"  # or "{year}/{month}"
-    auto_commit: bool = True
-    commit_message_template: str = "データ更新: {data_type} - {date_range}"
     keep_shift_jis: bool = True  # Shift_JISエンコーディングを維持
 
 
@@ -249,10 +247,6 @@ class ConfigurationManager:
                 processed_directory=storage.get("processed_directory", "data/processed"),
                 log_directory=storage.get("log_directory", "data/logs"),
                 directory_structure=storage.get("directory_structure", "{year}/{month}/week_{week}"),
-                auto_commit=storage.get("auto_commit", True),
-                commit_message_template=storage.get(
-                    "commit_message_template", "データ更新: {data_type} - {date_range}"
-                ),
                 keep_shift_jis=storage.get("keep_shift_jis", True),
             )
 
@@ -363,8 +357,6 @@ class ConfigurationManager:
                 "processed_directory": config.storage.processed_directory,
                 "log_directory": config.storage.log_directory,
                 "directory_structure": config.storage.directory_structure,
-                "auto_commit": config.storage.auto_commit,
-                "commit_message_template": config.storage.commit_message_template,
                 "keep_shift_jis": config.storage.keep_shift_jis,
             },
             "quality": {

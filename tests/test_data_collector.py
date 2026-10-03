@@ -2,6 +2,8 @@
 データ収集機能のテスト(skip_existing, force_update オプション)
 """
 
+import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -11,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.cli.fetch_data import DataCollector
 from src.fetchers.enhanced_fetcher import FetchParams, FetchResult, FileMetadata
-from src.managers.config_manager import DataCollectionConfig
+from src.managers.config_manager import CollectionConfig, DataCollectionConfig, StorageConfig
 from src.managers.storage_manager import SaveResult
 
 
@@ -231,6 +233,52 @@ class TestDataCollectorIntegration(unittest.TestCase):
         # get_existing_filesやget_missing_dataは呼ばれない(全期間取得のため)
         mock_storage.get_existing_files.assert_not_called()
         mock_fetcher.get_missing_data.assert_not_called()
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout
+
+
+def test_collect_data_leaves_saved_files_uncommitted(tmp_path, monkeypatch):
+    """collect_data は保存したファイルを Git にコミットしない (コミットは workflow の PR 作成ステップが担う)"""
+    # Arrange: the code under test runs git without env=, so isolate git via the process environment
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Test")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "test@example.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Test")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.com")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / "README.md").write_text("test\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-q", "-m", "initial")
+    head_before = _git(repo, "rev-parse", "HEAD").strip()
+    monkeypatch.chdir(repo)
+
+    csv_bytes = "疾病名,報告数\n結核,5\nインフルエンザ,3\n".encode("shift_jis")
+    cfg = DataCollectionConfig(
+        collection=CollectionConfig(start_year=2025, batch_size=5, data_types_to_collect=["notifiable_weekly"]),
+        storage=StorageConfig(base_directory=str(repo / "data" / "raw")),
+    )
+
+    with patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher") as mock_fetcher_class, patch("time.sleep"):
+        mock_fetcher = mock_fetcher_class.return_value
+        mock_fetcher.fetch_methods = {"notifiable_weekly": Mock()}
+        mock_fetcher.get_missing_data.return_value = [
+            FetchParams("2025", "1", "2025", "1", "notifiable_weekly", "weekly")
+        ]
+        mock_fetcher.fetch_with_retry.return_value = FetchResult(success=True, data=csv_bytes, fetch_time=0.1)
+
+        # Act
+        stats = DataCollector(cfg, mode="incremental").collect_data()
+
+    # Assert
+    assert _git(repo, "rev-parse", "HEAD").strip() == head_before
+    status = _git(repo, "status", "--porcelain", "--untracked-files=all").splitlines()
+    assert "?? data/raw/notifiable_weekly_2025_01.csv" in status
+    assert stats["new_files"] == 1
 
 
 if __name__ == "__main__":

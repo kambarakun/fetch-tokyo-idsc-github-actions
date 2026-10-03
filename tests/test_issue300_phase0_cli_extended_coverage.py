@@ -25,7 +25,6 @@ from src.managers.config_manager import CollectionConfig, DataCollectionConfig, 
 def _config(
     base_dir: Path,
     *,
-    auto_commit: bool = False,
     mode: str | None = None,
     incremental_mode: bool = False,
 ) -> DataCollectionConfig:
@@ -40,9 +39,7 @@ def _config(
         cast(Any, collection).mode = mode
 
     storage = StorageConfig(
-        auto_commit=auto_commit,
         base_directory=str(base_dir),
-        commit_message_template="test {date_range}",
         keep_shift_jis=True,
     )
     return DataCollectionConfig(collection=collection, storage=storage)
@@ -136,15 +133,13 @@ def test_fetch_datacollector_branches(tmp_path: Path, monkeypatch: pytest.Monkey
     with pytest.raises(ValueError, match="Unknown collection mode"):
         collector3._collect_data_type("dt", 2025, 2025)
 
-    config_commit = _config(tmp_path / "raw4", auto_commit=True, mode="full")
-    collector4 = fd.DataCollector(config_commit, dry_run=False)
+    config_collect = _config(tmp_path / "raw4", mode="full")
+    collector4 = fd.DataCollector(config_collect, dry_run=False)
     collector4._collect_data_type = Mock()  # type: ignore[method-assign]
-    collector4._commit_changes = Mock()  # type: ignore[method-assign]
     collector4._print_statistics = Mock()  # type: ignore[method-assign]
     stats = collector4.collect_data(data_types=["dt"], start_year=2025, end_year=2025)
     assert stats["start_time"] is not None
     assert stats["end_time"] is not None
-    collector4._commit_changes.assert_called_once()
 
     config_batch = _config(tmp_path / "raw5", mode="full")
     collector5 = fd.DataCollector(config_batch, dry_run=False)
@@ -209,13 +204,6 @@ def test_fetch_datacollector_branches(tmp_path: Path, monkeypatch: pytest.Monkey
     assert collector6._get_epid_code("notifiable_weekly") == ""
     assert collector6._get_epid_code("sentinel_weekly_gender") == "00"
 
-    storage_mock.commit_changes.return_value = SimpleNamespace(success=True, message="committed", error=None)
-    collector6._commit_changes()
-    storage_mock.commit_changes.return_value = SimpleNamespace(success=False, error="commit failed")
-    collector6._commit_changes()
-    storage_mock.commit_changes.side_effect = RuntimeError("boom")
-    collector6._commit_changes()
-
     collector6.stats["start_time"] = datetime.now(UTC)
     collector6.stats["end_time"] = datetime.now(UTC)
     collector6.stats["errors"] = ["e1", "e2"]
@@ -224,7 +212,7 @@ def test_fetch_datacollector_branches(tmp_path: Path, monkeypatch: pytest.Monkey
 
 def test_fetch_main_branches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     logger = Mock()
-    config = _config(tmp_path / "raw", auto_commit=False, mode=None)
+    config = _config(tmp_path / "raw", mode=None)
     config_manager = Mock()
     config_manager.load_config.return_value = config
 

@@ -144,6 +144,19 @@ class TestConfigurationManager(unittest.TestCase):
         self.assertEqual(config.data_types[0].name, "test_type")
         self.assertEqual(config.data_types[0].epid_code, "501")
 
+    def test_parse_config_ignores_removed_auto_commit_keys(self):
+        """削除済みの auto_commit / commit_message_template キーを含む既存設定も読み込めること"""
+        # Arrange
+        config_dict = {"storage": {"auto_commit": True, "commit_message_template": "x"}}
+
+        # Act
+        config = self.config_manager._parse_config(config_dict)
+
+        # Assert
+        self.assertIsInstance(config.storage, StorageConfig)
+        self.assertFalse(hasattr(config.storage, "auto_commit"))
+        self.assertFalse(hasattr(config.storage, "commit_message_template"))
+
     @patch("builtins.open", mock_open(read_data=""))
     @patch("yaml.safe_load")
     @patch.object(Path, "exists")
@@ -229,10 +242,9 @@ class TestDataClasses(unittest.TestCase):
 
     def test_storage_config(self):
         """StorageConfigのテスト"""
-        config = StorageConfig(base_directory="data/raw", auto_commit=True, keep_shift_jis=True)
+        config = StorageConfig(base_directory="data/raw", keep_shift_jis=True)
 
         self.assertEqual(config.base_directory, "data/raw")
-        self.assertTrue(config.auto_commit)
         self.assertTrue(config.keep_shift_jis)
 
     def test_collection_config(self):
