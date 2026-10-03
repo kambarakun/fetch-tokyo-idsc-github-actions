@@ -25,8 +25,13 @@ jobs:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      # 提案された uv.lock を vetter 自身の環境に入れないため、スクリプト・uv.lock・.tool-versions は
+      # base (main) の revision から取る。提案内容は API 経由でだけ読む (スクリプトは checkout を読まない)。
+      - name: Checkout base revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
 
       - name: Setup uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0

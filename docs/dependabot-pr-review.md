@@ -27,24 +27,26 @@ CI の `🔎 Dependabot PR の事前検証` ワークフローも同じ表を各
 
 `BLOCK` は「提案版そのものが地雷」という証拠が一次情報 (PyPI / OSV / 公式リポジトリのタグ) から取れたときだけ出る。`WARN` は人間かエージェントが調べれば OK に落とせるもの。
 
-| id             | 対象                                                    | 何を見るか                                                                                                                                                                                                                           | 判定  |
-| -------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
-| `yanked`       | uv                                                      | PyPI `info.yanked`、または全ファイルの `yanked` が true                                                                                                                                                                              | BLOCK |
-| `advisory`     | uv / github-actions                                     | OSV に 1 件以上該当。PyPI は `version` 付き問い合わせ。GitHub Actions は OSV が `version` を無視するため `version` 無しで問い合わせ、`ECOSYSTEM` range と `versions` を手元で評価する                                                | BLOCK |
-| `python_range` | uv                                                      | 新版の `requires_python` が head の `pyproject.toml` `requires-python` の下限 (`>=3.11` → `3.11`) を含まない                                                                                                                         | BLOCK |
-| `tag_sha`      | github-actions / pre-commit (`rev` が 40 桁 SHA のとき) | タグが 404、または (annotated なら deref した) commit SHA が pin と不一致                                                                                                                                                            | BLOCK |
-| `tag_exists`   | pre-commit (`rev` がタグのとき)                         | `GET /git/ref/tags/{rev}` が 404                                                                                                                                                                                                     | BLOCK |
-| `cooldown`     | 全部                                                    | PR `created_at` と新版の公開時刻の UTC 暦日差が `dependabot.yml` の `cooldown.default-days` (無ければ 3) 未満。公開時刻が取れないときも WARN                                                                                         | WARN  |
-| `superseded`   | 全部                                                    | 新版より新しい非 yank・非 prerelease の版が、新版公開から 7 日以内に出ている。release が無いリポジトリ (タグのみ) は評価不能として OK                                                                                                | WARN  |
-| `major_bump`   | 全部                                                    | 旧版と新版の major が異なる                                                                                                                                                                                                          | WARN  |
-| `pr_hygiene`   | PR                                                      | `head.ref` 接頭辞がどのエコシステムにも一致しない / 変更ファイルが期待集合の外 (uv: `pyproject.toml`, `uv.lock`。github-actions: `.github/workflows/*.yml`。pre-commit: `.pre-commit-config.yaml`) / Dependabot 以外の commit がある | WARN  |
-| `ci_green`     | PR                                                      | head の check run が 0 件、または `status != completed`、または `conclusion` が `success` / `skipped` / `neutral` 以外。検証ジョブ自身 (`vet`) は除外                                                                                | WARN  |
+| id             | 対象                                                    | 何を見るか                                                                                                                                                                                                                                                                   | 判定  |
+| -------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| `yanked`       | uv                                                      | PyPI `info.yanked`、または全ファイルの `yanked` が true                                                                                                                                                                                                                      | BLOCK |
+| `advisory`     | uv / github-actions                                     | OSV に 1 件以上該当。PyPI は `version` 付き問い合わせ。GitHub Actions は OSV が `version` を無視するため `version` 無しで問い合わせ、`ECOSYSTEM` range と `versions` を手元で評価する                                                                                        | BLOCK |
+| `python_range` | uv                                                      | 新版の `requires_python` が head の `pyproject.toml` `requires-python` の下限 (`>=3.11` → `3.11`) を含まない                                                                                                                                                                 | BLOCK |
+| `tag_sha`      | github-actions / pre-commit (`rev` が 40 桁 SHA のとき) | タグが 404、または (annotated なら deref した) commit SHA が pin と不一致。版コメントの無い SHA pin は照合先が無いので WARN                                                                                                                                                  | BLOCK |
+| `tag_exists`   | pre-commit (`rev` がタグのとき)                         | `GET /git/ref/tags/{rev}` が 404                                                                                                                                                                                                                                             | BLOCK |
+| `cooldown`     | 全部                                                    | PR `created_at` と新版の公開時刻の UTC 暦日差が `dependabot.yml` の `cooldown.default-days` (無ければ 3) 未満。公開時刻が取れないときも WARN                                                                                                                                 | WARN  |
+| `superseded`   | 全部                                                    | 新版より新しい非 yank・非 prerelease の版が、新版公開から 7 日以内に出ている。release が無いリポジトリ (タグのみ) は評価不能として OK                                                                                                                                        | WARN  |
+| `major_bump`   | 全部                                                    | 旧版と新版の major が異なる                                                                                                                                                                                                                                                  | WARN  |
+| `pr_hygiene`   | PR                                                      | `head.ref` 接頭辞がどのエコシステムにも一致しない / 変更ファイルが期待集合の外 (uv: `pyproject.toml`, `uv.lock`。github-actions: `.github/workflows/*.yml` / `*.yaml`。pre-commit: `.pre-commit-config.yaml`) / Dependabot 以外の commit がある / bump を 1 件も検出できない | WARN  |
+| `ci_green`     | PR                                                      | head の check run が 0 件、または `status != completed`、または `conclusion` が `success` / `skipped` / `neutral` 以外。検証ジョブ自身 (`vet`) は除外                                                                                                                        | WARN  |
 
 補足:
 
 - 公開時刻は、PyPI は当該版の全ファイルの最小アップロード時刻、GitHub は `releases/tags/{tag}` の `published_at` → annotated tag の `tagger.date` → タグが指す commit の `committer.date` の順に取る
 - cooldown を暦日差で数えるのは Dependabot に合わせるため。#745 (setup-uv v10.2.0 の公開 2026-09-21T13:15Z、PR 作成 2026-09-28T00:07Z) は経過 6.45 日だが暦日差 7 日で、Dependabot 自身は cooldown 充足として提案している
-- 同じ bump (同じ依存・旧版・新版) は複数ファイルにあっても 1 回だけ検査する
+- 同じ bump (同じ依存・旧版・新版・SHA) は複数ファイルにあっても 1 回だけ検査する。同じ版コメントでも SHA が違えば別々に `tag_sha` を評価する
+- OSV の range に `limit` イベントがあれば、OSV の評価手順どおり、どの `limit` より前でもない版 (`*` は無限大) は非該当とする
+- レポートの表のセルは PR 由来の文字列 (repo URL・`rev`・action 名) を含むので、`|` / バッククォート / `[` / `]` / `<` をエスケープし、リンク先は percent-encode する。PyPI の `yanked_reason` (公開者が書く自由文) は表に載せない
 - `advisory` の GitHub Actions 照合で `GIT` / `SEMVER` range しか無い advisory は「評価不能」として detail に ID を書き、OK のまま残す。BLOCK にはしない
 
 ## 判定別の対応
@@ -116,6 +118,7 @@ PR ごとに次を貼る。
 
 - ワークフロー: `.github/workflows/dependabot-pr-vetting.yml` (`🔎 Dependabot PR の事前検証`)、ジョブ名 `vet`
 - 条件: `pull_request` (`opened` / `synchronize` / `reopened`) のうち `github.event.pull_request.user.login == 'dependabot[bot]'` のときだけ走る。`github.actor` ではなく PR の author を見るので、人間が #745 のように commit を積んでも再検査が走る。人間の PR ではジョブはスキップされる
+- checkout は PR の base revision (`github.event.pull_request.base.sha`) で行う。提案された `uv.lock` を vetter 自身の環境に入れないため。スクリプト・`uv.lock`・`.tool-versions` は base 側のものを使い、提案内容は API 経由でだけ読む
 - 権限: `contents: read` / `pull-requests: read` / `checks: read` のみ。Dependabot トリガでは `GITHUB_TOKEN` が read-only になるが、読み取りしか使わないので影響しない。`pull_request_target` は使わない
 - 終了コード: 0 = BLOCK 無し (WARN は含む)、1 = BLOCK が 1 件以上、2 = 検査自体の失敗 (ネットワーク・パース・引数)。2 のときは判定を出さず、レポートが無いこともある
 - 表は `$GITHUB_STEP_SUMMARY` に出し、`report.md` / `report.json` を artifact `dependabot-pr-vetting-report` (30 日保持) に残す
@@ -158,3 +161,4 @@ GITHUB_TOKEN=$(gh auth token) uv run --locked python scripts/vet_dependabot_prs.
 - Action の `action.yml` 差分 (`runs.using` の node 版、必須 input の追加、output の削除) は見ていない
 - レート上限: 1 PR あたり GitHub API を 10〜15 回呼ぶ。未認証 60 req/h では `--all-open` が途中で枯渇し得るので、手元でも `GITHUB_TOKEN` を付ける。429 / 403 は exit 2 になり、OK や BLOCK には倒れない
 - `scripts/check_dependency_pipeline.py` (依存更新 watchdog) と HTTP 取得処理が重複している。#728 のマージ後に共通化する
+- `pull_request` イベントではワークフロー定義そのものが PR の revision から読まれる。Dependabot が `astral-sh/setup-uv` や `actions/checkout` を上げる PR では、`vet` の検査より前に提案された Action が runner 上で実行される。`pull_request_target` は使わない方針 (#683) のため PR 内では防げない。ただし同じ PR の `test` / `lint` / `actionlint` も同じ提案版を実行するので、`vet` が露出を増やしてはいない。根本対策 (main 側の定義で `--all-open` を schedule / workflow_dispatch 実行する、または Action を使わず checksum 固定で uv を入れる) は #765 で扱う
