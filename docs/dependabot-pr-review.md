@@ -15,7 +15,7 @@ Dependabot が毎週開く version-update PR を、人間と無人エージェ�
 1. 09:30 JST 以降 (全 PR が開き、CI が一巡した後) に手元で全 open PR を検査する。レート上限 (未認証 60 req/h) を避けるため、トークンは必ず付ける
 
    ```bash
-   GITHUB_TOKEN=$(gh auth token) uv run --locked python scripts/vet_dependabot_prs.py --all-open --repo kambarakun/fetch-tokyo-idsc-github-actions --report /tmp/vet.md --json /tmp/vet.json
+   GITHUB_TOKEN=$(gh auth token) uv run --all-extras --locked python scripts/vet_dependabot_prs.py --all-open --repo kambarakun/fetch-tokyo-idsc-github-actions --report /tmp/vet.md --json /tmp/vet.json
    ```
 
 2. PR ごとの `判定:` 行を見て、下の「判定別の対応」に従う
@@ -131,27 +131,27 @@ PR ごとに次を貼る。
 録画済み応答によるオフライン再生 (ネットワーク不要):
 
 ```bash
-uv run --locked python scripts/vet_dependabot_prs.py --pr 748 --repo kambarakun/fetch-tokyo-idsc-github-actions --fixture tests/fixtures/vet_dependabot_prs/pr-748; echo exit=$?
+uv run --all-extras --locked python scripts/vet_dependabot_prs.py --pr 748 --repo kambarakun/fetch-tokyo-idsc-github-actions --fixture tests/fixtures/vet_dependabot_prs/pr-748; echo exit=$?
 ```
 
 録画 (実 API を叩いて応答を保存しながら判定する。PR 本文と patch は保存しない):
 
 ```bash
-GITHUB_TOKEN=$(gh auth token) uv run --locked python scripts/vet_dependabot_prs.py --pr 748 --repo kambarakun/fetch-tokyo-idsc-github-actions --record tests/fixtures/vet_dependabot_prs/pr-748
+GITHUB_TOKEN=$(gh auth token) uv run --all-extras --locked python scripts/vet_dependabot_prs.py --pr 748 --repo kambarakun/fetch-tokyo-idsc-github-actions --record tests/fixtures/vet_dependabot_prs/pr-748
 ```
 
 `--pr 748` (ruff 0.16.7 → 0.16.8) の期待表:
 
-| 検査           | 結果 | 根拠                                                     |
-| -------------- | ---- | -------------------------------------------------------- |
-| `yanked`       | OK   | PyPI `info.yanked: false`                                |
-| `advisory`     | OK   | OSV の応答が `{}`                                        |
-| `python_range` | OK   | `>=3.7` ⊇ 3.11                                           |
-| `cooldown`     | OK   | 2026-09-16 → 2026-09-28 = 12 日 (≥ 7)                    |
-| `superseded`   | OK   | 0.16.9 は 8.2 日後で 7 日の窓の外                        |
-| `major_bump`   | OK   | major 0 のまま                                           |
-| `pr_hygiene`   | OK   | `dependabot/uv/`、`pyproject.toml` + `uv.lock`、commit 1 |
-| `ci_green`     | OK   | success ×3 + skipped ×1                                  |
+| 検査           | 結果 | 根拠                                              |
+| -------------- | ---- | ------------------------------------------------- |
+| `yanked`       | OK   | PyPI `info.yanked: false`                         |
+| `advisory`     | OK   | OSV の応答が `{}`                                 |
+| `python_range` | OK   | `>=3.7` ⊇ 3.11                                    |
+| `cooldown`     | OK   | 2026-09-16 → 2026-09-28 = 12 日 (≥ 7)             |
+| `superseded`   | OK   | 0.16.9 は 8.2 日後で 7 日の窓の外                 |
+| `major_bump`   | OK   | major 0 のまま                                    |
+| `pr_hygiene`   | OK   | dependabot/uv/、pyproject.toml, uv.lock、commit 1 |
+| `ci_green`     | OK   | success ×3 + skipped ×1                           |
 
 末尾は `判定: OK`、終了コード 0。
 
