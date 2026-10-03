@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Liveness check for the dependency update pipeline (issue #683).
 
-The uv-ecosystem outage that started on 2026-07-27 (issue #681) was invisible for six
+The uv-ecosystem outage that started on 2026-07-27 (issue #681) went unnoticed for six
 weekly cycles: Dependabot aborted before ``uv lock`` and opened no PR, and "no PR" is
-indistinguishable from "nothing to update" when you only look at the repository. The
-failure lived in job logs only the repository owner can read, and Dependabot Security
-Updates run through the same updater, so CVE fixes were stalled too.
+indistinguishable from "nothing to update" when you only look at pull requests. Each
+updater run did end as a failed "Dependabot Updates" run in the Actions API; only its log,
+which says why, is limited to the repository owner. Dependabot Security Updates run
+through the same updater, so CVE fixes were stalled too.
 
 These checks turn that silence into a signal. Every input is a structured field --
-timestamps, labels, version strings -- so PR and issue text never reaches the report
-(AGENTS.md treats that text as untrusted input).
+timestamps, labels, run conclusions, version strings -- so PR, issue and run text never
+reaches the report (AGENTS.md treats that text as untrusted input).
 
-Exit codes: 0 healthy, 1 at least one alert, 2 the check itself could not run.
+Exit codes: 0 healthy, 1 at least one alert, 2 at least one check family (or the shared
+setup) could not run. Families are isolated (issue #728), so exit 2 still comes with a
+report carrying every verdict that could be reached.
 """
 
 from __future__ import annotations
@@ -82,8 +85,31 @@ ACTION_RELEASE_TAG = re.compile(r"v\d+\.\d+\.\d+")
 # present" -- the same distinction known_uv_checksums draws for setup-uv's table.
 LOCKFILE_ENTRY = re.compile(r'"@?[A-Za-z0-9._/-]+@\d+[^"]*"')
 
+# Check 1r (issue #728). Every Dependabot version-update job is a run of this dynamic
+# workflow, and its conclusion is public through the Actions API even though the job log is
+# not. One page is enough: the runs come back newest-first, and a weekly schedule leaves the
+# last full run of every ecosystem well inside the 100 most recent ones (2026-04-27 onwards
+# on 2026-09-24).
+DEPENDABOT_UPDATES_PATH = "dynamic/dependabot/dependabot-updates"
+ACTIONS_WORKFLOWS = GITHUB_API + "/repos/{repo}/actions/workflows?per_page=100"
+# No `event=` / `actor=` filter: `event=dynamic&actor=dependabot[bot]` dropped the
+# 2026-09-14 and 09-21 runs, i.e. the very runs this check has to see.
+ACTIONS_WORKFLOW_RUNS = GITHUB_API + "/repos/{repo}/actions/workflows/{workflow_id}/runs?per_page=100"
+# `uv in /. - Update #N` updates the whole manifest; `uv in / for ruff - Update #N` (or
+# `for ruff, mypy, pre-commit` for a group) only refreshes one open PR. The run title uses
+# the ecosystem with `_` where dependabot.yml uses `-` (`github_actions`, `pre_commit`).
+# The title is read from `display_title`, the field the API documents for it; `name` carries
+# the same text today but is documented as the workflow's name.
+FULL_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in (?P<directory>\S+) - Update #\d+$")
+REFRESH_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in \S+ for .+ - Update #\d+$")
+
 # The ecosystem that proposes the Python dependencies check 2 looks at.
 PYTHON_ECOSYSTEM = "uv"
+# Check 2 leaves out releases an open Dependabot PR already proposes (issue #728). One page
+# is enough: open-pull-requests-limit caps every ecosystem at 5 open PRs.
+OPEN_PULLS = GITHUB_API + "/repos/{repo}/pulls?state=open&per_page=100"
+DEPENDABOT_UV_BRANCH_PREFIX = f"dependabot/{PYTHON_ECOSYSTEM}/"
+PR_HEAD_LOCKFILE = "https://raw.githubusercontent.com/{repo}/{sha}/uv.lock"
 
 # Interpreters `requires-python` is enumerated over, see declared_python_versions. CPython
 # has never shipped a minor or patch anywhere near 40, so this brackets every version a
@@ -105,9 +131,18 @@ WEEKDAYS = {
 # Three missed weekly cycles. The 2026-07-27 outage would have tripped this on 2026-08-17,
 # five weeks before a human noticed it.
 DEFAULT_MAX_PR_AGE_DAYS = 21
-# Steady state is 0-2: a release inside the cooldown window is not yet actionable and is
-# excluded below, so anything above this means proposals are not landing.
+# Releases inside the cooldown and releases an open Dependabot PR already proposes are both
+# excluded, so what remains is what the updater could have proposed and did not. Before the
+# second exclusion existed, 2026-09-16 counted 2 and 09-23 counted 3, every one of them a PR
+# awaiting review; the threshold keeps headroom above that rather than above zero.
 DEFAULT_MAX_STALE_DIRECT = 3
+
+# What a check family may raise when an input cannot be read. Anything else (TypeError,
+# AttributeError, ...) is a bug in this script and has to crash rather than be reported as
+# "could not judge" week after week.
+CHECK_ERRORS = (requests.RequestException, yaml.YAMLError, OSError, ValueError, KeyError)
+# Keeps one unreadable response from flooding the report table and the tracking issue.
+ERROR_DETAIL_LIMIT = 200
 
 Severity = str
 FetchJson = Callable[[str], Any]
@@ -164,7 +199,8 @@ WATCHED_ACTION_DEPENDENCIES = (
 
 def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
     headers = {"Accept": accept, "User-Agent": "fetch-tokyo-idsc-dependency-watchdog"}
-    # The workflow token carries `issues: write` and `pull-requests: read`. The same fetchers
+    # The workflow token carries `issues: write` (plus read scopes for contents, pull requests
+    # and Actions runs). The same fetchers
     # also call pypi.org and raw.githubusercontent.com, so gate the credential on the host
     # rather than on the caller: a future check cannot leak it by picking the wrong fetcher.
     if token and urlsplit(url).hostname == GITHUB_API_HOST:
@@ -173,9 +209,12 @@ def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
     if not response.ok:
         # issue #697: a bare status code sent two runs chasing the wrong cause. GitHub explains
         # itself in the body ("Resource not accessible by integration", rate limits, ...), so
-        # carry the first part of it into the exception the workflow prints.
+        # print the first part of it to the job log. It stays out of the exception, whose text
+        # reaches the report table and the tracking issue: third-party text does not belong there.
         detail = " ".join(response.text.split())[:200]
-        raise requests.HTTPError(f"{response.status_code} {response.reason} for {url}: {detail}", response=response)
+        message = f"{response.status_code} {response.reason} for {url}"
+        print(f"{message}: {detail}", file=sys.stderr)
+        raise requests.HTTPError(message, response=response)
     return response
 
 
@@ -268,6 +307,28 @@ def last_dependabot_pr(fetch_json: FetchJson, repo: str, label: str) -> datetime
     return None
 
 
+def dependabot_update_runs(fetch_json: FetchJson, repo: str) -> list[dict[str, Any]]:
+    """The newest page of Dependabot Updates runs.
+
+    A missing workflow or an empty list is an error rather than "no runs": like the search
+    API in issue #697, a token that lacks `actions: read` may well answer 200 with nothing in
+    it, and reading that as "the updater never ran" would raise an outage that is not there.
+    """
+    workflows = fetch_json(ACTIONS_WORKFLOWS.format(repo=repo))["workflows"]
+    workflow_id = next(
+        (workflow["id"] for workflow in workflows if workflow["path"] == DEPENDABOT_UPDATES_PATH),
+        None,
+    )
+    if workflow_id is None:
+        raise ValueError(f"workflow {DEPENDABOT_UPDATES_PATH} not found; is `actions: read` granted?")
+    runs: list[dict[str, Any]] = fetch_json(ACTIONS_WORKFLOW_RUNS.format(repo=repo, workflow_id=workflow_id))[
+        "workflow_runs"
+    ]
+    if not runs:
+        raise ValueError(f"no runs listed for {DEPENDABOT_UPDATES_PATH}; is `actions: read` granted?")
+    return runs
+
+
 def direct_requirements(root: Path) -> list[Requirement]:
     """Every dependency Dependabot can propose, i.e. the ones written in pyproject.toml.
 
@@ -287,9 +348,46 @@ def direct_requirements(root: Path) -> list[Requirement]:
     return list(unique.values())
 
 
-def locked_versions(root: Path) -> dict[str, str]:
-    lock_text = (root / "uv.lock").read_text(encoding="utf-8")
+def parse_locked_versions(lock_text: str) -> dict[str, str]:
     return dict(re.findall(r'name = "([^"]+)"\nversion = "([^"]+)"', lock_text))
+
+
+def locked_versions(root: Path) -> dict[str, str]:
+    return parse_locked_versions((root / "uv.lock").read_text(encoding="utf-8"))
+
+
+def proposed_versions(fetch_json: FetchJson, fetch_text: FetchText, repo: str) -> dict[str, Version]:
+    """The highest version each package reaches in the uv.lock of an open Dependabot uv PR.
+
+    The head lockfile is read rather than the PR title or body, which are untrusted text and
+    would also need parsing per grouping style. A package the PR does not touch carries the
+    version it had on main, so taking the maximum with main's lock leaves it unchanged.
+
+    Only Dependabot's own uv branches in this repository count: anyone can open a PR whose
+    lockfile claims a newer version, and a github-actions or pre-commit PR proposes nothing
+    here. A lockfile that cannot be read is an error, never "no proposal".
+    """
+    proposed: dict[str, Version] = {}
+    for pull in fetch_json(OPEN_PULLS.format(repo=repo)):
+        head = pull["head"]
+        if (
+            pull["user"]["login"] != DEPENDABOT_LOGIN
+            or not head["ref"].startswith(DEPENDABOT_UV_BRANCH_PREFIX)
+            or head["repo"] is None
+            or head["repo"]["full_name"] != repo
+        ):
+            continue
+        versions = parse_locked_versions(fetch_text(PR_HEAD_LOCKFILE.format(repo=repo, sha=head["sha"])))
+        if not versions:
+            raise ValueError(f"no package entries found in the uv.lock of {head['sha']}")
+        for name, raw in versions.items():
+            try:
+                version = Version(raw)
+            except InvalidVersion:  # pragma: no cover - defensive; uv.lock holds PEP 440 versions
+                continue
+            key = _canonical(name)
+            proposed[key] = max(proposed.get(key, version), version)
+    return proposed
 
 
 def _canonical(name: str) -> str:
@@ -383,27 +481,39 @@ def stale_direct_dependencies(
     fetch_json: FetchJson,
     requirements: Iterable[Requirement],
     locked: dict[str, str],
+    proposed: dict[str, Version],
     as_of: datetime,
     cooldown: int,
     python_versions: Sequence[Version],
-) -> list[StaleDependency]:
-    """Direct dependencies Dependabot should already have proposed but has not."""
+) -> tuple[list[StaleDependency], int]:
+    """Direct dependencies Dependabot should already have proposed but has not.
+
+    Also returns how many packages were left out only because an open PR already proposes
+    their overdue release, so the report can say the exclusion happened.
+    """
     stale: list[StaleDependency] = []
+    excluded = 0
     for requirement in requirements:
-        current = locked.get(_canonical(requirement.name))
+        name = _canonical(requirement.name)
+        current = locked.get(name)
         if current is None:
             continue
         try:
-            current_version = Version(current)
+            locked_version = Version(current)
         except InvalidVersion:  # pragma: no cover - defensive; uv.lock holds PEP 440 versions
             continue
         payload = fetch_json(PYPI_JSON.format(name=requirement.name))
+        current_version = max(locked_version, proposed.get(name, locked_version))
         eligible = newest_eligible_release(payload, current_version, as_of, cooldown, python_versions)
         if eligible is None:
+            if current_version > locked_version and newest_eligible_release(
+                payload, locked_version, as_of, cooldown, python_versions
+            ):
+                excluded += 1
             continue
         version, released_at = eligible
         stale.append(StaleDependency(requirement.name, current, str(version), released_at))
-    return stale
+    return stale, excluded
 
 
 def tool_versions_uv_pin(root: Path) -> Version:
@@ -559,8 +669,92 @@ def check_pr_age(
     return results
 
 
+def check_updater_runs(config: dict[str, Any], runs: Sequence[dict[str, Any]], now: datetime) -> list[CheckResult]:
+    """1r from issue #728: did each ecosystem's updater run, and did its last full run succeed?
+
+    Check 1 only sees PRs, so a uv full run that failed every week from 2026-05-18 to 09-08
+    stayed green as long as some other dependency still got a PR. This reads the run itself,
+    and covers every configured ecosystem whether or not it has a label check 1 can join on.
+
+    Only the ecosystem, conclusion, date and URL are reported: run titles carry dependency
+    names, which are not this report's business.
+    """
+    results: list[CheckResult] = []
+    for ecosystem in sorted({update["package-ecosystem"] for update in config["updates"]}):
+        run_ecosystem = ecosystem.replace("-", "_")
+        full_runs = [
+            run
+            for run in runs
+            if (match := FULL_UPDATE_RUN.match(run["display_title"])) and match["eco"] == run_ecosystem
+        ]
+        refresh_runs = [
+            run
+            for run in runs
+            if (match := REFRESH_UPDATE_RUN.match(run["display_title"])) and match["eco"] == run_ecosystem
+        ]
+        completed = [run for run in full_runs if run["status"] == "completed"]
+        latest = max(completed, key=lambda run: datetime.fromisoformat(run["created_at"]), default=None)
+        # A day of slack for a late start: Dependabot does not begin on the scheduled minute, so
+        # a schedule only counts once a day has passed since it. Moving the cut-off a day
+        # earlier instead would count the previous day's runs as this week's, and demand a run
+        # for a schedule that has only just arrived.
+        # Once a full run has started since the schedule, it alone decides (issue #767): finished
+        # is alive, unfinished for a day or more is stuck even if refresh runs finished around
+        # it, and unfinished for less than a day is still running -- merging a dependabot.yml
+        # change starts one at once, and the check dispatched right after must not call it
+        # stuck. Only a week with no full run falls back to finished refresh runs, because a
+        # week with five open PRs has none. An unfinished refresh run proves nothing either way.
+        since = last_scheduled_update(config, ecosystem, now - timedelta(days=1))
+        full_since = [run for run in full_runs if datetime.fromisoformat(run["created_at"]) >= since]
+        finished = [run for run in full_since if run["status"] == "completed"]
+        stale_unfinished = [
+            run
+            for run in full_since
+            if run["status"] != "completed" and datetime.fromisoformat(run["created_at"]) <= now - timedelta(days=1)
+        ]
+        stuck_full_run = not finished and bool(stale_unfinished)
+        if full_since:
+            ran_since_schedule = not stuck_full_run
+        else:
+            ran_since_schedule = any(
+                run["status"] == "completed" and datetime.fromisoformat(run["created_at"]) >= since
+                for run in refresh_runs
+            )
+        conclusion = latest["conclusion"] if latest else None
+        if latest is None:
+            detail = "取得した run に full run が見つからない"
+        else:
+            created = datetime.fromisoformat(latest["created_at"]).date().isoformat()
+            detail = f"最新の full run は {conclusion} ({created} / [run]({latest['html_url']}))"
+        detail += f" / 前回スケジュール ({since.date().isoformat()}) 以降の実行 (起動の遅れは 1 日まで許容): " + (
+            "あり" if ran_since_schedule else "**なし**"
+        )
+        if stuck_full_run:
+            statuses = ", ".join(sorted({run["status"] for run in stale_unfinished}))
+            detail += f" / 前回スケジュール以降の full run が 1 日以上未完了 ({statuses})"
+        results.append(
+            CheckResult(
+                f"1r:{ecosystem}",
+                f"{ecosystem} エコシステムの Dependabot updater 実行結果",
+                "high",
+                conclusion == "success" and ran_since_schedule,
+                detail,
+                {
+                    "ecosystem": ecosystem,
+                    "conclusion": conclusion,
+                    "last_full_run_at": latest["created_at"] if latest else None,
+                    "last_full_run_url": latest["html_url"] if latest else None,
+                    "ran_since_schedule": ran_since_schedule,
+                    "stuck_full_run": stuck_full_run,
+                    "since": since.isoformat(),
+                },
+            )
+        )
+    return results
+
+
 def check_stale_dependencies(
-    stale: Sequence[StaleDependency], cooldown: int, threshold: int, as_of: datetime
+    stale: Sequence[StaleDependency], proposed_excluded: int, cooldown: int, threshold: int, as_of: datetime
 ) -> CheckResult:
     listing = ", ".join(f"{item.name} {item.locked} -> {item.latest}" for item in stale) or "なし"
     return CheckResult(
@@ -569,9 +763,11 @@ def check_stale_dependencies(
         "high",
         len(stale) <= threshold,
         f"{len(stale)} 件 (閾値 {threshold} 件 / cooldown {cooldown} 日 / "
-        f"判定基準時刻 {as_of.isoformat(timespec='minutes')}): {listing}",
+        f"判定基準時刻 {as_of.isoformat(timespec='minutes')} / "
+        f"提案済みで除外 {proposed_excluded} 件): {listing}",
         {
             "count": len(stale),
+            "proposed_excluded": proposed_excluded,
             "threshold": threshold,
             "cooldown_days": cooldown,
             "as_of": as_of.isoformat(),
@@ -697,6 +893,36 @@ def check_action_bundled_dependencies(
     return results
 
 
+def is_error(result: CheckResult) -> bool:
+    """Whether `result` stands for a family that could not be judged, rather than a verdict."""
+    return bool(result.facts.get("error", False))
+
+
+def _guarded(family: str, run: Callable[[], list[CheckResult]]) -> list[CheckResult]:
+    """Run one check family, turning an unreadable input into a "could not judge" row.
+
+    Each family reads different third-party files, so one of them moving must not discard the
+    verdicts of the others: a stalled updater went unreported on 2026-09-09 because an
+    unrelated lockfile 404 ended the whole run before any report was written.
+    """
+    try:
+        return run()
+    except CHECK_ERRORS as error:
+        print(f"生存確認を実行できませんでした (検査 {family}): {error}", file=sys.stderr)
+        # Collapsed onto one line: a newline in the message would break the report table.
+        message = " ".join(f"検査不能: {type(error).__name__}: {error}".split())
+        return [
+            CheckResult(
+                f"{family}:error",
+                f"検査 {family} の実行",
+                "high",
+                False,
+                message[:ERROR_DETAIL_LIMIT],
+                {"error": True, "family": family},
+            )
+        ]
+
+
 def run_checks(
     fetch_json: FetchJson,
     fetch_text: FetchText,
@@ -706,48 +932,69 @@ def run_checks(
     max_pr_age_days: int,
     max_stale_direct: int,
 ) -> list[CheckResult]:
+    # Shared by every family, so a failure here still ends the run without a report.
     config = dependabot_config(root)
     cooldown = cooldown_days(config)
-    results = check_pr_age(fetch_json, repo, dependabot_ecosystems(config), now, max_pr_age_days)
-    as_of = last_scheduled_update(config, PYTHON_ECOSYSTEM, now)
-    stale = stale_direct_dependencies(
-        fetch_json, direct_requirements(root), locked_versions(root), as_of, cooldown, declared_python_versions(root)
-    )
-    results.append(check_stale_dependencies(stale, cooldown, max_stale_direct, as_of))
-    setup_uv_sha = setup_uv_pinned_sha(root)
-    bundled, bundled_ref = dependabot_bundled_uv(fetch_json, fetch_text)
-    results.extend(
-        check_uv_pin(
+
+    def stale_backlog() -> list[CheckResult]:
+        as_of = last_scheduled_update(config, PYTHON_ECOSYSTEM, now)
+        stale, proposed_excluded = stale_direct_dependencies(
+            fetch_json,
+            direct_requirements(root),
+            locked_versions(root),
+            proposed_versions(fetch_json, fetch_text, repo),
+            as_of,
+            cooldown,
+            declared_python_versions(root),
+        )
+        return [check_stale_dependencies(stale, proposed_excluded, cooldown, max_stale_direct, as_of)]
+
+    def uv_pin() -> list[CheckResult]:
+        setup_uv_sha = setup_uv_pinned_sha(root)
+        bundled, bundled_ref = dependabot_bundled_uv(fetch_json, fetch_text)
+        return check_uv_pin(
             tool_versions_uv_pin(root),
             known_uv_checksums(fetch_text, setup_uv_sha),
             bundled,
             bundled_ref,
             setup_uv_sha,
         )
-    )
-    results.extend(check_action_bundled_dependencies(fetch_json, fetch_text, root, WATCHED_ACTION_DEPENDENCIES))
-    return results
+
+    families: list[tuple[str, Callable[[], list[CheckResult]]]] = [
+        ("1", lambda: check_pr_age(fetch_json, repo, dependabot_ecosystems(config), now, max_pr_age_days)),
+        ("1r", lambda: check_updater_runs(config, dependabot_update_runs(fetch_json, repo), now)),
+        ("2", stale_backlog),
+        ("3", uv_pin),
+        ("4", lambda: check_action_bundled_dependencies(fetch_json, fetch_text, root, WATCHED_ACTION_DEPENDENCIES)),
+    ]
+    return [result for family, run in families for result in _guarded(family, run)]
 
 
 SEVERITY_MARK = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 
 
 def render_report(results: Sequence[CheckResult], repo: str, now: datetime) -> str:
-    alerts = [result for result in results if not result.ok]
+    errors = [result for result in results if is_error(result)]
+    alerts = [result for result in results if not result.ok and not is_error(result)]
+    summary: list[str] = []
+    if alerts:
+        summary.append(f"🚨 {len(alerts)} 件の検査が閾値を超えた。")
+    if errors:
+        summary.append(f"⚠️ {len(errors)} 件の検査を実行できなかった。")
     lines = [
         f"依存更新パイプラインの生存確認 ({repo} / {now.isoformat(timespec='seconds')})",
         "",
-        ("✅ 全ての検査を通過した。" if not alerts else f"🚨 {len(alerts)} 件の検査が閾値を超えた。"),
+        " ".join(summary) or "✅ 全ての検査を通過した。",
         "",
         "| | 検査 | 重要度 | 結果 |",
         "| --- | --- | --- | --- |",
     ]
     for result in results:
-        mark = "✅" if result.ok else "🚨"
-        lines.append(
-            f"| {mark} | {result.title} | {SEVERITY_MARK[result.severity]} {result.severity} | {result.detail} |"
-        )
-    if alerts:
+        mark = "⚠️" if is_error(result) else "✅" if result.ok else "🚨"
+        # A bare `|` (e.g. inside an error message) would split the row into extra columns.
+        title, detail = (cell.replace("|", "\\|") for cell in (result.title, result.detail))
+        lines.append(f"| {mark} | {title} | {SEVERITY_MARK[result.severity]} {result.severity} | {detail} |")
+    if alerts or errors:
         lines += ["", "## 対応", ""]
         lines.append("`docs/dependency-pipeline.md` の「アラート別の対応」を参照する。")
     return "\n".join(lines) + "\n"
@@ -770,7 +1017,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     now = datetime.now(UTC)
     # Rendering and writing the report stay inside the boundary: an uncaught failure there
     # exits with 1, which the workflow reads as "threshold exceeded" and turns into a false
-    # alert issue. Everything that is not a verdict must exit 2 instead.
+    # alert issue. Everything that is not a verdict must exit 2 instead. A single family that
+    # cannot run is caught inside run_checks; what reaches this handler is the shared setup.
     try:
         results = run_checks(
             fetch_json,
@@ -792,18 +1040,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "title": result.title,
                     "severity": result.severity,
                     "ok": result.ok,
+                    # Present on every row so the workflow can tell alerts from errors on exit 2.
+                    "error": is_error(result),
                     "detail": result.detail,
                     "facts": result.facts,
                 }
                 for result in results
             ]
             args.json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    except (requests.RequestException, yaml.YAMLError, OSError, ValueError, KeyError) as error:
+    except CHECK_ERRORS as error:
         # A watchdog that fails quietly reproduces the very bug it exists to catch,
         # so surface this as a red run rather than as "healthy".
         print(f"生存確認を実行できませんでした: {error}", file=sys.stderr)
         return 2
 
+    if any(is_error(result) for result in results):
+        return 2
     return 0 if all(result.ok for result in results) else 1
 
 

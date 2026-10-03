@@ -1,7 +1,8 @@
 name: 🔍 依存更新パイプラインの生存確認
 
 # issue #683: Dependabot の停止は「PR が失敗する」ではなく「PR が来ない」という無変化として
-# 現れるため、リポジトリ上に痕跡が残らない (issue #681 は 6 週間気付かれなかった)。
+# 現れ、PR の一覧からは見分けられない (issue #681 は 6 週間気付かれなかった)。実行結果は
+# Actions の "Dependabot Updates" に残るが、原因が分かるログは所有者しか読めない。
 # 週次で検査し、閾値を超えたら Issue を起票 / 更新する。回復したら同じ Issue を閉じる。
 on:
   schedule:
@@ -23,7 +24,10 @@ on:
 # `pull-requests: read` は検査 1 に必須 (issue #697)。検査 1 は `GET /repos/{repo}/issues` が
 # 返す PR を読むため、この権限が無いとトークンから PR が見えず、全エコシステムが
 # 「PR が 1 件も存在しない」と誤検知する。Search API はこのトークンでは 403 になるため使わない。
+# `actions: read` は検査 1r に必須 (issue #728)。Dependabot Updates (dynamic ワークフロー) の
+# run の結論を読む。無いと run が見えず、1r が毎週「検査不能」になる。
 permissions:
+  actions: read
   contents: read
   issues: write
   pull-requests: read
@@ -82,15 +86,40 @@ jobs:
           status=$?
           set -e
 
-          # 0=正常 / 1=アラート / それ以外=検査自体の失敗。無音で失敗すると本 issue の
-          # 対象そのものを再現するので、2 以上はジョブを赤くする。
+          # 0=正常 / 1=アラート / それ以外=一部または全部の検査が実行できなかった (issue #728)。
+          # 2 以上でもこの step は失敗させず、出せた report の掲載・アラートの起票まで進めてから
+          # 最終 step でジョブを赤くする。無音で失敗すると本 issue の対象そのものを再現するため。
+          # exit 2 のときの alert は、report.json に「検査できたうえでの不合格」行があるかで決める。
+          # 未捕捉の例外 (TypeError など) でも Python は exit 1 を返すが report は書かれないため、
+          # exit 1 は report.json があるときだけアラートとして扱い、無ければ検査不能とする。
+          alert=false
+          error=false
           case "${status}" in
-            0) echo "alert=false" >> "$GITHUB_OUTPUT" ;;
-            1) echo "alert=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::生存確認スクリプトが異常終了しました (exit ${status})"; exit "${status}" ;;
+            0) ;;
+            1)
+              if [ -f report.json ]; then
+                alert=true
+              else
+                error=true
+                echo "::error::生存確認が report を書かずに終了しました (exit ${status})"
+              fi
+              ;;
+            *)
+              error=true
+              echo "::error::生存確認の一部または全部を実行できませんでした (exit ${status})"
+              if [ -f report.json ] && python3 -c 'import json,sys; sys.exit(0 if any(not r["ok"] and not r["error"] for r in json.load(open("report.json"))) else 1)'; then
+                alert=true
+              fi
+              ;;
           esac
+          {
+            echo "alert=${alert}"
+            echo "error=${error}"
+          } >> "$GITHUB_OUTPUT"
 
-          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f report.md ]; then
+            cat report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -135,8 +164,9 @@ jobs:
               --label "bug,automated,dependencies"
           fi
 
+      # 検査不能が 1 つでもあれば閉じない。見えていない検査が停止を隠している可能性がある。
       - name: Close the tracking issue when healthy
-        if: steps.checks.outputs.alert == 'false'
+        if: steps.checks.outputs.alert == 'false' && steps.checks.outputs.error == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -157,3 +187,9 @@ jobs:
           else
             echo "アラートなし。追跡 issue も存在しません"
           fi
+
+      - name: Fail when a check could not run
+        if: steps.checks.outputs.error == 'true'
+        run: |
+          echo "::error::検査不能の項目があります。step summary の ⚠️ 行と docs/dependency-pipeline.md を参照してください"
+          exit 1

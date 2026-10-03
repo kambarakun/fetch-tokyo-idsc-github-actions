@@ -8,6 +8,7 @@ isolation. Network access is replaced by dictionaries keyed on URL.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import UTC, datetime, timedelta, tzinfo
 from pathlib import Path
@@ -31,6 +32,7 @@ CLAUDE_ACTION = "anthropics/claude-code-action"
 CLAUDE_ACTION_SHA = "833fb0f8c9f6686b33d963a8bae0a94f4936ab2a"
 CLAUDE_ACTION_TAG = "v1.0.220"
 CHECK_4 = f"4:{CLAUDE_ACTION}:shell-quote"
+DEPENDABOT_WORKFLOW_ID = 217996713
 
 
 def _bun_lock(*versions: str) -> str:
@@ -81,6 +83,56 @@ def _pr_payload(created_at: datetime | None) -> list[dict[str, Any]]:
     if created_at is None:
         return []
     return [{"created_at": created_at.isoformat(), "pull_request": {"url": "https://example.invalid/1"}}]
+
+
+def _update_run(
+    ecosystem: str, created_at: datetime, conclusion: str = "success", *, refresh_for: str | None = None
+) -> dict[str, Any]:
+    """A Dependabot Updates run, named the way the real `dynamic/dependabot/dependabot-updates` names it.
+
+    A full run is `uv in /. - Update #N`; a refresh of one open PR is `uv in / for ruff - Update #N`.
+    Like the real API (2026-10-03), `name` and `display_title` both carry that title.
+    """
+    target = f"/ for {refresh_for}" if refresh_for else "/."
+    title = f"{ecosystem} in {target} - Update #1"
+    return {
+        "name": title,
+        "display_title": title,
+        "status": "completed",
+        "conclusion": conclusion,
+        "created_at": created_at.isoformat(),
+        "html_url": "https://example.invalid/runs/1",
+    }
+
+
+def _runs(*runs: dict[str, Any]) -> dict[str, Any]:
+    """A `/runs` page, newest first like the API."""
+    ordered = sorted(runs, key=lambda run: run["created_at"], reverse=True)
+    return {"total_count": len(ordered), "workflow_runs": ordered}
+
+
+def _uv_lock(**versions: str) -> str:
+    """A uv.lock excerpt in the `name = ...` / `version = ...` layout the watchdog parses."""
+    return "".join(f'name = "{name}"\nversion = "{version}"\n\n' for name, version in versions.items())
+
+
+def _open_pr(
+    sha: str,
+    ref: str = "dependabot/uv/build-tools-0123456789",
+    login: str = "dependabot[bot]",
+    head_repo: str | None = "owner/name",
+) -> dict[str, Any]:
+    """One entry of `GET /pulls?state=open`; title and body are there to prove nobody reads them."""
+    return {
+        "user": {"login": login},
+        "head": {"ref": ref, "sha": sha, "repo": None if head_repo is None else {"full_name": head_repo}},
+        "title": "<!-- injected -->",
+        "body": "evil",
+    }
+
+
+def _pr_lock_url(sha: str) -> str:
+    return watchdog.PR_HEAD_LOCKFILE.format(repo="owner/name", sha=sha)
 
 
 @pytest.fixture
@@ -155,20 +207,36 @@ def healthy_responses() -> dict[str, Any]:
         "action-releases": _releases(CLAUDE_ACTION_TAG),
         _action_lock_url(CLAUDE_ACTION_SHA): _bun_lock("1.8.4"),
         _action_lock_url(CLAUDE_ACTION_TAG): _bun_lock("1.8.4"),
+        "open-prs": [],
+        "workflows": {
+            "total_count": 1,
+            "workflows": [{"id": DEPENDABOT_WORKFLOW_ID, "path": "dynamic/dependabot/dependabot-updates"}],
+        },
+        # The Monday 09:00 JST updater run, a few minutes after its schedule.
+        "dependabot-runs": _runs(
+            *(_update_run(eco, recent + timedelta(minutes=6)) for eco in ("github_actions", "uv", "pre_commit"))
+        ),
     }
 
 
 def _fetchers(responses: dict[str, Any]):
+    # URL fragment -> response key. Anything unmatched is a PyPI lookup.
+    routes = {
+        watchdog.DEPENDABOT_CORE_LATEST_RELEASE: "core-release",
+        watchdog.ACTION_RELEASES.format(action=CLAUDE_ACTION): "action-releases",
+        "/pulls?": "open-prs",
+        "/actions/workflows?": "workflows",
+        f"/actions/workflows/{DEPENDABOT_WORKFLOW_ID}/runs": "dependabot-runs",
+    }
+
     def fetch_json(url: str) -> Any:
         if "/issues?" in url:
             label = url.split("labels=")[1].split("&", maxsplit=1)[0]
             return responses[f"prs:{label}"]
-        if url == watchdog.DEPENDABOT_CORE_LATEST_RELEASE:
-            return responses["core-release"]
-        if url == watchdog.ACTION_RELEASES.format(action=CLAUDE_ACTION):
-            return responses["action-releases"]
-        name = url.removeprefix("https://pypi.org/pypi/").removesuffix("/json")
-        return responses[f"pypi:{name}"]
+        key = next((key for fragment, key in routes.items() if fragment in url), None)
+        if key is None:
+            key = "pypi:" + url.removeprefix("https://pypi.org/pypi/").removesuffix("/json")
+        return responses[key]
 
     def fetch_text(url: str) -> str:
         if url not in responses:
@@ -194,6 +262,9 @@ def test_healthy_pipeline_passes_every_check(repo: Path, healthy_responses: dict
         "1:github-actions",
         "1:pre-commit",
         "1:uv",
+        "1r:github-actions",
+        "1r:pre-commit",
+        "1r:uv",
         "2",
         "3a",
         "3b",
@@ -217,6 +288,295 @@ def test_stalled_ecosystem_and_backlog_are_reported_together(repo: Path, healthy
     assert results["1:github-actions"].ok
     assert not results["2"].ok
     assert [item["name"] for item in results["2"].facts["dependencies"]] == ["mypy"]
+
+
+def test_failed_full_updater_run_is_an_alert_while_prs_still_arrive(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """2026-05-18 to 09-08: the uv full run failed weekly, yet other PRs kept check 1 green."""
+    responses = dict(healthy_responses)
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=2), "failure"),
+    )
+
+    results = _run(repo, responses)
+
+    assert results["1:uv"].ok
+    assert not results["1r:uv"].ok
+    assert results["1r:uv"].severity == "high"
+    assert results["1r:uv"].facts["conclusion"] == "failure"
+    assert results["1r:github-actions"].ok
+
+
+def test_missing_updater_run_since_the_last_schedule_is_an_alert(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """A successful run from the week before proves nothing about this week's schedule."""
+    responses = dict(healthy_responses)
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+    )
+
+    results = _run(repo, responses)
+
+    assert not results["1r:uv"].ok
+    assert results["1r:uv"].facts["conclusion"] == "success"
+    assert results["1r:uv"].facts["ran_since_schedule"] is False
+
+
+def test_an_updater_run_stuck_past_the_grace_period_is_not_activity(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """A run that started this week but never finished says nothing about this week's update.
+
+    Counting it would pair last week's successful full run with a stuck current one and
+    report the updater healthy.
+    """
+    responses = dict(healthy_responses)
+    stuck = {**_update_run("uv", NOW - timedelta(days=2)), "status": "in_progress", "conclusion": None}
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+        stuck,
+    )
+
+    result = _run(repo, responses)["1r:uv"]
+
+    assert not result.ok
+    assert result.facts["conclusion"] == "success"
+    assert result.facts["ran_since_schedule"] is False
+
+
+def test_a_completed_refresh_run_does_not_hide_a_stuck_full_run(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Issue #767: a week with open PRs always has finished refresh runs.
+
+    Letting one stand in for this week's full run would pair last week's success with a full
+    run stuck for days and report the updater healthy.
+    """
+    responses = dict(healthy_responses)
+    stuck = {**_update_run("uv", NOW - timedelta(days=2)), "status": "in_progress", "conclusion": None}
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+        stuck,
+        _update_run("uv", NOW - timedelta(days=2) + timedelta(hours=1), refresh_for="ruff"),
+    )
+
+    result = _run(repo, responses)["1r:uv"]
+
+    assert not result.ok
+    assert result.facts["ran_since_schedule"] is False
+    assert result.facts["stuck_full_run"] is True
+
+
+def test_a_full_run_still_running_within_the_grace_period_is_alive(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Merging a dependabot.yml change starts a full run at once (issue #767).
+
+    A watchdog dispatched right after the merge must not call that run stuck; until it
+    finishes, the previous completed full run decides.
+    """
+    responses = dict(healthy_responses)
+    running = {**_update_run("uv", NOW - timedelta(hours=2)), "status": "in_progress", "conclusion": None}
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+        running,
+    )
+
+    result = _run(repo, responses)["1r:uv"]
+
+    assert result.ok
+    assert result.facts["ran_since_schedule"] is True
+    assert result.facts["stuck_full_run"] is False
+
+
+def test_refresh_runs_prove_a_live_updater_but_not_a_healthy_full_run(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """With five PRs open, Dependabot only refreshes them (2026-05-04 / 05-11).
+
+    Such a week has no full run, so a refresh run is what shows the updater is alive -- but
+    its conclusion says nothing about the full update, which is judged by the last full run.
+    """
+    responses = dict(healthy_responses)
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=9)),
+        _update_run("uv", NOW - timedelta(days=2), "failure", refresh_for="ruff"),
+    )
+
+    assert _run(repo, responses)["1r:uv"].ok
+
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2)),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=3), "failure"),
+        _update_run("uv", NOW - timedelta(days=2), refresh_for="ruff, mypy, pre-commit"),
+    )
+
+    result = _run(repo, responses)["1r:uv"]
+    assert not result.ok
+    assert result.facts["conclusion"] == "failure"
+
+
+def test_unlabelled_ecosystem_is_still_checked_through_its_runs(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """Check 1 needs a label to find PRs and silently skips an ecosystem without one; 1r does not."""
+    config_path = repo / ".github" / "dependabot.yml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["updates"].append(
+        {"package-ecosystem": "docker", "directory": "/", "schedule": {"interval": "weekly", "day": "monday"}}
+    )
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+    results = _run(repo, healthy_responses)
+
+    assert "1:docker" not in results
+    assert not results["1r:docker"].ok
+    assert results["1r:docker"].facts["last_full_run_at"] is None
+
+
+def test_updater_runs_are_matched_on_their_documented_title_field(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """The API documents the run title as `display_title` and `name` as the workflow's name.
+
+    Both carry the title today, so this pins the check to the documented field: were `name`
+    ever to become "Dependabot Updates", every ecosystem must not turn red at once.
+    """
+    responses = dict(healthy_responses)
+    runs = responses["dependabot-runs"]["workflow_runs"]
+    responses["dependabot-runs"] = _runs(*({**run, "name": "Dependabot Updates"} for run in runs))
+
+    results = _run(repo, responses)
+
+    assert all(results[f"1r:{eco}"].ok for eco in ("github-actions", "pre-commit", "uv"))
+
+
+def test_a_run_just_after_the_schedule_does_not_yet_expect_this_weeks_updater(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Monday 09:30 JST, before Dependabot has started: last week's run is still the latest due.
+
+    The slack has to absorb a late start. Moving the cut-off a day earlier instead demanded a
+    run for a schedule that had only just arrived, so a manual run right after it went red
+    for every ecosystem at once.
+    """
+    monday_after_schedule = datetime(2026, 9, 7, 0, 30, tzinfo=UTC)  # 09:30 JST
+    last_week = datetime(2026, 8, 31, 0, 6, tzinfo=UTC)  # the previous Monday's run
+    responses = dict(healthy_responses)
+    responses["dependabot-runs"] = _runs(
+        *(_update_run(eco, last_week) for eco in ("github_actions", "uv", "pre_commit"))
+    )
+
+    results = {
+        result.check_id: result
+        for result in watchdog.run_checks(
+            *_fetchers(responses), repo, "owner/name", monday_after_schedule, max_pr_age_days=21, max_stale_direct=3
+        )
+    }
+
+    assert all(results[f"1r:{eco}"].ok for eco in ("github-actions", "pre-commit", "uv"))
+    # By Wednesday the slack is used up, and last week's run no longer covers this schedule.
+    assert _run(repo, responses)["1r:uv"].ok is False
+
+
+@pytest.mark.usefixtures("frozen_clock")
+def test_no_dependabot_runs_at_all_cannot_be_judged(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty list may be a token that cannot see the runs (issue #697), not a dead updater."""
+    responses = dict(healthy_responses)
+    responses["dependabot-runs"] = {"total_count": 0, "workflow_runs": []}
+
+    results = _run(repo, responses)
+
+    assert results["1r:error"].facts["error"] is True
+    assert not any(check_id.startswith("1r:") and check_id != "1r:error" for check_id in results)
+    assert results["1:uv"].ok
+
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+    assert watchdog.main(["--repo", "owner/name"]) == 2
+
+
+def test_releases_already_proposed_in_open_dependabot_prs_are_not_stale(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """2026-09-23: all three "stale" packages sat in open Dependabot PRs awaiting review.
+
+    A proposal waiting on a human is not a stalled updater; counting it let one more pending
+    review open a high-severity outage issue. A release newer than the proposal still counts.
+    """
+    responses = dict(healthy_responses)
+    responses["pypi:requests"] = _pypi(("2.34.2", NOW - timedelta(days=60)), ("2.35.0", NOW - timedelta(days=20)))
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)))
+    responses["open-prs"] = [_open_pr("a" * 40)]
+    responses[_pr_lock_url("a" * 40)] = _uv_lock(requests="2.35.0", mypy="2.4.0", isort="7.0.0")
+
+    result = _run(repo, responses, max_stale_direct=0)["2"]
+
+    assert result.ok
+    assert result.facts["count"] == 0
+    assert result.facts["proposed_excluded"] == 2
+    assert "提案済みで除外 2 件" in result.detail
+
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)), ("2.5.0", NOW - timedelta(days=15)))
+
+    result = _run(repo, responses, max_stale_direct=0)["2"]
+
+    assert not result.ok
+    assert [(item["name"], item["latest"]) for item in result.facts["dependencies"]] == [("mypy", "2.5.0")]
+    assert result.facts["proposed_excluded"] == 1
+
+
+def test_prs_from_other_authors_or_ecosystems_do_not_hide_a_backlog(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    """Only Dependabot's own uv PRs from this repository speak for what the updater proposed."""
+    responses = dict(healthy_responses)
+    responses["pypi:mypy"] = _pypi(("2.4.0", NOW - timedelta(days=20)))
+    responses["open-prs"] = [
+        _open_pr("1" * 40, login="someone"),
+        _open_pr("2" * 40, ref="dependabot/github_actions/actions/checkout-6.2.0"),
+        _open_pr("3" * 40, ref="dependabot/pre_commit/mirrors-prettier-3.9.9"),
+        _open_pr("4" * 40, head_repo="fork/name"),
+        _open_pr("5" * 40, head_repo=None),
+    ]
+    for sha in ("1", "2", "3", "4", "5"):
+        responses[_pr_lock_url(sha * 40)] = _uv_lock(requests="2.34.2", mypy="2.4.0", isort="7.0.0")
+
+    result = _run(repo, responses, max_stale_direct=0)["2"]
+
+    assert not result.ok
+    assert [item["name"] for item in result.facts["dependencies"]] == ["mypy"]
+    assert result.facts["proposed_excluded"] == 0
+
+
+@pytest.mark.usefixtures("frozen_clock")
+def test_unreadable_pr_head_lockfile_cannot_be_judged(
+    repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lockfile that cannot be read is not "no proposal": that would bring back the false backlog."""
+    responses = dict(healthy_responses)
+    responses["open-prs"] = [_open_pr("a" * 40)]
+
+    results = _run(repo, responses)
+
+    assert results["2:error"].facts["error"] is True
+    assert "2" not in results
+    assert results["1r:uv"].ok
+
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+    assert watchdog.main(["--repo", "owner/name"]) == 2
 
 
 def test_releases_inside_the_cooldown_are_not_counted_as_stale(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -484,14 +844,21 @@ def test_the_workflow_token_never_leaves_the_github_api(monkeypatch: pytest.Monk
     assert len(seen) == 4
 
 
-def test_http_get_puts_the_response_body_into_the_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """issue #697: a bare status code hid whether 403 was a missing permission or a rate limit."""
+def test_http_get_logs_the_response_body_but_keeps_it_out_of_the_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """issue #697: a bare status code hid whether 403 was a missing permission or a rate limit.
+
+    The body goes to the job log for that diagnosis, not into the exception: the exception
+    text ends up in the report table, and a third-party body with `|` or Markdown in it
+    would break the table that becomes the tracking issue.
+    """
 
     class _Forbidden:
         ok = False
         status_code = 403
         reason = "Forbidden"
-        text = '{"message": "Resource not accessible by integration"}'
+        text = '{"message": "Resource not accessible | by integration"}'
 
     monkeypatch.setattr(watchdog.requests, "get", lambda url, headers, timeout: _Forbidden())
     fetch_json, _ = watchdog.make_fetchers("secret-token")
@@ -500,7 +867,22 @@ def test_http_get_puts_the_response_body_into_the_error(monkeypatch: pytest.Monk
         fetch_json(f"{watchdog.GITHUB_API}/repos/owner/name/issues?labels=python")
 
     assert "403 Forbidden" in str(excinfo.value)
-    assert "Resource not accessible by integration" in str(excinfo.value)
+    assert "Resource not accessible" not in str(excinfo.value)
+    assert "Resource not accessible | by integration" in capsys.readouterr().err
+
+
+def test_report_cells_cannot_break_the_table(repo: Path, healthy_responses: dict[str, Any]) -> None:
+    """A `|` in a cell would split the row and shift every column after it."""
+    result = watchdog.CheckResult(
+        "4:error", "検査 4 | の実行", "high", False, "検査不能: KeyError: 'a|b'", {"error": True}
+    )
+
+    report = watchdog.render_report([result], "owner/name", NOW)
+
+    row = next(line for line in report.splitlines() if line.startswith("| ⚠️"))
+    assert row.replace("\\|", "").count("|") == 5
+    assert "検査 4 \\| の実行" in row
+    assert "'a\\|b'" in row
 
 
 def test_missing_ecosystem_pr_history_is_an_alert(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -720,6 +1102,17 @@ def test_a_release_history_without_a_semver_tag_fails_loudly(
     assert f"no semver release tag found for {CLAUDE_ACTION}" in capsys.readouterr().err
 
 
+def _assert_only_check_4_could_not_run(results: dict[str, watchdog.CheckResult]) -> None:
+    """An ambiguous pin is reported as "could not judge", and the other families still report."""
+    error = results["4:error"]
+    assert not error.ok
+    assert error.facts["error"] is True
+    assert "exactly one pinned" in error.detail
+    assert CHECK_4 not in results
+    assert {"1:github-actions", "1:pre-commit", "1:uv", "1r:uv", "2", "3a"} <= set(results)
+    assert all(result.ok for check_id, result in results.items() if check_id != "4:error")
+
+
 def test_a_watched_action_pinned_in_a_yaml_file_is_seen_too(repo: Path, healthy_responses: dict[str, Any]) -> None:
     """GitHub accepts both extensions, so scanning one would answer with a pin while a
     second, differently pinned use sat unseen in the other -- a wrong answer, not a failure."""
@@ -728,8 +1121,9 @@ def test_a_watched_action_pinned_in_a_yaml_file_is_seen_too(repo: Path, healthy_
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="exactly one pinned"):
-        _run(repo, healthy_responses)
+    results = _run(repo, healthy_responses)
+
+    _assert_only_check_4_could_not_run(results)
 
 
 def test_upstream_is_not_consulted_once_the_pinned_copy_is_clear(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -782,8 +1176,9 @@ def test_a_watched_action_pinned_to_two_commits_fails_loudly(repo: Path, healthy
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="exactly one pinned"):
-        _run(repo, healthy_responses)
+    results = _run(repo, healthy_responses)
+
+    _assert_only_check_4_could_not_run(results)
 
 
 def test_report_only_contains_structured_facts(repo: Path, healthy_responses: dict[str, Any]) -> None:
@@ -859,6 +1254,62 @@ def test_main_reports_healthy_pipelines_with_exit_zero(
     assert watchdog.main(["--repo", "owner/name"]) == 0
 
 
+@pytest.mark.usefixtures("frozen_clock")
+def test_one_failing_family_does_not_discard_the_others(
+    repo: Path,
+    healthy_responses: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A stalled uv updater must still be reported when an unrelated upstream file moves.
+
+    Before the families were isolated, the 404 below took the whole run down with exit 2: no
+    report, no issue, and the 44-day outage of check 1 was lost along with it.
+    """
+    responses = dict(healthy_responses)
+    responses["prs:python"] = _pr_payload(NOW - timedelta(days=44))
+    del responses[_action_lock_url(CLAUDE_ACTION_TAG)]
+    monkeypatch.setattr(watchdog, "PROJECT_ROOT", repo)
+    monkeypatch.setattr(watchdog, "make_fetchers", lambda token: _fetchers(responses))
+    report_path, json_path = tmp_path / "report.md", tmp_path / "report.json"
+
+    exit_code = watchdog.main(["--repo", "owner/name", "--report", str(report_path), "--json", str(json_path)])
+
+    assert exit_code == 2
+    report = report_path.read_text(encoding="utf-8")
+    assert "🚨 1 件の検査が閾値を超えた。" in report
+    assert "⚠️ 1 件の検査を実行できなかった。" in report
+    rows = {entry["id"]: entry for entry in json.loads(json_path.read_text(encoding="utf-8"))}
+    assert (rows["1:uv"]["ok"], rows["1:uv"]["error"]) == (False, False)
+    assert (rows["4:error"]["ok"], rows["4:error"]["error"]) == (False, True)
+    assert all(entry["error"] is False for check_id, entry in rows.items() if check_id != "4:error")
+    assert "生存確認を実行できませんでした" in capsys.readouterr().err
+
+
+def test_watchdog_workflow_reports_partial_results_before_failing() -> None:
+    """Exit 2 must still publish the report and file the alerts, then fail the job.
+
+    The close step is the dangerous one: run on "no alert" alone, it would close the tracking
+    issue while a check that could not run might be hiding the very outage it tracks.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    workflow = yaml.safe_load(
+        (project_root / ".github" / "workflows" / "dependency-pipeline-watchdog.yml").read_text(encoding="utf-8")
+    )
+    steps = {step["name"]: step for step in workflow["jobs"]["watchdog"]["steps"]}
+    checks = next(step for step in steps.values() if step.get("id") == "checks")
+
+    assert 'exit "${status}"' not in checks["run"]
+    # An uncaught exception also exits 1, but without a report: exit 1 alone is not an alert.
+    exit_one = re.search(r"^\s*1\)(.*?);;", checks["run"], re.MULTILINE | re.DOTALL)
+    assert exit_one is not None
+    assert "report.json" in exit_one.group(1)
+    assert "error == 'false'" in steps["Close the tracking issue when healthy"]["if"]
+    assert "error == 'true'" in steps["Fail when a check could not run"]["if"]
+    assert list(steps)[-1] == "Fail when a check could not run"
+
+
 def test_network_failure_exits_two_rather_than_reporting_healthy(
     repo: Path, healthy_responses: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -898,6 +1349,11 @@ def test_watchdog_workflow_uses_least_privilege_and_no_pull_request_target() -> 
     # PyYAML parses the unquoted `on:` key as the boolean True.
     triggers = workflow[True]
 
-    assert workflow["permissions"] == {"contents": "read", "issues": "write", "pull-requests": "read"}
+    assert workflow["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "issues": "write",
+        "pull-requests": "read",
+    }
     assert set(triggers) == {"schedule", "workflow_dispatch"}
     assert "pull_request_target" not in triggers
