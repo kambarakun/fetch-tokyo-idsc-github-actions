@@ -13,6 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GATE_SCRIPT = PROJECT_ROOT / "scripts" / "auto_merge_gate.sh"
 COMMON_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "_fetch-data-common.yml"
 CREATE_PR_SCRIPT = PROJECT_ROOT / "scripts" / "create_pr.sh"
+LIST_CHANGED_RAW_SCRIPT = PROJECT_ROOT / "scripts" / "list_changed_raw_files.sh"
 WORKFLOW_DIRECTORY = PROJECT_ROOT / ".github" / "workflows"
 UV_PROJECT_COMMAND = re.compile(r"\buv\s+(sync|run)\b")
 LOCKED_OPTION = re.compile(r"(?:^|\s)--locked(?=$|[\s;&|])")
@@ -94,6 +95,8 @@ def evaluate_gate(
     validations_passed: str,
     verify_continuity: str = "false",
     continuity_valid: str = "",
+    raw_changed_count: str = "0",
+    processing_coverage: str = "complete",
 ) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
@@ -110,6 +113,8 @@ def evaluate_gate(
             "VERIFY_OUTPUT": "true",
             "VERIFY_CONTINUITY": verify_continuity,
             "CONTINUITY_VALID": continuity_valid,
+            "RAW_CHANGED_COUNT": raw_changed_count,
+            "PROCESSING_COVERAGE_STATUS": processing_coverage,
         }
     )
     command = """
@@ -223,6 +228,78 @@ def test_manual_continuity_gate_is_fail_closed(
     assert result["AUTO_MERGE_BLOCKERS"] == expected_blockers
 
 
+@pytest.mark.parametrize(
+    (
+        "workflow_name",
+        "force_merge",
+        "process_result",
+        "raw_changed_count",
+        "processing_coverage",
+        "expected_gate_status",
+        "expected_blockers",
+    ),
+    [
+        ("fetch-data-daily", "false", "skipped", "0", "complete", "passed", "none"),
+        ("fetch-data-daily", "false", "skipped", "5", "complete", "blocked", "process"),
+        ("fetch-data-weekly", "false", "skipped", "", "complete", "blocked", "process"),
+        ("fetch-data", "false", "skipped", "unknown", "complete", "blocked", "process"),
+        ("fetch-data-daily", "false", "success", "5", "complete", "passed", "none"),
+        ("fetch-data-daily", "false", "success", "5", "incomplete", "blocked", "coverage"),
+        ("fetch-data-weekly", "false", "success", "5", "", "blocked", "coverage"),
+        ("fetch-data-daily", "true", "skipped", "5", "incomplete", "overridden", "process,coverage"),
+    ],
+    ids=[
+        "skipped-without-raw-changes",
+        "skipped-despite-raw-changes",
+        "skipped-with-unset-raw-count",
+        "skipped-with-unknown-raw-count",
+        "processed-raw-changes",
+        "coverage-incomplete",
+        "coverage-unset",
+        "force-overrides-process-and-coverage",
+    ],
+)
+def test_fetch_gate_blocks_unprocessed_raw_changes(
+    workflow_name: str,
+    force_merge: str,
+    process_result: str,
+    raw_changed_count: str,
+    processing_coverage: str,
+    expected_gate_status: str,
+    expected_blockers: str,
+) -> None:
+    result = evaluate_gate(
+        workflow_name=workflow_name,
+        auto_merge="true",
+        force_merge=force_merge,
+        fetch_status="success",
+        process_result=process_result,
+        validations_passed="true",
+        raw_changed_count=raw_changed_count,
+        processing_coverage=processing_coverage,
+    )
+
+    assert result["AUTO_MERGE_GATE_STATUS"] == expected_gate_status
+    assert result["AUTO_MERGE_BLOCKERS"] == expected_blockers
+    assert result["AUTO_MERGE_EFFECTIVE"] == ("false" if expected_gate_status == "blocked" else "true")
+
+
+def test_process_data_gate_ignores_fetch_only_inputs() -> None:
+    result = evaluate_gate(
+        workflow_name="process-data",
+        auto_merge="true",
+        force_merge="false",
+        fetch_status="unknown",
+        process_result="success",
+        validations_passed="true",
+        raw_changed_count="",
+        processing_coverage="",
+    )
+
+    assert result["AUTO_MERGE_GATE_STATUS"] == "passed"
+    assert result["AUTO_MERGE_BLOCKERS"] == "none"
+
+
 def test_manual_validation_gate_is_not_requested() -> None:
     result = evaluate_gate(
         workflow_name="fetch-data",
@@ -244,12 +321,37 @@ def test_common_workflow_forwards_every_gate_input() -> None:
     assert "FORCE_MERGE_ON_FAILURE: ${{ inputs.force_merge_on_failure }}" in workflow
     assert "FETCH_STATUS: ${{ env.FETCH_STATUS }}" in workflow
     assert "PROCESS_RESULT: ${{ env.PROCESS_RESULT }}" in workflow
+    assert "RAW_CHANGED_COUNT: ${{ env.RAW_CHANGED_COUNT }}" in workflow
+    assert "PROCESSING_COVERAGE_STATUS: ${{ env.PROCESSING_COVERAGE_STATUS }}" in workflow
     assert "FETCH_CONTINUED_REASON: ${{ env.FETCH_CONTINUED_REASON }}" in workflow
     assert "PROCESS_CONTINUED_REASON: ${{ env.PROCESS_CONTINUED_REASON }}" in workflow
     assert "VERIFY_CONTINUITY: ${{ inputs.verify_continuity }}" in workflow
     assert "CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}" in workflow
     assert "VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}" in workflow
     assert "VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}" in workflow
+
+
+def test_common_workflow_processes_raw_changed_since_pre_fetch_commit() -> None:
+    workflow = yaml.safe_load(COMMON_WORKFLOW.read_text(encoding="utf-8"))
+    steps = {step["name"]: step for step in workflow["jobs"]["fetch-data"]["steps"]}
+    names = list(steps)
+
+    ordered = [
+        "Record pre-fetch commit",
+        "Fetch epidemic data",
+        "Process epidemic data",
+        "Check processing coverage",
+        "Evaluate auto-merge gate",
+    ]
+    assert [names.index(name) for name in ordered] == sorted(names.index(name) for name in ordered)
+    assert "PRE_FETCH_SHA=$(git rev-parse HEAD)" in steps["Record pre-fetch commit"]["run"]
+    process_run = steps["Process epidemic data"]["run"]
+    assert "scripts/list_changed_raw_files.sh" in process_run
+    assert "git status --porcelain" not in process_run
+    coverage_run = steps["Check processing coverage"]["run"]
+    assert "check-data-status" in coverage_run
+    assert "--fail-on-incomplete" in coverage_run
+    assert "select(.reason != null)" in coverage_run
 
 
 def test_common_workflow_captures_canonical_continuity_result() -> None:
@@ -325,7 +427,7 @@ def test_continued_fetch_failure_creates_check_annotation() -> None:
     assert "::error title=Data fetch failed::" in workflow
 
 
-@pytest.mark.parametrize("script", [GATE_SCRIPT, CREATE_PR_SCRIPT])
+@pytest.mark.parametrize("script", [GATE_SCRIPT, CREATE_PR_SCRIPT, LIST_CHANGED_RAW_SCRIPT])
 def test_auto_merge_shell_scripts_parse(script: Path) -> None:
     subprocess.run(["bash", "-n", str(script)], cwd=PROJECT_ROOT, check=True)
 

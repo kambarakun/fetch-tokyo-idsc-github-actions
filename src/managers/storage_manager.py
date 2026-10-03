@@ -1,7 +1,7 @@
 """ストレージ管理システム
 
-東京都感染症データのファイル保存、メタデータ管理、Git操作を担当するモジュール。
-フラットなディレクトリ構造でデータファイルを管理し、重複チェックや自動コミット機能を提供。
+東京都感染症データのファイル保存、メタデータ管理を担当するモジュール。
+フラットなディレクトリ構造でデータファイルを管理し、重複チェック機能を提供。
 """
 
 import csv
@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -68,141 +67,15 @@ class SaveResult:
     is_skipped: bool = False
 
 
-@dataclass
-class CommitResult:
-    """Git コミット操作の結果を表すデータクラス。
-
-    Attributes:
-        success: コミット操作が成功したかどうか
-        commit_hash: 作成されたコミットのハッシュ値(成功時のみ)
-        message: コミットメッセージまたはステータスメッセージ
-        error: エラーメッセージ(失敗時のみ)
-    """
-
-    success: bool
-    commit_hash: str | None = None
-    message: str | None = None
-    error: str | None = None
-
-
-class GitHandler:
-    """Git操作を処理するハンドラークラス。
-
-    GitHub ActionsやローカルでのGit操作を抽象化し、
-    自動コミット、ファイル追加、リポジトリチェックなどの機能を提供。
-
-    Attributes:
-        auto_commit: 自動コミットを有効にするかどうか
-    """
-
-    def __init__(self, auto_commit: bool = True):
-        """GitHandlerを初期化する。
-
-        Args:
-            auto_commit: 自動コミット機能を有効にするかどうか(デフォルト: True)
-        """
-        self.auto_commit = auto_commit
-
-    def is_git_repo(self) -> bool:
-        """現在のディレクトリがGitリポジトリ内にあるかを確認する。
-
-        Returns:
-            Gitリポジトリ内の場合True、それ以外の場合False
-
-        Note:
-            エラーが発生した場合はFalseを返す(安全側に倒す)
-        """
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, check=False
-            )
-            return result.returncode == 0
-        except Exception:
-            return False
-
-    def add_files(self, files: list[Path]) -> bool:
-        """指定されたファイルをGitのステージングエリアに追加する。
-
-        Args:
-            files: 追加するファイルのパスのリスト
-
-        Returns:
-            全ファイルの追加に成功した場合True、失敗した場合False
-
-        Note:
-            存在しないファイルは自動的にスキップされる
-        """
-        try:
-            file_paths = [str(f) for f in files if f.exists()]
-            if not file_paths:
-                return True
-
-            subprocess.run(["git", "add", *file_paths], capture_output=True, text=True, check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to add files to git: {e.stderr}")
-            return False
-
-    def commit(self, message: str) -> CommitResult:
-        """ステージングエリアの変更をコミットする。
-
-        Args:
-            message: コミットメッセージ
-
-        Returns:
-            コミット操作の結果を含むCommitResultオブジェクト
-
-        Note:
-            変更がない場合はコミットを作成せず、成功として扱う
-        """
-        try:
-            # 変更があるか確認
-            result = subprocess.run(["git", "diff", "--cached", "--quiet"], capture_output=True, text=True, check=False)
-
-            if result.returncode == 0:
-                # 変更なし
-                return CommitResult(success=True, message="No changes to commit")
-
-            # コミット実行
-            result = subprocess.run(["git", "commit", "-m", message], capture_output=True, text=True, check=True)
-
-            # コミットハッシュ取得
-            hash_result = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
-
-            return CommitResult(success=True, commit_hash=hash_result.stdout.strip(), message=message)
-
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to commit: {e.stderr}")
-            return CommitResult(success=False, error=e.stderr)
-
-    def configure_user(self) -> bool:
-        """GitHub Actions用のGitユーザー設定を行う。
-
-        Returns:
-            設定に成功した場合True、失敗した場合False
-
-        Note:
-            GitHub Actionsボットのユーザー名とメールアドレスを設定する
-        """
-        try:
-            subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-            subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
-            return True
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to configure git user: {e}")
-            return False
-
-
 class StorageManager:
     """データファイルとメタデータのストレージを管理するクラス。
 
-    東京都感染症データの保存、重複チェック、メタデータ管理、
-    Git自動コミットなどのストレージ関連機能を統合的に提供。
+    東京都感染症データの保存、重複チェック、メタデータ管理などの
+    ストレージ関連機能を統合的に提供。
 
     Attributes:
         base_path: データ保存のベースディレクトリ
         config: ストレージ設定を含む辞書
-        git_handler: Git操作を処理するハンドラー
         metadata_dir: メタデータファイルを保存するディレクトリ
         hash_index_file: ファイルハッシュインデックスのパス
         hash_index: ファイルハッシュとパスのマッピング
@@ -214,13 +87,10 @@ class StorageManager:
         Args:
             base_path: データ保存のベースディレクトリ
             config: ストレージ設定を含む辞書
-                - auto_commit: Git自動コミットを有効にするか(デフォルト: True)
-                - commit_message_template: コミットメッセージテンプレート
-                - その他のストレージ関連設定
+                - ストレージ関連設定 (keep_shift_jis など)
         """
         self.base_path = Path(base_path)
         self.config = config
-        self.git_handler = GitHandler(config.get("auto_commit", True))
 
         # ディレクトリ作成
         self.base_path.mkdir(parents=True, exist_ok=True)
@@ -422,47 +292,6 @@ class StorageManager:
         except Exception as e:
             logger.exception("Failed to save file")
             return SaveResult(success=False, error=str(e))
-
-    def commit_changes(
-        self, message: str | None = None, data_type: str | None = None, date_range: str | None = None
-    ) -> CommitResult:
-        """Git自動コミットを実行する。
-
-        Args:
-            message: コミットメッセージ(省略時は自動生成)
-            data_type: データタイプ(メッセージ生成用)
-            date_range: 日付範囲(メッセージ生成用)
-
-        Returns:
-            コミット操作の結果を含むCommitResultオブジェクト
-
-        Note:
-            - auto_commitが無効な場合はスキップされる
-            - Gitリポジトリでない場合はスキップされる
-            - 変更がない場合はコミットを作成しない
-        """
-        if not self.git_handler.auto_commit:
-            logger.info("Auto commit is disabled. Skipping git commit.")
-            return CommitResult(success=True, message="Auto commit disabled")
-
-        if not self.git_handler.is_git_repo():
-            logger.warning("Not a git repository. Skipping commit.")
-            return CommitResult(success=True, message="Not a git repository")
-
-        # メッセージ生成
-        if not message:
-            if data_type and date_range:
-                template = self.config.get("commit_message_template", "データ更新: {data_type} - {date_range}")
-                message = template.format(data_type=data_type, date_range=date_range)
-            else:
-                message = f"データ更新: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}"
-
-        # ファイル追加
-        files_to_add = [self.base_path, self.metadata_dir]
-        self.git_handler.add_files(files_to_add)
-
-        # コミット
-        return self.git_handler.commit(message)
 
     def check_duplicates(self, file_hash: str) -> bool:
         """ファイルハッシュで重複をチェックする。

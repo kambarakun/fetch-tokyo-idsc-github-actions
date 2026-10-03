@@ -12,75 +12,14 @@ import time
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.managers.storage_manager import (
     CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
-    CommitResult,
-    GitHandler,
     StorageManager,
 )
-
-
-class TestGitHandler(unittest.TestCase):
-    """GitHandlerのテスト"""
-
-    def setUp(self):
-        self.git_handler = GitHandler(auto_commit=True)
-
-    @patch("subprocess.run")
-    def test_is_git_repo_true(self, mock_run):
-        """Gitリポジトリ判定(True)のテスト"""
-        mock_run.return_value.returncode = 0
-        self.assertTrue(self.git_handler.is_git_repo())
-
-    @patch("subprocess.run")
-    def test_is_git_repo_false(self, mock_run):
-        """Gitリポジトリ判定(False)のテスト"""
-        mock_run.return_value.returncode = 1
-        self.assertFalse(self.git_handler.is_git_repo())
-
-    @patch("subprocess.run")
-    def test_add_files_success(self, mock_run):
-        """ファイル追加成功のテスト"""
-        mock_run.return_value.returncode = 0
-
-        files = [Path("/tmp/test1.csv"), Path("/tmp/test2.csv")]
-        with patch.object(Path, "exists", return_value=True):
-            result = self.git_handler.add_files(files)
-
-        self.assertTrue(result)
-        mock_run.assert_called_once()
-
-    @patch("subprocess.run")
-    def test_commit_success(self, mock_run):
-        """コミット成功のテスト"""
-        # diff --cachedの結果(変更あり)
-        mock_run.side_effect = [
-            Mock(returncode=1),  # 変更あり
-            Mock(returncode=0, stdout="", stderr=""),  # コミット成功
-            Mock(returncode=0, stdout="abc123\n", stderr=""),  # ハッシュ取得
-        ]
-
-        result = self.git_handler.commit("Test commit")
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.commit_hash, "abc123")
-        self.assertEqual(result.message, "Test commit")
-
-    @patch("subprocess.run")
-    def test_commit_no_changes(self, mock_run):
-        """変更なしでのコミットのテスト"""
-        # diff --cachedの結果(変更なし)
-        mock_run.return_value.returncode = 0
-
-        result = self.git_handler.commit("Test commit")
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.message, "No changes to commit")
-        self.assertIsNone(result.commit_hash)
 
 
 class TestStorageManager(unittest.TestCase):
@@ -92,8 +31,6 @@ class TestStorageManager(unittest.TestCase):
         self.base_path = Path(self.temp_dir)
 
         self.config = {
-            "auto_commit": True,  # テスト用にTrueに変更
-            "commit_message_template": "データ更新: {data_type} - {date_range}",
             "keep_shift_jis": True,
         }
 
@@ -256,22 +193,6 @@ class TestStorageManager(unittest.TestCase):
         self.assertIn("year_stats", stats)
         self.assertEqual(stats["total_files"], 1)
         self.assertGreater(stats["total_size_bytes"], 0)
-
-    @patch.object(GitHandler, "is_git_repo")
-    @patch.object(GitHandler, "add_files")
-    @patch.object(GitHandler, "commit")
-    def test_commit_changes(self, mock_commit, mock_add, mock_is_repo):
-        """変更のコミットのテスト"""
-        mock_is_repo.return_value = True
-        mock_add.return_value = True
-        mock_commit.return_value = CommitResult(success=True, commit_hash="abc123", message="Test commit")
-
-        result = self.storage.commit_changes(data_type="test_type", date_range="2025-01")
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.commit_hash, "abc123")
-        mock_add.assert_called_once()
-        mock_commit.assert_called_once()
 
     def test_get_month_from_week(self):
         """週番号から月を取得するテスト"""
@@ -1514,23 +1435,10 @@ class TestErrorHandling(unittest.TestCase):
         self.base_path.mkdir(parents=True, exist_ok=True)
         self.config = {"auto_commit": False}
         self.storage = StorageManager(self.base_path, self.config)
-        self.git_handler = GitHandler(auto_commit=False)
 
     def tearDown(self):
         """テストの後処理"""
         shutil.rmtree(self.test_dir, ignore_errors=True)
-
-    @patch("subprocess.run")
-    def test_is_git_repo_exception(self, mock_run):
-        """is_git_repo()で例外が発生した場合にFalseを返すことを確認"""
-        # Arrange: subprocess.runで例外を発生
-        mock_run.side_effect = Exception("Subprocess error")
-
-        # Act
-        result = self.git_handler.is_git_repo()
-
-        # Assert: 例外をキャッチしてFalseを返す
-        self.assertFalse(result)
 
     def test_is_all_zero_data_unicode_decode_error(self):
         """_is_all_zero_data()でUnicodeDecodeErrorが発生した場合の処理を確認"""

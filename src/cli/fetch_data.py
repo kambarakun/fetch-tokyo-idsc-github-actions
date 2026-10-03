@@ -113,8 +113,6 @@ class DataCollector:
 
         # ストレージマネージャー初期化
         storage_config = {
-            "auto_commit": config.storage.auto_commit and not dry_run,
-            "commit_message_template": config.storage.commit_message_template,
             "keep_shift_jis": config.storage.keep_shift_jis,
         }
         self.storage = StorageManager(Path(config.storage.base_directory), storage_config)
@@ -151,10 +149,6 @@ class DataCollector:
         for data_type in data_types:
             self.logger.info(f"データタイプ '{data_type}' の収集開始")
             self._collect_data_type(data_type, start_year, end_year)
-
-        # 変更をコミット
-        if not self.dry_run and self.config.storage.auto_commit:
-            self._commit_changes()
 
         self.stats["end_time"] = datetime.now(UTC)
         self.logger.info(f"データ収集完了: {self.stats['end_time']}")
@@ -376,19 +370,6 @@ class DataCollector:
         max_hours = self.config.collection.max_execution_time_hours
         return elapsed.total_seconds() > (max_hours * 3600)
 
-    def _commit_changes(self):
-        """変更をGitにコミット"""
-        try:
-            commit_result = self.storage.commit_changes(
-                data_type="epidemic_data", date_range=f"{datetime.now(UTC).strftime('%Y%m%d')}"
-            )
-            if commit_result.success:
-                self.logger.info(f"変更をコミットしました: {commit_result.message}")
-            else:
-                self.logger.warning(f"コミット失敗: {commit_result.error}")
-        except Exception:
-            self.logger.exception("コミット中にエラー")
-
     def _print_statistics(self):
         """統計情報を出力"""
         duration = self.stats["end_time"] - self.stats["start_time"]
@@ -467,7 +448,7 @@ def main():
 
     parser.add_argument("--target-months", type=str, help="対象月を指定(カンマ区切り、例: 1,2,12)")
 
-    parser.add_argument("--dry-run", action="store_true", help="テスト実行(データ保存・コミットをスキップ)")
+    parser.add_argument("--dry-run", action="store_true", help="テスト実行(データ保存をスキップ)")
 
     parser.add_argument(
         "--mode",

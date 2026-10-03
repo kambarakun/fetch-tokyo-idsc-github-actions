@@ -23,10 +23,19 @@ evaluate_auto_merge_gate() {
       if [ "$FETCH_GATE_STATUS" != "success" ]; then
         append_auto_merge_blocker "fetch"
       fi
+      # skipped passes only when the job saw zero raw changes; unset or unknown counts fail closed.
       case "$PROCESS_GATE_STATUS" in
-        success | skipped) ;;
+        success) ;;
+        skipped)
+          if [ "${RAW_CHANGED_COUNT:-}" != "0" ]; then
+            append_auto_merge_blocker "process"
+          fi
+          ;;
         *) append_auto_merge_blocker "process" ;;
       esac
+      if [ "${PROCESSING_COVERAGE_STATUS:-}" != "complete" ]; then
+        append_auto_merge_blocker "coverage"
+      fi
       if [ "${VERIFY_CONTINUITY:-false}" = "true" ]; then
         case "${CONTINUITY_VALID:-}" in
           true) CONTINUITY_GATE_STATUS="passed" ;;
