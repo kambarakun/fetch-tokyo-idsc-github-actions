@@ -45,6 +45,7 @@ CI の `🔎 Dependabot PR の事前検証` ワークフローも同じ表を各
 - 公開時刻は、PyPI は当該版の全ファイルの最小アップロード時刻、GitHub は `releases/tags/{tag}` の `published_at` → annotated tag の `tagger.date` → タグが指す commit の `committer.date` の順に取る
 - cooldown を暦日差で数えるのは Dependabot に合わせるため。#745 (setup-uv v10.2.0 の公開 2026-09-21T13:15Z、PR 作成 2026-09-28T00:07Z) は経過 6.45 日だが暦日差 7 日で、Dependabot 自身は cooldown 充足として提案している
 - 同じ bump (同じ依存・旧版・新版・SHA) は複数ファイルにあっても 1 回だけ検査する。同じ版コメントでも SHA が違えば別々に `tag_sha` を評価する
+- OSV スキーマの特殊値に従う: `affected[].package.name` の `*` はエコシステム内の全 Action に当てる。`introduced: "0"` はどの版よりも前 (`0.0.0-alpha` のような prerelease も含む) として扱う
 - OSV の range に `limit` イベントがあれば、OSV の評価手順どおり、どの `limit` より前でもない版 (`*` は無限大) は非該当とする
 - レポートの表のセルは PR 由来の文字列 (repo URL・`rev`・action 名) を含むので、`|` / バッククォート / `[` / `]` / `<` をエスケープし、リンク先は percent-encode する。PyPI の `yanked_reason` (公開者が書く自由文) は表に載せない
 - `advisory` の GitHub Actions 照合は、workflow の綴りと正規名 (`GET /repos/{owner}/{repo}` の `full_name`) の両方に大文字小文字を無視して当てる。移管・改名された repo は旧名でも動き続けるが OSV は新名で登録するため、名前が違えば両方の名前で OSV に照会して和集合を取る

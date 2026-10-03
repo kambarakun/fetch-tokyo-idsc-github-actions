@@ -44,6 +44,8 @@ PYPI_RELEASE = "https://pypi.org/pypi/{name}/{version}/json"
 PYPI_PROJECT = "https://pypi.org/pypi/{name}/json"
 OSV_QUERY = "https://api.osv.dev/v1/query"
 OSV_MAX_PAGES = 20
+# OSV's `introduced: "0"` sorts before every version; Version("0") would sit above 0.0.0-alpha.
+OSV_ZERO = Version("0.dev0")
 DEPENDABOT_AUTHOR = "dependabot[bot]"
 ECOSYSTEM_BY_PREFIX = {
     "dependabot/github_actions/": "github-actions",
@@ -626,7 +628,7 @@ def _affected_intervals(events: list[dict[str, str]]) -> tuple[list[Interval], V
         if bound == "*":
             parsed.append((kind, None))
             continue
-        limit = Version("0") if bound == "0" else _parse_version(bound)
+        limit = OSV_ZERO if bound == "0" else _parse_version(bound)
         if limit is None:
             return None
         parsed.append((kind, limit))
@@ -694,7 +696,9 @@ def _action_hits(vulns: list[dict[str, Any]], bump: Bump, names: set[str]) -> tu
     for vuln in vulns:
         for affected in vuln.get("affected", []):
             package = affected.get("package", {})
-            if package.get("ecosystem") != "GitHub Actions" or package.get("name", "").lower() not in names:
+            # `*` names every package in the ecosystem (OSV schema, affected[].package).
+            name = package.get("name", "").lower()
+            if package.get("ecosystem") != "GitHub Actions" or (name != "*" and name not in names):
                 continue
             if version is None:
                 possible.append(vuln["id"])

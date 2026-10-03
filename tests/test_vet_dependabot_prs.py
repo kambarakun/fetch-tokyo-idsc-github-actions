@@ -613,6 +613,38 @@ def test_transferred_repository_is_queried_under_both_names() -> None:
     assert _checks(_vet(responses))[("advisory", "old-owner/old-action")].verdict == "BLOCK"
 
 
+def test_wildcard_package_advisory_applies_to_every_action() -> None:
+    # OSV's `*` package name means every package in the ecosystem.
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0")
+    responses["osv:GitHub Actions/astral-sh/setup-uv@*"] = {
+        "vulns": [
+            {
+                "id": "GHSA-everyone",
+                "affected": [
+                    {
+                        "package": {"ecosystem": "GitHub Actions", "name": "*"},
+                        "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}]}],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
+
+
+def test_introduced_zero_sorts_before_prereleases_of_zero() -> None:
+    # `introduced: "0"` is a sentinel below every version, including 0.0.0-alpha < Version("0").
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "v0.0.0-alpha")
+    _action_advisory(
+        responses,
+        "astral-sh/setup-uv",
+        {"ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": "1.0.0"}]}]},
+    )
+
+    assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
+
+
 def test_sha_pin_without_version_comment_and_any_advisory_is_a_warn() -> None:
     responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "")
     _action_advisory(responses, "astral-sh/setup-uv", {"versions": ["1.0.0"]})
