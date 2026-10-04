@@ -1,0 +1,39 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_weekly_age_female_2026_11",
+  "filename": "normalized_sentinel_weekly_age_female_2026_11.csv",
+  "path": "processed/normalized_sentinel_weekly_age_female_2026_11.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_age",
+  "temporal": {
+    "year": 2026,
+    "period": 11,
+    "period_type": "weekly"
+  },
+  "bytes": 4329,
+  "lines": 22,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "0b44fdef8f93c8f4533e5c99bede5764b47633d6e9fbc5778c06a456538f406b"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-04T10:49:52.083371+00:00",
+  "modified": "2026-10-04T10:49:52.083371+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_age_2026_11.csv",
+      "path": "raw/sentinel_weekly_age_2026_11.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_age_2026_11",
+    "source_hash": "a20a9aa82e5fb64c9424df0c58e12df231cbc2e7ff6ae5a42eec635627344e59",
+    "processing_time_seconds": 0.0007808208465576172,
+    "gender": "female"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-04T10:49:52.083386+00:00",
+    "validation_status": "completed",
+    "issues": []
+  }
+}
