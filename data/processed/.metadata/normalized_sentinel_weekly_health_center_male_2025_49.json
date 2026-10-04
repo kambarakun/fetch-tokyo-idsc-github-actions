@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.3.0",
   "name": "normalized_sentinel_weekly_health_center_male_2025_49",
   "filename": "normalized_sentinel_weekly_health_center_male_2025_49.csv",
   "path": "processed/normalized_sentinel_weekly_health_center_male_2025_49.csv",
@@ -14,11 +14,11 @@
   "lines": 33,
   "hash": {
     "algorithm": "sha256",
-    "value": "2b9792d942b2b6a35b1419fac8628e96bc659d310e355ad5adde1884dc80d10c"
+    "value": "9324f2e87a08e74add22c20a268d50a2ad29eb3bb30b07025fb049c766ce4f26"
   },
   "encoding": "utf-8",
-  "created": "2025-12-18T07:33:03.145695+00:00",
-  "modified": "2025-12-18T07:33:03.145695+00:00",
+  "created": "2026-10-04T10:49:52.346697+00:00",
+  "modified": "2026-10-04T10:49:52.346697+00:00",
   "sources": [
     {
       "title": "sentinel_weekly_health_center_2025_49.csv",
@@ -27,8 +27,13 @@
   ],
   "_process": {
     "source_name": "sentinel_weekly_health_center_2025_49",
-    "source_hash": "01bc194d6b7bb98808da3b0ac9200a58ae09ba69bb9b23323223479ed220ef66",
-    "processing_time_seconds": 0.0011053085327148438,
+    "source_hash": "34fb056f3346d847abe9a6f7f474c2913e76e9c4b0c5711bf04696b725f70560",
+    "processing_time_seconds": 0.0010249614715576172,
     "gender": "male"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-04T10:49:52.346702+00:00",
+    "validation_status": "completed",
+    "issues": []
   }
 }

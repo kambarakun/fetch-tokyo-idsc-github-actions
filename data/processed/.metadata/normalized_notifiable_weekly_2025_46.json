@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.3.0",
   "name": "normalized_notifiable_weekly_2025_46",
   "filename": "normalized_notifiable_weekly_2025_46.csv",
   "path": "processed/normalized_notifiable_weekly_2025_46.csv",
@@ -14,11 +14,11 @@
   "lines": 89,
   "hash": {
     "algorithm": "sha256",
-    "value": "a09302bbb7b8e5de91a845fff08d7b36e99290c845a644c52ef8783264454715"
+    "value": "c70bcd7b20da880b49b564c3356a9983c682004f042047c58ea835ba4519c471"
   },
   "encoding": "utf-8",
-  "created": "2025-12-18T07:33:02.169079+00:00",
-  "modified": "2025-12-18T07:33:02.169079+00:00",
+  "created": "2026-10-04T10:49:51.742684+00:00",
+  "modified": "2026-10-04T10:49:51.742684+00:00",
   "sources": [
     {
       "title": "notifiable_weekly_2025_46.csv",
@@ -27,8 +27,13 @@
   ],
   "_process": {
     "source_name": "notifiable_weekly_2025_46",
-    "source_hash": "bde3721e784e92374287dde45d52353eb0e4fd916a489c00f2e0b6892e3c679e",
-    "processing_time_seconds": 8.7738037109375e-05,
+    "source_hash": "2b3926c70a8e2971f00fdde08983632b38572432683390a3982c56c855a20683",
+    "processing_time_seconds": 0.00016999244689941406,
     "gender": null
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-04T10:49:51.742692+00:00",
+    "validation_status": "completed",
+    "issues": []
   }
 }

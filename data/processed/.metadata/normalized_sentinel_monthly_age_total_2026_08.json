@@ -1,0 +1,39 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_monthly_age_total_2026_08",
+  "filename": "normalized_sentinel_monthly_age_total_2026_08.csv",
+  "path": "processed/normalized_sentinel_monthly_age_total_2026_08.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_age",
+  "temporal": {
+    "year": 2026,
+    "period": 8,
+    "period_type": "monthly"
+  },
+  "bytes": 950,
+  "lines": 18,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "7ae1c11dafeb842554e6bd4db8551a0bd1e74cbc8f18c5250be7946656919f33"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-04T10:49:51.826819+00:00",
+  "modified": "2026-10-04T10:49:51.826819+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_age_2026_08.csv",
+      "path": "raw/sentinel_monthly_age_2026_08.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_age_2026_08",
+    "source_hash": "0f9273029311c44ff0ad64c8e74ea04350c285b1d8c7d9cc5b19db3809be9183",
+    "processing_time_seconds": 0.0004858970642089844,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-04T10:49:51.826822+00:00",
+    "validation_status": "completed",
+    "issues": []
+  }
+}
