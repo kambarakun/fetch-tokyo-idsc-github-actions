@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -90,6 +90,21 @@ def _workflow(action: str, sha: str, tag: str) -> str:
     return f"jobs:\n  test:\n    steps:\n      - name: Step\n        uses: {action}@{sha}{comment}\n"
 
 
+def _action_yml(using: str = "node24", inputs: str = "", outputs: str = "") -> str:
+    text = f"name: Action\ndescription: Synthetic\nruns:\n  using: {using}\n  main: index.js\n"
+    if inputs:
+        text += f"inputs:\n{inputs}"
+    if outputs:
+        text += f"outputs:\n{outputs}"
+    return text
+
+
+def _metadata_url(action: str, sha: str, filename: str = "action.yml") -> str:
+    """The contents API at the pinned commit; `action` may carry a subpath (`owner/repo/init`)."""
+    owner, name, *subpath = action.split("/")
+    return f"{vet.GITHUB_API}/repos/{owner}/{name}/contents/{'/'.join([*subpath, filename])}?ref={sha}"
+
+
 def _pre_commit(repo: str, rev: str, comment: str = "") -> str:
     suffix = f"  # {comment}" if comment else ""
     return f"repos:\n  - repo: {repo}\n    rev: {rev}{suffix}\n    hooks:\n      - id: hook\n  - repo: local\n    hooks: []\n"
@@ -125,6 +140,10 @@ def _pr(
             responses[f"{API}/contents/{path}?ref={MERGE_BASE}"] = before
         if after is not None:
             responses[f"{API}/contents/{path}?ref={head_sha}"] = after
+        # Every pinned action gets unchanged metadata unless a test says otherwise.
+        for text in (before or "", after or ""):
+            for action, sha in re.findall(r"uses:\s*([\w./-]+)@([0-9a-f]{40})", text):
+                responses.setdefault(_metadata_url(action, sha), _action_yml())
     responses.setdefault(f"{API}/contents/pyproject.toml?ref={head_sha}", PYPROJECT)
     responses[f"{API}/contents/.github/dependabot.yml?ref={head_sha}"] = DEPENDABOT_YML
     runs = GREEN_RUNS if check_runs is None else check_runs
@@ -921,6 +940,216 @@ def test_yaml_extension_workflows_are_parsed() -> None:
     assert _checks(verdict)[("pr_hygiene", "-")].verdict == "OK"
 
 
+def _metadata_check(verdict: vet.PullRequestVerdict, action: str) -> vet.CheckResult:
+    return _checks(verdict)[("action_metadata", action)]
+
+
+def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr: dict[str, Any]) -> None:
+    fetched: list[str] = []
+    fetch_json, fetch_text, post_json = _fetchers(action_pr)
+
+    def recording_text(url: str) -> str:
+        fetched.append(url)
+        return fetch_text(url)
+
+    verdict = vet.vet_pull_request(fetch_json, recording_text, post_json, REPO, 748)
+    check = _metadata_check(verdict, "astral-sh/setup-uv")
+
+    assert check.verdict == "OK"
+    assert check.change == "v10.1.0 → v10.2.0"
+    assert "node24" in check.detail
+    # The commits the workflows pin, never the tags their comments claim (tags can move).
+    assert _metadata_url("astral-sh/setup-uv", SETUP_UV_OLD) in fetched
+    assert _metadata_url("astral-sh/setup-uv", SETUP_UV_NEW) in fetched
+    assert not [url for url in fetched if "ref=v" in url]
+    assert verdict.verdict == "OK"
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "verdict", "expected"),
+    [
+        (_action_yml("node20"), _action_yml("node24"), "WARN", "runs.using node20 → node24"),
+        (
+            _action_yml(),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n"),
+            "WARN",
+            "必須 input token を追加 (default なし",
+        ),
+        (
+            _action_yml(),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n    default: abc\n"),
+            "WARN",
+            "必須 input token を追加 (default あり",
+        ),
+        (
+            _action_yml(inputs="  token:\n    description: t\n"),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n"),
+            "WARN",
+            "input token が任意 → 必須 (default なし",
+        ),
+        (
+            _action_yml(outputs="  cache-hit:\n    description: c\n  path:\n    description: p\n"),
+            _action_yml(outputs="  path:\n    description: p\n"),
+            "WARN",
+            "output を削除: cache-hit",
+        ),
+        (
+            _action_yml(),
+            _action_yml(inputs="  verbose:\n    description: v\n    required: false\n"),
+            "OK",
+            "必須 input の追加",
+        ),
+    ],
+    ids=[
+        "runtime",
+        "required-added",
+        "required-added-with-default",
+        "optional-to-required",
+        "output-removed",
+        "optional-added",
+    ],
+)
+def test_action_metadata_contract_changes(
+    action_pr: dict[str, Any], old: str, new: str, verdict: str, expected: str
+) -> None:
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = old
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = new
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == verdict
+    assert expected in check.detail
+
+
+def test_action_yaml_extension_is_read_when_action_yml_is_absent(action_pr: dict[str, Any]) -> None:
+    for sha in (SETUP_UV_OLD, SETUP_UV_NEW):
+        action_pr[_metadata_url("astral-sh/setup-uv", sha, "action.yaml")] = action_pr.pop(
+            _metadata_url("astral-sh/setup-uv", sha)
+        )
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW, "action.yaml")] = _action_yml("node26")
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "runs.using node24 → node26" in check.detail
+    assert check.links[-1].endswith(f"/blob/{SETUP_UV_NEW}/action.yaml")
+
+
+def test_actions_under_subpaths_of_one_repository_are_compared_separately() -> None:
+    responses: dict[str, Any] = {}
+    old_sha, new_sha = "1" * 40, "2" * 40
+    steps = "".join(f"      - uses: github/codeql-action/{name}@{{sha}} # {{tag}}\n" for name in ("init", "analyze"))
+    workflow = "jobs:\n  scan:\n    steps:\n" + steps
+    files = {
+        ".github/workflows/codeql.yml": (
+            workflow.format(sha=old_sha, tag="v4.1.0"),
+            workflow.format(sha=new_sha, tag="v4.2.0"),
+        )
+    }
+    responses[_metadata_url("github/codeql-action/init", old_sha)] = _action_yml("node20")
+    responses[_metadata_url("github/codeql-action/init", new_sha)] = _action_yml("node24")
+    _pr(responses, head_ref="dependabot/github_actions/github/codeql-action-4.2.0", files=files)
+    _releases(responses, "github/codeql-action", {})
+
+    verdict = _vet(responses)
+
+    assert verdict.bumps == [vet.Bump("github/codeql-action", "v4.1.0", "v4.2.0", "action", sha=new_sha)]
+    assert _metadata_check(verdict, "github/codeql-action/init").verdict == "WARN"
+    assert _metadata_check(verdict, "github/codeql-action/analyze").verdict == "OK"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (lambda r: r.pop(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)), "action.yml / action.yaml が無い"),
+        (lambda r: r.pop(_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)), "action.yml / action.yaml が無い"),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), "runs: [unclosed"),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD), "name: no runs\n"),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), _action_yml("'node24 | x'")),
+            "を解釈できない",
+        ),
+    ],
+    ids=["new-missing", "old-missing", "new-not-yaml", "old-without-runs", "untrusted-runtime"],
+)
+def test_unreadable_action_metadata_is_an_explicit_warn(
+    action_pr: dict[str, Any], mutate: Callable[[dict[str, Any]], Any], expected: str
+) -> None:
+    mutate(action_pr)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert expected in check.detail
+
+
+def test_newly_added_action_without_an_old_pin_is_not_reported_as_compatible() -> None:
+    responses: dict[str, Any] = {}
+    files = {".github/workflows/test.yml": (None, _workflow("astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0"))}
+    _pr(responses, head_ref="dependabot/github_actions/astral-sh/setup-uv-10.2.0", files=files)
+    _releases(responses, "astral-sh/setup-uv", {})
+
+    check = _metadata_check(_vet(responses), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert check.change == "(新規) → v10.2.0"
+    assert "旧 pin が無いため比較不能" in check.detail
+
+
+def test_reusable_workflow_and_unsafe_subpaths_are_not_compared() -> None:
+    responses: dict[str, Any] = {}
+    reusable = "org/shared/.github/workflows/ci.yml"
+    traversal = "org/shared/../evil"
+    before = "".join(_workflow(name, "1" * 40, "v1.0.0") for name in (reusable, traversal))
+    after = "".join(_workflow(name, "2" * 40, "v1.1.0") for name in (reusable, traversal))
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/shared-1.1.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/shared", {})
+
+    checks = _checks(_vet(responses))
+
+    assert checks[("action_metadata", reusable)].verdict == "WARN"
+    assert "再利用ワークフロー" in checks[("action_metadata", reusable)].detail
+    assert checks[("action_metadata", traversal)].verdict == "WARN"
+    assert "サブパスを解釈できない" in checks[("action_metadata", traversal)].detail
+
+
+def test_untrusted_input_names_are_not_echoed_into_the_report(action_pr: dict[str, Any]) -> None:
+    hostile = "  '[click](https://evil.example)':\n    description: x\n    required: true\n"
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(inputs=hostile)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "evil.example" not in check.detail
+    assert "表示できない名前" in check.detail
+
+
+def test_action_metadata_server_error_exits_two(monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any]) -> None:
+    fetch_json, fetch_text, post_json = _fetchers(action_pr)
+
+    def failing_text(url: str) -> str:
+        if "/contents/action.yml" in url:
+            response = requests.Response()
+            response.status_code = 502
+            raise requests.HTTPError(response=response)
+        return fetch_text(url)
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (fetch_json, failing_text, post_json))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    assert vet.main(["--repo", REPO, "--pr", "748"]) == 2
+
+
 def test_action_sha_not_matching_tag_is_a_block(action_pr: dict[str, Any]) -> None:
     _tag(action_pr, "astral-sh/setup-uv", "v10.2.0", "9" * 40)
 
@@ -1308,7 +1537,9 @@ def test_recording_writes_a_fixture_that_replays_identically(
     monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
 ) -> None:
     uv_pr[f"{API}/pulls/748"]["body"] = "untrusted text"
+    uv_pr[f"{API}/pulls/748"]["title"] = "untrusted title"
     uv_pr[f"{API}/pulls/748/files?per_page=100&page=1"][0]["patch"] = "@@ -1 +1 @@"
+    uv_pr[f"{API}/commits/{HEAD_SHA}/check-runs?per_page=100&page=1"]["check_runs"][0]["output"] = {"text": "log"}
     monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
     fetch_json, fetch_text, post_json = vet.make_recording_fetchers(None, tmp_path)
 
@@ -1318,7 +1549,18 @@ def test_recording_writes_a_fixture_that_replays_identically(
 
     assert recorded.checks == replayed.checks
     assert "untrusted text" not in stored
+    assert "untrusted title" not in stored
     assert "@@ -1 +1 @@" not in stored
+    assert '"output"' not in stored
+    index = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    project = json.loads((tmp_path / index[f"GET {vet.PYPI_PROJECT.format(name='ruff')}"]).read_text(encoding="utf-8"))
+    # Only releases above the candidate (0.16.8) can supersede it; 0.16.7 is history.
+    assert sorted(project["releases"]) == ["0.16.10", "0.16.9"]
+
+
+def test_recorded_fixture_stays_under_the_size_budget() -> None:
+    """issue #765: 300 KB was the budget set in #762; uv.lock twice already takes 225 KB of it."""
+    assert sum(path.stat().st_size for path in FIXTURE_DIR.iterdir()) < 300_000
 
 
 def test_the_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) -> None:

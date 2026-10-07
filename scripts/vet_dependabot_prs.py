@@ -33,13 +33,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+import http_fetch
 import requests
 import yaml
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import InvalidVersion, Version
 
 GITHUB_API = "https://api.github.com"
-GITHUB_API_HOST = "api.github.com"
 PYPI_RELEASE = "https://pypi.org/pypi/{name}/{version}/json"
 PYPI_PROJECT = "https://pypi.org/pypi/{name}/json"
 OSV_QUERY = "https://api.osv.dev/v1/query"
@@ -72,9 +72,16 @@ SELF_CHECK_NAME = "vet"
 DEFAULT_COOLDOWN_DAYS = 3
 PAGE_SIZE = 100
 
-# A trailing subpath (`github/codeql-action/init@...`) still names the `owner/repo` that owns the tag.
-# The version comment is optional: a bare SHA pin is still a bump, vetted as "no tag to compare".
-USES_PATTERN = re.compile(r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)(?:/[\w./-]+)?@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.-]*))?")
+# A trailing subpath (`github/codeql-action/init@...`) still names the `owner/repo` that owns the tag,
+# but is an action of its own with its own metadata. The version comment is optional: a bare SHA
+# pin is still a bump, vetted as "no tag to compare".
+USES_PATTERN = re.compile(r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)((?:/[\w./-]+)?)@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.-]*))?")
+# GitHub reads `action.yml`, else `action.yaml`, at the root of the action (metadata syntax docs).
+ACTION_METADATA_FILES = ("action.yml", "action.yaml")
+# Action metadata is third-party text that ends up in a report agents read: only names shaped
+# like an input id or a runtime are echoed.
+METADATA_NAME = re.compile(r"[A-Za-z_][\w-]{0,63}")
+RUNTIME_NAME = re.compile(r"[\w.-]{1,32}")
 # Report cells are plain text: escape what could open a link, image, code span, HTML or a new cell.
 MARKDOWN_SPECIAL = re.compile(r"([\\|`\[\]<])")
 SHORT_SHA = 12
@@ -130,30 +137,24 @@ class PullRequestVerdict:
 # --- network -----------------------------------------------------------------------------
 
 
-def _authorized_headers(url: str, token: str | None, accept: str) -> dict[str, str]:
-    headers = {"Accept": accept, "User-Agent": "fetch-tokyo-idsc-dependabot-vetting"}
-    # Same host gate as scripts/check_dependency_pipeline.py: the fetchers also call pypi.org
-    # and api.osv.dev, so the credential is tied to the host rather than to the caller.
-    if token and urlsplit(url).hostname == GITHUB_API_HOST:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
+USER_AGENT = "fetch-tokyo-idsc-dependabot-vetting"
 
 
 def _raise_for_status(response: requests.Response, url: str) -> requests.Response:
     if not response.ok:
-        detail = " ".join(response.text.split())[:200]
-        raise requests.HTTPError(f"{response.status_code} {response.reason} for {url}: {detail}", response=response)
+        message = http_fetch.status_line(response, url)
+        raise requests.HTTPError(f"{message}: {http_fetch.error_detail(response)}", response=response)
     return response
 
 
 def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
-    response = requests.get(url, headers=_authorized_headers(url, token, accept), timeout=30)
-    return _raise_for_status(response, url)
+    return _raise_for_status(http_fetch.get(url, token, accept=accept, user_agent=USER_AGENT), url)
 
 
 def _http_post(url: str, token: str | None, payload: dict[str, Any]) -> requests.Response:
-    headers = _authorized_headers(url, token, "application/json")
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
+    # The only POSTs are the OSV query and the opt-in PR comment, so the transport is not generalised.
+    headers = http_fetch.request_headers(url, token, accept="application/json", user_agent=USER_AGENT)
+    response = requests.post(url, json=payload, headers=headers, timeout=http_fetch.TIMEOUT_SECONDS)
     return _raise_for_status(response, url)
 
 
@@ -197,43 +198,75 @@ def _not_found(url: str) -> requests.HTTPError:
     return requests.HTTPError(f"404 Not Found for {url}", response=response)
 
 
-def _trim_for_fixture(url: str, payload: Any) -> Any:
-    """Drop free text and bulk the script never reads, keeping the fixture small and inert."""
-    path = urlsplit(url).path
-    if re.search(r"/pulls/\d+$", path):
-        return {key: value for key, value in payload.items() if key != "body"}
-    if "/compare/" in path or re.search(r"/pulls/\d+/files$", path):
-        files = payload.get("files", []) if isinstance(payload, dict) else payload
-        for item in files:
-            item.pop("patch", None)
-        return payload
-    if path.endswith("/releases"):
-        return [
-            {key: release.get(key) for key in ("tag_name", "published_at", "draft", "prerelease")}
-            for release in payload
-        ]
-    if urlsplit(url).hostname == "pypi.org":
+# The fields each GitHub endpoint is read for (None keeps a value whole, a one-item list applies
+# to every element). Titles, bodies, check-run output and links are never read: recording them
+# only bloated the fixture past 300 KB (issue #765) and put free text where agents read it.
+FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
+    (
+        re.compile(r"/pulls/\d+$"),
+        {
+            "user": {"login": None},
+            "created_at": None,
+            "html_url": None,
+            "head": {"ref": None, "sha": None},
+            "base": {"sha": None},
+        },
+    ),
+    (re.compile(r"/pulls/\d+/files$"), [{"filename": None}]),
+    (re.compile(r"/pulls/\d+/commits$"), [{"author": {"login": None}}]),
+    (re.compile(r"/pulls$"), [{"number": None, "user": {"login": None}}]),
+    (re.compile(r"/compare/"), {"merge_base_commit": {"sha": None}}),
+    (re.compile(r"/check-runs$"), {"check_runs": [{"name": None, "status": None, "conclusion": None}]}),
+    (re.compile(r"/releases$"), [{"tag_name": None, "published_at": None, "draft": None, "prerelease": None}]),
+    (re.compile(r"/releases/tags/"), {"published_at": None}),
+    (re.compile(r"/git/tags/"), {"tagger": {"date": None}, "object": None}),
+    (re.compile(r"/git/commits/"), {"committer": {"date": None}}),
+    (re.compile(r"^/repos/[^/]+/[^/]+$"), {"full_name": None}),
+)
+PYPI_RELEASE_PATH = re.compile(r"^/pypi/(?P<name>[^/]+)/(?P<version>[^/]+)/json$")
+
+
+def _pick(value: Any, spec: Any) -> Any:
+    if spec is None:
+        return value
+    if isinstance(spec, list):
+        return [_pick(item, spec[0]) for item in value] if isinstance(value, list) else value
+    if isinstance(value, dict):
+        return {key: _pick(value[key], inner) for key, inner in spec.items() if key in value}
+    return value
+
+
+def _trim_for_fixture(url: str, payload: Any, candidates: dict[str, Version] | None = None) -> Any:
+    """Keep only what the script reads, so the fixture stays small and inert.
+
+    `candidates` maps a PyPI project to the lowest version already fetched as a candidate.
+    `later_releases` only asks for releases above the candidate, so older ones are dropped
+    without naming any version here.
+    """
+    parts = urlsplit(url)
+    if parts.hostname == "pypi.org":
         # The release time is the earliest upload and a release counts as yanked when every
         # file is, so one synthetic file per release preserves both answers.
         info = payload.get("info") or {}
-        trimmed: dict[str, Any] = {
-            "info": {key: info.get(key) for key in ("yanked", "yanked_reason", "requires_python")}
-        }
+        trimmed: dict[str, Any] = {"info": {key: info.get(key) for key in ("yanked", "requires_python")}}
         if "urls" in payload:
             trimmed["urls"] = [_compact_files(payload["urls"])] if payload["urls"] else []
         if "releases" in payload:
+            floor = (candidates or {}).get(parts.path.split("/")[2])
             trimmed["releases"] = {
-                version: [_compact_files(files)] if files else [] for version, files in payload["releases"].items()
+                version: [_compact_files(files)] if files else []
+                for version, files in payload["releases"].items()
+                if floor is None or ((parsed := _parse_version(version)) is not None and parsed > floor)
             }
         return trimmed
-    return payload
+    spec = next((fields for pattern, fields in FIXTURE_FIELDS if pattern.search(parts.path)), None)
+    return _pick(payload, spec)
 
 
 def _compact_files(files: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "upload_time_iso_8601": min(item["upload_time_iso_8601"] for item in files),
         "yanked": all(item.get("yanked", False) for item in files),
-        "packagetype": files[0].get("packagetype"),
     }
 
 
@@ -242,6 +275,7 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
     live_json, live_text, live_post = make_fetchers(token)
     record_dir.mkdir(parents=True, exist_ok=True)
     index: dict[str, str] = {}
+    candidates: dict[str, Version] = {}
 
     def save(key: str, payload: Any, *, raw: bool) -> None:
         if key in index:
@@ -257,7 +291,11 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
         (record_dir / "index.json").write_text(json.dumps(index, indent=1) + "\n", encoding="utf-8")
 
     def fetch_json(url: str) -> Any:
-        payload = _trim_for_fixture(url, live_json(url))
+        payload = _trim_for_fixture(url, live_json(url), candidates)
+        parts = urlsplit(url)
+        match = PYPI_RELEASE_PATH.match(parts.path) if parts.hostname == "pypi.org" else None
+        if match and (version := _parse_version(match["version"])) is not None:
+            candidates[match["name"]] = min(version, candidates.get(match["name"], version))
         save(f"GET {url}", payload, raw=False)
         return payload
 
@@ -429,7 +467,7 @@ def _workflow_pins(text: str | None) -> dict[str, dict[str, str]]:
     pins: dict[str, dict[str, str]] = {}
     for line in (text or "").splitlines():
         if match := USES_PATTERN.match(line):
-            pins.setdefault(match[1], {})[match[2]] = match[3] or match[2][:SHORT_SHA]
+            pins.setdefault(match[1], {})[match[3]] = match[4] or match[3][:SHORT_SHA]
     return pins
 
 
@@ -445,6 +483,45 @@ def workflow_bumps(before: str | None, after: str | None) -> list[Bump]:
             if sha not in old_by_sha
         )
     return _dedupe(bumps)
+
+
+@dataclass(frozen=True)
+class ActionPinChange:
+    """One `uses:` path moved to a new commit; unlike a Bump, subpaths of one repository stay apart."""
+
+    repo: str
+    subpath: str
+    old_sha: str | None
+    old_version: str | None
+    new_sha: str
+    new_version: str
+
+    @property
+    def action(self) -> str:
+        return f"{self.repo}/{self.subpath}" if self.subpath else self.repo
+
+
+def _action_pins(text: str | None) -> dict[tuple[str, str], dict[str, str]]:
+    pins: dict[tuple[str, str], dict[str, str]] = {}
+    for line in (text or "").splitlines():
+        if match := USES_PATTERN.match(line):
+            pins.setdefault((match[1], match[2].removeprefix("/")), {})[match[3]] = match[4] or match[3][:SHORT_SHA]
+    return pins
+
+
+def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinChange]:
+    old_pins, new_pins = _action_pins(before), _action_pins(after)
+    changes: list[ActionPinChange] = []
+    for (repo, subpath), new_by_sha in sorted(new_pins.items()):
+        old_by_sha = old_pins.get((repo, subpath), {})
+        # The same predecessor rule as workflow_bumps, applied per action path.
+        old_sha = max(old_by_sha, key=lambda sha: _version_key(old_by_sha[sha])) if old_by_sha else None
+        changes.extend(
+            ActionPinChange(repo, subpath, old_sha, old_by_sha.get(old_sha or ""), sha, version)
+            for sha, version in new_by_sha.items()
+            if sha not in old_by_sha
+        )
+    return changes
 
 
 def _pre_commit_revs(text: str | None) -> dict[str, tuple[str, str | None]]:
@@ -872,6 +949,106 @@ def check_major_bump(bump: Bump) -> list[CheckResult]:
     return [_result("major_bump", bump, "OK", f"major {new.major} のまま")]
 
 
+def _required(spec: dict[str, Any]) -> bool:
+    value = spec.get("required", False)
+    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+
+
+def _metadata_name(name: Any) -> str:
+    return str(name) if METADATA_NAME.fullmatch(str(name)) else "(表示できない名前)"
+
+
+def _mapping(metadata: dict[str, Any], key: str) -> dict[str, dict[str, Any]]:
+    value = metadata.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} is not a mapping")
+    return {str(name): spec if isinstance(spec, dict) else {} for name, spec in value.items()}
+
+
+def _load_action_metadata(
+    fetch_text: FetchText, change: ActionPinChange, sha: str
+) -> tuple[str | None, dict[str, Any] | None]:
+    """(path, metadata) at one pinned commit: path None when neither file exists, metadata None when unreadable."""
+    for filename in ACTION_METADATA_FILES:
+        path = f"{change.subpath}/{filename}" if change.subpath else filename
+        text = file_at(fetch_text, change.repo, path, sha)
+        if text is None:
+            continue
+        try:
+            metadata = yaml.safe_load(text)
+            runs = metadata["runs"]
+            if not RUNTIME_NAME.fullmatch(str(runs["using"])):
+                return path, None
+            _mapping(metadata, "inputs"), _mapping(metadata, "outputs")
+        except (yaml.YAMLError, TypeError, KeyError, ValueError):
+            return path, None
+        return path, metadata
+    return None, None
+
+
+def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
+    """What a caller pinned to the old commit may trip over; additions it can ignore are not listed.
+
+    `required: true` alone does not make the runner reject a missing input, and an undeclared
+    output can still be set, so these are reasons to read the release notes, not proof of breakage.
+    """
+    reasons: list[str] = []
+    if (old_using := str(old["runs"]["using"])) != (new_using := str(new["runs"]["using"])):
+        reasons.append(f"runs.using {old_using} → {new_using}")
+    old_inputs = _mapping(old, "inputs")
+    for name, spec in _mapping(new, "inputs").items():
+        if not _required(spec):
+            continue
+        default = "default あり" if "default" in spec else "default なし、未指定時の扱いは action 次第"
+        if name not in old_inputs:
+            reasons.append(f"必須 input {_metadata_name(name)} を追加 ({default})")
+        elif not _required(old_inputs[name]):
+            reasons.append(f"input {_metadata_name(name)} が任意 → 必須 ({default})")
+    new_outputs = _mapping(new, "outputs")
+    if removed := [name for name in _mapping(old, "outputs") if name not in new_outputs]:
+        reasons.append(f"output を削除: {', '.join(_metadata_name(name) for name in removed)}")
+    return reasons
+
+
+def _uncomparable(change: ActionPinChange) -> str | None:
+    parts = change.subpath.split("/") if change.subpath else []
+    if any(part in {"", ".", ".."} for part in parts):
+        return "サブパスを解釈できないため比較不能"
+    if len(parts) >= 3 and parts[:2] == [".github", "workflows"]:
+        return "再利用ワークフローは action metadata を持たないため比較不能"
+    if change.old_sha is None:
+        return "旧 pin が無いため比較不能 (新規追加)"
+    return None
+
+
+def check_action_metadata(fetch_text: FetchText, change: ActionPinChange) -> list[CheckResult]:
+    """Compare `runs.using`, required inputs and outputs between the old and the new pinned commit."""
+
+    def row(verdict: str, detail: str, links: Sequence[str] = ()) -> list[CheckResult]:
+        transition = f"{change.old_version or '(新規)'} → {change.new_version}"
+        return [CheckResult("action_metadata", change.action, verdict, detail, list(links), transition)]
+
+    if reason := _uncomparable(change):
+        return row("WARN", reason)
+    loaded: list[tuple[str, dict[str, Any]]] = []
+    links: list[str] = []
+    for label, sha in (("旧", change.old_sha), ("新", change.new_sha)):
+        path, metadata = _load_action_metadata(fetch_text, change, sha)
+        if path is None:
+            return row("WARN", f"{label} pin {sha[:SHORT_SHA]} に action.yml / action.yaml が無い (404)", links)
+        links.append(f"https://github.com/{change.repo}/blob/{sha}/{path}")
+        if metadata is None:
+            return row("WARN", f"{label} pin の {path} を解釈できないため比較不能", links)
+        loaded.append((path, metadata))
+    (_, old), (_, new) = loaded
+    if reasons := _contract_changes(old, new):
+        return row("WARN", "; ".join(reasons), links)
+    detail = f"runs.using {new['runs']['using']} のまま、必須 input の追加・output の削除なし"
+    return row("OK", detail, links)
+
+
 def _expected(path: str, ecosystem: str | None) -> bool:
     patterns = EXPECTED_FILES[ecosystem] if ecosystem else [p for group in EXPECTED_FILES.values() for p in group]
     return any(PurePosixPath(path).match(pattern) if "*" in pattern else path == pattern for pattern in patterns)
@@ -933,10 +1110,27 @@ def _collect_bumps(
     return _dedupe(bumps)
 
 
+def _collect_action_changes(
+    fetch_text: FetchText, repo: str, files: list[str], ecosystem: str | None, before_ref: str, after_ref: str
+) -> list[ActionPinChange]:
+    if ecosystem not in {None, "github-actions"}:
+        return []
+    changes: list[ActionPinChange] = []
+    for path in files:
+        if _expected(path, "github-actions"):
+            changes += action_pin_changes(
+                file_at(fetch_text, repo, path, before_ref), file_at(fetch_text, repo, path, after_ref)
+            )
+    # #745 moved the same pin in five workflows; compare it once.
+    return list(dict.fromkeys(changes))
+
+
 def vet_pull_request(
     fetch_json: FetchJson, fetch_text: FetchText, post_json: PostJson, repo: str, number: int
 ) -> PullRequestVerdict:
     fetch_json = _memoize(fetch_json)
+    # Workflow files are parsed twice (bumps per repository, metadata per action path).
+    fetch_text = _memoize(fetch_text)
     pr = load_pull_request(fetch_json, repo, number)
     if pr["user"]["login"] != DEPENDABOT_AUTHOR:
         raise NotDependabotPullRequestError(
@@ -948,6 +1142,7 @@ def vet_pull_request(
     commits = pull_request_commits(fetch_json, repo, number)
     before_ref = merge_base(fetch_json, repo, pr["base"]["sha"], head_sha)
     bumps = _collect_bumps(fetch_text, repo, files, ecosystem, before_ref, head_sha)
+    action_changes = _collect_action_changes(fetch_text, repo, files, ecosystem, before_ref, head_sha)
     created_at = _parse_time(pr["created_at"])
     dependabot_yml = file_at(fetch_text, repo, ".github/dependabot.yml", head_sha)
     floor = (
@@ -972,6 +1167,8 @@ def vet_pull_request(
         checks += check_cooldown(fetch_json, bump, created_at, days)
         checks += check_superseded(fetch_json, bump)
         checks += check_major_bump(bump)
+    for change in action_changes:
+        checks += check_action_metadata(fetch_text, change)
     checks += check_pr_hygiene(pr, files, commits, ecosystem, bumps)
     checks += check_ci_green(fetch_json, repo, head_sha)
     return PullRequestVerdict(number, ecosystem, head_sha, bumps, checks)
