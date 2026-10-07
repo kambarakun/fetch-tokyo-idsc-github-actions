@@ -8,12 +8,12 @@ on:
         required: false
         default: ""
       dry_run:
-        description: "🧪 テスト実行モード (処理のみ、コミット/PR作成なし)"
+        description: "🧪 ドライラン (引数とdataディレクトリの存在のみ確認。対象ファイル確認・変換・品質検証・コミット/PR作成はしない)"
         required: false
         type: boolean
         default: false
       verify_output:
-        description: "🔍 出力データ検証 (処理済みデータの品質チェック)"
+        description: "🔍 出力データ検証 (validate-data。不合格/検証不能ならPR作成後にジョブ失敗。falseでは品質未検証)"
         required: false
         type: boolean
         default: false
@@ -98,12 +98,20 @@ jobs:
             AUTO_MERGE="false"
           fi
 
+          # 品質検証の状態: not_requested / not_run (要求されたが未実行) / passed / failed / error
+          if [ "$VERIFY_OUTPUT" = "true" ]; then
+            VALIDATION_STATUS="not_run"
+          else
+            VALIDATION_STATUS="not_requested"
+          fi
+
           # 環境変数として設定
           {
             echo "TARGET_FILES=$TARGET_FILES"
             echo "DRY_RUN=$DRY_RUN"
             echo "VERIFY_OUTPUT=$VERIFY_OUTPUT"
             echo "AUTO_MERGE=$AUTO_MERGE"
+            echo "VALIDATION_STATUS=$VALIDATION_STATUS"
           } >> "$GITHUB_ENV"
 
           echo "Processing parameters:"
@@ -134,54 +142,69 @@ jobs:
             PROCESS_CMD+=(--all)
           fi
 
-          # DRY_RUNがtrueの場合のみ--dry-runフラグを追加
+          STATS_FILE="data/processed/stats.json"
           if [ "$DRY_RUN" = "true" ]; then
             PROCESS_CMD+=(--dry-run)
+          else
+            # 前回 run の stats.json を今回の実績として読まないよう、処理前に除く (成功した処理が書き直す)
+            rm -f "$STATS_FILE"
           fi
 
           echo "Executing: ${PROCESS_CMD[*]}"
 
           # メインスクリプトの実行
-          if "${PROCESS_CMD[@]}" 2>&1 | tee "data/logs/console_${PROCESS_TIMESTAMP}.log"; then
-            echo "✅ データ処理: 成功"
-            echo "PROCESS_RESULT=success" >> "$GITHUB_ENV"
-
-            # stats.jsonから処理結果を抽出
-            if [ -f "data/processed/stats.json" ]; then
-              if ! jq -e . data/processed/stats.json >/dev/null 2>&1; then
-                echo "⚠️ 警告: stats.jsonが不正なJSON形式です。デフォルト値を使用します。"
-                STATS_TOTAL="0"
-                STATS_SUCCEEDED="0"
-                STATS_FAILED="0"
-              else
-                STATS_TOTAL=$(jq -r '.total' data/processed/stats.json 2>/dev/null || echo "0")
-                STATS_SUCCEEDED=$(jq -r '.succeeded' data/processed/stats.json 2>/dev/null || echo "0")
-                STATS_FAILED=$(jq -r '.failed' data/processed/stats.json 2>/dev/null || echo "0")
-              fi
-
-              {
-                echo "STATS_TOTAL=${STATS_TOTAL}"
-                echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
-                echo "STATS_FAILED=${STATS_FAILED}"
-              } >> "$GITHUB_ENV"
-
-              echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}"
-
-              # エラー詳細を表示（最大5件）
-              ERROR_COUNT=$(jq -r '.errors | length' data/processed/stats.json 2>/dev/null || echo "0")
-              if [ "${ERROR_COUNT}" -gt 0 ]; then
-                echo "⚠️ エラー詳細:"
-                jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' data/processed/stats.json 2>/dev/null || echo "  エラー詳細の取得に失敗しました"
-                if [ "${ERROR_COUNT}" -gt 5 ]; then
-                  echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
-                fi
-              fi
-            fi
-          else
+          if ! "${PROCESS_CMD[@]}" 2>&1 | tee "data/logs/console_${PROCESS_TIMESTAMP}.log"; then
             echo "❌ データ処理: 失敗"
             echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
             echo "💥 データ処理に失敗したため、ワークフローを停止します。"
             exit 1
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            # ドライランは引数と data ディレクトリしか確認しない。既存の stats.json は今回の結果ではないので読まない
+            echo "🧪 ドライラン: 対象ファイルの存在・変換・品質は未確認です"
+            echo "PROCESS_RESULT=dry_run" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          # 今回の処理が書いた stats.json だけを実績とする。欠落・不正を 0 件成功に落とさない
+          if ! jq -e '
+              def count: type == "number" and . == floor and . >= 0;
+              (.total | count) and (.succeeded | count) and (.failed | count)
+              and ((.skipped // 0) | count) and (.errors | type == "array")
+              and .succeeded + .failed == .total
+            ' "$STATS_FILE" >/dev/null 2>&1; then
+            echo "::error title=Processing stats missing or invalid::今回の処理統計 ($STATS_FILE) が生成されていないか不正です"
+            echo "PROCESS_RESULT=failed" >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+          STATS_TOTAL=$(jq -r '.total' "$STATS_FILE")
+          STATS_SUCCEEDED=$(jq -r '.succeeded' "$STATS_FILE")
+          STATS_FAILED=$(jq -r '.failed' "$STATS_FILE")
+          STATS_SKIPPED=$(jq -r '.skipped // 0' "$STATS_FILE")
+          {
+            echo "PROCESS_RESULT=success"
+            echo "STATS_TOTAL=${STATS_TOTAL}"
+            echo "STATS_SUCCEEDED=${STATS_SUCCEEDED}"
+            echo "STATS_FAILED=${STATS_FAILED}"
+            echo "STATS_SKIPPED=${STATS_SKIPPED}"
+          } >> "$GITHUB_ENV"
+
+          echo "✅ データ処理: 成功"
+          echo "📊 処理統計: 成功=${STATS_SUCCEEDED}/${STATS_TOTAL}, 失敗=${STATS_FAILED}, スキップ=${STATS_SKIPPED}"
+          if [ "$STATS_TOTAL" -eq 0 ]; then
+            echo "::warning title=No files processed::今回の処理対象は0件でした。target_files とスキップ件数を確認してください"
+          fi
+
+          # エラー詳細を表示（最大5件）
+          ERROR_COUNT=$(jq -r '.errors | length' "$STATS_FILE")
+          if [ "${ERROR_COUNT}" -gt 0 ]; then
+            echo "⚠️ エラー詳細:"
+            jq -r '.errors[:5] | .[] | "  - \(.file): \(.error)"' "$STATS_FILE" || echo "  エラー詳細の取得に失敗しました"
+            if [ "${ERROR_COUNT}" -gt 5 ]; then
+              echo "  ... 他$((ERROR_COUNT - 5))件のエラー"
+            fi
           fi
 
       - name: Create issue on processing failure
@@ -217,31 +240,47 @@ jobs:
         if: env.VERIFY_OUTPUT == 'true' && env.PROCESS_RESULT == 'success'
         run: |
           echo "処理済みデータを検証しています..."
+          REPORT="data/logs/validation_report_${PROCESS_TIMESTAMP}.json"
 
-          # 検証スクリプトの実行 (processed データは UTF-8)
-          if uv run --locked validate-data data/processed \
-              --encoding utf-8 \
-              --format markdown \
-              --output "data/logs/validation_report_${PROCESS_TIMESTAMP}.md"; then
+          # 検証スクリプトの実行 (processed データは UTF-8)。非 0 でも状態を記録してから後続へ進む
+          VALIDATE_EXIT=0
+          uv run --locked validate-data data/processed \
+            --encoding utf-8 \
+            --format json \
+            --output "$REPORT" || VALIDATE_EXIT=$?
 
-            echo "✅ データ検証: 成功"
-            echo "VALIDATION_PASSED=true" >> "$GITHUB_ENV"
+          # 終了値とレポートが一致したときだけ合否を確定する。食い違い・レポート欠落/不正・0 件は検証不能
+          REPORT_HAS_ERRORS=$(jq -r '
+            .summary
+            | if (.total_files | type) == "number" and .total_files > 0 and (.has_errors | type) == "boolean"
+              then .has_errors else "invalid" end
+          ' "$REPORT" 2>/dev/null || echo "unreadable")
+          case "${VALIDATE_EXIT}:${REPORT_HAS_ERRORS}" in
+            0:false) VALIDATION_STATUS="passed" ;;
+            1:true) VALIDATION_STATUS="failed" ;;
+            *) VALIDATION_STATUS="error" ;;
+          esac
 
-            # レポートを表示
-            {
-              echo "## データ検証レポート"
-              cat "data/logs/validation_report_${PROCESS_TIMESTAMP}.md"
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "⚠️ データ検証: 警告あり"
-            echo "VALIDATION_PASSED=false" >> "$GITHUB_ENV"
-
-            # レポートを表示
-            {
-              echo "## ⚠️ データ検証レポート - 警告あり"
-              cat "data/logs/validation_report_${PROCESS_TIMESTAMP}.md"
-            } >> "$GITHUB_STEP_SUMMARY"
+          # VALIDATION_PASSED は合格時だけ true (auto_merge_gate.sh の既存ゲートが参照する)
+          VALIDATION_PASSED="false"
+          if [ "$VALIDATION_STATUS" = "passed" ]; then
+            VALIDATION_PASSED="true"
           fi
+          {
+            echo "VALIDATION_STATUS=$VALIDATION_STATUS"
+            echo "VALIDATION_PASSED=$VALIDATION_PASSED"
+          } >> "$GITHUB_ENV"
+
+          echo "データ検証: ${VALIDATION_STATUS} (validate-data exit=${VALIDATE_EXIT}, report has_errors=${REPORT_HAS_ERRORS})"
+          {
+            echo "## 🔍 データ検証レポート (${VALIDATION_STATUS})"
+            echo "- validate-data 終了コード: ${VALIDATE_EXIT}"
+            echo "- レポート: \`${REPORT}\`"
+            jq -r '.summary | "- 検証ファイル数: \(.total_files) / 有効: \(.valid_files) / 無効: \(.invalid_files)"' \
+              "$REPORT" 2>/dev/null || echo "- レポートを読めませんでした"
+            jq -r '[.results[]? | select(.valid == false)][:20][] | "- `\(.file)`: \((.errors // []) | join("; "))"' \
+              "$REPORT" 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check for changes
         id: changes
@@ -355,18 +394,52 @@ jobs:
             echo "- **実行日時**: $CURRENT_DATE ${{ env.PROCESS_TIMESTAMP }}"
             echo "- **対象ファイル**: ${TARGET_FILES:-ALL raw/*.csv}"
             echo "- **ドライラン**: ${DRY_RUN:-false}"
+            echo "- **出力データ検証 (verify_output)**: ${VERIFY_OUTPUT:-false}"
             echo "- **自動マージ**: ${AUTO_MERGE:-false}"
             echo ""
 
-            if [ "${STATS_TOTAL:-0}" -gt 0 ]; then
-              echo "### 📊 処理結果"
-              echo "- **処理対象**: ${STATS_TOTAL}件"
-              echo "- **成功**: ${STATS_SUCCEEDED}件"
-              if [ "${STATS_FAILED:-0}" -gt 0 ]; then
-                echo "- **失敗**: ${STATS_FAILED}件 ⚠️"
-              fi
-              echo ""
-            fi
+            # 処理の成否と品質検証の状態は別々に表示する (ジョブの緑だけでは品質合格を意味しない)
+            echo "### 📊 処理結果"
+            case "${PROCESS_RESULT:-}" in
+              success)
+                echo "- 処理: ✅ 成功"
+                echo "- **処理対象**: ${STATS_TOTAL}件"
+                echo "- **成功**: ${STATS_SUCCEEDED}件"
+                echo "- **失敗**: ${STATS_FAILED}件"
+                echo "- **スキップ**: ${STATS_SKIPPED}件 (data/raw 配下でない指定)"
+                ;;
+              dry_run)
+                echo "- 処理: 🧪 ドライラン (引数と data ディレクトリの存在のみ確認)"
+                echo "- 対象ファイルの存在・変換・品質は未確認です。既存の stats.json は今回の結果ではないため表示しません"
+                ;;
+              failed)
+                echo "- 処理: ❌ 失敗 (ワークフローログと data/logs/console_*.log を確認)"
+                ;;
+              *)
+                echo "- 処理: ⚠️ 未完了 (処理ステップに到達していないか中断されました)"
+                ;;
+            esac
+            echo ""
+
+            echo "### 🔍 品質検証"
+            case "${VALIDATION_STATUS:-}" in
+              not_requested)
+                echo "- 品質検証: 未実施 (verify_output=false)。ジョブの成功は品質未検証を意味します"
+                ;;
+              passed)
+                echo "- 品質検証: ✅ 合格"
+                ;;
+              failed)
+                echo "- 品質検証: ❌ 不合格。原因を確認するまで PR をマージしないでください"
+                ;;
+              error)
+                echo "- 品質検証: ⚠️ 検証不能 (異常終了・レポート欠落/不正・検証0件・終了値とレポートの不一致)。原因を確認するまで PR をマージしないでください"
+                ;;
+              *)
+                echo "- 品質検証: 未実施 (ドライランまたは処理が成功しなかったため実行していません)"
+                ;;
+            esac
+            echo ""
 
             if [ "$HAS_CHANGES" = "true" ]; then
               echo "### ✅ 変更"
@@ -400,3 +473,14 @@ jobs:
             echo "処理済み: $(du -sh data/processed/ 2>/dev/null | cut -f1 || echo 'N/A')"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # 品質検証の不合格/検証不能は調査用 PR とサマリーを残した後でジョブ結論に反映する。
+      # 処理エラー通知 (Create issue on error) とは区別するため、最後の step に置く
+      - name: Enforce validation result
+        if: env.VERIFY_OUTPUT == 'true' && env.PROCESS_RESULT == 'success'
+        run: |
+          if [ "${VALIDATION_STATUS:-}" != "passed" ]; then
+            echo "::error title=Output validation did not pass::verify_output=true の品質検証結果は ${VALIDATION_STATUS:-unknown} でした。調査用 PR と検証レポートを確認し、原因を確認するまでマージしないでください"
+            exit 1
+          fi
+          echo "✅ 品質検証: 合格"
