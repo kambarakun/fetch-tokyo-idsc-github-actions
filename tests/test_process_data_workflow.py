@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -69,6 +70,7 @@ if command == "validate-data":
         "empty": (0, {"total_files": 0, "valid_files": 0, "invalid_files": 0, "has_errors": False}),
         "zero_exit_with_errors": (0, {"total_files": 2, "valid_files": 1, "invalid_files": 1, "has_errors": True}),
         "nonzero_exit_without_errors": (1, {"total_files": 2, "valid_files": 2, "invalid_files": 0, "has_errors": False}),
+        "invalid_without_has_errors": (0, {"total_files": 2, "valid_files": 1, "invalid_files": 1, "has_errors": False}),
     }
     if mode == "crash":
         sys.exit(2)
@@ -77,9 +79,24 @@ if command == "validate-data":
     if mode == "corrupt_report":
         output.write_text("{not json", encoding="utf-8")
         sys.exit(0)
+    if mode == "incomplete_report":
+        output.write_text(json.dumps({"summary": {"total_files": 2, "has_errors": False}}), encoding="utf-8")
+        sys.exit(0)
+    if mode == "results_count_mismatch":
+        summary = {"total_files": 2, "valid_files": 2, "invalid_files": 0, "has_errors": False}
+        results = [{"file": "data/processed/normalized_ok.csv", "valid": True, "errors": [], "warnings": []}]
+        output.write_text(json.dumps({"summary": summary, "results": results}), encoding="utf-8")
+        sys.exit(0)
     code, summary = reports[mode]
-    results = [{"file": "data/processed/normalized_fake.csv", "valid": False, "errors": ["bad row"], "warnings": []}]
-    output.write_text(json.dumps({"summary": summary, "results": results if summary["has_errors"] else []}), encoding="utf-8")
+    results = [
+        {"file": f"data/processed/normalized_ok_{index}.csv", "valid": True, "errors": [], "warnings": ["w"]}
+        for index in range(summary["valid_files"])
+    ]
+    results += [
+        {"file": "data/processed/normalized_fake.csv", "valid": False, "errors": ["bad row"], "warnings": []}
+        for _ in range(summary["invalid_files"])
+    ]
+    output.write_text(json.dumps({"summary": summary, "results": results}), encoding="utf-8")
     sys.exit(code)
 
 sys.exit(f"unexpected uv invocation: {args}")
@@ -125,6 +142,13 @@ class JobRun:
         if not log.exists():
             return []
         return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+
+    @property
+    def committed_validation_report(self) -> dict[str, Any]:
+        reports = sorted((self.root / "data" / "logs").glob("validation_report_*.json"))
+        assert len(reports) == 1, reports
+        report: dict[str, Any] = json.loads(reports[0].read_text(encoding="utf-8"))
+        return report
 
     @property
     def pr_record(self) -> dict[str, str] | None:
@@ -230,6 +254,8 @@ def run_workflow(
 
     github_env = tmp_path / "github-env"
     github_env.touch()
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
     base_env = {
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "HOME": str(tmp_path),
@@ -237,6 +263,7 @@ def run_workflow(
         "GIT_CONFIG_NOSYSTEM": "1",
         "LANG": "C.UTF-8",
         "GITHUB_ENV": str(github_env),
+        "RUNNER_TEMP": str(runner_temp),
         "GITHUB_STEP_SUMMARY": str(root / "step-summary.md"),
         "GITHUB_SHA": "0" * 40,
         "GITHUB_REF": "refs/heads/main",
@@ -341,6 +368,14 @@ def test_real_run_fails_when_fresh_stats_are_missing_even_if_old_stats_exist(tmp
         pytest.param(json.dumps({"total": -1, "succeeded": -1, "failed": 0, "errors": []}), id="negative-count"),
         pytest.param(json.dumps({"total": 3, "succeeded": 1, "failed": 0, "errors": []}), id="inconsistent-counts"),
         pytest.param(json.dumps({"total": 1, "succeeded": 1, "failed": 0}), id="missing-errors"),
+        pytest.param(
+            json.dumps({"total": 1, "succeeded": 1, "failed": 0, "skipped": False, "errors": []}), id="bool-skip"
+        ),
+        pytest.param(
+            json.dumps({"total": 1, "succeeded": 1, "failed": 0, "skipped": None, "errors": []}), id="null-skip"
+        ),
+        pytest.param(json.dumps({"total": True, "succeeded": 1, "failed": 0, "errors": []}), id="bool-total"),
+        pytest.param(json.dumps([1, 2]), id="not-an-object"),
     ],
 )
 def test_real_run_fails_on_invalid_fresh_stats(tmp_path: Path, raw_stats: str) -> None:
@@ -396,6 +431,12 @@ def test_validation_pass_sets_validation_passed_and_allows_requested_auto_merge(
     assert run.pr_record["VALIDATION_PASSED"] == "true"
     assert run.pr_record["AUTO_MERGE_GATE_STATUS"] == "passed"
     assert "品質検証: ✅ 合格" in run.summary
+    # Only the summary and invalid files are committed; the full per-file report stays out of the data PR.
+    report = run.committed_validation_report
+    assert report["validation_status"] == "passed"
+    assert report["summary"]["total_files"] == 2
+    assert report["invalid_results"] == []
+    assert "results" not in report
 
 
 @pytest.mark.parametrize(
@@ -408,6 +449,9 @@ def test_validation_pass_sets_validation_passed_and_allows_requested_auto_merge(
         pytest.param("empty", "error", id="zero-files-validated"),
         pytest.param("zero_exit_with_errors", "error", id="zero-exit-but-report-has-errors"),
         pytest.param("nonzero_exit_without_errors", "error", id="nonzero-exit-but-report-clean"),
+        pytest.param("invalid_without_has_errors", "error", id="invalid-files-without-has-errors"),
+        pytest.param("incomplete_report", "error", id="incomplete-report"),
+        pytest.param("results_count_mismatch", "error", id="results-count-mismatch"),
     ],
 )
 def test_unpassed_validation_keeps_investigation_pr_then_fails_job(
@@ -434,6 +478,10 @@ def test_unpassed_validation_keeps_investigation_pr_then_fails_job(
     assert run.outcomes["Enforce validation result"] == "failure"
     assert run.failed
     assert f"品質検証: {'❌ 不合格' if expected_status == 'failed' else '⚠️ 検証不能'}" in run.summary
+    report = run.committed_validation_report
+    assert report["validation_status"] == expected_status
+    if validate_mode == "fail":
+        assert [entry["file"] for entry in report["invalid_results"]] == ["data/processed/normalized_fake.csv"]
 
 
 def test_cli_dry_run_skips_target_checks_and_leaves_stats_untouched(
@@ -455,3 +503,165 @@ def test_cli_dry_run_skips_target_checks_and_leaves_stats_untouched(
     assert json.loads(stats_file.read_text(encoding="utf-8")) == OLD_STATS
     assert "対象ファイルの存在確認・変換・品質検証は行っていません" in caplog.text
     assert "ドライラン完了" not in caplog.text
+
+
+# --- Runbook (docs/manual-data-processing.md) -----------------------------------------------
+
+RUNBOOK_PATH = PROJECT_ROOT / "docs" / "manual-data-processing.md"
+RUNBOOK_SHELLS = [shell for shell in ("bash", "zsh") if shutil.which(shell)]
+VALID_TARGETS = "data/raw/notifiable_weekly_2025_01.csv\ndata/raw/sentinel_weekly_age_2025_01.csv\n"
+
+FAKE_RUNBOOK_COMMAND = """\
+#!/usr/bin/env bash
+# Synthetic git/uv/gh for the runbook tests; behaviour is driven by FAKE_* variables.
+name="$(basename "$0")"
+echo "$name $*" >> "$FAKE_CALL_LOG"
+case "$name $*" in
+  "git branch --show-current") echo "${FAKE_BRANCH:-main}" ;;
+  "git status --porcelain") printf '%s' "${FAKE_DIRTY:-}"; exit "${FAKE_STATUS_EXIT:-0}" ;;
+  "git fetch origin main") exit "${FAKE_FETCH_EXIT:-0}" ;;
+  "git merge --ff-only origin/main") exit "${FAKE_MERGE_EXIT:-0}" ;;
+  "git rev-parse HEAD") echo "${FAKE_HEAD_SHA:-aaaa}" ;;
+  "git rev-parse origin/main") echo "aaaa" ;;
+  "uv sync --locked") exit 0 ;;
+  "uv run --locked check-data-status --list-needs-processing")
+    printf '%s' "${FAKE_TARGETS:-}"
+    exit "${FAKE_LIST_EXIT:-0}"
+    ;;
+  "gh pr list "*)
+    [ "${FAKE_PR_LIST_EXIT:-0}" -eq 0 ] || exit "$FAKE_PR_LIST_EXIT"
+    echo "${FAKE_OPEN_PRS:-0}"
+    ;;
+  "gh run list "*)
+    [ "${FAKE_RUN_LIST_EXIT:-0}" -eq 0 ] || exit "$FAKE_RUN_LIST_EXIT"
+    echo "${FAKE_RUNNING:-0}"
+    ;;
+  "gh workflow run "*) printf '%s\\n' "$@" > "$FAKE_DISPATCH_RECORD" ;;
+  *) echo "unexpected: $name $*" >&2; exit 97 ;;
+esac
+"""
+
+
+def runbook_block(marker: str) -> str:
+    """Return the fenced shell block that follows `<!-- runbook: <marker> -->` in the runbook."""
+    text = RUNBOOK_PATH.read_text(encoding="utf-8")
+    match = re.search(rf"<!-- runbook: {re.escape(marker)} -->\s*```bash\n(.*?)```", text, re.DOTALL)
+    assert match is not None, marker
+    return match.group(1)
+
+
+def run_runbook(
+    tmp_path: Path, shell: str, block: str, **fake_env: str
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    bin_dir = tmp_path / "runbook-bin"
+    bin_dir.mkdir()
+    for name in ("git", "uv", "gh"):
+        command = bin_dir / name
+        command.write_text(FAKE_RUNBOOK_COMMAND, encoding="utf-8")
+        command.chmod(command.stat().st_mode | stat.S_IEXEC)
+    dispatch_record = tmp_path / "dispatch.txt"
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "HOME": str(tmp_path),
+        "TMPDIR": str(tmp_path),
+        "LANG": "C.UTF-8",
+        "FAKE_CALL_LOG": str(tmp_path / "calls.log"),
+        "FAKE_DISPATCH_RECORD": str(dispatch_record),
+        "FAKE_TARGETS": VALID_TARGETS,
+        **fake_env,
+    }
+    script = runbook_block("dispatch-function") + block
+    result = subprocess.run([shell, "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, check=False)
+    return result, dispatch_record
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+def test_runbook_apply_dispatches_explicit_inputs_for_a_valid_fresh_list(tmp_path: Path, shell: str) -> None:
+    result, dispatch_record = run_runbook(tmp_path, shell, runbook_block("dispatch-apply"))
+
+    assert result.returncode == 0, result.stderr
+    assert dispatch_record.read_text(encoding="utf-8").splitlines() == [
+        "workflow",
+        "run",
+        "process-data.yml",
+        "--ref",
+        "main",
+        "-f",
+        "target_files=data/raw/notifiable_weekly_2025_01.csv,data/raw/sentinel_weekly_age_2025_01.csv",
+        "-f",
+        "dry_run=false",
+        "-f",
+        "verify_output=true",
+        "-f",
+        "auto_merge=false",
+    ]
+    assert "STOP" not in result.stderr
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+def test_runbook_preview_never_dispatches(tmp_path: Path, shell: str) -> None:
+    result, dispatch_record = run_runbook(tmp_path, shell, runbook_block("dispatch-preview"))
+
+    assert result.returncode == 0, result.stderr
+    assert "全 2 件" in result.stdout
+    assert not dispatch_record.exists()
+
+
+OVERSIZED_TARGETS = "".join(f"data/raw/{'x' * 130}_{index:03d}.csv\n" for index in range(500))
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+@pytest.mark.parametrize(
+    ("block", "fake_env"),
+    [
+        pytest.param("process_data_dispatch\n", {}, id="mode-omitted"),
+        pytest.param("process_data_dispatch dispatch\n", {}, id="unknown-mode"),
+        pytest.param(None, {"FAKE_OPEN_PRS": "1"}, id="previous-batch-pr-open"),
+        pytest.param(None, {"FAKE_PR_LIST_EXIT": "1"}, id="pr-list-fails"),
+        pytest.param(None, {"FAKE_BRANCH": "feature"}, id="not-on-main"),
+        pytest.param(None, {"FAKE_DIRTY": " M data/raw/x.csv"}, id="dirty-tree"),
+        pytest.param(None, {"FAKE_STATUS_EXIT": "128"}, id="git-status-fails"),
+        pytest.param(None, {"FAKE_FETCH_EXIT": "1"}, id="fetch-fails"),
+        pytest.param(None, {"FAKE_MERGE_EXIT": "1"}, id="ff-merge-fails"),
+        pytest.param(None, {"FAKE_HEAD_SHA": "bbbb"}, id="head-behind-origin-main"),
+        pytest.param(None, {"FAKE_LIST_EXIT": "1"}, id="list-generation-fails"),
+        pytest.param(None, {"FAKE_TARGETS": ""}, id="empty-list"),
+        pytest.param(None, {"FAKE_TARGETS": "README.md\n"}, id="non-raw-path"),
+        pytest.param(None, {"FAKE_TARGETS": "data/raw/a.csv,data/raw/b.csv\n"}, id="comma-in-line"),
+        pytest.param(None, {"FAKE_TARGETS": "data/raw/a.csv\ndata/raw/a.csv\n"}, id="duplicate-line"),
+        pytest.param(None, {"FAKE_TARGETS": OVERSIZED_TARGETS}, id="input-too-large"),
+        pytest.param(None, {"FAKE_RUNNING": "1"}, id="previous-run-not-completed"),
+        pytest.param(None, {"FAKE_RUN_LIST_EXIT": "1"}, id="run-list-fails"),
+    ],
+)
+def test_runbook_apply_stops_without_dispatch_when_a_precondition_fails(
+    tmp_path: Path, shell: str, block: str | None, fake_env: dict[str, str]
+) -> None:
+    result, dispatch_record = run_runbook(tmp_path, shell, block or runbook_block("dispatch-apply"), **fake_env)
+
+    assert result.returncode != 0
+    assert "STOP" in result.stderr or "引数" in result.stderr
+    assert not dispatch_record.exists()
+
+
+def test_runbook_shell_blocks_never_put_a_subshell_in_a_condition() -> None:
+    # `( set -e; ... ) || x` and `if ! ( ... )` silently disable errexit inside the subshell.
+    blocks = re.findall(r"```bash\n(.*?)```", RUNBOOK_PATH.read_text(encoding="utf-8"), re.DOTALL)
+
+    assert blocks
+    for block in blocks:
+        assert not re.search(r"^\)\s*(\|\||&&)", block, re.MULTILINE), block
+        assert not re.search(r"^\s*(if|while|until)\s+!?\s*\(", block, re.MULTILINE), block
+        assert not re.search(r"^\s*process_data_dispatch\b.*(\|\||&&)", block, re.MULTILINE), block
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+def test_runbook_apply_dispatches_only_the_first_batch_of_a_long_list(tmp_path: Path, shell: str) -> None:
+    targets = "".join(f"data/raw/notifiable_weekly_2000_{index:03d}.csv\n" for index in range(501))
+
+    result, dispatch_record = run_runbook(tmp_path, shell, runbook_block("dispatch-apply"), FAKE_TARGETS=targets)
+
+    assert result.returncode == 0, result.stderr
+    dispatched = dispatch_record.read_text(encoding="utf-8").splitlines()[6].removeprefix("target_files=").split(",")
+    assert dispatched == targets.splitlines()[:500]
+    assert "全 501 件" in result.stdout

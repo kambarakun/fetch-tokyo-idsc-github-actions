@@ -170,8 +170,10 @@ jobs:
           # 今回の処理が書いた stats.json だけを実績とする。欠落・不正を 0 件成功に落とさない
           if ! jq -e '
               def count: type == "number" and . == floor and . >= 0;
-              (.total | count) and (.succeeded | count) and (.failed | count)
-              and ((.skipped // 0) | count) and (.errors | type == "array")
+              type == "object"
+              and (.total | count) and (.succeeded | count) and (.failed | count)
+              and ((has("skipped") | not) or (.skipped | count))
+              and (.errors | type == "array")
               and .succeeded + .failed == .total
             ' "$STATS_FILE" >/dev/null 2>&1; then
             echo "::error title=Processing stats missing or invalid::今回の処理統計 ($STATS_FILE) が生成されていないか不正です"
@@ -240,26 +242,48 @@ jobs:
         if: env.VERIFY_OUTPUT == 'true' && env.PROCESS_RESULT == 'success'
         run: |
           echo "処理済みデータを検証しています..."
+          # 全件の結果は 10MB を超えるので PR には入れず、要約と無効ファイルだけを data/logs に残す
+          REPORT_FULL="${RUNNER_TEMP:-/tmp}/validation_report_${PROCESS_TIMESTAMP}.json"
           REPORT="data/logs/validation_report_${PROCESS_TIMESTAMP}.json"
+          rm -f "$REPORT_FULL"
 
           # 検証スクリプトの実行 (processed データは UTF-8)。非 0 でも状態を記録してから後続へ進む
           VALIDATE_EXIT=0
           uv run --locked validate-data data/processed \
             --encoding utf-8 \
             --format json \
-            --output "$REPORT" || VALIDATE_EXIT=$?
+            --output "$REPORT_FULL" || VALIDATE_EXIT=$?
 
-          # 終了値とレポートが一致したときだけ合否を確定する。食い違い・レポート欠落/不正・0 件は検証不能
-          REPORT_HAS_ERRORS=$(jq -r '
-            .summary
-            | if (.total_files | type) == "number" and .total_files > 0 and (.has_errors | type) == "boolean"
-              then .has_errors else "invalid" end
-          ' "$REPORT" 2>/dev/null || echo "unreadable")
-          case "${VALIDATE_EXIT}:${REPORT_HAS_ERRORS}" in
-            0:false) VALIDATION_STATUS="passed" ;;
-            1:true) VALIDATION_STATUS="failed" ;;
+          # レポートの形と件数の整合を確かめ、終了値と一致したときだけ合否を確定する。
+          # 食い違い・レポート欠落/不正/不完全・0 件は検証不能 (error)
+          REPORT_VERDICT=$(jq -r '
+            def count: type == "number" and . == floor and . >= 0;
+            if type == "object" and (.summary | type) == "object" and (.results | type) == "array"
+              and (.summary.total_files | count) and (.summary.valid_files | count)
+              and (.summary.invalid_files | count) and (.summary.has_errors | type) == "boolean"
+              and .summary.total_files > 0
+              and .summary.valid_files + .summary.invalid_files == .summary.total_files
+              and (.results | length) == .summary.total_files
+              and ([.results[] | select(type != "object" or .valid != true)] | length) == .summary.invalid_files
+            then
+              if .summary.has_errors and .summary.invalid_files > 0 then "errors"
+              elif (.summary.has_errors | not) and .summary.invalid_files == 0 then "clean"
+              else "inconsistent" end
+            else "invalid" end
+          ' "$REPORT_FULL" 2>/dev/null || echo "unreadable")
+          case "${VALIDATE_EXIT}:${REPORT_VERDICT}" in
+            0:clean) VALIDATION_STATUS="passed" ;;
+            1:errors) VALIDATION_STATUS="failed" ;;
             *) VALIDATION_STATUS="error" ;;
           esac
+
+          if ! jq --arg status "$VALIDATION_STATUS" --argjson exit_code "$VALIDATE_EXIT" '
+              {validation_status: $status, validate_exit: $exit_code, summary: .summary,
+               invalid_results: [.results[]? | select(type != "object" or .valid != true)]}
+            ' "$REPORT_FULL" > "$REPORT" 2>/dev/null; then
+            jq -n --arg status "$VALIDATION_STATUS" --argjson exit_code "$VALIDATE_EXIT" \
+              '{validation_status: $status, validate_exit: $exit_code, summary: null, invalid_results: []}' > "$REPORT"
+          fi
 
           # VALIDATION_PASSED は合格時だけ true (auto_merge_gate.sh の既存ゲートが参照する)
           VALIDATION_PASSED="false"
@@ -271,15 +295,17 @@ jobs:
             echo "VALIDATION_PASSED=$VALIDATION_PASSED"
           } >> "$GITHUB_ENV"
 
-          echo "データ検証: ${VALIDATION_STATUS} (validate-data exit=${VALIDATE_EXIT}, report has_errors=${REPORT_HAS_ERRORS})"
+          echo "データ検証: ${VALIDATION_STATUS} (validate-data exit=${VALIDATE_EXIT}, report=${REPORT_VERDICT})"
           {
             echo "## 🔍 データ検証レポート (${VALIDATION_STATUS})"
             echo "- validate-data 終了コード: ${VALIDATE_EXIT}"
-            echo "- レポート: \`${REPORT}\`"
-            jq -r '.summary | "- 検証ファイル数: \(.total_files) / 有効: \(.valid_files) / 無効: \(.invalid_files)"' \
-              "$REPORT" 2>/dev/null || echo "- レポートを読めませんでした"
-            jq -r '[.results[]? | select(.valid == false)][:20][] | "- `\(.file)`: \((.errors // []) | join("; "))"' \
-              "$REPORT" 2>/dev/null || true
+            echo "- レポート (要約と無効ファイル): \`${REPORT}\`"
+            jq -r '
+              if (.summary | type) == "object"
+              then .summary | "- 検証ファイル数: \(.total_files) / 有効: \(.valid_files) / 無効: \(.invalid_files)"
+              else "- レポートを読めませんでした" end
+            ' "$REPORT"
+            jq -r '.invalid_results[:20][] | "- `\(.file)`: \((.errors // []) | join("; "))"' "$REPORT"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check for changes
@@ -413,7 +439,7 @@ jobs:
                 echo "- 対象ファイルの存在・変換・品質は未確認です。既存の stats.json は今回の結果ではないため表示しません"
                 ;;
               failed)
-                echo "- 処理: ❌ 失敗 (ワークフローログと data/logs/console_*.log を確認)"
+                echo "- 処理: ❌ 失敗 (ワークフローログと logs artifact の console_*.log を確認)"
                 ;;
               *)
                 echo "- 処理: ⚠️ 未完了 (処理ステップに到達していないか中断されました)"
@@ -433,7 +459,7 @@ jobs:
                 echo "- 品質検証: ❌ 不合格。原因を確認するまで PR をマージしないでください"
                 ;;
               error)
-                echo "- 品質検証: ⚠️ 検証不能 (異常終了・レポート欠落/不正・検証0件・終了値とレポートの不一致)。原因を確認するまで PR をマージしないでください"
+                echo "- 品質検証: ⚠️ 検証不能 (異常終了・レポート欠落/不正/不完全・検証0件・終了値とレポートの不一致)。原因を確認するまで PR をマージしないでください"
                 ;;
               *)
                 echo "- 品質検証: 未実施 (ドライランまたは処理が成功しなかったため実行していません)"

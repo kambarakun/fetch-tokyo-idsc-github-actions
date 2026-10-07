@@ -34,13 +34,15 @@ Summary の「📊 処理結果」と「🔍 品質検証」は別々に表示�
 | `dry_run`                   | ドライラン。引数と data ディレクトリの存在のみ確認した                                                                |
 | `failed`                    | `process-data` が非 0 で終了した、または今回の `stats.json` が生成されていないか不正。ジョブは失敗し、PR は作らない   |
 
-| 品質検証 (`VALIDATION_STATUS`) | 条件                                                                                                                   | `VALIDATION_PASSED` |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `not_requested`                | `verify_output=false`                                                                                                  | 未設定              |
-| `not_run`                      | `verify_output=true` だが、ドライランまたは処理が成功しなかったため実行していない                                      | 未設定              |
-| `passed`                       | `validate-data` が終了コード 0 で、JSON レポートが 1 件以上を検証し `has_errors=false`                                 | `true`              |
-| `failed`                       | `validate-data` が終了コード 1 で、JSON レポートが `has_errors=true`                                                   | `false`             |
-| `error`                        | 上記以外。異常終了、レポートの欠落・不正、検証 0 件、終了コードとレポートの食い違いを含む (検証できなかったことを示す) | `false`             |
+| 品質検証 (`VALIDATION_STATUS`) | 条件                                                                                                                                                   | `VALIDATION_PASSED` |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
+| `not_requested`                | `verify_output=false`                                                                                                                                  | 未設定              |
+| `not_run`                      | `verify_output=true` だが、ドライランまたは処理が成功しなかったため実行していない                                                                      | 未設定              |
+| `passed`                       | `validate-data` が終了コード 0 で、JSON レポートの形と件数が一貫し (1 件以上、`有効 + 無効 = 総数 = results の件数`)、無効 0 件かつ `has_errors=false` | `true`              |
+| `failed`                       | `validate-data` が終了コード 1 で、形と件数が一貫した JSON レポートが無効 1 件以上かつ `has_errors=true`                                               | `false`             |
+| `error`                        | 上記以外。異常終了、レポートの欠落・不正・不完全、検証 0 件、件数の不一致、終了コードとレポートの食い違いを含む (検証できなかったことを示す)           | `false`             |
+
+全件の検証結果 (10MB 超) は runner の一時領域にだけ置き、PR には要約・終了コード・状態・無効ファイルだけの `data/logs/validation_report_<timestamp>.json` を残す。Summary には無効ファイルを最大 20 件表示する。
 
 `validate-data` の検出範囲そのもの (何を不合格として検出できるか) はこの手順では保証しない (#730 / #739 FU-B2)。
 
@@ -64,148 +66,198 @@ flowchart TD
     style Investigate fill:#f9f,stroke:#333,stroke-width:2px
 ```
 
-| 状態                          | ジョブ結論 | PR               | `auto_merge=true` のとき   | 人の手動マージ                           |
-| ----------------------------- | ---------- | ---------------- | -------------------------- | ---------------------------------------- |
-| ドライラン                    | 成功       | 作らない         | -                          | -                                        |
-| 処理失敗 / stats 欠落・不正   | 失敗       | 作らない         | -                          | -                                        |
-| 処理成功 + `not_requested`    | 成功       | 変更があれば作る | 既存ゲートどおり設定される | 品質未検証。backfill では使わない (4 章) |
-| 処理成功 + `passed`           | 成功       | 変更があれば作る | ゲートを満たせば設定される | 5 章の差分確認の後で可                   |
-| 処理成功 + `failed` / `error` | 失敗       | 調査用に作る     | `validation` で blocked    | **原因を確認するまでマージしない**       |
+| 状態                          | ジョブ結論 | PR                       | `auto_merge=true` のとき   | 人の手動マージ                           |
+| ----------------------------- | ---------- | ------------------------ | -------------------------- | ---------------------------------------- |
+| ドライラン                    | 成功       | 作らない                 | -                          | -                                        |
+| 処理失敗 / stats 欠落・不正   | 失敗       | 作らない                 | -                          | -                                        |
+| 処理成功 + `not_requested`    | 成功       | 変更があれば作る         | 既存ゲートどおり設定される | 品質未検証。backfill では使わない (4 章) |
+| 処理成功 + `passed`           | 成功       | 変更があれば作る         | ゲートを満たせば設定される | 5 章の差分確認の後で可                   |
+| 処理成功 + `failed` / `error` | 失敗       | 変更があれば調査用に作る | `validation` で blocked    | **原因を確認するまでマージしない**       |
 
 - 検証の不合格/検証不能は、調査用 PR とサマリー・ログを残した後の最終 step (`Enforce validation result`) でジョブを失敗させる。処理エラー通知 (`Create issue on error`) とは区別される
 - `verify_output=false` の自動マージ条件は変更していない (`auto_merge_gate.sh` は `not_requested` を blocker にしない)。process-data には強制上書き (`force_merge_on_failure`) の入力は無い
 
 ## 4. backfill の通常手順
 
-通常の dispatch は **`dry_run=false`、`verify_output=true`、`auto_merge=false` を必ず明示する** (既定値に頼らない)。各ブロックはサブシェル内で `set -eu -o pipefail` を有効にしているので、途中で失敗すると `STOP:` を表示して止まる。`STOP:` が出たら以降のブロックに進まない。
+通常の dispatch は **`dry_run=false`、`verify_output=true`、`auto_merge=false` を必ず明示する** (既定値に頼らない)。
 
-### 4.1 main を最新にする
+各コマンドはサブシェル内で `set -eu -o pipefail` を有効にして、前提を 1 つでも満たさなければその場で止まる。`( ... ) || echo` や `if ! ( ... )` のようにサブシェルを条件式の中に置くと、bash / zsh とも中の `set -e` が無効になり、失敗しても後続の行が実行される。この章のブロックは条件式に入れず、そのまま実行する。
+
+### 4.1 dispatch 関数を定義する
+
+次のブロックは関数を定義するだけで、何も実行しない (zsh / bash 共通)。関数は呼ばれるたびに、main の最新化・対象一覧の再生成・形式/重複/件数/入力サイズの確認・未マージの data PR と先行 run の不在確認をやり直し、すべて満たしたときだけ `apply` で dispatch する。前段の結果やファイルを再利用しない。
+
+<!-- runbook: dispatch-function -->
 
 ```bash
-(
+process_data_dispatch() (
   set -eu -o pipefail
-  test "$(git branch --show-current)" = main
-  test -z "$(git status --porcelain)"
+  trap 'rc=$?; [ -z "${WORK:-}" ] || rm -rf "$WORK"; if [ "$rc" -ne 0 ]; then echo "STOP: 前提を満たさないか途中で失敗しました (exit $rc)。dispatch していません" >&2; fi' EXIT
+  MODE="${1:-}"
+  BATCH_SIZE=500
+  MAX_INPUT_BYTES=60000
+  case "$MODE" in
+    preview | apply) ;;
+    *) echo "引数は preview か apply を指定してください" >&2; exit 2 ;;
+  esac
+
+  # main を最新にする (clean な main の checkout でだけ進む)
+  BRANCH="$(git branch --show-current)"
+  test "$BRANCH" = main
+  DIRTY="$(git status --porcelain)"
+  test -z "$DIRTY"
   git fetch origin main
   git merge --ff-only origin/main
-  test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+  HEAD_SHA="$(git rev-parse HEAD)"
+  MAIN_SHA="$(git rev-parse origin/main)"
+  test "$HEAD_SHA" = "$MAIN_SHA"
   uv sync --locked
-  git rev-parse HEAD
-) || echo "STOP: main を最新化できませんでした"
-```
 
-### 4.2 対象一覧を作り、形と件数を確認する
-
-```bash
-(
-  set -eu -o pipefail
-  TARGETS="${TMPDIR:-/tmp}/process-data-targets.txt"
-  uv run --locked check-data-status --list-needs-processing > "$TARGETS"
-  test -s "$TARGETS" || { echo "一覧が空です。dispatch しないでください (空欄は全件処理になる)"; exit 1; }
-  if grep -Ev '^data/raw/[^/,[:space:]]+\.csv$' "$TARGETS"; then
-    echo "data/raw/*.csv 以外の行があります"
+  # 対象一覧を毎回作り直す。失敗・空・data/raw/*.csv 以外の行・重複があれば止める
+  WORK="$(mktemp -d)"
+  uv run --locked check-data-status --list-needs-processing > "$WORK/all.txt"
+  if [ ! -s "$WORK/all.txt" ]; then
+    echo "対象一覧が空です。空の target_files は全件処理になるので dispatch しません" >&2
     exit 1
   fi
-  test "$(sort -u "$TARGETS" | wc -l)" -eq "$(wc -l < "$TARGETS")"
-  echo "対象件数: $(wc -l < "$TARGETS" | tr -d ' ')"
-  echo "入力サイズ: $(paste -sd, - < "$TARGETS" | wc -c | tr -d ' ') bytes"
-) || echo "STOP: 対象一覧を確定できませんでした"
-```
+  if grep -Ev '^data/raw/[^/,[:space:]]+\.csv$' "$WORK/all.txt" >&2; then
+    echo "data/raw/*.csv 以外の行があります" >&2
+    exit 1
+  fi
+  TOTAL="$(wc -l < "$WORK/all.txt" | tr -d ' ')"
+  UNIQUE="$(sort -u "$WORK/all.txt" | wc -l | tr -d ' ')"
+  test "$TOTAL" -eq "$UNIQUE"
 
-- 一覧生成 (`check-data-status`) が失敗したら止める。失敗した出力や空の一覧を `target_files` に渡さない
-- 一覧が空でも完了とは限らない。再処理では直せない raw (未対応のファイル名・処理できない内容など) は一覧から除外されるが、`--fail-on-incomplete` では失敗する。空のときは `uv run --locked check-data-status --fail-on-incomplete` で状態を確認する
-- `target_files` はカンマ区切り。workflow_dispatch の入力は合計 65,535 文字が上限なので、「入力サイズ」がそれに近いときは一覧を分割し (例: `split -l 500`)、4.3〜4.5 をバッチごとに順番に繰り返す
-- 「対象件数」を控えておき、4.5 で Summary の処理対象件数と照合する
+  # 先頭の BATCH_SIZE 件だけを今回のバッチにし、入力サイズを確認する (workflow_dispatch の入力は合計 65,535 文字まで)
+  head -n "$BATCH_SIZE" "$WORK/all.txt" > "$WORK/batch.txt"
+  COUNT="$(wc -l < "$WORK/batch.txt" | tr -d ' ')"
+  test "$COUNT" -gt 0
+  TARGET_FILES="$(paste -sd, - < "$WORK/batch.txt")"
+  INPUT_BYTES="$(printf '%s' "$TARGET_FILES" | wc -c | tr -d ' ')"
+  if [ "$INPUT_BYTES" -gt "$MAX_INPUT_BYTES" ]; then
+    echo "入力が ${INPUT_BYTES} bytes で上限 ${MAX_INPUT_BYTES} を超えます。BATCH_SIZE を下げてください" >&2
+    exit 1
+  fi
 
-### 4.3 先行 run の完了を確認する
+  # 前のバッチの data PR (data-process-*) が open のままなら止める (同じ stats.json を更新して競合するため)
+  OPEN_PRS="$(gh pr list --state open --limit 100 --json headRefName --jq '[.[] | select(.headRefName | startswith("data-process-"))] | length')"
+  test "$OPEN_PRS" -eq 0
+  # 実行中・待機中の process-data run があれば止める (concurrency の cancel-in-progress で先行 run が消えるため)
+  RUNNING="$(gh run list --workflow process-data.yml --limit 50 --json status --jq '[.[] | select(.status != "completed")] | length')"
+  test "$RUNNING" -eq 0
 
-`concurrency` は `group: process-data`、`cancel-in-progress: true` なので、実行中の run があるときに dispatch すると**先行 run がキャンセルされる**。前のバッチを含め、すべて完了していることを確認してから dispatch する。
-
-```bash
-(
-  set -eu -o pipefail
-  RUNNING="$(gh run list --workflow process-data.yml --limit 20 --json databaseId,status --jq '[.[] | select(.status != "completed")] | length')"
-  test "$RUNNING" -eq 0 || { echo "未完了の process-data run が $RUNNING 件あります"; exit 1; }
-) || echo "STOP: 先行 run の完了を待ってください"
-```
-
-### 4.4 明示入力で dispatch し、完了まで待つ
-
-```bash
-(
-  set -eu -o pipefail
-  TARGETS="${TMPDIR:-/tmp}/process-data-targets.txt"
-  test -s "$TARGETS"
+  echo "main: $HEAD_SHA"
+  echo "対象: 全 ${TOTAL} 件のうち今回 ${COUNT} 件 / 入力 ${INPUT_BYTES} bytes"
+  if [ "$MODE" = preview ]; then
+    echo "preview: dispatch していません"
+    exit 0
+  fi
   gh workflow run process-data.yml --ref main \
-    -f target_files="$(paste -sd, - < "$TARGETS")" \
+    -f target_files="$TARGET_FILES" \
     -f dry_run=false \
     -f verify_output=true \
     -f auto_merge=false
-) || echo "STOP: dispatch に失敗しました"
+  echo "dispatch しました。4.3 で run の完了まで待ってください"
+)
 ```
 
-dispatch 後に run ID を確認し、完了 (成功/失敗) まで待つ。次のバッチは完了後にだけ dispatch する。
+- 引数 (`preview` / `apply`) は省略できない。省略・不正値なら何も確認せずに止まる
+- `BATCH_SIZE` (1 回の dispatch に渡す最大件数) は 500、`MAX_INPUT_BYTES` は 60000
+- 一覧が空でも完了とは限らない。再処理では直せない raw (未対応のファイル名・処理できない内容など) は一覧から除外されるが、`--fail-on-incomplete` では失敗する。空のときは `uv run --locked check-data-status --fail-on-incomplete` で状態を確認する
+
+### 4.2 preview で件数を確認し、apply で dispatch する
+
+preview は dispatch しない以外は apply と同じ確認を行う。表示された全体件数と今回件数を控える。
+
+<!-- runbook: dispatch-preview -->
+
+```bash
+process_data_dispatch preview
+```
+
+問題が無ければ apply で dispatch する。apply は確認をすべてやり直す。
+
+<!-- runbook: dispatch-apply -->
+
+```bash
+process_data_dispatch apply
+```
+
+全体が `BATCH_SIZE` を超えるときは、今回のバッチの run 完了 (4.3)・結果確認 (4.4)・差分確認 (5 章) の後に人が data PR をマージし、それから preview / apply をもう一度行う。各 run は同じ `data/processed/stats.json` を更新するので、前のバッチの PR をマージする前に次を dispatch すると PR 同士が競合する。apply は open の `data-process-*` PR があれば止まり、毎回最新の main から一覧を作り直すので、処理済みの raw は次のバッチに含まれない。
+
+### 4.3 run の完了まで待つ
+
+`concurrency` は `group: process-data`、`cancel-in-progress: true` なので、実行中の run があるときに dispatch すると**先行 run がキャンセルされる**。apply は実行中の run があれば止まる。
 
 ```bash
 gh run list --workflow process-data.yml --limit 3 --json databaseId,status,createdAt,event
 gh run watch <run-id> --exit-status
 ```
 
-### 4.5 結果を確認する
+### 4.4 結果を確認する
 
 Summary で次をすべて確認する。1 つでも満たさなければ PR をマージしない。
 
-- 「処理: ✅ 成功」で、処理対象件数が 4.2 の対象件数と一致し、失敗 0 件・スキップ 0 件
+- 「処理: ✅ 成功」で、処理対象件数が apply で表示された今回件数と一致し、失敗 0 件・スキップ 0 件
 - 「品質検証: ✅ 合格」 (`passed`)。`failed` / `error` / 未実施は合格扱いしない。ジョブは赤になり、PR は調査用として残る
 - ジョブ結論が成功
 
 ## 5. PR の差分確認
 
-`git add data/` で PR を作るので、processed の変更に加えて今回の run が生成したログも PR に入る。「変更は data/processed だけ」を合否条件にしない。
+`git add data/` で PR を作るので、processed の変更に加えて今回の run の検証レポート (`data/logs/validation_report_*.json`) も PR に入る。「変更は data/processed だけ」を合否条件にしない。`data/logs/console_*.log` は `.gitignore` の `*.log` で除外されるので PR には入らず、run の logs artifact (`process-logs-<timestamp>`) でだけ確認できる。`PR_NUMBER` に data PR の番号を入れてから実行する (空なら止まる)。
 
 ```bash
 (
   set -eu -o pipefail
-  PR=<PR番号>
-  DIFF="${TMPDIR:-/tmp}/process-data-pr-files.txt"
-  gh pr diff "$PR" --name-only > "$DIFF"
+  PR_NUMBER=""
+  case "$PR_NUMBER" in '' | *[!0-9]*) echo "PR_NUMBER を設定してください" >&2; exit 2 ;; esac
+  DIFF="$(mktemp)"
+  gh pr diff "$PR_NUMBER" --name-only > "$DIFF"
   test -s "$DIFF"
   echo "processed CSV:      $(grep -cE '^data/processed/normalized_[^/]+\.csv$' "$DIFF" || true)"
   echo "processed metadata: $(grep -cE '^data/processed/\.metadata/normalized_[^/]+\.json$' "$DIFF" || true)"
   echo "stats.json:         $(grep -cE '^data/processed/stats\.json$' "$DIFF" || true)"
-  echo "生成ログ:           $(grep -cE '^data/logs/(console_[^/]+\.log|validation_report_[^/]+\.json)$' "$DIFF" || true)"
-  if grep -vE '^data/processed/(normalized_[^/]+\.csv|\.metadata/normalized_[^/]+\.json|stats\.json)$|^data/logs/(console_[^/]+\.log|validation_report_[^/]+\.json)$' "$DIFF"; then
-    echo "想定外のファイルがあります (raw・コード・設定など)"
+  echo "検証レポート:       $(grep -cE '^data/logs/validation_report_[^/]+\.json$' "$DIFF" || true)"
+  if grep -vE '^data/processed/(normalized_[^/]+\.csv|\.metadata/normalized_[^/]+\.json|stats\.json)$|^data/logs/validation_report_[^/]+\.json$' "$DIFF"; then
+    echo "STOP: 想定外のファイルがあります (raw・コード・設定など)" >&2
     exit 1
   fi
-) || echo "STOP: 差分を確認してからマージを判断してください"
+  echo "想定外のファイルはありません"
+)
 ```
 
-| 区分               | パス                                                            | 確認すること                                                                 |
-| ------------------ | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| processed CSV      | `data/processed/normalized_*.csv`                               | 対象 raw に対応するものだけか。性別分割される種別は 1 raw から複数出力される |
-| processed metadata | `data/processed/.metadata/normalized_*.json`                    | processed CSV と対応しているか                                               |
-| 処理統計           | `data/processed/stats.json`                                     | 今回の run の件数と一致するか                                                |
-| 生成ログ           | `data/logs/console_*.log`、`data/logs/validation_report_*.json` | 今回の run のタイムスタンプのものだけか                                      |
-| 想定外             | 上記以外 (`data/raw/`、コード、設定など)                        | 1 件でもあれば原因を確認するまでマージしない                                 |
+終了コードが 0 以外、または `STOP:` が出たら、原因を確認するまでマージしない。
+
+| 区分               | パス                                         | 確認すること                                                                 |
+| ------------------ | -------------------------------------------- | ---------------------------------------------------------------------------- |
+| processed CSV      | `data/processed/normalized_*.csv`            | 対象 raw に対応するものだけか。性別分割される種別は 1 raw から複数出力される |
+| processed metadata | `data/processed/.metadata/normalized_*.json` | processed CSV と対応しているか                                               |
+| 処理統計           | `data/processed/stats.json`                  | 今回の run の件数と一致するか                                                |
+| 検証レポート       | `data/logs/validation_report_*.json`         | 今回の run のタイムスタンプの 1 件だけか。`validation_status` が `passed` か |
+| 想定外             | 上記以外 (`data/raw/`、コード、設定など)     | 1 件でもあれば原因を確認するまでマージしない                                 |
 
 対象と無関係な processed の大量再生成があれば原因を確認する。「約 1,000 ファイル」のような過去の目安だけで合否を決めない。
 
 ## 6. マージ後の完全性確認
 
-data PR を人がマージした後、**その PR を含む最新の main** で完全性ゲートを確認する。
+data PR を人がマージした後、**その PR を含む最新の main** で完全性ゲートを確認する。`MERGE_COMMIT` に data PR のマージコミット SHA を入れてから実行する (空なら止まる)。
 
 ```bash
 (
   set -eu -o pipefail
-  test "$(git branch --show-current)" = main
-  test -z "$(git status --porcelain)"
+  MERGE_COMMIT=""
+  test -n "$MERGE_COMMIT"
+  BRANCH="$(git branch --show-current)"
+  test "$BRANCH" = main
+  DIRTY="$(git status --porcelain)"
+  test -z "$DIRTY"
   git fetch origin main
   git merge --ff-only origin/main
-  git merge-base --is-ancestor <data-PRのマージコミット> HEAD
+  git merge-base --is-ancestor "$MERGE_COMMIT" HEAD
   uv sync --locked
   uv run --locked check-data-status --fail-on-incomplete
-) || echo "STOP: 最新 main で完全性ゲートを満たしていません"
+  echo "最新 main で完全性ゲートを満たしています"
+)
 ```
 
-終了コード 1 なら、`uv run --locked check-data-status --verbose` で残りの raw を確認し、再処理で直せるもの (`--list-needs-processing` に出るもの) は 4 章をもう一度行う。再処理で直せないものは別途原因を調べる。
+終了コードが 0 以外なら完了ではない。`uv run --locked check-data-status --verbose` で残りの raw を確認し、再処理で直せるもの (`--list-needs-processing` に出るもの) は 4 章をもう一度行う。再処理で直せないものは別途原因を調べる。
