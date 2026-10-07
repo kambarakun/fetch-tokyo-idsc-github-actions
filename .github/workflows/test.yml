@@ -5,6 +5,12 @@ on:
     branches: [main, develop, feature/*]
   pull_request:
     branches: [main]
+    # Bot data PRs touch only these paths; their runs wait for approval and expire as failures (issue #731).
+    # branches-ignore filters the base branch and job-level `if` runs after the approval gate, so filter by path.
+    paths-ignore:
+      - "data/**"
+      - "docs/images/**"
+      - "README.md"
   schedule:
     # Tuesdays 09:17 JST; avoid top-of-hour Actions load.
     - cron: "17 0 * * 2"

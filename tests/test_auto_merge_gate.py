@@ -97,6 +97,7 @@ def evaluate_gate(
     continuity_valid: str = "",
     raw_changed_count: str = "0",
     processing_coverage: str = "complete",
+    schema_valid: str = "true",
 ) -> dict[str, str]:
     env = os.environ.copy()
     env.update(
@@ -115,6 +116,7 @@ def evaluate_gate(
             "CONTINUITY_VALID": continuity_valid,
             "RAW_CHANGED_COUNT": raw_changed_count,
             "PROCESSING_COVERAGE_STATUS": processing_coverage,
+            "SCHEMA_VALID": schema_valid,
         }
     )
     command = """
@@ -128,7 +130,8 @@ printf '%s\n' \
   "FETCH_GATE_STATUS=$FETCH_GATE_STATUS" \
   "PROCESS_GATE_STATUS=$PROCESS_GATE_STATUS" \
   "VALIDATION_GATE_STATUS=$VALIDATION_GATE_STATUS" \
-  "CONTINUITY_GATE_STATUS=$CONTINUITY_GATE_STATUS"
+  "CONTINUITY_GATE_STATUS=$CONTINUITY_GATE_STATUS" \
+  "SCHEMA_GATE_STATUS=$SCHEMA_GATE_STATUS"
 """
     result = subprocess.run(
         ["bash", "-c", command, "bash", str(GATE_SCRIPT)],
@@ -284,6 +287,87 @@ def test_fetch_gate_blocks_unprocessed_raw_changes(
     assert result["AUTO_MERGE_EFFECTIVE"] == ("false" if expected_gate_status == "blocked" else "true")
 
 
+@pytest.mark.parametrize("workflow_name", ["fetch-data-daily", "fetch-data-weekly", "fetch-data"])
+@pytest.mark.parametrize(
+    ("schema_valid", "expected_effective", "expected_gate_status", "expected_schema_status", "expected_blockers"),
+    [
+        ("true", "true", "passed", "passed", "none"),
+        ("false", "false", "blocked", "failed", "schema"),
+        ("", "false", "blocked", "unknown", "schema"),
+    ],
+    ids=["schema-valid", "schema-invalid", "schema-unset"],
+)
+def test_schema_gate_blocks_fetch_workflows_fail_closed(
+    workflow_name: str,
+    schema_valid: str,
+    expected_effective: str,
+    expected_gate_status: str,
+    expected_schema_status: str,
+    expected_blockers: str,
+) -> None:
+    result = evaluate_gate(
+        workflow_name=workflow_name,
+        auto_merge="true",
+        force_merge="false",
+        fetch_status="success",
+        process_result="success",
+        validations_passed="true",
+        raw_changed_count="5",
+        schema_valid=schema_valid,
+    )
+
+    assert result["SCHEMA_GATE_STATUS"] == expected_schema_status
+    assert result["AUTO_MERGE_BLOCKERS"] == expected_blockers
+    assert result["AUTO_MERGE_GATE_STATUS"] == expected_gate_status
+    assert result["AUTO_MERGE_EFFECTIVE"] == expected_effective
+
+
+@pytest.mark.parametrize("workflow_name", ["process-data", "migrate-metadata"])
+def test_schema_gate_is_not_applicable_outside_fetch_workflows(workflow_name: str) -> None:
+    result = evaluate_gate(
+        workflow_name=workflow_name,
+        auto_merge="true",
+        force_merge="false",
+        fetch_status="success",
+        process_result="success",
+        validations_passed="true",
+        schema_valid="false",
+    )
+
+    assert result["SCHEMA_GATE_STATUS"] == "not_applicable"
+    assert "schema" not in result["AUTO_MERGE_BLOCKERS"].split(",")
+    assert result["AUTO_MERGE_GATE_STATUS"] == "passed"
+
+
+def test_schema_gate_status_is_exported_for_the_job_summary(tmp_path: Path) -> None:
+    github_env = tmp_path / "github-env"
+    env = os.environ.copy()
+    env.update(
+        {
+            "WORKFLOW_NAME": "fetch-data-weekly",
+            "AUTO_MERGE": "true",
+            "FETCH_STATUS": "success",
+            "PROCESS_RESULT": "success",
+            "PROCESSING_COVERAGE_STATUS": "complete",
+            "VALIDATION_BEFORE_SUCCESS": "true",
+            "VALIDATION_SUCCESS": "true",
+            "SCHEMA_VALID": "false",
+            "GITHUB_ENV": str(github_env),
+        }
+    )
+
+    subprocess.run(
+        ["bash", "-c", 'source "$1"; evaluate_auto_merge_gate; write_auto_merge_gate_env', "bash", str(GATE_SCRIPT)],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=True,
+    )
+
+    exported = dict(line.split("=", 1) for line in github_env.read_text(encoding="utf-8").splitlines())
+    assert exported["SCHEMA_GATE_STATUS"] == "failed"
+    assert exported["AUTO_MERGE_BLOCKERS"] == "schema"
+
+
 def test_process_data_gate_ignores_fetch_only_inputs() -> None:
     result = evaluate_gate(
         workflow_name="process-data",
@@ -329,6 +413,7 @@ def test_common_workflow_forwards_every_gate_input() -> None:
     assert "CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}" in workflow
     assert "VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}" in workflow
     assert "VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}" in workflow
+    assert "SCHEMA_VALID: ${{ env.SCHEMA_VALID }}" in workflow
 
 
 def test_common_workflow_processes_raw_changed_since_pre_fetch_commit() -> None:

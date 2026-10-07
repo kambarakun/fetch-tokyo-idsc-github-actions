@@ -114,8 +114,9 @@ jobs:
       - name: Setup Python
         run: uv python install 3.11
 
+      # --all-extras: Validate metadata against JSON Schema imports jsonschema, which only the dev extra provides
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked --all-extras
 
       - name: Configure git
         run: |
@@ -553,6 +554,7 @@ jobs:
             --start-year "$START_YEAR" \
             --end-year "$END_YEAR" \
             --as-of "$CURRENT_DATE" \
+            --grace-periods 1 \
             --format json \
             --output "$CONTINUITY_REPORT"; then
             CONTINUITY_VALID=true
@@ -567,8 +569,11 @@ jobs:
             jq .summary "$CONTINUITY_REPORT" || echo "⚠️ レポート解析に失敗しました"
           fi
 
+      # Charts and README stats are presentation only: a failure must not drop the data PR (issue #731)
       - name: Generate visualization charts
+        id: charts
         if: inputs.dry_run != true
+        continue-on-error: true
         run: |
           echo "📈 感染動向グラフを生成しています..."
           uv run --locked python scripts/generate_charts.py
@@ -580,7 +585,9 @@ jobs:
           fi
 
       - name: Update README statistics
+        id: readme_stats
         if: inputs.dry_run != true
+        continue-on-error: true
         run: |
           echo "📊 README統計情報を更新しています..."
           uv run --locked python scripts/update_readme_stats.py
@@ -593,34 +600,45 @@ jobs:
             echo "ℹ️ No README changes needed"
           fi
 
+      - name: Warn on chart or README statistics failure
+        if: steps.charts.outcome == 'failure' || steps.readme_stats.outcome == 'failure'
+        env:
+          CHARTS_OUTCOME: ${{ steps.charts.outcome }}
+          README_STATS_OUTCOME: ${{ steps.readme_stats.outcome }}
+        run: |
+          MESSAGE="グラフ生成=${CHARTS_OUTCOME} / README統計更新=${README_STATS_OUTCOME}。データPRは継続し、失敗したステップの出力は含めない"
+          echo "::warning title=Chart or README statistics step failed::${MESSAGE}"
+          echo "- ⚠️ **表示用ステップ失敗**: ${MESSAGE}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Check for changes
         id: changes
         if: inputs.dry_run != true
         run: |
-          # 変更の有無をチェック
           git add data/
 
-          if git diff --cached --quiet; then
-            echo "No changes detected"
-            echo "HAS_CHANGES=false" >> "$GITHUB_ENV"
+          # data/raw (CSV と .metadata) だけで判定する。README の実行時刻行や data/logs の差分は変更とみなさない。
+          # 基準は fetch 前のコミット: fetch-data がローカルコミットした raw も staged diff だけでは見えないため
+          if git diff --cached --quiet "$PRE_FETCH_SHA" -- data/raw; then
+            echo "No data/raw changes detected"
+            echo "HAS_DATA_CHANGES=false" >> "$GITHUB_ENV"
           else
-            echo "Changes detected"
-            echo "HAS_CHANGES=true" >> "$GITHUB_ENV"
+            echo "data/raw changes detected"
+            echo "HAS_DATA_CHANGES=true" >> "$GITHUB_ENV"
 
             # 新規ファイルと変更ファイルを分けて集計 (他のワークフローと統一)
             # POSIX準拠の空白クラス [[:space:]] と拡張正規表現 -E を使用
 
             # 新規rawファイル数 (data/raw/*.csv)
-            NEW_RAW_FILES=$(git diff --cached --name-status | grep -cE '^A[[:space:]]+data/raw/[^/]*\.csv$' | tr -d ' ' || echo "0")
+            NEW_RAW_FILES=$(git diff --cached --name-status "$PRE_FETCH_SHA" | grep -cE '^A[[:space:]]+data/raw/[^/]*\.csv$' | tr -d ' ' || echo "0")
 
             # 変更されたrawファイル数
-            MODIFIED_RAW_FILES=$(git diff --cached --name-status | grep -cE '^M[[:space:]]+data/raw/[^/]*\.csv$' | tr -d ' ' || echo "0")
+            MODIFIED_RAW_FILES=$(git diff --cached --name-status "$PRE_FETCH_SHA" | grep -cE '^M[[:space:]]+data/raw/[^/]*\.csv$' | tr -d ' ' || echo "0")
 
             # 処理済みファイル数 (data/processed/normalized_*.csv、改訂後の再処理による更新を含む)
-            NEW_PROCESSED_FILES=$(git diff --cached --name-status | grep -cE '^[AM][[:space:]]+data/processed/normalized_.*\.csv$' | tr -d ' ' || echo "0")
+            NEW_PROCESSED_FILES=$(git diff --cached --name-status "$PRE_FETCH_SHA" | grep -cE '^[AM][[:space:]]+data/processed/normalized_.*\.csv$' | tr -d ' ' || echo "0")
 
             # 合計CSVファイル数
-            TOTAL_CSV_FILES=$(git diff --cached --name-only | grep -c '\.csv$' | tr -d ' ' || echo "0")
+            TOTAL_CSV_FILES=$(git diff --cached --name-only "$PRE_FETCH_SHA" | grep -c '\.csv$' | tr -d ' ' || echo "0")
 
             # 空文字列や非数値の場合のフォールバック
             if ! [[ "$NEW_RAW_FILES" =~ ^[0-9]+$ ]]; then
@@ -660,6 +678,20 @@ jobs:
             echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
           fi
 
+      # Bot data PRs do not run test.yml (paths-ignore), so the schema check runs here (issue #731)
+      # ステップ自体は失敗させない。判定は Evaluate auto-merge gate の blocker "schema" が行う
+      - name: Validate metadata against JSON Schema
+        if: inputs.dry_run != true
+        shell: bash
+        run: |
+          if uv run --locked python scripts/validate_metadata_schema.py; then
+            SCHEMA_VALID=true
+          else
+            SCHEMA_VALID=false
+            echo "::error title=Metadata schema validation failed::メタデータが JSON Schema に適合しません。自動マージはブロックされます"
+          fi
+          echo "SCHEMA_VALID=${SCHEMA_VALID}" >> "$GITHUB_ENV"
+
       - name: Evaluate auto-merge gate
         if: inputs.dry_run != true
         shell: bash
@@ -674,6 +706,7 @@ jobs:
           CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}
           VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}
           VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}
+          SCHEMA_VALID: ${{ env.SCHEMA_VALID }}
         run: |
           case "${{ inputs.workflow_type }}" in
             manual) WORKFLOW_NAME="fetch-data" ;;
@@ -687,7 +720,7 @@ jobs:
           write_auto_merge_gate_env
 
       - name: Create Pull Request
-        if: env.HAS_CHANGES == 'true' && inputs.dry_run != true
+        if: env.HAS_DATA_CHANGES == 'true' && inputs.dry_run != true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 共通スクリプトで使用する環境変数
@@ -709,6 +742,7 @@ jobs:
           CONTINUITY_VALID: ${{ env.CONTINUITY_VALID }}
           VALIDATION_BEFORE_SUCCESS: ${{ env.VALIDATION_BEFORE_SUCCESS }}
           VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}
+          SCHEMA_VALID: ${{ env.SCHEMA_VALID }}
           AUTO_MERGE_GATE_EVALUATED: ${{ env.AUTO_MERGE_GATE_EVALUATED }}
           AUTO_MERGE_REQUESTED: ${{ env.AUTO_MERGE_REQUESTED }}
           FORCE_MERGE: ${{ env.FORCE_MERGE }}
@@ -733,6 +767,14 @@ jobs:
 
           # 共通スクリプトを呼び出し
           bash scripts/create_pr.sh "$WORKFLOW_NAME" "${{ inputs.workflow_display_name }}"
+
+      # No PR is created without data/raw changes, so a blocked gate would otherwise go unnoticed (issue #731)
+      - name: Fail when gate is blocked without PR
+        if: inputs.dry_run != true && env.HAS_DATA_CHANGES != 'true' && env.AUTO_MERGE_BLOCKERS != 'none'
+        shell: bash
+        run: |
+          echo "::error title=Auto-merge gate blocked without PR::data/raw に変更が無いため PR は作成しないが、ゲートがブロックしている (ブロック理由: ${AUTO_MERGE_BLOCKERS:-unset})"
+          exit 1
 
       - name: Create issue on error
         if: failure() && inputs.dry_run != true
@@ -805,6 +847,7 @@ jobs:
             echo "- **処理**: ${PROCESS_GATE_STATUS:-not_evaluated}"
             echo "- **検証**: ${VALIDATION_GATE_STATUS:-not_evaluated}"
             echo "- **連続性**: ${CONTINUITY_GATE_STATUS:-not_evaluated}"
+            echo "- **schema**: ${SCHEMA_GATE_STATUS:-not_evaluated}"
             echo "- **ブロック理由**: ${AUTO_MERGE_BLOCKERS:-not_evaluated}"
             echo "- **判定**: ${AUTO_MERGE_GATE_STATUS:-not_evaluated}"
             echo "- **強制上書き要求**: ${{ inputs.force_merge_on_failure }}"
@@ -813,7 +856,7 @@ jobs:
             echo "- **処理失敗後の継続理由**: ${PROCESS_CONTINUED_REASON:-none}"
             echo ""
 
-            if [ "$HAS_CHANGES" = "true" ]; then
+            if [ "${HAS_DATA_CHANGES:-}" = "true" ]; then
               echo "### ✅ 変更検出"
               echo "- **総変更ファイル数**: $CHANGED_FILES"
               if [ -n "$NEW_FILES" ] && [ "$NEW_FILES" -gt 0 ]; then
@@ -827,6 +870,6 @@ jobs:
               fi
             else
               echo "### ℹ️ 変更なし"
-              echo "${{ inputs.workflow_display_name }}で変更は検出されませんでした。"
+              echo "data/raw に変更が無いため PR は作成しない。"
             fi
           } >> "$GITHUB_STEP_SUMMARY"

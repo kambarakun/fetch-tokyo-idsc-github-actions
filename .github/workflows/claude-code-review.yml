@@ -3,12 +3,11 @@ name: 🔍 Claude コードレビュー
 on:
   pull_request:
     types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+    # Skip bot data PRs: the job-level `if` below cannot, because the approval gate runs first (issue #731)
+    paths-ignore:
+      - "data/**"
+      - "docs/images/**"
+      - "README.md"
 
 jobs:
   claude-review:
