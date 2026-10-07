@@ -75,7 +75,7 @@ uv run process-data --all --dry-run                          # checks arguments 
 - To exercise `process-data` for real, copy the data directory first and pass both paths:
   `uv run process-data --data-dir <scratch copy> --files <scratch copy>/raw/<file>.csv`
   (`--files` paths are relative to the current directory). `--all` / `--files` also rewrite
-  `data/processed/stats.json`.
+  `<data-dir>/processed/stats.json` (`data/processed/stats.json` by default).
 - The exact CI commands (pytest flags, schema validation, pre-commit) live in
   `.github/workflows/test.yml`; copy them from there rather than from memory.
 - Do not invoke ruff / black / isort / mypy directly; they run as pre-commit hooks from the
@@ -127,15 +127,16 @@ uv run process-data --all --dry-run                          # checks arguments 
 
 - Pin every external action to a full 40-character commit SHA with a version comment
   (`uses: owner/action@<sha> # vX.Y.Z`). The check command is in `docs/development.md`.
-- `astral-sh/setup-uv` steps always set `version-file: .tool-versions`, and `uv` commands in CI use
-  `--locked`.
+- `astral-sh/setup-uv` steps always set `version-file: .tool-versions`, and CI installs and runs
+  the project with `--locked`.
 - The uv version is pinned only in `.tool-versions`; never in `pyproject.toml` `[tool.uv]` or
   `uv.toml` (it would break Dependabot's uv jobs). Update path: `docs/development.md`.
 - Dev dependencies belong in `[project.optional-dependencies] dev`, not `[dependency-groups]`.
 - Commit `uv.lock`; never gitignore it.
 - Judge Dependabot PRs with the runbook in `docs/dependabot-pr-review.md`; GitHub Actions updates
   are never auto-merged. Watchdog alerts: `docs/dependency-pipeline.md`.
-- Changes reach `main` only through PRs; merging is done by a human.
+- Changes reach `main` only through PRs. Agents never merge PRs or push to `main`; only the
+  automated data-update PRs are merged by their workflows.
 - Workflow-specific values (cron, concurrency, permissions, artifact names) change often; read
   them from `.github/workflows/` instead of copying them into docs.
 
