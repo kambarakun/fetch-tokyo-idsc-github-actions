@@ -10,6 +10,7 @@ import io
 import json
 import os
 import shutil
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -255,8 +256,26 @@ def test_existing_metadata_with_stale_stable_field_is_rewritten(tmp_path: Path) 
     assert rewritten["created"] == tampered["created"]
 
 
-def test_revision_to_header_only_total_removes_previous_total_output(tmp_path: Path) -> None:
-    # Arrange: process a populated district raw, then replace it with a revision whose total is header-only
+def _truncate_at_total_header_end(raw_text: str) -> str:
+    total_start = raw_text.index('"性別","男女合計"')
+    return raw_text[: raw_text.index("\r\n", raw_text.index('"",', total_start)) + 2]
+
+
+def _truncate_before_total_section(raw_text: str) -> str:
+    return raw_text[: raw_text.index('"性別","男女合計"')]
+
+
+@pytest.mark.parametrize(
+    "revise",
+    [
+        pytest.param(_truncate_at_total_header_end, id="total-becomes-header-only"),
+        pytest.param(_truncate_before_total_section, id="total-section-removed"),
+    ],
+)
+def test_revision_without_total_rows_removes_previous_total_output(
+    tmp_path: Path, revise: Callable[[str], str]
+) -> None:
+    # Arrange: process a populated district raw, then replace it with a revision that has no total rows
     raw_name = "sentinel_weekly_medical_district_2025_10.csv"
     processor, data_dir = _processor_with_raw(tmp_path, [RAW_FIXTURES_DIR / raw_name])
     raw_file = data_dir / "raw" / raw_name
@@ -266,10 +285,7 @@ def test_revision_to_header_only_total_removes_previous_total_output(tmp_path: P
         data_dir / "processed" / ".metadata" / "normalized_sentinel_weekly_medical_district_total_2025_10.json"
     )
     assert total_csv.exists() and total_metadata.exists()
-    raw_text = raw_file.read_bytes().decode("shift_jis")
-    total_marker = '"性別","男女合計"'
-    total_header_end = raw_text.index("\r\n", raw_text.index('"",', raw_text.index(total_marker))) + 2
-    raw_file.write_bytes(raw_text[:total_header_end].encode("shift_jis"))
+    raw_file.write_bytes(revise(raw_file.read_bytes().decode("shift_jis")).encode("shift_jis"))
 
     # Act
     result = processor.process_file(raw_file)

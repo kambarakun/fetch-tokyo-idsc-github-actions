@@ -329,7 +329,6 @@ class DataProcessor:
                 and not section_has_data_rows(self._extract_section_data(lines, section))
             ):
                 logger.info("medical_districtのtotalセクションにデータ行がないため出力しません")
-                self._remove_output(self._gender_output_path(section, metadata))
                 continue
 
             output_file = self._save_gender_section(lines, section, metadata)
@@ -344,6 +343,10 @@ class DataProcessor:
                     female_file = output_file
                 elif gender == self.GENDER_TOTAL:
                     total_file = output_file
+
+        # 改訂でtotalがヘッダーのみ・セクションごと消えた場合に、前回のtotalが現行データとして残らないようにする
+        if metadata.get("aggregation") == "medical_district" and total_file is None:
+            self._remove_output(self._gender_output_path({"gender": self.GENDER_TOTAL}, metadata))
 
         return output_files, male_file, female_file, total_file, gender_info
 
