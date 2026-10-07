@@ -139,6 +139,9 @@ def test_sha_pin_check_command_detects_tag_refs():
         f"        uses: astral-sh/setup-uv@{SHA_PIN_SHA}-mutable",
         # A bare SHA without the "# vX" comment leaves the Dependabot vetter nothing to verify against.
         f"        uses: astral-sh/setup-uv@{SHA_PIN_SHA}",
+        # Docker actions cannot carry a commit SHA pin, so any of them is reported.
+        "        uses: docker://alpine:latest",
+        "        uses: docker://alpine@sha256:" + "0" * 64,
     ]
     pinned_refs = [
         f"        uses: astral-sh/setup-uv@{SHA_PIN_SHA} # v10.2.0",

@@ -130,7 +130,8 @@ uv run process-data --all --dry-run                          # checks arguments 
 ## GitHub Actions and dependencies
 
 - Pin every external action to a full 40-character commit SHA with a version comment
-  (`uses: owner/action@<sha> # vX.Y.Z`). The check command is in `docs/development.md`.
+  (`uses: owner/action@<sha> # vX.Y.Z`); do not use `docker://` actions, which cannot be pinned
+  that way. The check command is in `docs/development.md`.
 - `astral-sh/setup-uv` steps always set `version-file: .tool-versions`, and CI installs and runs
   the project with `--locked`.
 - The uv version is pinned only in `.tool-versions`; never in `pyproject.toml` `[tool.uv]` or
