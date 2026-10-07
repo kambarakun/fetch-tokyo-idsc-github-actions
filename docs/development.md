@@ -63,14 +63,15 @@ Dependabot の PR は [`docs/dependabot-pr-review.md`](dependabot-pr-review.md) 
 
 GitHub Actions の依存は自動マージしない (レビュー必須、マージは人間のみ)。緊急時は `git revert <commit>` で戻す。
 
-タグ参照の残りは次のコマンドで確認する。何も出力せず終了コード 1 なら、外部 Action はすべて SHA で pin されている。ローカル参照 (`./`) は対象外。
+pin 漏れは次のコマンドで確認する。何も出力せず終了コード 1 なら、外部 Action はすべて `@<40 桁 SHA> # v<版>` の形で pin されている。ローカル参照 (`./`) は対象外。
 
 ```bash
-git grep -nP '^\s*(- )?uses:\s*[^./][^@]*@(?![0-9a-f]{40}\b)' -- .github/workflows/
+git grep -nP '^\s*(- )?uses:\s*[^./][^@]*@(?![0-9a-f]{40}\b)|^\s*(- )?uses:\s*[^./][^@]*@[0-9a-f]{40}(?!\s+#\s*v\d)' -- .github/workflows/
 ```
 
 - `git grep -P` は PCRE 対応ビルドの git が必要 (Apple Git 2.39.5 で動作を確認済み)。非対応ビルドではエラーで止まる
 - 追跡済みファイルだけを見る。新規ファイルは `git add` してから実行する
+- 前半の分岐はタグなど 40 桁 SHA 以外の参照を、後半の分岐は SHA の直後に `-xxx` などの接尾辞が続くもの (可変な ref) と、版コメント `# v<版>` の無い SHA を検出する。版コメントは Dependabot PR の事前検証がタグと SHA を照合する手がかりになる
 - 代替: PCRE2 対応の ripgrep があれば `rg -n --pcre2 '<同じパターン>' .github/workflows/`
 - 同じパターンは `tests/test_docs_consistency.py` が全ワークフローに対して検査する
 

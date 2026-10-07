@@ -132,7 +132,14 @@ def test_documented_repo_paths_exist():
 def test_sha_pin_check_command_detects_tag_refs():
     # Arrange
     pattern = _sha_pin_pattern()
-    tag_refs = ["      - uses: actions/checkout@v4", "        uses: astral-sh/setup-uv@v4"]
+    tag_refs = [
+        "      - uses: actions/checkout@v4",
+        "        uses: astral-sh/setup-uv@v4",
+        # A SHA-looking prefix followed by a suffix is still a mutable ref.
+        f"        uses: astral-sh/setup-uv@{SHA_PIN_SHA}-mutable",
+        # A bare SHA without the "# vX" comment leaves the Dependabot vetter nothing to verify against.
+        f"        uses: astral-sh/setup-uv@{SHA_PIN_SHA}",
+    ]
     pinned_refs = [
         f"        uses: astral-sh/setup-uv@{SHA_PIN_SHA} # v10.2.0",
         "    uses: ./.github/workflows/_fetch-data-common.yml",

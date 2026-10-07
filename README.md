@@ -331,13 +331,13 @@ data/
 - 詳細情報を `verification.details` フィールドに構造化 (例: `details.column_counts`)
 - 検索性と集計性の向上
 
-> **💡 既存ユーザー向け注意**: v1.2.0以前のメタデータをv1.3.0に移行する場合は、`migrate-metadata`を使用してください。詳細は[CLAUDE.md](CLAUDE.md#83-メタデータスキーマ-v130)を参照。
+> **💡 既存ユーザー向け注意**: v1.2.0以前のメタデータをv1.3.0に移行する場合は、`migrate-metadata`を使用してください。使い方は `uv run migrate-metadata --help`、スキーマ自体を変更する手順は[docs/development.md](docs/development.md#メタデータスキーマの変更手順)を参照。
 
 **主要フィールドの概要:**
 
 ここでは v1.3.0 の主要フィールドを示します。各フィールドの詳細な定義・仕様は以下を参照してください:
 
-- 完全なスキーマ定義: [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130)
+- 完全なスキーマ定義: [`schemas/metadata-v1.3.schema.json`](schemas/metadata-v1.3.schema.json)
 - 実装例: [`docs/data_structure_design.md`](docs/data_structure_design.md#メタデータ構造)
 
 **代表的なメタデータファイル:**
@@ -397,7 +397,7 @@ data/
 - **検証項目**: 性別データの合計値検証 (`male + female = total`)
 - **実装**: `src/validators/gender_sum_validator.py`
 
-検証スキーマの詳細は [`CLAUDE.md`](CLAUDE.md#83-メタデータスキーマ-v130) を参照してください。
+検証スキーマの詳細は [`schemas/metadata-v1.3.schema.json`](schemas/metadata-v1.3.schema.json) を参照してください。
 
 </details>
 
