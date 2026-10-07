@@ -329,6 +329,7 @@ class DataProcessor:
                 and not section_has_data_rows(self._extract_section_data(lines, section))
             ):
                 logger.info("medical_districtのtotalセクションにデータ行がないため出力しません")
+                self._remove_output(self._gender_output_path(section, metadata))
                 continue
 
             output_file = self._save_gender_section(lines, section, metadata)
@@ -493,12 +494,8 @@ class DataProcessor:
         """
         try:
             gender = section["gender"]
-            gender_suffix = self._get_gender_suffix(gender)
-
-            # ファイル名: normalized_{type}_{frequency}_{aggregation}_{gender}_{year}_{period}.csv
-            # 例: normalized_sentinel_weekly_age_male_2000_01.csv
-            output_filename = f"normalized_{metadata['category']}_{metadata['frequency']}_{metadata['aggregation']}_{gender_suffix}_{metadata['year']}_{metadata['period']}.csv"
-            output_file = self.processed_dir / output_filename
+            output_file = self._gender_output_path(section, metadata)
+            output_filename = output_file.name
 
             # セクションのデータを抽出
             section_lines = self._extract_section_data(lines, section)
@@ -517,6 +514,35 @@ class DataProcessor:
         except (OSError, csv.Error, ValueError):
             logger.exception(f"セクション保存失敗: {gender}")
             return None
+
+    def _gender_output_path(self, section: dict[str, Any], metadata: dict[str, Any]) -> Path:
+        """性別セクションの出力ファイルパスを返す
+
+        Args:
+            section: セクション情報
+            metadata: ファイルメタデータ
+
+        Returns:
+            出力ファイルパス
+        """
+        gender_suffix = self._get_gender_suffix(section["gender"])
+        # ファイル名: normalized_{type}_{frequency}_{aggregation}_{gender}_{year}_{period}.csv
+        # 例: normalized_sentinel_weekly_age_male_2000_01.csv
+        output_filename = f"normalized_{metadata['category']}_{metadata['frequency']}_{metadata['aggregation']}_{gender_suffix}_{metadata['year']}_{metadata['period']}.csv"
+        return self.processed_dir / output_filename
+
+    def _remove_output(self, output_file: Path) -> None:
+        """出力ファイルとそのメタデータを削除する (存在しなければ何もしない)
+
+        改訂で出力対象でなくなったセクションの古い出力が、現行データとして残り続けないようにするため。
+
+        Args:
+            output_file: 削除する出力ファイルパス
+        """
+        for path in (output_file, self.processed_dir / ".metadata" / f"{output_file.stem}.json"):
+            if path.exists():
+                path.unlink()
+                logger.info(f"出力対象でなくなった古い出力を削除しました: {path.name}")
 
     def _extract_section_data(self, lines: list[str], section: dict[str, Any]) -> list[str]:
         """セクションのデータ部分を抽出
@@ -602,7 +628,8 @@ class DataProcessor:
         if output_file.exists() and output_file.read_bytes() == "".join(lines).encode("utf-8"):
             logger.debug(f"出力内容に変更がないため書き込みをスキップ: {output_file.name}")
             return
-        with output_file.open("w", encoding="utf-8") as f:
+        # newline="" で改行を変換せず、比較したバイト列と同じものを書く
+        with output_file.open("w", encoding="utf-8", newline="") as f:
             f.writelines(lines)
 
     def _load_existing_metadata(self, metadata_file: Path) -> dict[str, Any] | None:
@@ -627,7 +654,8 @@ class DataProcessor:
     def _metadata_unchanged(existing: dict[str, Any], meta: dict[str, Any]) -> bool:
         """既存メタデータと新しいメタデータが実質的に同じか判定する
 
-        processing_time_seconds と validation_timestamp は実行ごとに変わるため比較しない。
+        実行ごとに変わる created / modified / _process.processing_time_seconds /
+        quality.validation_timestamp だけを除き、それ以外の全項目を比較する。
 
         Args:
             existing: 既存のメタデータ
@@ -636,18 +664,18 @@ class DataProcessor:
         Returns:
             メタデータを書き直す必要がなければ True
         """
-        existing_hash = existing.get("hash")
-        existing_process = existing.get("_process")
-        existing_quality = existing.get("quality")
-        return (
-            existing.get("metadata_version") == meta["metadata_version"]
-            and isinstance(existing_hash, dict)
-            and existing_hash.get("value") == meta["hash"]["value"]
-            and isinstance(existing_process, dict)
-            and existing_process.get("source_hash") == meta["_process"]["source_hash"]
-            and isinstance(existing_quality, dict)
-            and existing_quality.get("issues") == meta["quality"]["issues"]
-        )
+
+        def stable_fields(metadata: dict[str, Any]) -> Any:
+            # JSON 往復で型をそろえてから、実行ごとに変わる項目を除く
+            stable = json.loads(json.dumps(metadata))
+            stable.pop("created", None)
+            stable.pop("modified", None)
+            for key, volatile in (("_process", "processing_time_seconds"), ("quality", "validation_timestamp")):
+                if isinstance(stable.get(key), dict):
+                    stable[key].pop(volatile, None)
+            return stable
+
+        return stable_fields(existing) == stable_fields(meta)
 
     def _is_empty_data_file(self, file_path: Path) -> bool:
         """データファイルが空(ヘッダーのみ)かチェック

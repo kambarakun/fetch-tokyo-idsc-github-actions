@@ -233,3 +233,49 @@ def test_existing_metadata_that_differs_is_rewritten(
     assert rewritten["created"] == expected_created
     assert rewritten["modified"] == run_at.isoformat()
     assert rewritten["hash"]["value"]
+
+
+def test_existing_metadata_with_stale_stable_field_is_rewritten(tmp_path: Path) -> None:
+    # Arrange
+    raw_name = "notifiable_weekly_2025_10.csv"
+    processor, data_dir = _processor_with_raw(tmp_path, [RAW_FIXTURES_DIR / raw_name])
+    raw_file = data_dir / "raw" / raw_name
+    metadata_file = data_dir / "processed" / ".metadata" / "normalized_notifiable_weekly_2025_10.json"
+    processor.process_file(raw_file)
+    tampered = json.loads(metadata_file.read_text(encoding="utf-8"))
+    tampered["bytes"] = 1
+    metadata_file.write_text(json.dumps(tampered), encoding="utf-8")
+
+    # Act
+    processor.process_file(raw_file)
+
+    # Assert: only run-dependent fields are ignored; any other stale field triggers a rewrite
+    rewritten = json.loads(metadata_file.read_text(encoding="utf-8"))
+    assert rewritten["bytes"] == (data_dir / "processed" / "normalized_notifiable_weekly_2025_10.csv").stat().st_size
+    assert rewritten["created"] == tampered["created"]
+
+
+def test_revision_to_header_only_total_removes_previous_total_output(tmp_path: Path) -> None:
+    # Arrange: process a populated district raw, then replace it with a revision whose total is header-only
+    raw_name = "sentinel_weekly_medical_district_2025_10.csv"
+    processor, data_dir = _processor_with_raw(tmp_path, [RAW_FIXTURES_DIR / raw_name])
+    raw_file = data_dir / "raw" / raw_name
+    processor.process_file(raw_file)
+    total_csv = data_dir / "processed" / "normalized_sentinel_weekly_medical_district_total_2025_10.csv"
+    total_metadata = (
+        data_dir / "processed" / ".metadata" / "normalized_sentinel_weekly_medical_district_total_2025_10.json"
+    )
+    assert total_csv.exists() and total_metadata.exists()
+    raw_text = raw_file.read_bytes().decode("shift_jis")
+    total_marker = '"性別","男女合計"'
+    total_header_end = raw_text.index("\r\n", raw_text.index('"",', raw_text.index(total_marker))) + 2
+    raw_file.write_bytes(raw_text[:total_header_end].encode("shift_jis"))
+
+    # Act
+    result = processor.process_file(raw_file)
+
+    # Assert
+    assert result.success
+    assert sorted(output.name for output in result.output_files) == expected_processed_outputs(raw_file)
+    assert not total_csv.exists()
+    assert not total_metadata.exists()
