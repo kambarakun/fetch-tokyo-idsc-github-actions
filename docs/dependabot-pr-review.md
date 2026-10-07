@@ -51,7 +51,7 @@ CI の `🔎 Dependabot PR の事前検証` ワークフローも同じ表を各
 - OSV の range に `limit` イベントがあれば、OSV の評価手順どおり、どの `limit` より前でもない版 (`*` は無限大) は非該当とする
 - レポートの表のセルは PR 由来の文字列 (repo URL・`rev`・action 名) を含むので、`|` / バッククォート / `[` / `]` / `<` をエスケープし、リンク先は percent-encode する。PyPI の `yanked_reason` (公開者が書く自由文) は表に載せない
 - `action_metadata` は版コメントやタグではなく pin の SHA で読む (タグは動かせる)。`github/codeql-action/init` と `.../analyze` のように同じ repo の別サブパスは別の Action として行を分ける。比較する旧 pin は、そのパスで新 pin に置き換わって外れた pin (同じパスに v1 / v2 など複数系列があれば、新版以下で最も高いもの。外れた pin は 1 回しか使わないので、v1 / v2 → v3 / v4 は v1 → v3・v2 → v4 と組む) で、据え置きの pin とは比較しない。metadata は YAML 1.1 の真偽値変換をせずに読み、`on` / `yes` のような ID を別物として扱う。比較の根拠は [Action の metadata 構文](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax)。`required: true` だけでは未指定の input を runner が拒否するとは限らず、宣言されていない output も設定できるため、差分は「破壊の証拠」ではなく「release notes を読む理由」として WARN にする。必須 input の行には `default` の有無を添える。任意 input の追加だけでは WARN にしない。metadata の取得が 404 以外で失敗したときは他の検査と同じく exit 2
-- `action_metadata` の根拠に載せる input / output 名と `runs.using` は第三者の metadata 由来なので、input ID の形 (英数字・`_`・`-`) に合わない名前は「(表示できない名前)」に置き換え、形の合わない `runs.using` は解釈不能として扱う
+- `action_metadata` の根拠に載せる input / output 名と `runs.using` は第三者の metadata 由来なので、input ID の形 (英数字・`_`・`-`) に合わない名前は「(表示できない名前)」に置き換え、形の合わない `runs.using` は解釈不能として扱う。比較に使う欄の型 (`runs.using` が文字列、`inputs` / `outputs` の各定義が mapping、`required` が真偽値) が違う metadata も解釈不能の WARN とし、「変化なし」の OK には倒さない
 - `advisory` の GitHub Actions 照合は、workflow の綴りと正規名 (`GET /repos/{owner}/{repo}` の `full_name`) の両方に大文字小文字を無視して当てる。移管・改名された repo は旧名でも動き続けるが OSV は新名で登録するため、名前が違えば両方の名前で OSV に照会して和集合を取る
 
 ### GitHub Actions の版の厳密さ

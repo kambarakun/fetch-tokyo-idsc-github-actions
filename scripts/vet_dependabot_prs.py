@@ -961,8 +961,12 @@ def check_major_bump(bump: Bump) -> list[CheckResult]:
 
 
 def _required(spec: dict[str, Any]) -> bool:
-    value = spec.get("required", False)
-    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+    # _MetadataLoader leaves YAML booleans as text; any other type is not a boolean, and reading
+    # it as "optional" would report a contract change as compatible.
+    value = spec.get("required", "false")
+    if not isinstance(value, str) or value.strip().lower() not in {"true", "false"}:
+        raise ValueError("required is not a boolean")
+    return value.strip().lower() == "true"
 
 
 def _metadata_name(name: Any) -> str:
@@ -975,7 +979,9 @@ def _mapping(metadata: dict[str, Any], key: str) -> dict[str, dict[str, Any]]:
         return {}
     if not isinstance(value, dict):
         raise ValueError(f"{key} is not a mapping")
-    return {str(name): spec if isinstance(spec, dict) else {} for name, spec in value.items()}
+    if not all(isinstance(spec, dict) for spec in value.values()):
+        raise ValueError(f"an entry of {key} is not a mapping")
+    return {str(name): spec for name, spec in value.items()}
 
 
 class _MetadataLoader(yaml.SafeLoader):
@@ -999,10 +1005,13 @@ def _load_action_metadata(
             continue
         try:
             metadata = yaml.load(text, Loader=_MetadataLoader)
-            runs = metadata["runs"]
-            if not RUNTIME_NAME.fullmatch(str(runs["using"])):
+            # Fail closed on every field the comparison reads: a wrong type is "unreadable", never "unchanged".
+            using = metadata["runs"]["using"]
+            if not isinstance(using, str) or not RUNTIME_NAME.fullmatch(using):
                 return path, None
-            _mapping(metadata, "inputs"), _mapping(metadata, "outputs")
+            for spec in _mapping(metadata, "inputs").values():
+                _required(spec)
+            _mapping(metadata, "outputs")
         except (yaml.YAMLError, TypeError, KeyError, ValueError):
             return path, None
         return path, metadata

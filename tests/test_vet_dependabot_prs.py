@@ -1075,8 +1075,41 @@ def test_actions_under_subpaths_of_one_repository_are_compared_separately() -> N
             lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), _action_yml("'node24 | x'")),
             "を解釈できない",
         ),
+        (
+            lambda r: r.__setitem__(
+                _metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), _action_yml(inputs="  token: 42\n")
+            ),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(
+                _metadata_url("astral-sh/setup-uv", SETUP_UV_NEW),
+                _action_yml(inputs="  token:\n    required: [true]\n"),
+            ),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(
+                _metadata_url("astral-sh/setup-uv", SETUP_UV_OLD), _action_yml(outputs="  path: 5\n")
+            ),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), _action_yml("24")),
+            "を解釈できない",
+        ),
     ],
-    ids=["new-missing", "old-missing", "new-not-yaml", "old-without-runs", "untrusted-runtime"],
+    ids=[
+        "new-missing",
+        "old-missing",
+        "new-not-yaml",
+        "old-without-runs",
+        "untrusted-runtime",
+        "input-spec-not-a-mapping",
+        "required-not-a-boolean",
+        "output-spec-not-a-mapping",
+        "runtime-not-a-string",
+    ],
 )
 def test_unreadable_action_metadata_is_an_explicit_warn(
     action_pr: dict[str, Any], mutate: Callable[[dict[str, Any]], Any], expected: str
