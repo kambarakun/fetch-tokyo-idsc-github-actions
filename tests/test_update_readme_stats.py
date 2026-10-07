@@ -476,6 +476,39 @@ Old stats
         assert all("最新週は速報値" in line for line in notifiable_captions)
         assert "実測 5 例未満" in updated_content
 
+    def test_ranking_floor_note_matches_chart_constants(self, tmp_path):
+        """README 注記の件数下限が generate_charts の定数と一致する (片方だけ変えると README が不整合になる)"""
+        from scripts.generate_charts import DEVIATION_MIN_BASELINE_CASES, DEVIATION_MIN_OBSERVED_CASES
+
+        readme_path = tmp_path / "README.md"
+        readme_path.write_text("<!-- start data-statistics -->\n<!-- end data-statistics -->\n", encoding="utf-8")
+        stats = {
+            "total_files": 1,
+            "week_range": "-",
+            "month_range": "-",
+            "latest_fetch": "-",
+            "last_stats_update": "-",
+            "data_types": {},
+            "data_type_periods": {},
+            "latest_week": "-",
+            "latest_month": "-",
+            "week_count": 1,
+            "month_count": 1,
+            "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
+        }
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            update_readme(stats)
+        finally:
+            os.chdir(original_cwd)
+
+        expected = (
+            f"実測 {DEVIATION_MIN_OBSERVED_CASES} 例未満またはベースライン {DEVIATION_MIN_BASELINE_CASES:g} 例未満"
+        )
+        assert expected in readme_path.read_text(encoding="utf-8")
+
 
 class TestGetMetadataStatsWithLogs:
     """get_metadata_stats()のログファイル読み込み機能のテスト"""

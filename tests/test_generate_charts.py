@@ -861,6 +861,16 @@ class TestFont:
         assert setup_japanese_font() is not None
         assert "[font] sha256 verified:" in capsys.readouterr().out
 
+    def test_unreadable_font_cache_returns_none(self, isolated_font_env, monkeypatch):
+        # キャッシュの読み取り・削除に失敗しても例外を伝播させず None を返す (main() が ::error を出せるように)
+        def fail_get(url, timeout):
+            raise AssertionError("must not download when the cache cannot be checked")
+
+        monkeypatch.setattr(generate_charts.requests, "get", fail_get)
+        isolated_font_env.mkdir(parents=True)  # フォントのパスがディレクトリで read_bytes が OSError になる
+
+        assert setup_japanese_font() is None
+
     def test_corrupt_font_returns_none(self, isolated_font_env, monkeypatch):
         # 照合は通るが addfont が RuntimeError (FT_Open_Face 失敗) を投げるバイト列
         corrupt = b"not a font" * 100

@@ -14,6 +14,7 @@
 乖離率: (実測値 - ベースライン) / ベースライン x 100
 """
 
+import contextlib
 import csv
 import hashlib
 import sys
@@ -144,13 +145,18 @@ def setup_japanese_font():
     """
     # HOME 差し替えがテストで効くよう、モジュール定数にせず毎回 Path.home() から求める
     font_dir = Path.home() / ".local" / "share" / "fonts"
-    font_dir.mkdir(parents=True, exist_ok=True)
     font_path = font_dir / "NotoSansCJKjp-Regular.otf"
 
     # 既存ファイルも無条件には信用しない (不完全な取得や別版のフォントを使い続けないため)
-    if font_path.exists() and hashlib.sha256(font_path.read_bytes()).hexdigest() != FONT_SHA256:
-        print(f"[WARNING] 既存フォントの sha256 が一致しないため削除して再取得します: {font_path}")
-        font_path.unlink()
+    try:
+        font_dir.mkdir(parents=True, exist_ok=True)
+        if font_path.exists() and hashlib.sha256(font_path.read_bytes()).hexdigest() != FONT_SHA256:
+            print(f"[WARNING] 既存フォントの sha256 が一致しないため削除して再取得します: {font_path}")
+            font_path.unlink()
+    except OSError as e:
+        # 例外を伝播させると main() が ::error 注記を出せないため None で返す
+        print(f"[ERROR] フォントキャッシュを確認できません: {e}")
+        return None
 
     if not font_path.exists():
         print("📥 日本語フォント (Noto Sans CJK JP) をダウンロード中...")
@@ -176,9 +182,9 @@ def setup_japanese_font():
                 print(f"[WARNING] フォントのダウンロードに失敗 (試行 {attempt}/{max_retries}): {e}")
             except (ValueError, OSError) as e:
                 print(f"[WARNING] フォントの検証/保存に失敗 (試行 {attempt}/{max_retries}): {e}")
-                # 書きかけのファイルを残さない
-                if font_path.exists():
-                    font_path.unlink()
+                # 書きかけのファイルを残さない (削除にも失敗した場合は次回の sha256 照合で検出される)
+                with contextlib.suppress(OSError):
+                    font_path.unlink(missing_ok=True)
 
             if attempt == max_retries:
                 print("[ERROR] 最大リトライ回数に達しました。日本語フォントを取得できません。")
