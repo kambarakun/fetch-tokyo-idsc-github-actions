@@ -100,6 +100,8 @@ def test_migration_covers_processed_and_is_schema_checked_before_the_pr(workflow
     pr_index, pr_step = _step(workflow, "migrate", "Create Pull Request")
     assert "scripts/validate_metadata_schema.py" in schema_step["run"]
     assert "--version-profiles tokyo-idsc-raw,tokyo-idsc-processed" in schema_step["run"]
+    # 移行対象が 0 件でも本実行なら検査する (「既に目標バージョン」の緑が schema 未検査にならないように)
+    assert schema_step["if"] == "steps.params.outputs.dry_run == 'false'"
     assert schema_index < pr_index
     assert "git add -- data/raw/.metadata data/processed/.metadata" in pr_step["run"]
 

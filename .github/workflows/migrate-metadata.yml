@@ -259,9 +259,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Verification completed: verified=$VERIFIED, failed=$FAILED"
 
-      # 目標バージョンが METADATA_VERSION と異なる (部分移行) 場合は version 検査で赤になり、PR は作られない
+      # 目標バージョンが METADATA_VERSION と異なる (部分移行) 場合は version 検査で赤になり、PR は作られない。
+      # 移行対象が 0 件でも本実行では検査する (「既に目標バージョンです」の緑を schema 未検査で出さない)
       - name: Validate metadata schema
-        if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
+        if: steps.params.outputs.dry_run == 'false'
         run: uv run --locked python scripts/validate_metadata_schema.py --version-profiles tokyo-idsc-raw,tokyo-idsc-processed
 
       - name: Configure git
