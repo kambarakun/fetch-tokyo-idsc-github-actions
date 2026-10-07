@@ -514,7 +514,8 @@ def _action_pins(text: str | None) -> dict[tuple[str, str], dict[str, str]]:
 
 
 def _is_versioned(version: str, sha: str) -> bool:
-    return version != sha[:SHORT_SHA] and _parse_version(version) is not None
+    # Numeric only, as in advisory matching: PEP 440 would order SemVer prereleases (`1.0.0-1`) as post-releases.
+    return version != sha[:SHORT_SHA] and _numeric_version(version) is not None
 
 
 def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinChange]:
@@ -1043,13 +1044,15 @@ def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
         reasons.append(f"runs.using {old_using} → {new_using}")
     old_inputs = _mapping(old, "inputs")
     for name, spec in _mapping(new, "inputs").items():
-        if not _required(spec):
-            continue
+        required = _required(spec)
         default = "default あり" if "default" in spec else "default なし、未指定時の扱いは action 次第"
-        if name not in old_inputs:
+        if required and name not in old_inputs:
             reasons.append(f"必須 input {_metadata_name(name)} を追加 ({default})")
-        elif not _required(old_inputs[name]):
+        elif required and not _required(old_inputs[name]):
             reasons.append(f"input {_metadata_name(name)} が任意 → 必須 ({default})")
+        elif name in old_inputs and "default" in old_inputs[name] and "default" not in spec:
+            # A caller that relied on the old default now passes nothing.
+            reasons.append(f"input {_metadata_name(name)} の default を削除 ({'必須' if required else '任意'})")
     new_outputs = _mapping(new, "outputs")
     if removed := [name for name in _mapping(old, "outputs") if name not in new_outputs]:
         reasons.append(f"output を削除: {', '.join(_metadata_name(name) for name in removed)}")

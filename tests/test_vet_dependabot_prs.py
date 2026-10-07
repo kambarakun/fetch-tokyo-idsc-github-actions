@@ -999,6 +999,18 @@ def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr:
             "OK",
             "必須 input の追加",
         ),
+        (
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n    default: abc\n"),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n"),
+            "WARN",
+            "input token の default を削除 (必須",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n    default: 'true'\n"),
+            _action_yml(inputs="  cache:\n    description: c\n"),
+            "WARN",
+            "input cache の default を削除 (任意",
+        ),
     ],
     ids=[
         "runtime",
@@ -1007,6 +1019,8 @@ def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr:
         "optional-to-required",
         "output-removed",
         "optional-added",
+        "required-default-removed",
+        "optional-default-removed",
     ],
 )
 def test_action_metadata_contract_changes(
@@ -1156,7 +1170,14 @@ def test_several_unversioned_pins_of_one_path_are_not_paired_by_hash_order() -> 
     changes = vet.action_pin_changes(before, after)
     checks = [check for check in _vet(responses).checks if check.check_id == "action_metadata"]
     single = vet.action_pin_changes(_workflow("org/act", a, ""), _workflow("org/act", c, ""))
+    # SemVer orders 1.0.0-1 before 1.0.0 while PEP 440 reads it as a post-release, so such
+    # comments cannot order several pins either.
+    semver_before = _workflow("org/act", a, "v1.0.0-1") + _workflow("org/act", b, "v1.0.0")
+    semver_after = _workflow("org/act", c, "v1.0.0-2") + _workflow("org/act", d, "v1.0.1")
+    semver = vet.action_pin_changes(semver_before, semver_after)
 
+    assert {(change.old_sha, change.new_sha) for change in semver} == {(None, c), (None, d)}
+    assert all(change.ambiguous for change in semver)
     assert {(change.old_sha, change.new_sha) for change in changes} == {(None, c), (None, d)}
     assert [check.verdict for check in checks] == ["WARN", "WARN"]
     assert all("一意に特定できない" in check.detail for check in checks)
