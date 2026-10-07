@@ -551,6 +551,16 @@ case "$name $*" in
     esac
     ;;
   "git merge-base --is-ancestor cafe HEAD") exit "${FAKE_ANCESTOR_EXIT:-0}" ;;
+  "gh api repos/{owner}/{repo}/pulls/789 "*)
+    [ "${FAKE_PR_VIEW_EXIT:-0}" -eq 0 ] || exit "$FAKE_PR_VIEW_EXIT"
+    echo "${FAKE_PR_INFO-open main data-process-20261008-1 beef}"
+    ;;
+  "git fetch origin pull/789/head") exit "${FAKE_PR_FETCH_EXIT:-0}" ;;
+  "git rev-parse FETCH_HEAD") echo "${FAKE_FETCHED_SHA:-beef}" ;;
+  "git diff --no-renames --name-only origin/main...beef")
+    printf '%s' "${FAKE_PR_FILES:-}"
+    exit "${FAKE_DIFF_EXIT:-0}"
+    ;;
   "uv run --locked check-data-status --fail-on-incomplete") echo "complete" > "$FAKE_GATE_RECORD" ;;
   "gh workflow run "*) printf '%s\\n' "$@" > "$FAKE_DISPATCH_RECORD" ;;
   *) echo "unexpected: $name $*" >&2; exit 97 ;;
@@ -734,3 +744,65 @@ def test_runbook_post_merge_check_stops_before_the_gate(
 
     assert result.returncode != 0
     assert not (tmp_path / "gate.txt").exists()
+
+
+# A normal 500-raw batch touches well over 1,000 files; the diff API rejects anything over 300.
+LARGE_PR_FILES = (
+    "".join(
+        f"data/processed/normalized_notifiable_weekly_2000_{index:03d}.csv\n"
+        f"data/processed/.metadata/normalized_notifiable_weekly_2000_{index:03d}.json\n"
+        for index in range(600)
+    )
+    + "data/processed/stats.json\ndata/logs/validation_report_20261008_000000.json\n"
+)
+
+
+def pr_diff_block() -> str:
+    block = runbook_block("pr-diff")
+    assert block.count('PR_NUMBER=""') == 1
+    return block.replace('PR_NUMBER=""', 'PR_NUMBER="789"')
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+def test_runbook_pr_diff_lists_every_file_of_a_large_batch_pr(tmp_path: Path, shell: str) -> None:
+    result, _ = run_runbook(tmp_path, shell, pr_diff_block(), FAKE_PR_FILES=LARGE_PR_FILES)
+
+    assert result.returncode == 0, result.stderr
+    assert re.search(r"processed CSV: +600$", result.stdout, re.MULTILINE), result.stdout
+    assert re.search(r"processed metadata: +600$", result.stdout, re.MULTILINE), result.stdout
+    assert re.search(r"stats\.json: +1$", result.stdout, re.MULTILINE), result.stdout
+    assert re.search(r"検証レポート: +1$", result.stdout, re.MULTILINE), result.stdout
+    assert "想定外のファイルはありません" in result.stdout
+    assert "STOP" not in result.stderr
+    assert not list(tmp_path.glob("tmp.*"))
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+@pytest.mark.parametrize(
+    ("use_placeholder", "fake_env"),
+    [
+        pytest.param(True, {}, id="pr-number-not-set"),
+        pytest.param(False, {"FAKE_PR_VIEW_EXIT": "1"}, id="pr-lookup-fails"),
+        pytest.param(False, {"FAKE_PR_INFO": ""}, id="pr-lookup-empty"),
+        pytest.param(False, {"FAKE_PR_INFO": "closed main data-process-20261008-1 beef"}, id="pr-not-open"),
+        pytest.param(False, {"FAKE_PR_INFO": "open develop data-process-20261008-1 beef"}, id="base-not-main"),
+        pytest.param(False, {"FAKE_PR_INFO": "open main feature-x beef"}, id="not-a-data-process-pr"),
+        pytest.param(False, {"FAKE_FETCH_EXIT": "1"}, id="main-fetch-fails"),
+        pytest.param(False, {"FAKE_PR_FETCH_EXIT": "1"}, id="pr-fetch-fails"),
+        pytest.param(False, {"FAKE_FETCHED_SHA": "dead"}, id="fetched-head-differs"),
+        pytest.param(False, {"FAKE_DIFF_EXIT": "128"}, id="diff-fails"),
+        pytest.param(False, {}, id="empty-diff"),
+        pytest.param(False, {"FAKE_PR_FILES": LARGE_PR_FILES + "data/raw/notifiable_weekly_2000_001.csv\n"}, id="raw"),
+        pytest.param(False, {"FAKE_PR_FILES": LARGE_PR_FILES + "src/cli/process_data.py\n"}, id="code"),
+    ],
+)
+def test_runbook_pr_diff_stops_on_a_wrong_target_or_an_incomplete_list(
+    tmp_path: Path, shell: str, use_placeholder: bool, fake_env: dict[str, str]
+) -> None:
+    block = runbook_block("pr-diff") if use_placeholder else pr_diff_block()
+
+    result, _ = run_runbook(tmp_path, shell, block, **fake_env)
+
+    assert result.returncode != 0
+    assert "想定外のファイルはありません" not in result.stdout
+    assert "unexpected:" not in result.stderr

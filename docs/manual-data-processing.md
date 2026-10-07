@@ -210,16 +210,34 @@ Summary で次をすべて確認する。1 つでも満たさなければ PR を
 
 ## 5. PR の差分確認
 
-`git add data/` で PR を作るので、processed の変更に加えて今回の run の検証レポート (`data/logs/validation_report_*.json`) も PR に入る。「変更は data/processed だけ」を合否条件にしない。`data/logs/console_*.log` は `.gitignore` の `*.log` で除外されるので PR には入らず、run の logs artifact (`process-logs-<timestamp>`) でだけ確認できる。`PR_NUMBER` に data PR の番号を入れてから実行する (空なら止まる)。
+`git add data/` で PR を作るので、processed の変更に加えて今回の run の検証レポート (`data/logs/validation_report_*.json`) も PR に入る。「変更は data/processed だけ」を合否条件にしない。`data/logs/console_*.log` は `.gitignore` の `*.log` で除外されるので PR には入らず、run の logs artifact (`process-logs-<timestamp>`) でだけ確認できる。差分の一覧はローカルの git で取る。`gh pr diff` (`--name-only` を含む) は変更ファイルが 300 を超える PR で HTTP 406 になり、1 batch で 1,000 ファイルを超える通常の data PR では使えない。リポジトリの clone 内で、`PR_NUMBER` に data PR の番号を入れてから実行する (空なら止まる)。PR が main 向けの open な `data-process-*` PR であること、取得した commit が PR の現在の head と一致することを確認してから、最新の origin/main との差分を件数の上限なしで全件数える。`git fetch` はリモート追跡参照と `FETCH_HEAD` を更新するだけで、作業ツリーとローカルの main は変えない。
+
+<!-- runbook: pr-diff -->
 
 ```bash
 (
   set -eu -o pipefail
   PR_NUMBER=""
   case "$PR_NUMBER" in '' | *[!0-9]*) echo "PR_NUMBER を設定してください" >&2; exit 2 ;; esac
+  PR_INFO="$(gh api "repos/{owner}/{repo}/pulls/$PR_NUMBER" --jq '"\(.state) \(.base.ref) \(.head.ref) \(.head.sha)"')"
+  read -r PR_STATE BASE_REF HEAD_REF HEAD_SHA <<< "$PR_INFO"
+  if [ "$PR_STATE" != open ] || [ "$BASE_REF" != main ]; then
+    echo "STOP: main 向けの open な PR ではありません ($PR_INFO)" >&2
+    exit 1
+  fi
+  case "$HEAD_REF" in data-process-*) ;; *) echo "STOP: data-process-* ブランチの PR ではありません ($HEAD_REF)" >&2; exit 1 ;; esac
+  git fetch origin main
+  git fetch origin "pull/$PR_NUMBER/head"
+  FETCHED="$(git rev-parse FETCH_HEAD)"
+  if [ "$FETCHED" != "$HEAD_SHA" ]; then
+    echo "STOP: 取得した commit ($FETCHED) が PR の head ($HEAD_SHA) と一致しません" >&2
+    exit 1
+  fi
   DIFF="$(mktemp)"
-  gh pr diff "$PR_NUMBER" --name-only > "$DIFF"
+  trap 'rm -f "$DIFF"' EXIT
+  git diff --no-renames --name-only "origin/main...$HEAD_SHA" > "$DIFF"
   test -s "$DIFF"
+  echo "変更ファイル総数:   $(wc -l < "$DIFF" | tr -d ' ')"
   echo "processed CSV:      $(grep -cE '^data/processed/normalized_[^/]+\.csv$' "$DIFF" || true)"
   echo "processed metadata: $(grep -cE '^data/processed/\.metadata/normalized_[^/]+\.json$' "$DIFF" || true)"
   echo "stats.json:         $(grep -cE '^data/processed/stats\.json$' "$DIFF" || true)"
