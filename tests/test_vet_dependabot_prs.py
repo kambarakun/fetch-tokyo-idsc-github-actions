@@ -1089,6 +1089,51 @@ def test_unreadable_action_metadata_is_an_explicit_warn(
     assert expected in check.detail
 
 
+def test_each_new_pin_is_compared_with_the_pin_it_replaced() -> None:
+    """Two pins of one action path: each new pin pairs with the old one it removed, not the highest."""
+    a, b, c, d = ("a" * 40, "b" * 40, "c" * 40, "e" * 40)
+    before = "".join(_workflow("org/act", sha, tag) for sha, tag in ((a, "v1.0.0"), (b, "v2.0.0")))
+    after = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v1.1.0"), (d, "v2.1.0")))
+    kept = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v1.2.0"), (b, "v2.0.0")))
+
+    pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+    only_one_moved = vet.action_pin_changes(before, kept)
+
+    assert pairs == {(a, c), (b, d)}
+    assert [(change.old_sha, change.new_sha) for change in only_one_moved] == [(a, c)]
+
+
+def test_unchanged_sibling_pin_does_not_hide_a_runtime_change() -> None:
+    responses: dict[str, Any] = {}
+    old, sibling, new = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("org/act", old, "v1.0.0") + _workflow("org/act", sibling, "v1.1.0")
+    after = _workflow("org/act", new, "v1.2.0") + _workflow("org/act", sibling, "v1.1.0")
+    responses[_metadata_url("org/act", old)] = _action_yml("node20")
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-1.2.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+
+    check = _metadata_check(_vet(responses), "org/act")
+
+    assert check.verdict == "WARN"
+    assert check.change == "v1.0.0 → v1.2.0"
+    assert "runs.using node20 → node24" in check.detail
+
+
+def test_yaml_boolean_like_ids_stay_distinct(action_pr: dict[str, Any]) -> None:
+    """YAML 1.1 reads `on` and `yes` as true; as ids they are different outputs."""
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(outputs="  on:\n    description: o\n")
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(outputs="  yes:\n    description: y\n")
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "output を削除: on" in check.detail
+
+
 def test_newly_added_action_without_an_old_pin_is_not_reported_as_compatible() -> None:
     responses: dict[str, Any] = {}
     files = {".github/workflows/test.yml": (None, _workflow("astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0"))}
@@ -1099,7 +1144,7 @@ def test_newly_added_action_without_an_old_pin_is_not_reported_as_compatible() -
 
     assert check.verdict == "WARN"
     assert check.change == "(新規) → v10.2.0"
-    assert "旧 pin が無いため比較不能" in check.detail
+    assert "置き換えた旧 pin が無いため比較不能" in check.detail
 
 
 def test_reusable_workflow_and_unsafe_subpaths_are_not_compared() -> None:
@@ -1556,6 +1601,26 @@ def test_recording_writes_a_fixture_that_replays_identically(
     project = json.loads((tmp_path / index[f"GET {vet.PYPI_PROJECT.format(name='ruff')}"]).read_text(encoding="utf-8"))
     # Only releases above the candidate (0.16.8) can supersede it; 0.16.7 is history.
     assert sorted(project["releases"]) == ["0.16.10", "0.16.9"]
+
+
+def test_recording_two_candidates_of_one_project_keeps_every_later_release(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    """The higher candidate recorded first must not drop releases the lower one still needs."""
+    other_head, other_base = "f" * 40, "9" * 40
+    _pr(uv_pr, number=750, head_sha=other_head, head_ref="dependabot/uv/ruff-0.16.10", files={})
+    uv_pr[f"{API}/pulls/750/files?per_page=100&page=1"] = [{"filename": "uv.lock"}]
+    uv_pr[f"{API}/compare/{BASE_SHA}...{other_head}"] = {"merge_base_commit": {"sha": other_base}}
+    uv_pr[f"{API}/contents/uv.lock?ref={other_base}"] = _uv_lock(ruff="0.16.9")
+    uv_pr[f"{API}/contents/uv.lock?ref={other_head}"] = _uv_lock(ruff="0.16.10")
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    recorded = [vet.vet_pull_request(*recording, REPO, number) for number in (750, 748)]
+    replayed = [vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, number) for number in (750, 748)]
+
+    assert [verdict.bumps[0].new for verdict in recorded] == ["0.16.10", "0.16.8"]
+    assert [verdict.checks for verdict in replayed] == [verdict.checks for verdict in recorded]
 
 
 def test_recorded_fixture_stays_under_the_size_budget() -> None:

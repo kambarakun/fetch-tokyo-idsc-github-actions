@@ -277,11 +277,11 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
     index: dict[str, str] = {}
     candidates: dict[str, Version] = {}
 
-    def save(key: str, payload: Any, *, raw: bool) -> None:
-        if key in index:
+    def save(key: str, payload: Any, *, raw: bool, refresh: bool = False) -> None:
+        if key in index and not refresh:
             return
         slug = re.sub(r"[^A-Za-z0-9]+", "-", key.split(" ", 1)[1])[-60:].strip("-")
-        filename = f"{len(index):03d}-{slug}.{'txt' if raw else 'json'}"
+        filename = index.get(key) or f"{len(index):03d}-{slug}.{'txt' if raw else 'json'}"
         target = record_dir / filename
         if raw:
             target.write_text(payload, encoding="utf-8")
@@ -296,7 +296,8 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
         match = PYPI_RELEASE_PATH.match(parts.path) if parts.hostname == "pypi.org" else None
         if match and (version := _parse_version(match["version"])) is not None:
             candidates[match["name"]] = min(version, candidates.get(match["name"], version))
-        save(f"GET {url}", payload, raw=False)
+        # A later PR may bring a lower candidate of the same project: keep the widest release list.
+        save(f"GET {url}", payload, raw=False, refresh=parts.hostname == "pypi.org" and match is None)
         return payload
 
     def fetch_text(url: str) -> str:
@@ -514,13 +515,18 @@ def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinC
     changes: list[ActionPinChange] = []
     for (repo, subpath), new_by_sha in sorted(new_pins.items()):
         old_by_sha = old_pins.get((repo, subpath), {})
-        # The same predecessor rule as workflow_bumps, applied per action path.
-        old_sha = max(old_by_sha, key=lambda sha: _version_key(old_by_sha[sha])) if old_by_sha else None
-        changes.extend(
-            ActionPinChange(repo, subpath, old_sha, old_by_sha.get(old_sha or ""), sha, version)
-            for sha, version in new_by_sha.items()
-            if sha not in old_by_sha
+        # Only a pin this path dropped can be the predecessor: a sibling pin left in place says
+        # nothing about the one that moved. Pair like _pair_bumps: the highest removed version not
+        # above the new one, else the lowest removed one; nothing removed means nothing to compare.
+        removed = sorted(
+            (sha for sha in old_by_sha if sha not in new_by_sha), key=lambda sha: _version_key(old_by_sha[sha])
         )
+        for sha, version in new_by_sha.items():
+            if sha in old_by_sha:
+                continue
+            below = [old for old in removed if _version_key(old_by_sha[old]) <= _version_key(version)]
+            old_sha = below[-1] if below else removed[0] if removed else None
+            changes.append(ActionPinChange(repo, subpath, old_sha, old_by_sha.get(old_sha or ""), sha, version))
     return changes
 
 
@@ -967,6 +973,16 @@ def _mapping(metadata: dict[str, Any], key: str) -> dict[str, dict[str, Any]]:
     return {str(name): spec if isinstance(spec, dict) else {} for name, spec in value.items()}
 
 
+class _MetadataLoader(yaml.SafeLoader):
+    """SafeLoader without YAML 1.1 booleans: `on` and `yes` are distinct input / output ids."""
+
+
+_MetadataLoader.yaml_implicit_resolvers = {
+    first: [(tag, pattern) for tag, pattern in resolvers if tag != "tag:yaml.org,2002:bool"]
+    for first, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
 def _load_action_metadata(
     fetch_text: FetchText, change: ActionPinChange, sha: str
 ) -> tuple[str | None, dict[str, Any] | None]:
@@ -977,7 +993,7 @@ def _load_action_metadata(
         if text is None:
             continue
         try:
-            metadata = yaml.safe_load(text)
+            metadata = yaml.load(text, Loader=_MetadataLoader)
             runs = metadata["runs"]
             if not RUNTIME_NAME.fullmatch(str(runs["using"])):
                 return path, None
@@ -1019,7 +1035,7 @@ def _uncomparable(change: ActionPinChange) -> str | None:
     if len(parts) >= 3 and parts[:2] == [".github", "workflows"]:
         return "再利用ワークフローは action metadata を持たないため比較不能"
     if change.old_sha is None:
-        return "旧 pin が無いため比較不能 (新規追加)"
+        return "置き換えた旧 pin が無いため比較不能 (新規追加など)"
     return None
 
 
