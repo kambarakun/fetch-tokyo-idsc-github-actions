@@ -678,7 +678,7 @@ jobs:
             echo "  - 合計CSVファイル: $TOTAL_CSV_FILES"
           fi
 
-      # Bot data PRs do not run test.yml (paths-ignore), so the schema check runs here (issue #731)
+      # Bot data PRs merge before test.yml can run, so the schema check runs here (issue #731)
       # ステップ自体は失敗させない。判定は Evaluate auto-merge gate の blocker "schema" が行う
       - name: Validate metadata against JSON Schema
         if: inputs.dry_run != true

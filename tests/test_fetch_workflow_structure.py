@@ -17,7 +17,6 @@ COMMON_WORKFLOW = WORKFLOW_DIRECTORY / "_fetch-data-common.yml"
 # Compare against the commit checked out before fetching: fetch-data may commit raw files locally,
 # so a staged-only diff would miss them, while README/data/logs churn must not count as data.
 DATA_CHANGE_CHECK = 'git diff --cached --quiet "$PRE_FETCH_SHA" -- data/raw'
-BOT_ONLY_PATHS = ["data/**", "docs/images/**", "README.md"]
 
 
 def load_workflow(name: str) -> dict[Any, Any]:
@@ -34,21 +33,6 @@ def common_steps() -> dict[str, dict[str, Any]]:
 def step_index(names: list[str], name: str) -> int:
     assert name in names, f"missing step: {name}"
     return names.index(name)
-
-
-@pytest.mark.parametrize("workflow_name", ["test.yml", "claude-code-review.yml"])
-def test_pull_request_ci_ignores_bot_data_only_paths(workflow_name: str) -> None:
-    # PyYAML parses the bare `on:` key as the boolean True.
-    triggers = load_workflow(workflow_name)[True]
-
-    assert triggers["pull_request"]["paths-ignore"] == BOT_ONLY_PATHS
-
-
-def test_push_ci_still_runs_for_every_path() -> None:
-    push = load_workflow("test.yml")[True]["push"]
-
-    assert "paths" not in push
-    assert "paths-ignore" not in push
 
 
 @pytest.mark.parametrize("workflow_name", ["fetch-data-daily.yml", "fetch-data-weekly.yml"])

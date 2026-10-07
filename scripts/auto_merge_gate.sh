@@ -52,7 +52,7 @@ evaluate_auto_merge_gate() {
       else
         CONTINUITY_GATE_STATUS="not_requested"
       fi
-      # Bot data PRs skip PR CI (paths-ignore), so the metadata schema is checked here; unset fails closed.
+      # Bot data PRs merge before PR CI can run, so the metadata schema is checked here; unset fails closed.
       case "${SCHEMA_VALID:-}" in
         true) SCHEMA_GATE_STATUS="passed" ;;
         false)
