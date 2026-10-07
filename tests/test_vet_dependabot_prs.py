@@ -1096,11 +1096,19 @@ def test_each_new_pin_is_compared_with_the_pin_it_replaced() -> None:
     after = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v1.1.0"), (d, "v2.1.0")))
     kept = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v1.2.0"), (b, "v2.0.0")))
 
+    jumped = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v3.0.0"), (d, "v4.0.0")))
+    merged = _workflow("org/act", d, "v2.1.0")
+
     pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
     only_one_moved = vet.action_pin_changes(before, kept)
+    both_above = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, jumped)}
+    one_left = [(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, merged)]
 
     assert pairs == {(a, c), (b, d)}
     assert [(change.old_sha, change.new_sha) for change in only_one_moved] == [(a, c)]
+    # Each removed pin is consumed once: v1 -> v3 and v2 -> v4, never both against v2.
+    assert both_above == {(a, c), (b, d)}
+    assert one_left == [(b, d)]
 
 
 def test_unchanged_sibling_pin_does_not_hide_a_runtime_change() -> None:

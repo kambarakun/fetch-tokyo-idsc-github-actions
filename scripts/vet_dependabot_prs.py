@@ -516,16 +516,21 @@ def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinC
     for (repo, subpath), new_by_sha in sorted(new_pins.items()):
         old_by_sha = old_pins.get((repo, subpath), {})
         # Only a pin this path dropped can be the predecessor: a sibling pin left in place says
-        # nothing about the one that moved. Pair like _pair_bumps: the highest removed version not
-        # above the new one, else the lowest removed one; nothing removed means nothing to compare.
+        # nothing about the one that moved. Each dropped pin pairs with one new pin: going from the
+        # highest new version down, take the highest unused dropped version not above it, else the
+        # lowest unused one (v1/v2 -> v3/v4 pairs v2 -> v4 and v1 -> v3). Nothing left, nothing to compare.
         removed = sorted(
             (sha for sha in old_by_sha if sha not in new_by_sha), key=lambda sha: _version_key(old_by_sha[sha])
         )
-        for sha, version in new_by_sha.items():
-            if sha in old_by_sha:
-                continue
+        added = sorted(
+            (sha for sha in new_by_sha if sha not in old_by_sha), key=lambda sha: _version_key(new_by_sha[sha])
+        )
+        for sha in reversed(added):
+            version = new_by_sha[sha]
             below = [old for old in removed if _version_key(old_by_sha[old]) <= _version_key(version)]
             old_sha = below[-1] if below else removed[0] if removed else None
+            if old_sha is not None:
+                removed.remove(old_sha)
             changes.append(ActionPinChange(repo, subpath, old_sha, old_by_sha.get(old_sha or ""), sha, version))
     return changes
 
