@@ -22,9 +22,14 @@ on:
     paths:
       - "src/models/metadata.py"
 
+# 書込権限は PR を作る migrate ジョブにだけ付ける
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+# shell を明示すると bash --noprofile --norc -eo pipefail {0} で動く (未指定の既定は pipefail なしの bash -e)
+defaults:
+  run:
+    shell: bash
 
 concurrency:
   group: migrate-metadata
@@ -42,6 +47,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 2
+          persist-credentials: false
 
       - name: Setup uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -57,13 +63,12 @@ jobs:
 
       - name: Check METADATA_VERSION change
         id: check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          # 手動実行の場合は常にtrue
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            {
-              echo "changed=true"
-              echo "new_version=${{ github.event.inputs.target_version }}"
-            } >> "$GITHUB_OUTPUT"
+          # 手動実行の場合は常にtrue (目標バージョンは migrate ジョブが入力から直接読んで検証する)
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -107,6 +112,9 @@ jobs:
     needs: check-version-change
     if: needs.check-version-change.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       dry_run: ${{ steps.params.outputs.dry_run }}
       target_version: ${{ steps.params.outputs.target_version }}
@@ -130,16 +138,22 @@ jobs:
       - name: Setup Python
         run: uv python install 3.11
 
+      # schema 検証ステップの jsonschema が dev extra にあるため test.yml と同じく全 extra を入れる
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --all-extras --locked
 
       - name: Prepare parameters
         id: params
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_DRY_RUN: ${{ github.event.inputs.dry_run }}
+          INPUT_TARGET_VERSION: ${{ github.event.inputs.target_version }}
+          DETECTED_VERSION: ${{ needs.check-version-change.outputs.new_version }}
         run: |
           # イベント種別に応じてパラメータを設定
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            DRY_RUN="${{ github.event.inputs.dry_run }}"
-            TARGET_VERSION="${{ github.event.inputs.target_version }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            DRY_RUN="$INPUT_DRY_RUN"
+            TARGET_VERSION="$INPUT_TARGET_VERSION"
           else
             # push イベントの場合はデフォルト値を使用
             DRY_RUN="false"
@@ -155,11 +169,10 @@ jobs:
 
           # 目標バージョンが指定されていない場合は検出されたバージョンを使用
           if [ -z "$TARGET_VERSION" ]; then
-            if [ -n "${{ needs.check-version-change.outputs.new_version }}" ]; then
-              TARGET_VERSION="${{ needs.check-version-change.outputs.new_version }}"
-            else
-              # Pythonで堅牢にバージョンを抽出
-              TARGET_VERSION=$(uv run --locked python -c "
+            if [ -n "$DETECTED_VERSION" ]; then
+              TARGET_VERSION="$DETECTED_VERSION"
+            # Pythonで堅牢にバージョンを抽出 (失敗したらワークフローを停止)
+            elif ! TARGET_VERSION=$(uv run --locked python -c "
           import re
           import sys
           try:
@@ -173,15 +186,18 @@ jobs:
           except Exception as e:
               print(f'ERROR: {e}', file=sys.stderr)
               sys.exit(1)
-          ")
-
-              # バージョン抽出に失敗した場合はワークフローを停止
-              # shellcheck disable=SC2181  # python実行を別行で評価したいため $? を許容
-              if [ $? -ne 0 ] || [ -z "$TARGET_VERSION" ]; then
-                echo "::error::METADATA_VERSION の抽出に失敗しました。metadata.py を確認してください。"
-                exit 1
-              fi
+          "); then
+              echo "::error::METADATA_VERSION の抽出に失敗しました。metadata.py を確認してください。"
+              exit 1
             fi
+          fi
+
+          # 入力値は GITHUB_OUTPUT とコマンドライン引数に渡すので、形式を確かめてから使う
+          # (登録済みのバージョンかどうかは migrate-metadata が走査前に検査して exit 2 にする)
+          VERSION_PATTERN='^[0-9]+\.[0-9]+(\.[0-9]+)?$'
+          if ! [[ "$TARGET_VERSION" =~ $VERSION_PATTERN ]]; then
+            echo "::error::目標バージョンの形式が不正です (例: 1.3.0)。"
+            exit 1
           fi
 
           # outputs として出力 (後続ステップで参照)
@@ -196,23 +212,34 @@ jobs:
 
       - name: Run migration (dry-run check)
         id: dry_run
+        env:
+          TARGET_VERSION: ${{ steps.params.outputs.target_version }}
         run: |
           echo "=== Dry Run ==="
-          uv run --locked migrate-metadata --dry-run --target-version "${{ steps.params.outputs.target_version }}" 2>&1 | tee dry_run.log
-
-          # マイグレーション対象があるか確認 (空の場合は0をデフォルト)
-          # ログ形式: "2025-12-17 07:45:46 - INFO - Migrated:       7546"
-          # awk '{print $2}' だと時刻(07:45:46)を取得してしまうため、
-          # sedで "Migrated:" の後の数値を抽出する
-          MIGRATED=$(grep "Migrated:" dry_run.log | sed -E 's/.*Migrated:\s*([0-9]+).*/\1/')
-          MIGRATED=${MIGRATED:-0}
-          echo "migrated_count=$MIGRATED" >> "$GITHUB_OUTPUT"
+          # 件数はログではなく --output-json の stdout から取る (ログは stderr のまま表示される)。
+          # CLI の失敗 (errors > 0 は exit 1、未登録の目標バージョンは exit 2) は代入の失敗としてステップを止める
+          RAW_STATS=$(uv run --locked migrate-metadata --dry-run --target-version "$TARGET_VERSION" --output-json)
+          PROCESSED_STATS=$(uv run --locked migrate-metadata --dry-run --target-version "$TARGET_VERSION" \
+            --metadata-dir data/processed/.metadata --data-dir data/processed --output-json)
+          RAW_MIGRATED=$(jq -er '.migrated' <<<"$RAW_STATS")
+          PROCESSED_MIGRATED=$(jq -er '.migrated' <<<"$PROCESSED_STATS")
+          {
+            echo "raw_migrated=$RAW_MIGRATED"
+            echo "processed_migrated=$PROCESSED_MIGRATED"
+            echo "migrated_count=$((RAW_MIGRATED + PROCESSED_MIGRATED))"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run migration
+        id: migrate
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
+        env:
+          TARGET_VERSION: ${{ steps.params.outputs.target_version }}
         run: |
-          echo "=== Running Migration ==="
-          uv run --locked migrate-metadata --target-version "${{ steps.params.outputs.target_version }}" --verbose
+          echo "=== Running Migration (raw) ==="
+          uv run --locked migrate-metadata --target-version "$TARGET_VERSION" --verbose
+          echo "=== Running Migration (processed) ==="
+          uv run --locked migrate-metadata --target-version "$TARGET_VERSION" --verbose \
+            --metadata-dir data/processed/.metadata --data-dir data/processed
 
       - name: Run verification
         id: verify
@@ -231,6 +258,11 @@ jobs:
             echo "failed_count=$FAILED"
           } >> "$GITHUB_OUTPUT"
           echo "Verification completed: verified=$VERIFIED, failed=$FAILED"
+
+      # 目標バージョンが METADATA_VERSION と異なる (部分移行) 場合は version 検査で赤になり、PR は作られない
+      - name: Validate metadata schema
+        if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
+        run: uv run --locked python scripts/validate_metadata_schema.py --version-profiles tokyo-idsc-raw,tokyo-idsc-processed
 
       - name: Configure git
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
@@ -256,7 +288,7 @@ jobs:
           TARGET_VERSION: ${{ steps.params.outputs.target_version }}
           MIGRATED_COUNT: ${{ steps.dry_run.outputs.migrated_count }}
         run: |
-          git add data/raw/.metadata/*.json
+          git add -- data/raw/.metadata data/processed/.metadata
 
           if ! git diff --staged --quiet; then
             # 共通スクリプトを呼び出し
@@ -267,40 +299,44 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          TARGET_VERSION: ${{ steps.params.outputs.target_version }}
+          DRY_RUN: ${{ steps.params.outputs.dry_run }}
+          MIGRATED_COUNT: ${{ steps.dry_run.outputs.migrated_count }}
+          RAW_MIGRATED: ${{ steps.dry_run.outputs.raw_migrated }}
+          PROCESSED_MIGRATED: ${{ steps.dry_run.outputs.processed_migrated }}
+          VERIFIED_COUNT: ${{ steps.verify.outputs.verified_count }}
+          FAILED_COUNT: ${{ steps.verify.outputs.failed_count }}
         run: |
           # 変数のデフォルト値を設定 (前のステップが失敗した場合に備える)
-          TARGET_VERSION="${{ steps.params.outputs.target_version }}"
           TARGET_VERSION="${TARGET_VERSION:-不明}"
-
-          DRY_RUN="${{ steps.params.outputs.dry_run }}"
-          DRY_RUN="${DRY_RUN:-false}"
-
-          MIGRATED_COUNT="${{ steps.dry_run.outputs.migrated_count }}"
-          MIGRATED_COUNT="${MIGRATED_COUNT:-0}"
-
-          VERIFIED_COUNT="${{ steps.verify.outputs.verified_count }}"
+          DRY_RUN="${DRY_RUN:-不明}"
+          MIGRATED_COUNT="${MIGRATED_COUNT:-不明}"
+          RAW_MIGRATED="${RAW_MIGRATED:-不明}"
+          PROCESSED_MIGRATED="${PROCESSED_MIGRATED:-不明}"
           VERIFIED_COUNT="${VERIFIED_COUNT:-0}"
-          FAILED_COUNT="${{ steps.verify.outputs.failed_count }}"
           FAILED_COUNT="${FAILED_COUNT:-0}"
 
           {
             echo "## 🔀 メタデータマイグレーションサマリー"
             echo ""
             echo "- **目標バージョン**: $TARGET_VERSION"
-            echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル"
+            echo "- **マイグレーション対象**: ${MIGRATED_COUNT}ファイル (raw: ${RAW_MIGRATED}ファイル / processed: ${PROCESSED_MIGRATED}ファイル)"
             echo "- **ドライラン**: $DRY_RUN"
+            echo ""
 
-            if [ "$DRY_RUN" = "true" ]; then
-              echo ""
+            # 失敗したら件数に関係なく失敗を表示する (✅ の分岐に入らない)
+            if [ "$JOB_STATUS" != "success" ]; then
+              echo "❌ マイグレーションが失敗しました (job.status: $JOB_STATUS)。ワークフローのログを確認してください。"
+            elif [ "$DRY_RUN" = "true" ]; then
               echo "⚠️ **ドライランモード**: 変更は保存されていません。"
             elif [ "$MIGRATED_COUNT" = "0" ]; then
-              echo ""
               echo "✅ すべてのメタデータファイルは既に目標バージョンです。"
             else
-              echo ""
               echo "✅ マイグレーションが正常に完了しました。"
               echo ""
-              echo "### 検証結果"
+              echo "### 検証結果 (raw のファイル形式)"
               echo "- **検証成功**: ${VERIFIED_COUNT}ファイル"
               echo "- **検証失敗**: ${FAILED_COUNT}ファイル"
             fi

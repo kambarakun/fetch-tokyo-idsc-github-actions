@@ -169,6 +169,26 @@ class TestRunVerification:
 
             assert stats["total"] == 0
 
+    def test_verify_excludes_processing_log(self, tmp_path: Path) -> None:
+        """processing_log.json も非メタデータとして数えない."""
+        metadata_dir = tmp_path / ".metadata"
+        metadata_dir.mkdir()
+        (metadata_dir / "processing_log.json").write_text(json.dumps({"processing": []}), encoding="utf-8")
+
+        stats = run_verification(metadata_dir, tmp_path, dry_run=True)
+
+        assert stats == {"total": 0, "verified": 0, "failed": 0, "skipped": 0, "errors": 0}
+
+    def test_verify_non_dict_json_is_counted_as_error(self, tmp_path: Path) -> None:
+        """配列の JSON は errors に数える (クラッシュしない)."""
+        metadata_dir = tmp_path / ".metadata"
+        metadata_dir.mkdir()
+        (metadata_dir / "array.json").write_text(json.dumps([1, 2]), encoding="utf-8")
+
+        stats = run_verification(metadata_dir, tmp_path, dry_run=True)
+
+        assert stats == {"total": 1, "verified": 0, "failed": 0, "skipped": 0, "errors": 1}
+
     def test_verify_invalid_encoding(self) -> None:
         """不正なエンコーディングのファイルは検証失敗になる."""
         with tempfile.TemporaryDirectory() as tmpdir:

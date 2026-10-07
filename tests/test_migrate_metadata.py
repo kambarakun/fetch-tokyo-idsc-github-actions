@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from src.cli import migrate_metadata as mm
 from src.cli.migrate_metadata import (
+    NON_METADATA_FILES,
     V1_0_REQUIRED_FIELDS,
     V1_1_REQUIRED_FIELDS,
     MigrationRegistry,
@@ -255,9 +257,21 @@ class TestGlobalRegistry:
         """グローバルレジストリにNone -> 1.0の変換が登録されている."""
         assert (None, "1.0") in migration_registry._migrations
 
-    def test_latest_version(self) -> None:
-        """最新バージョンがMETADATA_VERSIONと一致する."""
-        assert migration_registry.latest_version == METADATA_VERSION
+    def test_every_registered_version_reaches_metadata_version(self) -> None:
+        """METADATA_VERSION が登録済みで、それより古い全バージョン (legacy を含む) から移行パスがある.
+
+        METADATA_VERSION を上げたのに本番データの版 (例: 1.3.0) からの移行関数を登録し忘れると、
+        移行ワークフローは全件エラーになる。latest_version は METADATA_VERSION をそのまま返すので
+        その比較では検出できない。
+        """
+        versions = migration_registry.supported_versions
+        assert METADATA_VERSION in versions
+
+        older = [v for v in versions if MigrationRegistry.compare_versions(v, METADATA_VERSION) < 0]
+        assert None in older
+        for version in older:
+            path = migration_registry.get_migration_path(version, METADATA_VERSION)
+            assert path[-1][1] == METADATA_VERSION
 
 
 class TestNeedsMigration:
@@ -1037,6 +1051,85 @@ class TestRunMigration:
             # ダウングレードはエラーとしてカウントされる
             assert stats["errors"] == 1
             assert stats["migrated"] == 0
+
+
+class TestRunMigrationRobustness:
+    """非メタデータ JSON と壊れたメタデータへの耐性."""
+
+    def test_non_metadata_files_are_not_counted(self, tmp_path: Path) -> None:
+        """processing_log.json / hash_index.json は移行対象として数えない (legacy と誤認しない)."""
+        metadata_dir = tmp_path / ".metadata"
+        metadata_dir.mkdir()
+        (metadata_dir / "processing_log.json").write_text(json.dumps({"processing": []}), encoding="utf-8")
+        (metadata_dir / "hash_index.json").write_text(json.dumps({"abc": "x.csv"}), encoding="utf-8")
+
+        stats = run_migration(metadata_dir, tmp_path, dry_run=True)
+
+        assert {"hash_index.json", "processing_log.json"} <= NON_METADATA_FILES
+        assert stats == {"total": 0, "migrated": 0, "skipped": 0, "errors": 0, "target_version": METADATA_VERSION}
+
+    def test_non_dict_json_is_counted_as_error_and_processing_continues(self, tmp_path: Path) -> None:
+        """配列の JSON と per-file の TypeError は errors に数え、他のファイルの処理を続ける."""
+        metadata_dir = tmp_path / ".metadata"
+        metadata_dir.mkdir()
+        (metadata_dir / "a_array.json").write_text(json.dumps([1, 2]), encoding="utf-8")
+        # created_at が null の legacy は created_at[:20] で TypeError になる
+        (metadata_dir / "b_type_error.json").write_text(
+            json.dumps({"filename": "b.csv", "timestamp": None, "created_at": None}), encoding="utf-8"
+        )
+        (metadata_dir / "c_ok.json").write_text(
+            json.dumps({"filename": "c.csv", "timestamp": "2025-01-01T00:00:00+00:00"}), encoding="utf-8"
+        )
+
+        stats = run_migration(metadata_dir, tmp_path, dry_run=False)
+
+        assert stats["total"] == 3
+        assert stats["errors"] == 2
+        assert stats["migrated"] == 1
+        migrated = json.loads((metadata_dir / "c_ok.json").read_text(encoding="utf-8"))
+        assert migrated["metadata_version"] == METADATA_VERSION
+
+
+class TestMain:
+    """main() の引数処理."""
+
+    @pytest.mark.parametrize("target", ["1.4.0", "1.3"])
+    def test_unregistered_target_version_exits_2_before_scanning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+    ) -> None:
+        """未登録の target_version ("1.3" と "1.3.0" は別物) はファイル走査の前に exit 2."""
+        called: list[dict] = []
+        monkeypatch.setattr(mm, "run_migration", lambda **kwargs: called.append(kwargs))
+        monkeypatch.setattr(
+            "sys.argv",
+            ["migrate-metadata", "--dry-run", "--target-version", target, "--metadata-dir", str(tmp_path)],
+        )
+
+        assert mm.main() == 2
+        assert called == []
+
+    def test_output_json_prints_stats_on_one_stdout_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """--output-json は stats を stdout に 1 行の JSON で出す (ログは stderr)."""
+        metadata_dir = tmp_path / ".metadata"
+        metadata_dir.mkdir()
+        (metadata_dir / "a.json").write_text(
+            json.dumps({"filename": "a.csv", "timestamp": "2025-01-01T00:00:00+00:00"}), encoding="utf-8"
+        )
+        argv = ["migrate-metadata", "--dry-run", "--metadata-dir", str(metadata_dir), "--data-dir", str(tmp_path)]
+        monkeypatch.setattr("sys.argv", [*argv, "--output-json"])
+
+        assert mm.main() == 0
+        out_lines = capsys.readouterr().out.splitlines()
+        assert len(out_lines) == 1
+        assert json.loads(out_lines[0]) == {
+            "total": 1,
+            "migrated": 1,
+            "skipped": 0,
+            "errors": 0,
+            "target_version": METADATA_VERSION,
+        }
 
 
 class TestV10RequiredFields:
