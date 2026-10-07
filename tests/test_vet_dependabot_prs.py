@@ -1144,6 +1144,26 @@ def test_each_new_pin_is_compared_with_the_pin_it_replaced() -> None:
     assert one_left == [(b, d)]
 
 
+def test_several_unversioned_pins_of_one_path_are_not_paired_by_hash_order() -> None:
+    """Without version comments the only order is the SHA prefix, which says nothing about lineage."""
+    responses: dict[str, Any] = {}
+    a, b, c, d = ("a" * 40, "b" * 40, "c" * 40, "e" * 40)
+    before = _workflow("org/act", a, "") + _workflow("org/act", b, "")
+    after = _workflow("org/act", c, "") + _workflow("org/act", d, "")
+    _pr(responses, head_ref="dependabot/github_actions/org/act", files={".github/workflows/x.yml": (before, after)})
+    _releases(responses, "org/act", {})
+
+    changes = vet.action_pin_changes(before, after)
+    checks = [check for check in _vet(responses).checks if check.check_id == "action_metadata"]
+    single = vet.action_pin_changes(_workflow("org/act", a, ""), _workflow("org/act", c, ""))
+
+    assert {(change.old_sha, change.new_sha) for change in changes} == {(None, c), (None, d)}
+    assert [check.verdict for check in checks] == ["WARN", "WARN"]
+    assert all("一意に特定できない" in check.detail for check in checks)
+    # One dropped pin and one new pin pair unambiguously even without comments.
+    assert [(change.old_sha, change.new_sha) for change in single] == [(a, c)]
+
+
 def test_unchanged_sibling_pin_does_not_hide_a_runtime_change() -> None:
     responses: dict[str, Any] = {}
     old, sibling, new = "a" * 40, "b" * 40, "c" * 40
@@ -1662,6 +1682,22 @@ def test_recording_two_candidates_of_one_project_keeps_every_later_release(
 
     assert [verdict.bumps[0].new for verdict in recorded] == ["0.16.10", "0.16.8"]
     assert [verdict.checks for verdict in replayed] == [verdict.checks for verdict in recorded]
+
+
+def test_recording_a_lock_fork_keeps_the_releases_of_the_lower_candidate(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    """Within one PR the lower new version is vetted first (_pair_bumps sorts), so its floor wins."""
+    fork = '[[package]]\nname = "ruff"\nversion = "{}"\nsource = {{ registry = "https://pypi.org/simple" }}\n\n'
+    uv_pr[f"{API}/contents/uv.lock?ref={MERGE_BASE}"] = _uv_lock() + fork.format("0.16.7") + fork.format("0.16.9")
+    uv_pr[f"{API}/contents/uv.lock?ref={HEAD_SHA}"] = _uv_lock() + fork.format("0.16.8") + fork.format("0.16.10")
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
+
+    recorded = vet.vet_pull_request(*vet.make_recording_fetchers(None, tmp_path), REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+
+    assert [bump.new for bump in recorded.bumps] == ["0.16.8", "0.16.10"]
+    assert replayed.checks == recorded.checks
 
 
 def test_recorded_fixture_stays_under_the_size_budget() -> None:

@@ -219,6 +219,7 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (re.compile(r"/check-runs$"), {"check_runs": [{"name": None, "status": None, "conclusion": None}]}),
     (re.compile(r"/releases$"), [{"tag_name": None, "published_at": None, "draft": None, "prerelease": None}]),
     (re.compile(r"/releases/tags/"), {"published_at": None}),
+    (re.compile(r"/git/ref/tags/"), {"object": None}),
     (re.compile(r"/git/tags/"), {"tagger": {"date": None}, "object": None}),
     (re.compile(r"/git/commits/"), {"committer": {"date": None}}),
     (re.compile(r"^/repos/[^/]+/[^/]+$"), {"full_name": None}),
@@ -496,6 +497,8 @@ class ActionPinChange:
     old_version: str | None
     new_sha: str
     new_version: str
+    # Several pins moved and at least one has no version to order them by.
+    ambiguous: bool = False
 
     @property
     def action(self) -> str:
@@ -508,6 +511,10 @@ def _action_pins(text: str | None) -> dict[tuple[str, str], dict[str, str]]:
         if match := USES_PATTERN.match(line):
             pins.setdefault((match[1], match[2].removeprefix("/")), {})[match[3]] = match[4] or match[3][:SHORT_SHA]
     return pins
+
+
+def _is_versioned(version: str, sha: str) -> bool:
+    return version != sha[:SHORT_SHA] and _parse_version(version) is not None
 
 
 def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinChange]:
@@ -525,6 +532,13 @@ def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinC
         added = sorted(
             (sha for sha in new_by_sha if sha not in old_by_sha), key=lambda sha: _version_key(new_by_sha[sha])
         )
+        pins = [(old_by_sha, sha) for sha in removed] + [(new_by_sha, sha) for sha in added]
+        if removed and len(pins) > 2 and not all(_is_versioned(by_sha[sha], sha) for by_sha, sha in pins):
+            # A bare SHA pin only has its hash prefix to sort by, which says nothing about lineage.
+            changes.extend(
+                ActionPinChange(repo, subpath, None, None, sha, new_by_sha[sha], ambiguous=True) for sha in added
+            )
+            continue
         for sha in reversed(added):
             version = new_by_sha[sha]
             below = [old for old in removed if _version_key(old_by_sha[old]) <= _version_key(version)]
@@ -1048,6 +1062,8 @@ def _uncomparable(change: ActionPinChange) -> str | None:
         return "サブパスを解釈できないため比較不能"
     if len(parts) >= 3 and parts[:2] == [".github", "workflows"]:
         return "再利用ワークフローは action metadata を持たないため比較不能"
+    if change.ambiguous:
+        return "版コメントの無い pin が複数動いており、置き換えた旧 pin を一意に特定できないため比較不能"
     if change.old_sha is None:
         return "置き換えた旧 pin が無いため比較不能 (新規追加など)"
     return None
