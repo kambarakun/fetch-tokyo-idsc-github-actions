@@ -1,5 +1,10 @@
-"""Integration tests for validators using actual data."""
+"""Integration tests for validators using real-shaped raw fixtures.
 
+The fixtures under tests/fixtures/raw are byte copies of data/raw files (Shift_JIS, CRLF),
+so these tests neither read nor write the repository's data/ directory.
+"""
+
+import shutil
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -8,91 +13,141 @@ import pytest
 from src.validators.gender_sum_validator import GenderSumValidator
 from src.validators.quality_validator import QualityValidator
 
+RAW_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "raw"
+
+
+def _copy_raw_fixtures(raw_dir: Path) -> Path:
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    for fixture in RAW_FIXTURES_DIR.glob("*.csv"):
+        shutil.copy(fixture, raw_dir / fixture.name)
+    return raw_dir
+
+
+def _write_row_count_mismatch_raw(path: Path) -> None:
+    """Write a weekly raw whose male section has one more row than female/total."""
+    footer = '"集計期間終了週","x"'
+    header = '"","疾病A","疾病B"'
+    rows = [
+        '"性別","男性"',
+        "",
+        header,
+        '"a","1","2"',
+        '"b","1","2"',
+        footer,
+        '"性別","女性"',
+        "",
+        header,
+        '"a","1","2"',
+        footer,
+        '"性別","男女合計"',
+        "",
+        header,
+        '"a","2","4"',
+    ]
+    path.write_bytes(("\n".join(rows) + "\n").encode("shift_jis"))
+
 
 class TestGenderSumValidatorIntegration:
-    """Integration tests using actual raw data files."""
+    """Validation results for each real-shaped raw fixture."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        """Setup test environment."""
-        self.raw_dir = Path("data/raw")
-        if not self.raw_dir.exists():
-            pytest.skip("data/raw directory not found")
+    def setup(self, tmp_path: Path) -> None:
+        self.raw_dir = _copy_raw_fixtures(tmp_path / "raw")
         self.validator = GenderSumValidator(self.raw_dir)
 
-    def test_validate_with_actual_data(self) -> None:
-        """Test validation with actual sentinel data if available."""
-        # Find actual sentinel data files
-        medical_district_files = list(self.raw_dir.glob("sentinel_weekly_medical_district_*.csv"))
-        health_center_files = list(self.raw_dir.glob("sentinel_weekly_health_center_*.csv"))
-        age_files = list(self.raw_dir.glob("sentinel_weekly_age_*.csv"))
+    @pytest.mark.parametrize(
+        ("source_name", "data_type", "record_count"),
+        [
+            ("sentinel_monthly_age_2025_06.csv", "sentinel_monthly_age", 17),
+            ("sentinel_monthly_health_center_2025_06.csv", "sentinel_monthly_health_center", 32),
+            ("sentinel_monthly_medical_district_2025_06.csv", "sentinel_monthly_medical_district", 14),
+            ("sentinel_weekly_age_2025_10.csv", "sentinel_weekly_age", 21),
+            ("sentinel_weekly_health_center_2025_10.csv", "sentinel_weekly_health_center", 32),
+        ],
+    )
+    def test_gender_split_fixture_is_validated_without_mismatch(
+        self, source_name: str, data_type: str, record_count: int
+    ) -> None:
+        # Act
+        result = self.validator.validate(source_name, data_type)
 
-        if not (medical_district_files or health_center_files or age_files):
-            pytest.skip("No actual sentinel data files found")
+        # Assert: the monthly 集計期間開始月/終了月 rows no longer leak into the sections
+        assert result == {
+            "check_type": "gender_sum_consistency",
+            "validation_status": "completed",
+            "message": f"No mismatch observed in {record_count} record(s)",
+            "details": {
+                "source_file": source_name,
+                "affected_count": 0,
+                "truncated": False,
+                "affected_locations": [],
+            },
+        }
 
-        # Test medical district validation
-        if medical_district_files:
-            test_file = medical_district_files[0]
-            result = self.validator.validate(
-                test_file.name,
-                "sentinel_weekly_medical_district",
-            )
-            assert result is not None
-            assert result["check_type"] == "gender_sum_consistency"
-            assert result["validation_status"] in ["completed", "skipped"]
-            assert "details" in result
-            assert "affected_count" in result["details"]
-            assert "truncated" in result["details"]
-            assert isinstance(result["details"]["affected_locations"], list)
-
-        # Test health center validation
-        if health_center_files:
-            test_file = health_center_files[0]
-            result = self.validator.validate(
-                test_file.name,
-                "sentinel_weekly_health_center",
-            )
-            assert result is not None
-            assert result["check_type"] == "gender_sum_consistency"
-
-        # Test age validation
-        if age_files:
-            test_file = age_files[0]
-            result = self.validator.validate(
-                test_file.name,
-                "sentinel_weekly_age",
-            )
-            assert result is not None
-            assert result["check_type"] == "gender_sum_consistency"
-
-    def test_validate_returns_none_for_non_gender_data(self) -> None:
-        """Test that non-gender-split data returns None."""
+    def test_weekly_medical_district_reports_upstream_female_defect(self) -> None:
+        # Act
         result = self.validator.validate(
-            "sentinel_weekly_gender_2024_01.csv",
-            "sentinel_weekly_gender",
+            "sentinel_weekly_medical_district_2025_10.csv", "sentinel_weekly_medical_district"
         )
-        assert result is None
+
+        # Assert: the weekly district female section repeats the male value where the true count is 0
+        assert result is not None
+        assert result["validation_status"] == "completed"
+        assert result["details"]["affected_count"] == 11
+        assert result["details"]["truncated"] is True
+        assert len(result["details"]["affected_locations"]) == GenderSumValidator._MAX_ERROR_SAMPLES
+        assert result["details"]["affected_locations"][0] == {
+            "location": "区中央部",
+            "column": "不明発しん症",
+            "row_index": 3,
+            "male": 1,
+            "female": 1,
+            "total": 1,
+            "expected": 2,
+        }
+
+    def test_header_only_total_is_skipped_as_sections_unavailable(self) -> None:
+        # Act
+        result = self.validator.validate(
+            "sentinel_weekly_medical_district_2005_10.csv", "sentinel_weekly_medical_district"
+        )
+
+        # Assert
+        assert result is not None
+        assert result["validation_status"] == "skipped"
+        assert result["details"]["skip_reason"] == "sections_unavailable"
+
+    def test_row_count_mismatch_is_skipped_with_reason(self) -> None:
+        # Arrange
+        _write_row_count_mismatch_raw(self.raw_dir / "sentinel_weekly_age_2025_01.csv")
+
+        # Act
+        result = self.validator.validate("sentinel_weekly_age_2025_01.csv", "sentinel_weekly_age")
+
+        # Assert
+        assert result is not None
+        assert result["validation_status"] == "skipped"
+        assert result["message"] == "Validation skipped: row count mismatch (male=2, female=1, total=1)"
+        assert result["details"]["skip_reason"] == "row_count_mismatch"
+
+    @pytest.mark.parametrize(
+        ("source_name", "data_type"),
+        [
+            ("sentinel_weekly_gender_2025_10.csv", "sentinel_weekly_gender"),
+            ("sentinel_monthly_gender_2025_06.csv", "sentinel_monthly_gender"),
+            ("notifiable_weekly_2025_10.csv", "notifiable_weekly"),
+        ],
+    )
+    def test_validate_returns_none_for_non_gender_split_data(self, source_name: str, data_type: str) -> None:
+        # Act / Assert
+        assert self.validator.validate(source_name, data_type) is None
 
     def test_validate_returns_none_for_missing_file(self) -> None:
-        """Test that missing file returns None."""
-        result = self.validator.validate(
-            "nonexistent_file.csv",
-            "sentinel_weekly_age",
-        )
-        assert result is None
+        # Act / Assert
+        assert self.validator.validate("nonexistent_file.csv", "sentinel_weekly_age") is None
 
     def test_data_type_filtering_strict_matching(self) -> None:
-        """Test that data type filtering uses strict matching, not substring matching.
-
-        This test ensures that the validator only processes exact data types
-        defined in _APPLICABLE_DATA_TYPES, and rejects similar but different
-        data types like "sentinel_weekly_age_group_v2".
-
-        This addresses CodeRabbit's concern about ambiguous data type matching.
-        """
-        # Test data type filtering by verifying set membership directly
-        # This ensures only exact matches are in _APPLICABLE_DATA_TYPES
-        # Verify the set contains expected types
+        """Only exact data types in _APPLICABLE_DATA_TYPES are validated, not substrings."""
         assert "sentinel_weekly_age" in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "sentinel_weekly_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "sentinel_weekly_health_center" in GenderSumValidator._APPLICABLE_DATA_TYPES
@@ -100,7 +155,6 @@ class TestGenderSumValidatorIntegration:
         assert "sentinel_monthly_medical_district" in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "sentinel_monthly_health_center" in GenderSumValidator._APPLICABLE_DATA_TYPES
 
-        # Verify similar but different types are NOT in the set
         assert "sentinel_weekly_age_group" not in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "sentinel_weekly_age_v2" not in GenderSumValidator._APPLICABLE_DATA_TYPES
         assert "age" not in GenderSumValidator._APPLICABLE_DATA_TYPES
@@ -111,191 +165,137 @@ class TestGenderSumValidatorIntegration:
 class TestGenderSumValidatorEdgeCases:
     """Edge case tests for GenderSumValidator."""
 
-    @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        """Setup test environment."""
-        self.temp_dir = Path("data/raw")
-        self.validator = GenderSumValidator(self.temp_dir)
+    def test_path_traversal_protection(self, tmp_path: Path) -> None:
+        # Arrange
+        raw_dir = tmp_path / "raw"
+        raw_dir.mkdir()
+        outside = tmp_path / "outside.csv"
+        outside.write_bytes("テスト\n".encode("shift_jis"))
+        validator = GenderSumValidator(raw_dir)
 
-    def test_path_traversal_protection(self) -> None:
-        """Test that path traversal attacks are prevented."""
-        # Try to access a file outside raw_data_dir
-        malicious_path = self.temp_dir / "../../../etc/passwd"
+        # Act
+        result = validator._read_source_file(raw_dir / ".." / "outside.csv")
 
-        # This should return None (path traversal prevented)
-        result = self.validator._read_source_file(malicious_path)
+        # Assert
         assert result is None
+        assert validator._file_cache == {}
 
-    def test_cache_lru_eviction(self) -> None:
-        """Test that LRU cache evicts oldest entries when full."""
-        import tempfile
+    def test_cache_lru_eviction(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Arrange
+        monkeypatch.setattr(GenderSumValidator, "_MAX_CACHE_SIZE", 3)
+        validator = GenderSumValidator(tmp_path)
+        files = []
+        for index in range(4):
+            path = tmp_path / f"file_{index}.csv"
+            path.write_bytes("テスト\n".encode("shift_jis"))
+            files.append(path)
 
-        # Create more than _MAX_CACHE_SIZE (100) temporary files
-        temp_files = []
-        try:
-            for _i in range(105):
-                with tempfile.NamedTemporaryFile(
-                    mode="wb",
-                    delete=False,
-                    suffix=".csv",
-                    dir=self.temp_dir if self.temp_dir.exists() else None,
-                ) as f:
-                    # Write valid Shift_JIS content
-                    f.write("テスト\n".encode("shift_jis"))
-                    temp_files.append(Path(f.name))
+        # Act
+        for path in files:
+            validator._read_source_file(path)
 
-            # Read all files to fill cache
-            for temp_file in temp_files:
-                if temp_file.exists():
-                    self.validator._read_source_file(temp_file)
+        # Assert: the first file read is evicted, the last three stay cached
+        assert list(validator._file_cache) == files[1:]
 
-            # Cache should not exceed MAX_CACHE_SIZE
-            assert len(self.validator._file_cache) <= GenderSumValidator._MAX_CACHE_SIZE
-
-            # First file should have been evicted (FIFO)
-            if temp_files[0].exists():
-                assert temp_files[0] not in self.validator._file_cache
-
-        finally:
-            # Cleanup
-            for temp_file in temp_files:
-                if temp_file.exists():
-                    temp_file.unlink()
-
-    def test_row_count_mismatch_detection(self) -> None:
-        """Test that the validator detects row count mismatches."""
-        # This test checks internal implementation details
-        # The actual row count mismatch handling is tested in gender_sum_validator.py:101-119
-
-        # We can verify that the code path exists by checking the implementation
-        # The validator should log a warning and return a skipped result when row counts differ
-
-        # Since we cannot easily create a file that triggers this (it requires specific CSV structure),
-        # we'll verify that the logic exists by checking a real scenario would work
-        # The actual implementation is already tested through integration tests with real data
-
-        # This serves as a placeholder to document that row count mismatch handling exists
-        # and is covered by the existing test suite
-        assert hasattr(GenderSumValidator, "_extract_section_data")
-
-    def test_extract_gender_sections_with_zero_start_line(self) -> None:
-        """Test that _extract_gender_sections correctly handles section starting at line 0."""
-        import tempfile
-
-        # Arrange: CSVデータで最初の行 (index 0) に性別セクションがある場合
-        # 実際のデータフォーマットに近い形式
+    def test_extract_gender_sections_with_zero_start_line(self, tmp_path: Path) -> None:
+        """_extract_gender_sections handles a section that starts at line 0."""
+        # Arrange: like the raw files, a separator line precedes each following 性別 line
         csv_content = """"性別","男性"
 ""
 "","疾病A","疾病B"
 "地域1","10","5"
 "地域2","8","3"
+""
 "性別","女性"
 ""
 "","疾病A","疾病B"
 "地域1","8","4"
 "地域2","6","2"
+""
 "性別","男女合計"
 ""
 "","疾病A","疾病B"
 "地域1","18","9"
 "地域2","14","5"
 """
-        # 一時ファイルを作成
-        temp_file = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="wb",
-                delete=False,
-                suffix=".csv",
-                dir=self.temp_dir if self.temp_dir.exists() else None,
-            ) as f:
-                # Shift_JIS でエンコード
-                f.write(csv_content.encode("shift_jis"))
-                temp_file = Path(f.name)
+        source = tmp_path / "sentinel_weekly_age_2025_01.csv"
+        source.write_bytes(csv_content.encode("shift_jis"))
+        validator = GenderSumValidator(tmp_path)
 
-            # Act: _extract_gender_sections を呼び出す
-            sections = self.validator._extract_gender_sections(temp_file)
+        # Act
+        sections = validator._extract_gender_sections(source)
 
-            # Assert: 0が開始行でも正しく抽出される
-            assert "male" in sections
-            assert "female" in sections
-            assert "total" in sections
-            # 開始行が0でもセクションが抽出されることを確認
-            assert len(sections["male"]) > 0, "男性セクションが抽出されるべき"
-            assert len(sections["female"]) > 0, "女性セクションが抽出されるべき"
-            assert len(sections["total"]) > 0, "合計セクションが抽出されるべき"
-            # 実際のデータ内容も検証
-            assert sections["male"][0][0] == "地域1", "最初の行の地域名が正しいこと"
-            assert sections["male"][0][1] == "10", "男性データ値が正しく抽出されていること"
-            assert sections["female"][0][0] == "地域1", "女性セクションの地域名が正しいこと"
-            assert sections["female"][0][1] == "8", "女性データ値が正しく抽出されていること"
-            assert sections["total"][0][0] == "地域1", "合計セクションの地域名が正しいこと"
-            assert sections["total"][0][1] == "18", "合計データ値が正しく抽出されていること"
-
-        finally:
-            # クリーンアップ
-            if temp_file and temp_file.exists():
-                temp_file.unlink()
+        # Assert
+        assert sections == {
+            "male": [["地域1", "10", "5"], ["地域2", "8", "3"]],
+            "female": [["地域1", "8", "4"], ["地域2", "6", "2"]],
+            "total": [["地域1", "18", "9"], ["地域2", "14", "5"]],
+        }
 
 
 class TestQualityValidatorIntegration:
     """Integration tests for QualityValidator."""
 
     @pytest.fixture(autouse=True)
-    def setup(self) -> None:
-        """Setup test environment."""
-        self.raw_dir = Path("data/raw")
-        if not self.raw_dir.exists():
-            pytest.skip("data/raw directory not found")
+    def setup(self, tmp_path: Path) -> None:
+        self.raw_dir = _copy_raw_fixtures(tmp_path / "raw")
         self.validator = QualityValidator(self.raw_dir)
 
-    def test_validate_generates_quality_metadata(self) -> None:
-        """Test that quality metadata is generated."""
-        # Test with a typical filename
-        processing_meta = {
-            "source_name": "sentinel_weekly_age_2024_01",
-            "source_hash": "abc123",
-            "processing_time_seconds": 0.001,
-            "gender": "male",
-        }
+    def test_clean_monthly_data_has_no_issues(self) -> None:
+        # Act
+        quality = self.validator.validate("sentinel_monthly_age_2025_06.csv", "sentinel_monthly_age", {})
 
+        # Assert
+        assert quality["validation_status"] == "completed"
+        assert quality["issues"] == []
+        assert quality["validation_timestamp"]
+
+    def test_mismatch_is_recorded_in_issues(self) -> None:
+        # Act
         quality = self.validator.validate(
-            "sentinel_weekly_age_2024_01.csv",
-            "sentinel_weekly_age",
-            processing_meta,
+            "sentinel_weekly_medical_district_2025_10.csv", "sentinel_weekly_medical_district", {}
         )
 
-        assert quality is not None
-        assert "validation_timestamp" in quality
-        assert "validation_status" in quality
-        assert quality["validation_status"] in ["completed", "skipped", "failed"]
-        assert "issues" in quality
-        assert isinstance(quality["issues"], list)
+        # Assert
+        assert [(issue["validation_status"], issue["details"]["affected_count"]) for issue in quality["issues"]] == [
+            ("completed", 11)
+        ]
+
+    def test_sections_unavailable_skip_is_not_an_issue(self) -> None:
+        # Act
+        quality = self.validator.validate(
+            "sentinel_weekly_medical_district_2005_10.csv", "sentinel_weekly_medical_district", {}
+        )
+
+        # Assert
+        assert quality["validation_status"] == "completed"
+        assert quality["issues"] == []
+
+    def test_row_count_mismatch_skip_is_recorded_in_issues(self) -> None:
+        # Arrange
+        _write_row_count_mismatch_raw(self.raw_dir / "sentinel_weekly_age_2025_01.csv")
+
+        # Act
+        quality = self.validator.validate("sentinel_weekly_age_2025_01.csv", "sentinel_weekly_age", {})
+
+        # Assert
+        assert [
+            (issue["check_type"], issue["validation_status"], issue["details"]["skip_reason"])
+            for issue in quality["issues"]
+        ] == [("gender_sum_consistency", "skipped", "row_count_mismatch")]
 
     def test_validate_with_non_gender_data(self) -> None:
-        """Test validation with non-gender-split data."""
-        processing_meta = {
-            "source_name": "sentinel_weekly_gender_2024_01",
-            "source_hash": "abc123",
-            "processing_time_seconds": 0.001,
-            "gender": None,
-        }
+        # Act
+        quality = self.validator.validate("sentinel_weekly_gender_2025_10.csv", "sentinel_weekly_gender", {})
 
-        quality = self.validator.validate(
-            "sentinel_weekly_gender_2024_01.csv",
-            "sentinel_weekly_gender",
-            processing_meta,
-        )
-
-        assert quality is not None
+        # Assert
         assert quality["validation_status"] == "completed"
         assert quality["issues"] == []
 
     def test_validate_records_failed_validation(self) -> None:
-        """Test that failed validations are recorded in issues."""
-        # Create a mock gender_sum_validator that returns failed status
-        self.validator.gender_sum_validator = Mock()
-        self.validator.gender_sum_validator.validate.return_value = {
+        """Failed validations are recorded in issues."""
+        # Arrange
+        failed = {
             "check_type": "gender_sum_consistency",
             "validation_status": "failed",
             "message": "Validation failed: file read error",
@@ -306,22 +306,12 @@ class TestQualityValidatorIntegration:
                 "affected_locations": [],
             },
         }
+        self.validator.gender_sum_validator = Mock()
+        self.validator.gender_sum_validator.validate.return_value = failed
 
-        processing_meta = {
-            "source_name": "sentinel_weekly_age_2024_01",
-            "source_hash": "abc123",
-            "processing_time_seconds": 0.001,
-            "gender": "male",
-        }
+        # Act
+        quality = self.validator.validate("sentinel_weekly_age_2025_10.csv", "sentinel_weekly_age", {})
 
-        quality = self.validator.validate(
-            "sentinel_weekly_age_2024_01.csv",
-            "sentinel_weekly_age",
-            processing_meta,
-        )
-
-        assert quality is not None
+        # Assert
         assert quality["validation_status"] == "completed"
-        # Failed validations should be recorded in issues
-        assert len(quality["issues"]) == 1
-        assert quality["issues"][0]["validation_status"] == "failed"
+        assert quality["issues"] == [failed]

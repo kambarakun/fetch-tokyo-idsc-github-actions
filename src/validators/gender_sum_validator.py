@@ -127,6 +127,7 @@ class GenderSumValidator:
                     "affected_count": 0,
                     "truncated": False,
                     "affected_locations": [],
+                    "skip_reason": "row_count_mismatch",
                 },
             }
 
@@ -337,10 +338,10 @@ class GenderSumValidator:
         # 除外対象:
         # - 空行 (row が空または row[0] が空)
         # - "性別" で始まる行 (セクションヘッダー)
-        # - "集計期間開始週"、"集計期間終了週" (フッター行)
+        # - "集計期間" で始まる行 (週報の "集計期間開始週"/"集計期間終了週"、月報の "集計期間開始月"/"集計期間終了月")
         # - "*" で始まる行 (注釈行)
         # - "定点報告疾患", "東京都", "定点数" などのフッター行
-        excluded_prefixes = ["性別", "集計期間開始週", "集計期間終了週", "*", "定点報告疾患", "東京都", "定点数"]
+        excluded_prefixes = ["性別", "集計期間", "*", "定点報告疾患", "東京都", "定点数"]
 
         return [
             row
@@ -454,5 +455,6 @@ class GenderSumValidator:
                 "affected_count": 0,
                 "truncated": False,
                 "affected_locations": [],
+                "skip_reason": "sections_unavailable",
             },
         }

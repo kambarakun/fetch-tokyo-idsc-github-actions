@@ -229,6 +229,7 @@ def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: py
             [
                 "normalized_sentinel_weekly_medical_district_female_2025_01.csv",
                 "normalized_sentinel_weekly_medical_district_male_2025_01.csv",
+                "normalized_sentinel_weekly_medical_district_total_2025_01.csv",
             ],
         ),
         ("sentinel_monthly_gender_2025_01.csv", ["normalized_sentinel_monthly_gender_2025_01.csv"]),
@@ -253,6 +254,7 @@ def test_check_data_status_rejects_nested_raw_sources(tmp_path: Path, capsys: py
             [
                 "normalized_sentinel_monthly_medical_district_female_2025_01.csv",
                 "normalized_sentinel_monthly_medical_district_male_2025_01.csv",
+                "normalized_sentinel_monthly_medical_district_total_2025_01.csv",
             ],
         ),
     ],
