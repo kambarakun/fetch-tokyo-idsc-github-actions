@@ -348,3 +348,25 @@ def test_default_schema_matches_metadata_version():
 
     schema = json.loads(REAL_SCHEMA.read_text(encoding="utf-8"))
     assert f"(v{METADATA_VERSION})" in schema["title"]
+
+
+@pytest.mark.parametrize("offset", ["+00:60", "+01:60", "+24:00", "-25:00"])
+def test_out_of_range_timezone_offset_is_a_violation(tmp_path, offset):
+    """範囲外のオフセットは fromisoformat が正規化して通してしまうので、正規表現で弾く."""
+    result = _validate_one(tmp_path, _raw(created=f"2025-01-01T00:00:00{offset}"), require_timezone=True)
+
+    assert len(result.violations) == 1
+    assert result.violations[0][1].startswith("created:")
+
+
+@pytest.mark.parametrize("profile", [[], {}])
+def test_unhashable_profile_is_reported_and_scan_continues(tmp_path, profile):
+    """profile が配列やオブジェクトでもクラッシュせず不適合として報告し、他のファイルの検査を続ける."""
+    md = tmp_path / ".metadata"
+    _write_json(md / "a_bad.json", _raw(profile=profile))
+    _write_json(md / "b_good.json", _raw())
+
+    result = validate(REAL_SCHEMA, [md])
+
+    assert result.total == 2
+    assert [path.name for path, _ in result.violations] == ["a_bad.json"]

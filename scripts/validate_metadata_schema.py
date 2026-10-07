@@ -70,8 +70,9 @@ TIMESTAMP_FIELDS: tuple[tuple[str, ...], ...] = (
     ("quality", "validation_timestamp"),
 )
 
-# RFC 3339 の date-time。タイムゾーンは任意にして、欠落は別途警告/不適合として扱う
-_DATE_TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
+# RFC 3339 の date-time。タイムゾーンは任意にして、欠落は別途警告/不適合として扱う。
+# オフセットの範囲は正規表現で縛る (fromisoformat は +00:60 を +01:00 に正規化して受け付けるため)
+_DATE_TIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?")
 
 # 不適合が大量に出た場合に表示を打ち切る上限
 _MAX_REPORTED = 50
@@ -173,7 +174,8 @@ def validate(
         if isinstance(data, dict):
             profile = data.get("profile")
             version = data.get("metadata_version")
-            if profile in KNOWN_PROFILES and version != METADATA_VERSION:
+            # 型の崩れた profile (配列など) は schema が報告済み。集合の検索で TypeError にしない
+            if isinstance(profile, str) and profile in KNOWN_PROFILES and version != METADATA_VERSION:
                 if profile in version_profiles:
                     problems.append(
                         f"metadata_version: {version!r} が METADATA_VERSION {METADATA_VERSION!r} と一致しません"
