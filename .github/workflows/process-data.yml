@@ -258,13 +258,16 @@ jobs:
           # 食い違い・レポート欠落/不正/不完全・0 件は検証不能 (error)
           REPORT_VERDICT=$(jq -r '
             def count: type == "number" and . == floor and . >= 0;
+            def entry: type == "object" and (.file | type) == "string" and (.valid | type) == "boolean"
+              and (.errors | type) == "array" and all(.errors[]; type == "string");
             if type == "object" and (.summary | type) == "object" and (.results | type) == "array"
+              and all(.results[]; entry)
               and (.summary.total_files | count) and (.summary.valid_files | count)
               and (.summary.invalid_files | count) and (.summary.has_errors | type) == "boolean"
               and .summary.total_files > 0
               and .summary.valid_files + .summary.invalid_files == .summary.total_files
               and (.results | length) == .summary.total_files
-              and ([.results[] | select(type != "object" or .valid != true)] | length) == .summary.invalid_files
+              and ([.results[] | select(.valid | not)] | length) == .summary.invalid_files
             then
               if .summary.has_errors and .summary.invalid_files > 0 then "errors"
               elif (.summary.has_errors | not) and .summary.invalid_files == 0 then "clean"
@@ -305,7 +308,10 @@ jobs:
               then .summary | "- 検証ファイル数: \(.total_files) / 有効: \(.valid_files) / 無効: \(.invalid_files)"
               else "- レポートを読めませんでした" end
             ' "$REPORT"
-            jq -r '.invalid_results[:20][] | "- `\(.file)`: \((.errors // []) | join("; "))"' "$REPORT"
+            # 検証不能なレポートの要素は形が崩れていることがあるので、表示は文字列化して失敗させない
+            jq -r '.invalid_results[:20][]
+              | "- `\(.file? // . | tostring)`: \(.errors? // [] | if type == "array" then map(tostring) | join("; ") else tostring end)"
+            ' "$REPORT" || echo "- 無効ファイルの一覧を表示できませんでした"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check for changes

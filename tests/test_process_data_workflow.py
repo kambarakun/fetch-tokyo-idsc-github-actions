@@ -82,6 +82,12 @@ if command == "validate-data":
     if mode == "incomplete_report":
         output.write_text(json.dumps({"summary": {"total_files": 2, "has_errors": False}}), encoding="utf-8")
         sys.exit(0)
+    if mode in ("malformed_entry", "errors_not_array"):
+        summary = {"total_files": 2, "valid_files": 1, "invalid_files": 1, "has_errors": True}
+        bad = "garbage" if mode == "malformed_entry" else {"file": "x.csv", "valid": False, "errors": "bad"}
+        results = [{"file": "data/processed/normalized_ok.csv", "valid": True, "errors": [], "warnings": []}, bad]
+        output.write_text(json.dumps({"summary": summary, "results": results}), encoding="utf-8")
+        sys.exit(1)
     if mode == "results_count_mismatch":
         summary = {"total_files": 2, "valid_files": 2, "invalid_files": 0, "has_errors": False}
         results = [{"file": "data/processed/normalized_ok.csv", "valid": True, "errors": [], "warnings": []}]
@@ -452,6 +458,8 @@ def test_validation_pass_sets_validation_passed_and_allows_requested_auto_merge(
         pytest.param("invalid_without_has_errors", "error", id="invalid-files-without-has-errors"),
         pytest.param("incomplete_report", "error", id="incomplete-report"),
         pytest.param("results_count_mismatch", "error", id="results-count-mismatch"),
+        pytest.param("malformed_entry", "error", id="non-object-result-entry"),
+        pytest.param("errors_not_array", "error", id="result-errors-not-array"),
     ],
 )
 def test_unpassed_validation_keeps_investigation_pr_then_fails_job(
@@ -528,14 +536,22 @@ case "$name $*" in
     printf '%s' "${FAKE_TARGETS:-}"
     exit "${FAKE_LIST_EXIT:-0}"
     ;;
-  "gh pr list "*)
+  "gh api --paginate repos/{owner}/{repo}/pulls?state=open&per_page=100 "*)
     [ "${FAKE_PR_LIST_EXIT:-0}" -eq 0 ] || exit "$FAKE_PR_LIST_EXIT"
-    echo "${FAKE_OPEN_PRS:-0}"
+    i=0
+    while [ "$i" -lt "${FAKE_OPEN_PRS:-0}" ]; do echo "$((i + 100))"; i=$((i + 1)); done
     ;;
-  "gh run list "*)
+  "gh api --paginate repos/{owner}/{repo}/actions/workflows/process-data.yml/runs?status="*)
     [ "${FAKE_RUN_LIST_EXIT:-0}" -eq 0 ] || exit "$FAKE_RUN_LIST_EXIT"
-    echo "${FAKE_RUNNING:-0}"
+    case "$*" in
+      *"status=${FAKE_RUNNING_STATUS:-in_progress}&"*)
+        i=0
+        while [ "$i" -lt "${FAKE_RUNNING:-0}" ]; do echo "$((i + 1))"; i=$((i + 1)); done
+        ;;
+    esac
     ;;
+  "git merge-base --is-ancestor cafe HEAD") exit "${FAKE_ANCESTOR_EXIT:-0}" ;;
+  "uv run --locked check-data-status --fail-on-incomplete") echo "complete" > "$FAKE_GATE_RECORD" ;;
   "gh workflow run "*) printf '%s\\n' "$@" > "$FAKE_DISPATCH_RECORD" ;;
   *) echo "unexpected: $name $*" >&2; exit 97 ;;
 esac
@@ -567,10 +583,11 @@ def run_runbook(
         "LANG": "C.UTF-8",
         "FAKE_CALL_LOG": str(tmp_path / "calls.log"),
         "FAKE_DISPATCH_RECORD": str(dispatch_record),
+        "FAKE_GATE_RECORD": str(tmp_path / "gate.txt"),
         "FAKE_TARGETS": VALID_TARGETS,
         **fake_env,
     }
-    script = runbook_block("dispatch-function") + block
+    script = block if block.startswith("(") else runbook_block("dispatch-function") + block
     result = subprocess.run([shell, "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, check=False)
     return result, dispatch_record
 
@@ -631,6 +648,8 @@ OVERSIZED_TARGETS = "".join(f"data/raw/{'x' * 130}_{index:03d}.csv\n" for index 
         pytest.param(None, {"FAKE_TARGETS": "data/raw/a.csv\ndata/raw/a.csv\n"}, id="duplicate-line"),
         pytest.param(None, {"FAKE_TARGETS": OVERSIZED_TARGETS}, id="input-too-large"),
         pytest.param(None, {"FAKE_RUNNING": "1"}, id="previous-run-not-completed"),
+        pytest.param(None, {"FAKE_RUNNING": "1", "FAKE_RUNNING_STATUS": "queued"}, id="previous-run-queued"),
+        pytest.param(None, {"FAKE_RUNNING": "1", "FAKE_RUNNING_STATUS": "waiting"}, id="previous-run-waiting"),
         pytest.param(None, {"FAKE_RUN_LIST_EXIT": "1"}, id="run-list-fails"),
     ],
 )
@@ -665,3 +684,53 @@ def test_runbook_apply_dispatches_only_the_first_batch_of_a_long_list(tmp_path: 
     dispatched = dispatch_record.read_text(encoding="utf-8").splitlines()[6].removeprefix("target_files=").split(",")
     assert dispatched == targets.splitlines()[:500]
     assert "全 501 件" in result.stdout
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+def test_runbook_failure_does_not_delete_a_caller_work_directory(tmp_path: Path, shell: str) -> None:
+    caller_dir = tmp_path / "caller-work"
+    caller_dir.mkdir()
+    (caller_dir / "keep.txt").write_text("keep", encoding="utf-8")
+
+    result, dispatch_record = run_runbook(
+        tmp_path, shell, runbook_block("dispatch-apply"), FAKE_BRANCH="feature", WORK=str(caller_dir)
+    )
+
+    assert result.returncode != 0
+    assert (caller_dir / "keep.txt").read_text(encoding="utf-8") == "keep"
+    assert not dispatch_record.exists()
+
+
+def post_merge_block() -> str:
+    block = runbook_block("post-merge")
+    assert block.count('MERGE_COMMIT=""') == 1
+    return block.replace('MERGE_COMMIT=""', 'MERGE_COMMIT="cafe"')
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+def test_runbook_post_merge_check_runs_the_gate_on_latest_main(tmp_path: Path, shell: str) -> None:
+    result, _ = run_runbook(tmp_path, shell, post_merge_block())
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "gate.txt").read_text(encoding="utf-8") == "complete\n"
+
+
+@pytest.mark.parametrize("shell", RUNBOOK_SHELLS)
+@pytest.mark.parametrize(
+    ("use_placeholder", "fake_env"),
+    [
+        pytest.param(True, {}, id="merge-commit-not-set"),
+        pytest.param(False, {"FAKE_HEAD_SHA": "bbbb"}, id="local-main-differs-from-origin"),
+        pytest.param(False, {"FAKE_ANCESTOR_EXIT": "1"}, id="merge-not-on-main"),
+        pytest.param(False, {"FAKE_MERGE_EXIT": "1"}, id="ff-merge-fails"),
+    ],
+)
+def test_runbook_post_merge_check_stops_before_the_gate(
+    tmp_path: Path, shell: str, use_placeholder: bool, fake_env: dict[str, str]
+) -> None:
+    block = runbook_block("post-merge") if use_placeholder else post_merge_block()
+
+    result, _ = run_runbook(tmp_path, shell, block, **fake_env)
+
+    assert result.returncode != 0
+    assert not (tmp_path / "gate.txt").exists()

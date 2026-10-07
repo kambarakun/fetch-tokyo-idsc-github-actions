@@ -92,6 +92,8 @@ flowchart TD
 ```bash
 process_data_dispatch() (
   set -eu -o pipefail
+  # 呼び出し元の WORK を引き継がない (trap が消すのはこの関数が作った一時ディレクトリだけ)
+  WORK=""
   trap 'rc=$?; [ -z "${WORK:-}" ] || rm -rf "$WORK"; if [ "$rc" -ne 0 ]; then echo "STOP: 前提を満たさないか途中で失敗しました (exit $rc)。dispatch していません" >&2; fi' EXIT
   MODE="${1:-}"
   BATCH_SIZE=500
@@ -139,12 +141,16 @@ process_data_dispatch() (
     exit 1
   fi
 
-  # 前のバッチの data PR (data-process-*) が open のままなら止める (同じ stats.json を更新して競合するため)
-  OPEN_PRS="$(gh pr list --state open --limit 100 --json headRefName --jq '[.[] | select(.headRefName | startswith("data-process-"))] | length')"
+  # 前のバッチの data PR (data-process-*) が open のままなら止める (同じ stats.json を更新して競合するため)。
+  # 件数上限で切り捨てないよう、open PR を全ページ取得してから絞り込む
+  OPEN_PRS="$(gh api --paginate "repos/{owner}/{repo}/pulls?state=open&per_page=100" --jq '.[] | select(.head.ref | startswith("data-process-")) | .number' | wc -l | tr -d ' ')"
   test "$OPEN_PRS" -eq 0
-  # 実行中・待機中の process-data run があれば止める (concurrency の cancel-in-progress で先行 run が消えるため)
-  RUNNING="$(gh run list --workflow process-data.yml --limit 50 --json status --jq '[.[] | select(.status != "completed")] | length')"
-  test "$RUNNING" -eq 0
+  # 未完了の process-data run があれば止める (concurrency の cancel-in-progress で先行 run が消えるため)。
+  # 状態ごとにサーバー側で絞り込み、全ページを数える
+  for RUN_STATUS in queued in_progress waiting requested pending; do
+    RUNS="$(gh api --paginate "repos/{owner}/{repo}/actions/workflows/process-data.yml/runs?status=${RUN_STATUS}&per_page=100" --jq '.workflow_runs[].id' | wc -l | tr -d ' ')"
+    test "$RUNS" -eq 0
+  done
 
   echo "main: $HEAD_SHA"
   echo "対象: 全 ${TOTAL} 件のうち今回 ${COUNT} 件 / 入力 ${INPUT_BYTES} bytes"
@@ -187,7 +193,7 @@ process_data_dispatch apply
 
 ### 4.3 run の完了まで待つ
 
-`concurrency` は `group: process-data`、`cancel-in-progress: true` なので、実行中の run があるときに dispatch すると**先行 run がキャンセルされる**。apply は実行中の run があれば止まる。
+`concurrency` は `group: process-data`、`cancel-in-progress: true` なので、実行中の run があるときに dispatch すると**先行 run がキャンセルされる**。apply は未完了の run があれば止まるが、確認から dispatch までの間は排他されない。apply は 1 人が 1 つの checkout から 1 回ずつ実行し、複数の端末や人で同時に実行しない。キャンセルされた run は結論が `cancelled` になり PR を作らない (データは変わらない) ので、4.4 で結論を確認し、キャンセルされていたら preview / apply からやり直す。
 
 ```bash
 gh run list --workflow process-data.yml --limit 3 --json databaseId,status,createdAt,event
@@ -240,7 +246,9 @@ Summary で次をすべて確認する。1 つでも満たさなければ PR を
 
 ## 6. マージ後の完全性確認
 
-data PR を人がマージした後、**その PR を含む最新の main** で完全性ゲートを確認する。`MERGE_COMMIT` に data PR のマージコミット SHA を入れてから実行する (空なら止まる)。
+data PR を人がマージした後、**その PR を含む最新の main** で完全性ゲートを確認する。`MERGE_COMMIT` に data PR のマージコミット SHA を入れてから実行する (空なら止まる)。ローカルの main が origin/main と一致しない (先行・遅延) ときは止まる。
+
+<!-- runbook: post-merge -->
 
 ```bash
 (
@@ -253,6 +261,9 @@ data PR を人がマージした後、**その PR を含む最新の main** で�
   test -z "$DIRTY"
   git fetch origin main
   git merge --ff-only origin/main
+  HEAD_SHA="$(git rev-parse HEAD)"
+  MAIN_SHA="$(git rev-parse origin/main)"
+  test "$HEAD_SHA" = "$MAIN_SHA"
   git merge-base --is-ancestor "$MERGE_COMMIT" HEAD
   uv sync --locked
   uv run --locked check-data-status --fail-on-incomplete
