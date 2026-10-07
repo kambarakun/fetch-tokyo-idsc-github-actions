@@ -445,7 +445,7 @@ def test_common_workflow_captures_canonical_continuity_result() -> None:
     continuity_step = continuity_step[: continuity_step.index("- name: Generate visualization charts")]
 
     assert "uv run --locked check-missing data/raw" in continuity_step
-    assert '--start-year "$START_YEAR"' in continuity_step
+    assert '--start-year "$CONTINUITY_START_YEAR"' in continuity_step
     assert '--end-year "$END_YEAR"' in continuity_step
     assert '--as-of "$CURRENT_DATE"' in continuity_step
     assert "CURRENT_DATE=$(TZ=Asia/Tokyo date +'%Y-%m-%d')" in workflow

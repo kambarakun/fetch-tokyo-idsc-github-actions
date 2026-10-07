@@ -416,3 +416,25 @@ def test_legacy_validator_shim_runs_without_an_installed_project() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "週次・月次データの連続性を検証" in result.stdout
+
+
+@pytest.mark.parametrize(("start_year", "expected_missing"), [(2026, [(2026, 12)]), (2027, [])])
+def test_cli_start_year_bounds_the_december_gap_after_grace_expires(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], start_year: int, expected_missing: list[tuple[int, int]]
+) -> None:
+    # On 2027-02-04 the grace for December 2026 has expired; only a range reaching 2026 can see it.
+    data_type = "sentinel_monthly_age"
+    write_periods(tmp_path, data_type, [*periods_for_year(2026, 11), (2027, 1)])
+
+    exit_code = main(
+        [
+            str(tmp_path),
+            *("--data-type", data_type, "--start-year", str(start_year), "--end-year", "2027"),
+            *("--as-of", "2027-02-04", "--grace-periods", "1", "--format", "json"),
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)["data_types"][data_type]
+    assert [(item["year"], item["period"]) for item in report["missing_periods"]] == expected_missing
+    assert report["pending_periods"] == []
+    assert exit_code == (1 if expected_missing else 0)

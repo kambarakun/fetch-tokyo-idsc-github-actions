@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -188,3 +189,85 @@ def test_data_change_check_sees_new_untracked_metadata(fetched_repo: tuple[Path,
     git(repo, "add", "data/")
 
     assert run_data_change_check(repo, pre_fetch_sha) == 1
+
+
+FAKE_UV = """#!/bin/sh
+# Stand-in for `uv run --locked check-missing ...`: record the arguments, then run the real CLI.
+[ "$1 $2 $3" = "run --locked check-missing" ] || exit 99
+shift 3
+printf '%s\\n' "$*" >> "$UV_CALLS"
+exec "$TEST_PYTHON" -c 'import sys; from src.cli.check_missing import main; sys.exit(main(sys.argv[1:]))' "$@"
+"""
+
+
+def write_complete_raw_data(raw_dir: Path, *, skip: tuple[str, int, int]) -> None:
+    # Everything published up to 2027-02-04 (ISO week 3 / January), except one skipped period.
+    from src.cli.check_missing import DATA_TYPES, weeks_in_year
+
+    raw_dir.mkdir(parents=True)
+    for data_type in DATA_TYPES:
+        last = (12, 1) if "monthly" in data_type else (weeks_in_year(2026), 3)
+        for year, last_period in zip((2026, 2027), last, strict=True):
+            for period in range(1, last_period + 1):
+                if (data_type, year, period) != skip:
+                    (raw_dir / f"{data_type}_{year}_{period:02d}.csv").write_text("x\n", encoding="utf-8")
+
+
+def run_continuity_step(tmp_path: Path, start_year: str, end_year: str) -> tuple[str, list[str]]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(FAKE_UV, encoding="utf-8")
+    fake_uv.chmod(0o755)
+    github_env = tmp_path / "github_env"
+    uv_calls = tmp_path / "uv_calls"
+    env = {
+        **isolated_git_env(),
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "PYTHONPATH": str(PROJECT_ROOT),
+        "TEST_PYTHON": sys.executable,
+        "UV_CALLS": str(uv_calls),
+        "GITHUB_ENV": str(github_env),
+        "RUNNER_TEMP": str(tmp_path),
+        "FETCH_TIMESTAMP": "test",
+        "CURRENT_DATE": "2027-02-04",
+        "CURRENT_YEAR": "2027",
+        "PREVIOUS_YEAR": "2026",
+        "START_YEAR": start_year,
+        "END_YEAR": end_year,
+    }
+    subprocess.run(
+        ["bash", "-e", "-c", common_steps()["Verify data continuity"]["run"]],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    return github_env.read_text(encoding="utf-8"), uv_calls.read_text(encoding="utf-8").splitlines()
+
+
+def test_continuity_step_still_checks_last_december_after_fetch_range_moves_on(tmp_path: Path) -> None:
+    # Scheduled runs fetch only 2027 by February, when December 2026 leaves its grace period.
+    write_complete_raw_data(tmp_path / "data" / "raw", skip=("sentinel_monthly_age", 2026, 12))
+
+    github_env, calls = run_continuity_step(tmp_path, start_year="2027", end_year="2027")
+
+    assert "CONTINUITY_VALID=false" in github_env.splitlines()
+    assert "--start-year 2026 --end-year 2027" in calls[0]
+
+
+def test_continuity_step_passes_complete_data_across_the_year_boundary(tmp_path: Path) -> None:
+    write_complete_raw_data(tmp_path / "data" / "raw", skip=("none", 0, 0))
+
+    github_env, calls = run_continuity_step(tmp_path, start_year="2027", end_year="2027")
+
+    assert "CONTINUITY_VALID=true" in github_env.splitlines()
+    assert "--start-year 2026 --end-year 2027" in calls[0]
+
+
+def test_continuity_step_keeps_a_manual_historical_range(tmp_path: Path) -> None:
+    (tmp_path / "data" / "raw").mkdir(parents=True)
+
+    _, calls = run_continuity_step(tmp_path, start_year="2010", end_year="2012")
+
+    assert "--start-year 2010 --end-year 2012" in calls[0]

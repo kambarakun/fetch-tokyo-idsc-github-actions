@@ -549,9 +549,18 @@ jobs:
           echo "データ連続性を検証しています..."
           CONTINUITY_REPORT="$RUNNER_TEMP/continuity_${FETCH_TIMESTAMP}.json"
           CONTINUITY_VALID=false
+          # Check at least the previous year even when the fetch range is narrower: with the grace
+          # period, last December stays pending until February, when scheduled fetches cover only
+          # the current year (issue #731).
+          # `[ -lt ]` rather than $(( )): the manual start_year input is a free string.
+          CONTINUITY_START_YEAR="$PREVIOUS_YEAR"
+          if [ "$START_YEAR" -lt "$PREVIOUS_YEAR" ]; then
+            CONTINUITY_START_YEAR="$START_YEAR"
+          fi
+          echo "検証範囲: ${CONTINUITY_START_YEAR} - ${END_YEAR}"
 
           if uv run --locked check-missing data/raw \
-            --start-year "$START_YEAR" \
+            --start-year "$CONTINUITY_START_YEAR" \
             --end-year "$END_YEAR" \
             --as-of "$CURRENT_DATE" \
             --grace-periods 1 \
