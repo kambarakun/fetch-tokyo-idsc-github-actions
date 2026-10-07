@@ -314,6 +314,32 @@ class TestFormatDataTypeTable:
         assert "10件" in result
         assert "5件" in result
 
+    def test_row_order_is_independent_of_input_order(self):
+        """同数の行は data_type 名の昇順で並び、入力 dict の挿入順に依存しない"""
+        # Arrange: 同数 (1,393) を含む件数を、挿入順を変えた 2 通りで用意する
+        counts = [
+            ("sentinel_weekly_health_center", 1393),
+            ("sentinel_monthly_age", 320),
+            ("notifiable_weekly", 1393),
+            ("sentinel_weekly_gender", 1380),
+            ("sentinel_weekly_age", 1393),
+        ]
+        periods = {name: [(2025, 1), (2025, 2)] for name, _ in counts}
+
+        # Act
+        forward = format_data_type_table(dict(counts), periods)
+        backward = format_data_type_table(dict(reversed(counts)), periods)
+
+        # Assert
+        assert forward == backward
+        lines = forward.splitlines()
+
+        def row_index(display_name: str) -> int:
+            return next(i for i, line in enumerate(lines) if line.startswith(f"| {display_name} |"))
+
+        assert row_index("全数週次") < row_index("定点週次・年齢群") < row_index("定点週次・保健所別")
+        assert row_index("定点週次・保健所別") < row_index("定点週次・性別") < row_index("定点月次・年齢群")
+
     def test_format_empty_data(self):
         """空のデータ種別の整形"""
         data_types = {}
@@ -414,6 +440,41 @@ Old stats
             assert result is False
         finally:
             os.chdir(original_cwd)
+
+    def test_stats_section_marks_notifiable_latest_week_as_provisional(self, tmp_path):
+        """全数週次グラフのキャプションに最新週が速報値である旨が入る"""
+        readme_path = tmp_path / "README.md"
+        readme_path.write_text(
+            "# Project\n\n<!-- start data-statistics -->\nOld\n<!-- end data-statistics -->\n", encoding="utf-8"
+        )
+        stats = {
+            "total_files": 1,
+            "week_range": "2025年第1週 - 2025年第10週",
+            "month_range": "2025年1月 - 2025年3月",
+            "latest_fetch": "2025-01-01 00:00 JST",
+            "last_stats_update": "2025-01-01 00:00 JST",
+            "data_types": {},
+            "data_type_periods": {},
+            "latest_week": "2025年第10週",
+            "latest_month": "2025年3月",
+            "week_count": 10,
+            "month_count": 3,
+            "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
+        }
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            assert update_readme(stats) is True
+            updated_content = readme_path.read_text(encoding="utf-8")
+        finally:
+            os.chdir(original_cwd)
+
+        assert "最新週は速報値" in updated_content
+        notifiable_captions = [line for line in updated_content.splitlines() if "<sub>全数報告週次" in line]
+        assert len(notifiable_captions) == 2
+        assert all("最新週は速報値" in line for line in notifiable_captions)
+        assert "実測 5 例未満" in updated_content
 
 
 class TestGetMetadataStatsWithLogs:
