@@ -44,7 +44,7 @@ When behaviour described here and in code disagree, the code wins; fix the docum
   - any `fetch-data` run, in particular `--mode force`;
   - rewriting git history, force-pushing, pushing to `main`, or merging PRs.
 - Everything else inside the paths an issue or task owns may proceed without asking for
-  confirmation. Work on copies (a scratch `--data-dir`) or test fixtures, never on `data/`.
+  confirmation. Work on copies (a scratch `--data-dir`) or test fixtures, never write to `data/`.
 - Never commit secrets or `.env` files.
 
 ## Commands
