@@ -14,11 +14,11 @@
   "lines": 33,
   "hash": {
     "algorithm": "sha256",
-    "value": "5d462e0e23489cf8c52e58283322bec1a7f15802a77f44781a03c1d7a8deb9c1"
+    "value": "0254d8aa64d60d8a61b440161b4eb354378219327e2679b9061b6b4fa6c2d5c6"
   },
   "encoding": "utf-8",
   "created": "2026-10-04T10:49:52.740577+00:00",
-  "modified": "2026-10-04T10:49:52.740577+00:00",
+  "modified": "2026-10-08T08:57:29.054293+00:00",
   "sources": [
     {
       "title": "sentinel_weekly_health_center_2026_39.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "sentinel_weekly_health_center_2026_39",
-    "source_hash": "0aff0849cb180cb18d9cc20a8c9b93e7d8ebd7bb23fe9c0182fd29555fbc3653",
-    "processing_time_seconds": 0.0008630752563476562,
+    "source_hash": "502409ee088ca1a354952bad61c99157f67961d324716b0fa71e68599477e7a3",
+    "processing_time_seconds": 0.0014066696166992188,
     "gender": "female"
   },
   "quality": {
-    "validation_timestamp": "2026-10-04T10:49:52.740589+00:00",
+    "validation_timestamp": "2026-10-08T08:57:29.054300+00:00",
     "validation_status": "completed",
     "issues": []
   }

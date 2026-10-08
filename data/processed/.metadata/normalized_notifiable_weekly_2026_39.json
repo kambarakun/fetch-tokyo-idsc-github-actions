@@ -10,15 +10,15 @@
     "period": 39,
     "period_type": "weekly"
   },
-  "bytes": 2613,
+  "bytes": 2614,
   "lines": 90,
   "hash": {
     "algorithm": "sha256",
-    "value": "6d757dae6191e36653c7d1305b1d49a00283d7e9cb58803904fd89a811c10caa"
+    "value": "92ea511628973c023da1c1da6720c8eb33e28977f634aa1cf47d8f07b4698382"
   },
   "encoding": "utf-8",
   "created": "2026-10-04T10:49:51.764397+00:00",
-  "modified": "2026-10-04T10:49:51.764397+00:00",
+  "modified": "2026-10-08T08:57:29.039188+00:00",
   "sources": [
     {
       "title": "notifiable_weekly_2026_39.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "notifiable_weekly_2026_39",
-    "source_hash": "319fa7e461990c3adb8db26604d639cc9fc822a0bfd0d0a9e94db3de2c98e5a5",
-    "processing_time_seconds": 0.00010323524475097656,
+    "source_hash": "6a876a3411d57cbaa0d42be780a23a824eda59769c36189b22a0aa4137709ad3",
+    "processing_time_seconds": 0.00022649765014648438,
     "gender": null
   },
   "quality": {
-    "validation_timestamp": "2026-10-04T10:49:51.764400+00:00",
+    "validation_timestamp": "2026-10-08T08:57:29.039197+00:00",
     "validation_status": "completed",
     "issues": []
   }
