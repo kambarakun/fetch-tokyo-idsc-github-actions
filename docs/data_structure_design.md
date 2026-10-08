@@ -98,7 +98,7 @@ normalized_{category}_{frequency}_{aggregation}_{year}_{period}.csv
 
 ## メタデータ構造
 
-メタデータは「ログファイル1本」ではなく、**ファイルごとの個別JSON** として `.metadata/` 配下に保存されます。スキーマの完全な定義は [`CLAUDE.md`](../CLAUDE.md#83-メタデータスキーマ-v130) を参照してください (実装: `src/models/metadata.py`、`METADATA_VERSION = "1.3.0"`)。
+メタデータは「ログファイル1本」ではなく、**ファイルごとの個別JSON** として `.metadata/` 配下に保存されます。スキーマの完全な定義は [`schemas/metadata-v1.3.schema.json`](../schemas/metadata-v1.3.schema.json) を参照してください (実装: `src/models/metadata.py`、`METADATA_VERSION = "1.3.0"`)。
 
 ### raw/.metadata/hash_index.json
 
