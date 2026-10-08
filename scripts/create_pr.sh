@@ -380,7 +380,7 @@ PR_BODY_FILE="/tmp/pr_body.md"
     migrate-metadata)
       # チェック範囲: マイグレーション対象の定義
       [ -n "${TARGET_VERSION:-}" ] && echo "- **目標バージョン**: ${TARGET_VERSION}"
-      echo "- **対象ディレクトリ**: data/raw/.metadata/"
+      echo "- **対象ディレクトリ**: data/raw/.metadata/, data/processed/.metadata/"
       ;;
   esac
 
@@ -519,7 +519,7 @@ PR_BODY_FILE="/tmp/pr_body.md"
       ;;
     migrate-metadata)
       echo "- メタデータファイルのスキーマバージョンを更新しました"
-      echo "- メタデータは data/raw/.metadata/ ディレクトリに保存されています"
+      echo "- メタデータは data/raw/.metadata/ と data/processed/.metadata/ ディレクトリに保存されています"
       ;;
   esac
 
