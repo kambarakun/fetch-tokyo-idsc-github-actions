@@ -54,6 +54,7 @@ jobs:
       # weekly固有設定
       validate_before: true
       validate_after: true # weeklyのみ事後検証を実行
+      verify_continuity: true # 欠番を自動マージゲートに接続 (猶予 1 期間は共通ワークフロー側)
       continue_on_failure: true
       auto_merge: true # 週次チェックは問題なければ自動マージ
 

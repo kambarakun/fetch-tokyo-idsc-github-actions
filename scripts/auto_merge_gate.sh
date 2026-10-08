@@ -16,6 +16,7 @@ evaluate_auto_merge_gate() {
   FETCH_GATE_STATUS="${FETCH_STATUS:-unknown}"
   PROCESS_GATE_STATUS="${PROCESS_RESULT:-unknown}"
   CONTINUITY_GATE_STATUS="not_applicable"
+  SCHEMA_GATE_STATUS="not_applicable"
   AUTO_MERGE_BLOCKERS=""
 
   case "$WORKFLOW_NAME" in
@@ -51,6 +52,18 @@ evaluate_auto_merge_gate() {
       else
         CONTINUITY_GATE_STATUS="not_requested"
       fi
+      # Bot data PRs merge before PR CI can run, so the metadata schema is checked here; unset fails closed.
+      case "${SCHEMA_VALID:-}" in
+        true) SCHEMA_GATE_STATUS="passed" ;;
+        false)
+          SCHEMA_GATE_STATUS="failed"
+          append_auto_merge_blocker "schema"
+          ;;
+        *)
+          SCHEMA_GATE_STATUS="unknown"
+          append_auto_merge_blocker "schema"
+          ;;
+      esac
       ;;
     process-data)
       FETCH_GATE_STATUS="not_applicable"
@@ -123,7 +136,7 @@ evaluate_auto_merge_gate() {
   fi
 
   : "$AUTO_MERGE_EFFECTIVE" "$AUTO_MERGE_GATE_STATUS" "$AUTO_MERGE_OVERRIDE_USED" "$VALIDATION_GATE_STATUS" \
-    "$CONTINUITY_GATE_STATUS"
+    "$CONTINUITY_GATE_STATUS" "$SCHEMA_GATE_STATUS"
 }
 
 write_auto_merge_gate_env() {
@@ -140,6 +153,7 @@ write_auto_merge_gate_env() {
     echo "PROCESS_GATE_STATUS=$PROCESS_GATE_STATUS"
     echo "VALIDATION_GATE_STATUS=$VALIDATION_GATE_STATUS"
     echo "CONTINUITY_GATE_STATUS=$CONTINUITY_GATE_STATUS"
+    echo "SCHEMA_GATE_STATUS=$SCHEMA_GATE_STATUS"
     echo "AUTO_MERGE_GATE_STATUS=$AUTO_MERGE_GATE_STATUS"
     echo "AUTO_MERGE_BLOCKERS=$AUTO_MERGE_BLOCKERS"
     echo "AUTO_MERGE_OVERRIDE_USED=$AUTO_MERGE_OVERRIDE_USED"

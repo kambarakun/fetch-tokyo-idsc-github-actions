@@ -140,6 +140,8 @@ def test_real_gap_controls_exit_code_and_json_summary(tmp_path: Path, capsys: py
         "expected_count": 3,
         "actual_count": 2,
         "missing_count": 1,
+        "pending_count": 0,
+        "grace_periods": 0,
         "requested_start_year": 2025,
         "requested_end_year": 2025,
         "watermarks": {
@@ -163,6 +165,136 @@ def test_real_gap_controls_exit_code_and_json_summary(tmp_path: Path, capsys: py
     write_periods(tmp_path, data_type, [(2025, 2)])
     assert main(args) == 0
     assert json.loads(capsys.readouterr().out)["summary"]["is_valid"] is True
+
+
+def test_full_monthly_year_expects_exactly_twelve_periods(tmp_path: Path) -> None:
+    data_type = "sentinel_monthly_age"
+    write_periods(tmp_path, data_type, periods_for_year(2024, 12))
+
+    validator = ContinuityValidator(tmp_path, as_of=date(2025, 3, 17))
+    report = validator.validate_data_type(data_type, start_year=2024, end_year=2024)
+
+    assert report.target_end == (2024, 12)
+    assert report.expected_count == 12
+    assert report.actual_count == 12
+    assert report.is_valid
+    assert report.unexpected_files == []
+
+
+def test_out_of_range_file_does_not_stop_collection(tmp_path: Path) -> None:
+    data_type = "sentinel_weekly_age"
+    # rglob yields the parent directory's matches before the nested ones, so an early exit would drop W01-W03.
+    (tmp_path / f"{data_type}_2025_60.csv").write_text("bad", encoding="utf-8")
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    write_periods(nested, data_type, periods_for_year(2025, 3))
+
+    validator = ContinuityValidator(tmp_path, as_of=date(2025, 1, 27), weekly_lag=2)
+    report = validator.validate_data_type(data_type, start_year=2025, end_year=2025)
+
+    assert report.actual_count == 3
+    assert report.missing_periods == []
+    assert report.unexpected_files == [f"{data_type}_2025_60.csv"]
+
+
+@pytest.mark.parametrize(
+    ("files", "as_of", "start_year", "end_year", "expected_pending"),
+    [
+        (
+            {"sentinel_monthly_age": periods_for_year(2026, 7)},
+            date(2026, 9, 1),
+            2026,
+            2026,
+            {"sentinel_monthly_age": [(2026, 8)]},
+        ),
+        (
+            {
+                "notifiable_weekly": periods_for_year(2025, 51),
+                "sentinel_monthly_age": periods_for_year(2025, 11),
+            },
+            date(2026, 1, 5),
+            2025,
+            2026,
+            {"notifiable_weekly": [(2025, 52)], "sentinel_monthly_age": [(2025, 12)]},
+        ),
+        (
+            {"notifiable_weekly": periods_for_year(2026, 52)},
+            date(2027, 1, 11),
+            2026,
+            2027,
+            {"notifiable_weekly": [(2026, 53)]},
+        ),
+    ],
+    ids=["monthly-before-publication", "year-end-week-and-month", "53-week-year"],
+)
+def test_grace_marks_only_the_newest_unpublished_period_as_pending(
+    tmp_path: Path,
+    files: dict[str, list[tuple[int, int]]],
+    as_of: date,
+    start_year: int,
+    end_year: int,
+    expected_pending: dict[str, list[tuple[int, int]]],
+) -> None:
+    for data_type, periods in files.items():
+        write_periods(tmp_path, data_type, periods)
+
+    validator = ContinuityValidator(tmp_path, as_of=as_of, grace_periods=1)
+    strict = ContinuityValidator(tmp_path, as_of=as_of)
+    for data_type, pending in expected_pending.items():
+        report = validator.validate_data_type(data_type, start_year=start_year, end_year=end_year)
+
+        assert [(item["year"], item["period"]) for item in report.pending_periods] == pending
+        assert report.missing_periods == []
+        assert report.is_valid
+        assert report.error_messages == []
+        assert not strict.validate_data_type(data_type, start_year=start_year, end_year=end_year).is_valid
+
+
+def test_grace_does_not_hide_older_gaps(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    data_type = "sentinel_monthly_age"
+    write_periods(tmp_path, data_type, periods_for_year(2026, 6))
+    args = [
+        str(tmp_path),
+        "--data-type",
+        data_type,
+        "--start-year",
+        "2026",
+        "--end-year",
+        "2026",
+        "--as-of",
+        "2026-09-01",
+        "--grace-periods",
+        "1",
+    ]
+
+    report = ContinuityValidator(tmp_path, as_of=date(2026, 9, 1), grace_periods=1).validate_data_type(
+        data_type, start_year=2026, end_year=2026
+    )
+    assert [(item["year"], item["period"]) for item in report.missing_periods] == [(2026, 7)]
+    assert [(item["year"], item["period"]) for item in report.pending_periods] == [(2026, 8)]
+    assert not report.is_valid
+
+    assert main([*args, "--format", "json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["is_valid"] is False
+    assert payload["summary"]["missing_count"] == 1
+    assert payload["summary"]["pending_count"] == 1
+    assert payload["summary"]["grace_periods"] == 1
+    assert payload["data_types"][data_type]["pending_count"] == 1
+    assert payload["data_types"][data_type]["pending_periods"] == [
+        {"year": 2026, "period": 8, "type": "monthly", "filename": f"{data_type}_2026_08.csv"}
+    ]
+
+    assert main(args) == 1
+    text = capsys.readouterr().out
+    assert "欠損: 1 / 保留: 1" in text
+    assert "欠損: 1件 / 保留: 1件" in text
+
+    with pytest.raises(SystemExit) as grace_error:
+        main([str(tmp_path), "--grace-periods", "-1"])
+    assert grace_error.value.code == 2
+    with pytest.raises(ValueError, match="grace periods"):
+        ContinuityValidator(tmp_path, grace_periods=-1)
 
 
 def test_missing_data_type_is_invalid(tmp_path: Path) -> None:
@@ -284,3 +416,25 @@ def test_legacy_validator_shim_runs_without_an_installed_project() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "週次・月次データの連続性を検証" in result.stdout
+
+
+@pytest.mark.parametrize(("start_year", "expected_missing"), [(2026, [(2026, 12)]), (2027, [])])
+def test_cli_start_year_bounds_the_december_gap_after_grace_expires(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], start_year: int, expected_missing: list[tuple[int, int]]
+) -> None:
+    # On 2027-02-04 the grace for December 2026 has expired; only a range reaching 2026 can see it.
+    data_type = "sentinel_monthly_age"
+    write_periods(tmp_path, data_type, [*periods_for_year(2026, 11), (2027, 1)])
+
+    exit_code = main(
+        [
+            str(tmp_path),
+            *("--data-type", data_type, "--start-year", str(start_year), "--end-year", "2027"),
+            *("--as-of", "2027-02-04", "--grace-periods", "1", "--format", "json"),
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)["data_types"][data_type]
+    assert [(item["year"], item["period"]) for item in report["missing_periods"]] == expected_missing
+    assert report["pending_periods"] == []
+    assert exit_code == (1 if expected_missing else 0)
