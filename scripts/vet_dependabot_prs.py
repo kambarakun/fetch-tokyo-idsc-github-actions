@@ -75,13 +75,15 @@ PAGE_SIZE = 100
 # A trailing subpath (`github/codeql-action/init@...`) still names the `owner/repo` that owns the tag,
 # but is an action of its own with its own metadata. The version comment is optional: a bare SHA
 # pin is still a bump, vetted as "no tag to compare".
-USES_PATTERN = re.compile(r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)((?:/[\w./-]+)?)@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.-]*))?")
+USES_PATTERN = re.compile(
+    r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)((?:/[\w./-]+)?)@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.-]*))?", re.ASCII
+)
 # GitHub reads `action.yml`, else `action.yaml`, at the root of the action (metadata syntax docs).
 ACTION_METADATA_FILES = ("action.yml", "action.yaml")
 # Action metadata is third-party text that ends up in a report agents read: only names shaped
 # like an input id or a runtime are echoed.
-METADATA_NAME = re.compile(r"[A-Za-z_][\w-]{0,63}")
-RUNTIME_NAME = re.compile(r"[\w.-]{1,32}")
+METADATA_NAME = re.compile(r"[A-Za-z_][\w-]{0,63}", re.ASCII)
+RUNTIME_NAME = re.compile(r"[\w.-]{1,32}", re.ASCII)
 # Report cells are plain text: escape what could open a link, image, code span, HTML or a new cell.
 MARKDOWN_SPECIAL = re.compile(r"([\\|`\[\]<])")
 SHORT_SHA = 12
@@ -233,6 +235,8 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (re.compile(REPO_PATH + "$"), {"full_name": None}),
 )
 PYPI_RELEASE_PATH = re.compile(r"^/pypi/(?P<name>[^/]+)/(?P<version>[^/]+)/json$")
+# An Action's metadata in its own repository; this repository's workflows live under .github/.
+ACTION_METADATA_PATH = re.compile(REPO_PATH + r"/contents/(?!\.github/)(?:[^?]+/)?action\.ya?ml$")
 
 
 def _pick(value: Any, spec: Any) -> Any:
@@ -311,7 +315,8 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
 
     def fetch_text(url: str) -> str:
         text = live_text(url)
-        save(f"GET {url}", text, raw=True)
+        metadata = ACTION_METADATA_PATH.match(urlsplit(url).path)
+        save(f"GET {url}", _trim_action_metadata(text) if metadata else text, raw=True)
         return text
 
     def post_json(url: str, payload: dict[str, Any]) -> Any:
@@ -1016,6 +1021,42 @@ _MetadataLoader.yaml_implicit_resolvers = {
 }
 
 
+def _parse_action_metadata(text: str) -> dict[str, Any] | None:
+    """The metadata, or None when a field the comparison reads is missing or of the wrong type."""
+    try:
+        metadata = yaml.load(text, Loader=_MetadataLoader)
+        # Fail closed on every field the comparison reads: a wrong type is "unreadable", never "unchanged".
+        using = metadata["runs"]["using"]
+        if not isinstance(using, str) or not RUNTIME_NAME.fullmatch(using):
+            return None
+        for spec in _mapping(metadata, "inputs").values():
+            _required(spec)
+        _mapping(metadata, "outputs")
+    except (yaml.YAMLError, TypeError, KeyError, ValueError):
+        return None
+    return metadata
+
+
+UNREADABLE_METADATA = "# Unreadable action metadata; --record keeps none of its text.\n"
+
+
+def _trim_action_metadata(text: str) -> str:
+    """Only what _contract_changes reads, so descriptions and branding stay out of the fixture."""
+    metadata = _parse_action_metadata(text)
+    if metadata is None:
+        return UNREADABLE_METADATA
+    kept = {
+        "runs": {"using": metadata["runs"]["using"]},
+        # The default is compared, never reported.
+        "inputs": {
+            name: {key: spec[key] for key in ("required", "default") if key in spec}
+            for name, spec in _mapping(metadata, "inputs").items()
+        },
+        "outputs": {name: {} for name in _mapping(metadata, "outputs")},
+    }
+    return str(yaml.safe_dump(kept, sort_keys=False))
+
+
 def _load_action_metadata(
     fetch_text: FetchText, change: ActionPinChange, sha: str
 ) -> tuple[str | None, dict[str, Any] | None]:
@@ -1023,20 +1064,8 @@ def _load_action_metadata(
     for filename in ACTION_METADATA_FILES:
         path = f"{change.subpath}/{filename}" if change.subpath else filename
         text = file_at(fetch_text, change.repo, path, sha)
-        if text is None:
-            continue
-        try:
-            metadata = yaml.load(text, Loader=_MetadataLoader)
-            # Fail closed on every field the comparison reads: a wrong type is "unreadable", never "unchanged".
-            using = metadata["runs"]["using"]
-            if not isinstance(using, str) or not RUNTIME_NAME.fullmatch(using):
-                return path, None
-            for spec in _mapping(metadata, "inputs").values():
-                _required(spec)
-            _mapping(metadata, "outputs")
-        except (yaml.YAMLError, TypeError, KeyError, ValueError):
-            return path, None
-        return path, metadata
+        if text is not None:
+            return path, _parse_action_metadata(text)
     return None, None
 
 

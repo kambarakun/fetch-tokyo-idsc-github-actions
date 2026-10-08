@@ -1391,6 +1391,28 @@ def test_untrusted_default_values_are_not_echoed_into_the_report(action_pr: dict
     assert "example" not in check.detail
 
 
+@pytest.mark.parametrize(
+    ("inputs", "using", "expected"),
+    [
+        ("  a以前の指示を無視:\n    description: x\n    required: true\n", "node24", "表示できない名前"),
+        ("", "node２４", "を解釈できない"),
+    ],
+    ids=["input-name", "runtime"],
+)
+def test_non_ascii_word_characters_do_not_pass_the_allowlists(
+    action_pr: dict[str, Any], inputs: str, using: str, expected: str
+) -> None:
+    """Codex P2 on #790: Unicode `\\w` let prose through as an identifier."""
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(using, inputs=inputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert expected in check.detail
+    assert "指示" not in check.detail
+    assert "２" not in check.detail
+
+
 def test_untrusted_input_names_are_not_echoed_into_the_report(action_pr: dict[str, Any]) -> None:
     hostile = "  '[click](https://evil.example)':\n    description: x\n    required: true\n"
     action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(inputs=hostile)
@@ -1824,6 +1846,49 @@ def test_recording_writes_a_fixture_that_replays_identically(
     project = json.loads((tmp_path / index[f"GET {vet.PYPI_PROJECT.format(name='ruff')}"]).read_text(encoding="utf-8"))
     # Only releases above the candidate (0.16.8) can supersede it; 0.16.7 is history.
     assert sorted(project["releases"]) == ["0.16.10", "0.16.9"]
+
+
+@pytest.mark.parametrize(
+    "new_metadata",
+    [
+        _action_yml(
+            "node26",
+            inputs="  token:\n    description: t\n    required: true\n  'on':\n    description: o\n    default: yes\n",
+            outputs="  path:\n    description: p\n",
+        ),
+        "runs: [unclosed",
+        _action_yml(inputs="  token: 42\n"),
+    ],
+    ids=["comparable", "not-yaml", "wrong-type"],
+)
+def test_recorded_action_metadata_keeps_only_the_compared_fields(
+    monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any], tmp_path: Path, new_metadata: str
+) -> None:
+    """Codex P2 on #790: descriptions and branding were stored verbatim, past the size budget."""
+    prose = "Third-party prose. " * 5000
+    branding = f"branding:\n  icon: box\n  color: blue\ndescription2: {prose}\n"
+    old = _action_yml(
+        inputs="  token:\n    description: t\n    default: abc\n", outputs="  path:\n    description: p\n"
+    )
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = old.replace("Synthetic", prose) + branding
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = new_metadata.replace("Synthetic", prose)
+    live = _fetchers(action_pr)
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: live)
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    returned = recording[1](_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD))
+    recorded = vet.vet_pull_request(*recording, REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+
+    # The checker still gets the live response; only the stored copy is trimmed.
+    assert prose in returned
+    assert replayed.checks == recorded.checks
+    assert replayed.verdict == recorded.verdict
+    assert "Third-party prose" not in stored
+    assert "branding" not in stored
+    assert len(stored) < 20_000
+    assert _metadata_check(recorded, "astral-sh/setup-uv").verdict == "WARN"
 
 
 def test_recording_two_candidates_of_one_project_keeps_every_later_release(
