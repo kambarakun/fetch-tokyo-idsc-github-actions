@@ -36,6 +36,7 @@ from src.processors.data_processor import (
     detect_gender_sections,
     extract_gender_section_data,
     find_data_start_line,
+    section_has_data_rows,
 )
 
 # Output expectations follow the processor's actual path for each data type.
@@ -170,14 +171,20 @@ def expected_processed_outputs(raw_file: Path | str) -> list[str] | None:
         if not gender_sections:
             suffixes = [None] if find_data_start_line(lines, SENTINEL_DATA_START_MARKERS) is not None else []
         else:
-            processable_sections = [
-                section for section in gender_sections if extract_gender_section_data(lines, section)
+            section_rows = [
+                (GENDER_SUFFIX_BY_LABEL[section["gender"]], extract_gender_section_data(lines, section))
+                for section in gender_sections
             ]
-            suffixes = list(
-                dict.fromkeys(GENDER_SUFFIX_BY_LABEL[section["gender"]] for section in processable_sections)
-            )
             if output_kind == "medical_district_sections":
-                suffixes = [suffix for suffix in suffixes if suffix != "total"]
+                # Mirror DataProcessor: a district file without male/female sections is rejected as a whole,
+                # and its 男女合計 section is emitted only when it has rows beyond the header.
+                has_male_or_female = any(suffix != "total" for suffix, _ in section_rows)
+                section_rows = [
+                    (suffix, rows)
+                    for suffix, rows in section_rows
+                    if has_male_or_female and (suffix != "total" or section_has_data_rows(rows))
+                ]
+            suffixes = list(dict.fromkeys(suffix for suffix, rows in section_rows if rows))
 
     year = match.group("year")
     period = match.group("period")

@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.cli.validate_data import DataValidator
@@ -390,6 +392,76 @@ class TestDataValidatorFormatOption(unittest.TestCase):
         self.assertIn("# データ検証レポート", content, "Markdownにタイトルが含まれるべき")
         self.assertIn("## サマリー", content, "Markdownにサマリーセクションが含まれるべき")
         self.assertIn("| 項目 | 値 |", content, "Markdownにテーブルヘッダーが含まれるべき")
+
+
+def _csv_rows(column_count: int, row_count: int = 3) -> str:
+    header = ",".join(f"col{index}" for index in range(column_count))
+    rows = [",".join(str(row) for _ in range(column_count)) for row in range(row_count)]
+    return "\n".join([header, *rows]) + "\n"
+
+
+class TestValidateFileFailingChecks:
+    """Each failing check makes the file invalid and reports that check's own error first.
+
+    Asserting the first error, not only ``valid``, pins each ``if not <check>_result["valid"]`` branch:
+    another check may also fail on the same input (e.g. a decode error is reported by both the
+    encoding and the CSV format checks), so ``valid`` alone stays False when one branch is inverted.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The path safety check resolves against cwd/data, so files under tmp_path/data are safe.
+        monkeypatch.chdir(tmp_path)
+        self.data_dir = tmp_path / "data"
+        self.data_dir.mkdir()
+
+    def test_too_small_file_is_invalid(self) -> None:
+        # Arrange
+        test_file = self.data_dir / "small.csv"
+        test_file.write_bytes(b"a,b\n1,2\n")
+
+        # Act
+        result = DataValidator().validate_file(test_file)
+
+        # Assert
+        assert result["valid"] is False
+        assert result["errors"][0].startswith("File too small")
+
+    def test_undecodable_file_is_invalid(self) -> None:
+        # Arrange: Shift_JIS Japanese text read as UTF-8
+        test_file = self.data_dir / "sjis.csv"
+        test_file.write_bytes(("疾病名,報告数\n" + "インフルエンザ,1\n" * 10).encode("shift_jis"))
+
+        # Act
+        result = DataValidator(encoding="utf-8").validate_file(test_file)
+
+        # Assert
+        assert result["valid"] is False
+        assert result["errors"][0].startswith("Encoding error")
+
+    def test_too_many_columns_is_invalid(self) -> None:
+        # Arrange
+        test_file = self.data_dir / "wide.csv"
+        test_file.write_bytes(_csv_rows(101).encode("shift_jis"))
+
+        # Act
+        result = DataValidator().validate_file(test_file)
+
+        # Assert
+        assert result["valid"] is False
+        assert result["errors"][0].startswith("Too many columns")
+
+    def test_file_outside_data_dir_is_invalid(self, tmp_path: Path) -> None:
+        # Arrange
+        test_file = tmp_path / "outside.csv"
+        test_file.write_bytes(_csv_rows(5, row_count=20).encode("shift_jis"))
+
+        # Act
+        result = DataValidator().validate_file(test_file)
+
+        # Assert
+        assert result["valid"] is False
+        assert result["errors"][0].startswith("Path traversal detected")
 
 
 if __name__ == "__main__":

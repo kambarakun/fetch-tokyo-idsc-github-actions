@@ -126,9 +126,9 @@ class TestDataProcessor(unittest.TestCase):
         output_file = self.data_dir / "processed" / "normalized_sentinel_weekly_gender_2025_01.csv"
         self.assertTrue(output_file.exists())
 
-    def test_process_medical_district_skips_total(self):
-        """medical_districtのtotalセクションがスキップされることを確認"""
-        # Shift_JISテストファイルを作成
+    def test_process_medical_district_outputs_total_with_data_rows(self):
+        """medical_districtの男女合計にデータ行があればtotalを出力し、内容が元データのtotalセクションと一致する"""
+        # Arrange
         test_file = self.raw_dir / "sentinel_weekly_medical_district_2025_01.csv"
         test_content = """定点報告疾患,週報告分
 性別,"男性"
@@ -140,25 +140,62 @@ class TestDataProcessor(unittest.TestCase):
 性別,"男女合計"
 医療圏,インフルエンザ,RSウイルス
 区中央部,22,11
+合計,22,11
 """
         test_file.write_text(test_content, encoding="shift_jis")
 
-        # 処理実行
+        # Act
         result = self.processor.process_file(test_file)
 
+        # Assert
         self.assertTrue(result.success)
-        self.assertIsNotNone(result.output_files)
-        # medical_districtはmale, femaleのみ(totalはスキップ)
-        self.assertEqual(len(result.output_files), 2)
+        processed_dir = self.data_dir / "processed"
+        self.assertEqual(
+            sorted(output.name for output in result.output_files),
+            [
+                "normalized_sentinel_weekly_medical_district_female_2025_01.csv",
+                "normalized_sentinel_weekly_medical_district_male_2025_01.csv",
+                "normalized_sentinel_weekly_medical_district_total_2025_01.csv",
+            ],
+        )
+        total_file = processed_dir / "normalized_sentinel_weekly_medical_district_total_2025_01.csv"
+        self.assertEqual(
+            total_file.read_text(encoding="utf-8"),
+            "医療圏,インフルエンザ,RSウイルス\n区中央部,22,11\n合計,22,11\n",
+        )
 
-        # male/femaleファイルは存在するがtotalは存在しない
-        male_file = self.data_dir / "processed" / "normalized_sentinel_weekly_medical_district_male_2025_01.csv"
-        female_file = self.data_dir / "processed" / "normalized_sentinel_weekly_medical_district_female_2025_01.csv"
-        total_file = self.data_dir / "processed" / "normalized_sentinel_weekly_medical_district_total_2025_01.csv"
+    def test_process_medical_district_skips_header_only_total(self):
+        """medical_districtの男女合計がヘッダーのみならtotalを出力しない"""
+        # Arrange: 2000-W14〜2006-W52 の週報と同じく、男女合計がヘッダーだけの形
+        test_file = self.raw_dir / "sentinel_weekly_medical_district_2005_01.csv"
+        test_content = """定点報告疾患,週報告分
+性別,"男性"
+医療圏,インフルエンザ,RSウイルス
+区中央部,10,5
+性別,"女性"
+医療圏,インフルエンザ,RSウイルス
+区中央部,12,6
+性別,"男女合計"
+医療圏,インフルエンザ,RSウイルス
+"""
+        test_file.write_text(test_content, encoding="shift_jis")
 
-        self.assertTrue(male_file.exists())
-        self.assertTrue(female_file.exists())
-        self.assertFalse(total_file.exists())  # totalはスキップされる
+        # Act
+        with self.assertLogs("src.processors.data_processor", level="INFO") as log_context:
+            result = self.processor.process_file(test_file)
+
+        # Assert
+        self.assertTrue(result.success)
+        self.assertEqual(
+            sorted(output.name for output in result.output_files),
+            [
+                "normalized_sentinel_weekly_medical_district_female_2005_01.csv",
+                "normalized_sentinel_weekly_medical_district_male_2005_01.csv",
+            ],
+        )
+        total_file = self.data_dir / "processed" / "normalized_sentinel_weekly_medical_district_total_2005_01.csv"
+        self.assertFalse(total_file.exists())
+        self.assertTrue(any("データ行がないため出力しません" in message for message in log_context.output))
 
     def test_medical_district_total_only_error(self):
         """medical_districtでtotalセクションのみ存在する異常データの検出"""
