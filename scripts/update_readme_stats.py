@@ -347,8 +347,8 @@ def format_data_type_table(data_types: dict[str, int], data_type_periods: dict[s
         "|-----------|------|-----------|------|",
     ]
 
-    # データ行
-    for data_type, count in data_types.items():
+    # データ行 (件数の降順 → data_type 名の昇順。同数行の順序を入力 dict の順序に依存させない)
+    for data_type, count in sorted(data_types.items(), key=lambda kv: (-kv[1], kv[0])):
         display_name = type_names.get(data_type, data_type)
 
         # 期間情報を取得
@@ -604,7 +604,7 @@ def update_readme(stats: dict) -> bool:
 
 ### 📊 感染動向の可視化
 
-> 💡 季節性ベースライン (同週/同月の過去5年平均) からの乖離率で流行を検知
+> 💡 季節性ベースライン (同週/同月の過去5年平均) からの乖離率で流行を検知。乖離率の順位付けには、実測 5 例未満またはベースライン 1 例未満の期間を使わない
 
 #### 週次定点 (Sentinel Surveillance - Weekly)
 
@@ -627,11 +627,11 @@ def update_readme(stats: dict) -> bool:
   <tr>
     <td width="50%">
       <img src="docs/images/notifiable_weekly_absolute.png" alt="週次全数・絶対数" width="100%">
-      <p align="center"><sub>全数報告週次・絶対数 (直近52週・1年間)</sub></p>
+      <p align="center"><sub>全数報告週次・絶対数 (直近52週・1年間、最新週は速報値)</sub></p>
     </td>
     <td width="50%">
       <img src="docs/images/notifiable_weekly_deviation.png" alt="週次全数・季節性乖離率" width="100%">
-      <p align="center"><sub>全数報告週次・季節性乖離率 (%)</sub></p>
+      <p align="center"><sub>全数報告週次・季節性乖離率 (%、最新週は速報値)</sub></p>
     </td>
   </tr>
 </table>
