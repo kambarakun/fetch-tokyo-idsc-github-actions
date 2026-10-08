@@ -19,10 +19,10 @@
 
 | 項目 | 値 |
 |------|-----|
-| **最新週次データ** | 2026年第39週 |
+| **最新週次データ** | 2026年第40週 |
 | **最新月次データ** | 2026年8月 |
-| **最新データ取得日時** | 2026-10-07 17:22 JST |
-| **最終データ更新日時** | 2026-10-01 17:55 JST |
+| **最新データ取得日時** | 2026-10-08 17:24 JST |
+| **最終データ更新日時** | 2026-10-08 17:23 JST |
 
 > 📝 **日時の説明**
 > - **最新データ取得日時**: データ取得処理が最後に実行された日時 (毎日自動実行)
@@ -30,7 +30,7 @@
 
 ### 📊 感染動向の可視化
 
-> 💡 季節性ベースライン (同週/同月の過去5年平均) からの乖離率で流行を検知
+> 💡 季節性ベースライン (同週/同月の過去5年平均) からの乖離率で流行を検知。乖離率の順位付けには、実測 5 例未満またはベースライン 1 例未満の期間を使わない
 
 #### 週次定点 (Sentinel Surveillance - Weekly)
 
@@ -53,11 +53,11 @@
   <tr>
     <td width="50%">
       <img src="docs/images/notifiable_weekly_absolute.png" alt="週次全数・絶対数" width="100%">
-      <p align="center"><sub>全数報告週次・絶対数 (直近52週・1年間)</sub></p>
+      <p align="center"><sub>全数報告週次・絶対数 (直近52週・1年間、最新週は速報値)</sub></p>
     </td>
     <td width="50%">
       <img src="docs/images/notifiable_weekly_deviation.png" alt="週次全数・季節性乖離率" width="100%">
-      <p align="center"><sub>全数報告週次・季節性乖離率 (%)</sub></p>
+      <p align="center"><sub>全数報告週次・季節性乖離率 (%、最新週は速報値)</sub></p>
     </td>
   </tr>
 </table>
@@ -81,10 +81,10 @@
 
 | 項目 | 値 |
 |------|-----|
-| **総データ件数** | 8,226件 |
-| **週次データ期間** | 2000年第1週 - 2026年第39週 |
+| **総データ件数** | 8,231件 |
+| **週次データ期間** | 2000年第1週 - 2026年第40週 |
 | **月次データ期間** | 2000年1月 - 2026年8月 |
-| **収集週数** | 1,395週 |
+| **収集週数** | 1,396週 |
 | **収集月数** | 320ヶ月 |
 | **データ種別数** | 9種類 |
 
@@ -92,11 +92,11 @@
 
 | データ種別 | 件数 | データ期間 | 欠損 |
 |-----------|------|-----------|------|
-| 定点週次・保健所別 | 1,395件 | 2000年第1週-2026年第39週 | なし |
-| 全数週次 | 1,395件 | 2000年第1週-2026年第39週 | なし |
-| 定点週次・年齢群 | 1,395件 | 2000年第1週-2026年第39週 | なし |
-| 定点週次・医療圏別 | 1,382件 | 2000年第14週-2026年第39週 | なし |
-| 定点週次・性別 | 1,382件 | 2000年第14週-2026年第39週 | なし |
+| 全数週次 | 1,396件 | 2000年第1週-2026年第40週 | なし |
+| 定点週次・年齢群 | 1,396件 | 2000年第1週-2026年第40週 | なし |
+| 定点週次・保健所別 | 1,396件 | 2000年第1週-2026年第40週 | なし |
+| 定点週次・性別 | 1,383件 | 2000年第14週-2026年第40週 | なし |
+| 定点週次・医療圏別 | 1,383件 | 2000年第14週-2026年第40週 | なし |
 | 定点月次・年齢群 | 320件 | 2000年1月-2026年8月 | なし |
 | 定点月次・保健所別 | 320件 | 2000年1月-2026年8月 | なし |
 | 定点月次・医療圏別 | 320件 | 2000年1月-2026年8月 | なし |
@@ -106,14 +106,19 @@
 
 #### 📁 生データ (raw) の検証
 
-##### ⚠️ 警告 (8226件)
+##### ⚠️ 警告 (8231件)
 
 > 💡 CSVファイル内で行ごとにカラム数が異なります。東京都IDSCの元データには注釈行や集計期間情報が含まれているため発生します。
 
 <details>
-<summary><strong>[csv_format] Inconsistent column count</strong> (8226件)</summary>
+<summary><strong>[csv_format] Inconsistent column count</strong> (8231件)</summary>
 
 ```text
+notifiable_weekly_2026_40.csv
+sentinel_weekly_age_2026_40.csv
+sentinel_weekly_gender_2026_40.csv
+sentinel_weekly_health_center_2026_40.csv
+sentinel_weekly_medical_district_2026_40.csv
 notifiable_weekly_2026_39.csv
 sentinel_weekly_age_2026_39.csv
 sentinel_weekly_gender_2026_39.csv
@@ -159,12 +164,7 @@ sentinel_weekly_age_2026_31.csv
 sentinel_weekly_gender_2026_31.csv
 sentinel_weekly_health_center_2026_31.csv
 sentinel_weekly_medical_district_2026_31.csv
-notifiable_weekly_2026_30.csv
-sentinel_weekly_age_2026_30.csv
-sentinel_weekly_gender_2026_30.csv
-sentinel_weekly_health_center_2026_30.csv
-sentinel_weekly_medical_district_2026_30.csv
-... 他8176件
+... 他8181件
 ```
 
 </details>
@@ -172,14 +172,15 @@ sentinel_weekly_medical_district_2026_30.csv
 
 #### 📊 処理済みデータ (processed) の品質チェック
 
-##### 🔍 データ品質の問題 (1030件)
+##### 🔍 データ品質の問題 (1031件)
 
 > 🔍 性別データの合計値検証で不整合が検出されました。男性+女性の合計が、元データの男女合計値と一致しません。
 
 <details>
-<summary><strong>gender_sum_consistency</strong> (1030ファイル, 不整合: 11910件)</summary>
+<summary><strong>gender_sum_consistency</strong> (1031ファイル, 不整合: 11923件)</summary>
 
 ```text
+sentinel_weekly_medical_district_2026_40.csv (不整合: 13件)
 sentinel_weekly_medical_district_2026_39.csv (不整合: 13件)
 sentinel_weekly_medical_district_2026_38.csv (不整合: 13件)
 sentinel_weekly_medical_district_2026_37.csv (不整合: 14件)
@@ -229,8 +230,7 @@ sentinel_weekly_medical_district_2025_46.csv (不整合: 13件)
 sentinel_weekly_medical_district_2025_45.csv (不整合: 13件)
 sentinel_weekly_medical_district_2025_44.csv (不整合: 13件)
 sentinel_weekly_medical_district_2025_43.csv (不整合: 11件)
-sentinel_weekly_medical_district_2025_42.csv (不整合: 12件)
-... 他980ファイル
+... 他981ファイル
 ```
 
 </details>
