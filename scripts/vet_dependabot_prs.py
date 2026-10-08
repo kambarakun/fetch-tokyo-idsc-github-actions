@@ -235,8 +235,9 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (re.compile(REPO_PATH + "$"), {"full_name": None}),
 )
 PYPI_RELEASE_PATH = re.compile(r"^/pypi/(?P<name>[^/]+)/(?P<version>[^/]+)/json$")
-# An Action's metadata in its own repository; this repository's workflows live under .github/.
-ACTION_METADATA_PATH = re.compile(REPO_PATH + r"/contents/(?!\.github/)(?:[^?]+/)?action\.ya?ml$")
+# An Action's metadata, also under `.github/actions/`; a workflow (this repository's included)
+# lives in `.github/workflows/` and is never compared as metadata, so it is kept whole.
+ACTION_METADATA_PATH = re.compile(REPO_PATH + r"/contents/(?!\.github/workflows/)(?:[^?]+/)?action\.ya?ml$")
 
 
 def _pick(value: Any, spec: Any) -> Any:

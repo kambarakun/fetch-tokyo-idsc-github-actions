@@ -1891,6 +1891,40 @@ def test_recorded_action_metadata_keeps_only_the_compared_fields(
     assert _metadata_check(recorded, "astral-sh/setup-uv").verdict == "WARN"
 
 
+def test_recording_trims_actions_under_dot_github_but_keeps_workflows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An Action may live in `.github/actions/`; only this repository's workflows stay whole."""
+    responses: dict[str, Any] = {}
+    action, old_sha, new_sha = "org/act/.github/actions/setup", "1" * 40, "2" * 40
+    before, after = _workflow(action, old_sha, "v1.0.0"), _workflow(action, new_sha, "v1.1.0")
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-1.1.0",
+        files={".github/workflows/action.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+    prose = "Third-party prose. " * 100
+    responses[_metadata_url(action, old_sha)] = _action_yml("node20").replace("Synthetic", prose)
+    responses[_metadata_url(action, new_sha)] = _action_yml("node24").replace("Synthetic", prose)
+    live = _fetchers(responses)
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: live)
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    returned = recording[1](_metadata_url(action, new_sha))
+    recorded = vet.vet_pull_request(*recording, REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+
+    assert prose in returned
+    assert "Third-party prose" not in stored
+    assert after in stored
+    assert before in stored
+    assert replayed.checks == recorded.checks
+    assert replayed.verdict == recorded.verdict
+    assert "runs.using node20 → node24" in _metadata_check(replayed, action).detail
+
+
 def test_recording_two_candidates_of_one_project_keeps_every_later_release(
     monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
 ) -> None:
