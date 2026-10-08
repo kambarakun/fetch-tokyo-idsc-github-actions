@@ -1030,6 +1030,24 @@ def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr:
             "WARN",
             "input verbose を削除 (default なし)",
         ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n    default: false\n"),
+            _action_yml(inputs="  cache:\n    description: c\n    default: true\n"),
+            "WARN",
+            "input cache の default を変更 (任意)",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n"),
+            _action_yml(inputs="  cache:\n    description: c\n    default: 'true'\n"),
+            "WARN",
+            "input cache の default を追加 (任意)",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: old\n    default: 'true'\n"),
+            _action_yml(inputs="  cache:\n    description: new\n    default: 'true'\n"),
+            "OK",
+            "必須 input の追加・output の削除なし",
+        ),
     ],
     ids=[
         "runtime",
@@ -1043,6 +1061,9 @@ def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr:
         "required-input-with-default-removed",
         "optional-input-with-default-removed",
         "input-without-default-removed",
+        "default-changed",
+        "default-added-to-existing-input",
+        "default-unchanged",
     ],
 )
 def test_action_metadata_contract_changes(
@@ -1355,6 +1376,19 @@ def test_reusable_workflow_and_unsafe_subpaths_are_not_compared() -> None:
     assert "再利用ワークフロー" in checks[("action_metadata", reusable)].detail
     assert checks[("action_metadata", traversal)].verdict == "WARN"
     assert "サブパスを解釈できない" in checks[("action_metadata", traversal)].detail
+
+
+def test_untrusted_default_values_are_not_echoed_into_the_report(action_pr: dict[str, Any]) -> None:
+    old = "  token:\n    description: t\n    default: '[a](https://old.example)'\n"
+    new = "  token:\n    description: t\n    default: '[b](https://new.example)'\n"
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(inputs=old)
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(inputs=new)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "input token の default を変更" in check.detail
+    assert "example" not in check.detail
 
 
 def test_untrusted_input_names_are_not_echoed_into_the_report(action_pr: dict[str, Any]) -> None:

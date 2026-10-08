@@ -1049,18 +1049,26 @@ def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     if (old_using := str(old["runs"]["using"])) != (new_using := str(new["runs"]["using"])):
         reasons.append(f"runs.using {old_using} → {new_using}")
-    old_inputs = _mapping(old, "inputs")
-    for name, spec in _mapping(new, "inputs").items():
+    old_inputs, new_inputs = _mapping(old, "inputs"), _mapping(new, "inputs")
+    for name, spec in new_inputs.items():
         required = _required(spec)
         default = "default あり" if "default" in spec else "default なし、未指定時の扱いは action 次第"
-        if required and name not in old_inputs:
-            reasons.append(f"必須 input {_metadata_name(name)} を追加 ({default})")
-        elif required and not _required(old_inputs[name]):
+        if name not in old_inputs:
+            if required:
+                reasons.append(f"必須 input {_metadata_name(name)} を追加 ({default})")
+            continue
+        old_spec = old_inputs[name]
+        if required and not _required(old_spec):
             reasons.append(f"input {_metadata_name(name)} が任意 → 必須 ({default})")
-        elif name in old_inputs and "default" in old_inputs[name] and "default" not in spec:
-            # A caller that relied on the old default now passes nothing.
-            reasons.append(f"input {_metadata_name(name)} の default を削除 ({'必須' if required else '任意'})")
-    new_inputs = _mapping(new, "inputs")
+        # A caller that omits the input gets the default, so adding, changing or dropping it changes
+        # what that caller passes. The values are third-party text and never reach the report.
+        had, has = "default" in old_spec, "default" in spec
+        if had and has and str(old_spec["default"]) != str(spec["default"]):
+            change = "変更"
+        else:
+            change = "削除" if had and not has else "追加" if has and not had else ""
+        if change:
+            reasons.append(f"input {_metadata_name(name)} の default を{change} ({'必須' if required else '任意'})")
     for name, spec in old_inputs.items():
         if name not in new_inputs:
             # A caller that passed it is now ignored; one that relied on its default gets nothing.
