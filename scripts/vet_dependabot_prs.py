@@ -524,28 +524,33 @@ def _action_pins(text: str | None) -> dict[tuple[str, str], list[tuple[int, str,
     return pins
 
 
+def _without_pins(text: str | None) -> list[str]:
+    """The file with every pinned commit and its version comment cut out of the `uses:` lines."""
+    return [
+        line[: match.start(3)] + line[match.end() :] if (match := USES_PATTERN.match(line)) else line
+        for line in (text or "").splitlines()
+    ]
+
+
 def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinChange]:
     old_pins, new_pins = _action_pins(before), _action_pins(after)
+    # Dependabot only rewrites pins in place. Then each `uses:` line still belongs to the same step
+    # (its name and `with:` around it unchanged), so the line's old pin is what that step moved from.
+    in_place = before is not None and _without_pins(before) == _without_pins(after)
     changes: list[ActionPinChange] = []
     for (repo, subpath), new_uses in sorted(new_pins.items()):
         old_uses = old_pins.get((repo, subpath), [])
         pairs: list[tuple[Pin, tuple[str, str]]]
-        if [number for number, _, _ in old_uses] == [number for number, _, _ in new_uses]:
-            # Dependabot rewrites each `uses:` line in place, so a line's old pin is what its step
-            # moved from: steps converging on one pin, or onto a pin a sibling kept, each keep theirs.
+        if in_place and [number for number, _, _ in old_uses] == [number for number, _, _ in new_uses]:
+            # Steps converging on one pin, or onto a pin a sibling kept, each keep their own predecessor.
             pairs = [((old[1], old[2]), (new[1], new[2])) for old, new in zip(old_uses, new_uses, strict=True)]
         else:
-            # Lines were added or removed, so which step became which is unknown. Compare each new
-            # pin with every pin the path dropped rather than guess one; a pin left in place is no
-            # predecessor. With nothing new, a dropped pin's step went away or onto a kept pin.
+            # Anything else moved, so which step became which is unknown, and a pin still in the file
+            # may now serve another step (a -> b, b -> c). Compare each new pin with every old pin of
+            # the path rather than guess one; with no old pin there is nothing to compare.
             old_by_sha = {sha: version for _, sha, version in old_uses}
             new_by_sha = {sha: version for _, sha, version in new_uses}
-            dropped: list[Pin] = [(sha, version) for sha, version in old_by_sha.items() if sha not in new_by_sha]
-            added = [(sha, version) for sha, version in new_by_sha.items() if sha not in old_by_sha]
-            if added:
-                pairs = [(old, new) for new in added for old in dropped or [(None, None)]]
-            else:
-                pairs = [(old, new) for new in new_by_sha.items() for old in dropped]
+            pairs = [(old, new) for new in new_by_sha.items() for old in list(old_by_sha.items()) or [(None, None)]]
         for (old_sha, old_version), (new_sha, new_version) in dict.fromkeys(pairs):
             if old_sha != new_sha:
                 changes.append(ActionPinChange(repo, subpath, old_sha, old_version, new_sha, new_version))

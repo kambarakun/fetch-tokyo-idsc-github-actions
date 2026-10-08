@@ -1239,7 +1239,7 @@ def test_unversioned_pins_pair_by_line_not_by_hash_order() -> None:
     # SemVer orders 1.0.0-1 before 1.0.0 while PEP 440 reads it as a post-release; the line decides.
     semver_before = _workflow("org/act", a, "v1.0.0-1") + _workflow("org/act", b, "v1.0.0")
     semver_after = _workflow("org/act", c, "v1.0.0-2") + _workflow("org/act", d, "v1.0.1")
-    # A line was added above, so no line keeps its place: compare each new pin with every dropped one.
+    # A line was added above, so lines no longer name steps: compare each new pin with every old one.
     moved = "# comment\n" + after
 
     unversioned = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
@@ -1252,6 +1252,44 @@ def test_unversioned_pins_pair_by_line_not_by_hash_order() -> None:
     assert semver == {(a, c), (b, d)}
     assert unknown == {(a, c), (a, d), (b, c), (b, d)}
     assert [(change.old_sha, change.new_sha) for change in onto_kept] == [(a, b)]
+
+
+def test_shifted_lines_compare_a_kept_pin_as_a_possible_predecessor() -> None:
+    """Supervisor repro on #790: a -> b and b -> c with a line added above read as a -> c only."""
+    responses: dict[str, Any] = {}
+    a, b, c = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("org/act", a, "v1.0.0") + _workflow("org/act", b, "v2.0.0")
+    after = "# comment\n" + _workflow("org/act", b, "v2.0.0") + _workflow("org/act", c, "v3.0.0")
+    for sha, runtime in ((a, "node24"), (b, "node20"), (c, "node24")):
+        responses[_metadata_url("org/act", sha)] = _action_yml(runtime)
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-3.0.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+
+    pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+    rows = {check.change: check for check in _vet(responses).checks if check.check_id == "action_metadata"}
+
+    assert {(a, b), (b, c)} <= pairs
+    assert rows["v1.0.0 → v2.0.0"].verdict == "WARN"
+    assert rows["v2.0.0 → v3.0.0"].verdict == "WARN"
+
+
+def test_swapped_steps_are_not_paired_by_line() -> None:
+    """Only a pure pin rewrite keeps lines comparable: swapped steps carry their `with:` along."""
+    a, b, c = "a" * 40, "b" * 40, "c" * 40
+
+    def step(name: str, sha: str, tag: str) -> str:
+        return f"      - name: {name}\n        uses: org/act@{sha} # {tag}\n"
+
+    before = "jobs:\n  t:\n    steps:\n" + step("one", a, "v1.0.0") + step("two", b, "v2.0.0")
+    after = "jobs:\n  t:\n    steps:\n" + step("two", c, "v2.1.0") + step("one", a, "v1.0.0")
+
+    pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+
+    assert (b, c) in pairs
 
 
 def test_unchanged_sibling_pin_does_not_hide_a_runtime_change() -> None:
