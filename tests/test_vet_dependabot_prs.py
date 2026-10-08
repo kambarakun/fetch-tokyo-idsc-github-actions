@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 import requests
@@ -1011,6 +1012,24 @@ def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr:
             "WARN",
             "input cache の default を削除 (任意",
         ),
+        (
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n    default: abc\n"),
+            _action_yml(),
+            "WARN",
+            "input token を削除 (default あり)",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n    default: 'true'\n"),
+            _action_yml(inputs="  other:\n    description: o\n"),
+            "WARN",
+            "input cache を削除 (default あり)",
+        ),
+        (
+            _action_yml(inputs="  verbose:\n    description: v\n"),
+            _action_yml(),
+            "WARN",
+            "input verbose を削除 (default なし)",
+        ),
     ],
     ids=[
         "runtime",
@@ -1021,6 +1040,9 @@ def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr:
         "optional-added",
         "required-default-removed",
         "optional-default-removed",
+        "required-input-with-default-removed",
+        "optional-input-with-default-removed",
+        "input-without-default-removed",
     ],
 )
 def test_action_metadata_contract_changes(
@@ -1149,40 +1171,87 @@ def test_each_new_pin_is_compared_with_the_pin_it_replaced() -> None:
     pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
     only_one_moved = vet.action_pin_changes(before, kept)
     both_above = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, jumped)}
-    one_left = [(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, merged)]
+    one_left = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, merged)}
 
     assert pairs == {(a, c), (b, d)}
     assert [(change.old_sha, change.new_sha) for change in only_one_moved] == [(a, c)]
-    # Each removed pin is consumed once: v1 -> v3 and v2 -> v4, never both against v2.
+    # Each step keeps its own line: v1 -> v3 and v2 -> v4, never both against v2.
     assert both_above == {(a, c), (b, d)}
-    assert one_left == [(b, d)]
+    # A step was removed, so which one the survivor was is unknown: compare it with both.
+    assert one_left == {(a, d), (b, d)}
 
 
-def test_several_unversioned_pins_of_one_path_are_not_paired_by_hash_order() -> None:
-    """Without version comments the only order is the SHA prefix, which says nothing about lineage."""
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        # Two steps on different pins both move to one new pin.
+        ([("a", "v1.0.0"), ("b", "v1.1.0")], [("d", "v2.0.0"), ("d", "v2.0.0")], {("a", "d"), ("b", "d")}),
+        # One pin used twice moves to two different pins.
+        ([("a", "v1.0.0"), ("a", "v1.0.0")], [("c", "v1.1.0"), ("d", "v1.2.0")], {("a", "c"), ("a", "d")}),
+        # A step moves onto a pin a sibling step already used: nothing new is added, but it moved.
+        ([("a", "v1.0.0"), ("b", "v1.1.0")], [("b", "v1.1.0"), ("b", "v1.1.0")], {("a", "b")}),
+        # The line, not the version order, says which pin a step left.
+        ([("b", "v2.0.0"), ("a", "v1.0.0")], [("c", "v1.1.0"), ("d", "v2.1.0")], {("b", "c"), ("a", "d")}),
+    ],
+    ids=["converge", "split", "converge-onto-kept-pin", "line-not-version-order"],
+)
+def test_each_rewritten_line_is_compared_with_the_pin_it_held(
+    before: list[tuple[str, str]], after: list[tuple[str, str]], expected: set[tuple[str, str]]
+) -> None:
+    def text(pins: list[tuple[str, str]]) -> str:
+        return "".join(_workflow("org/act", letter * 40, tag) for letter, tag in pins)
+
+    changes = vet.action_pin_changes(text(before), text(after))
+
+    assert {(change.old_sha, change.new_sha) for change in changes} == {(old * 40, new * 40) for old, new in expected}
+
+
+def test_converging_pins_report_the_change_from_every_predecessor() -> None:
+    """Codex P2 on #790: the dropped node20 pin was ignored and the converged pin read as OK."""
     responses: dict[str, Any] = {}
-    a, b, c, d = ("a" * 40, "b" * 40, "c" * 40, "e" * 40)
-    before = _workflow("org/act", a, "") + _workflow("org/act", b, "")
-    after = _workflow("org/act", c, "") + _workflow("org/act", d, "")
-    _pr(responses, head_ref="dependabot/github_actions/org/act", files={".github/workflows/x.yml": (before, after)})
+    node20, node24, new = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("org/act", node20, "v1.0.0") + _workflow("org/act", node24, "v1.1.0")
+    after = _workflow("org/act", new, "v2.0.0") + _workflow("org/act", new, "v2.0.0")
+    responses[_metadata_url("org/act", node20)] = _action_yml("node20")
+    responses[_metadata_url("org/act", node24)] = _action_yml("node24")
+    responses[_metadata_url("org/act", new)] = _action_yml("node24")
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-2.0.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
     _releases(responses, "org/act", {})
 
-    changes = vet.action_pin_changes(before, after)
-    checks = [check for check in _vet(responses).checks if check.check_id == "action_metadata"]
-    single = vet.action_pin_changes(_workflow("org/act", a, ""), _workflow("org/act", c, ""))
-    # SemVer orders 1.0.0-1 before 1.0.0 while PEP 440 reads it as a post-release, so such
-    # comments cannot order several pins either.
+    rows = [check for check in _vet(responses).checks if check.check_id == "action_metadata"]
+
+    assert sorted((check.change, check.verdict) for check in rows) == [
+        ("v1.0.0 → v2.0.0", "WARN"),
+        ("v1.1.0 → v2.0.0", "OK"),
+    ]
+    assert "runs.using node20 → node24" in next(check.detail for check in rows if check.verdict == "WARN")
+
+
+def test_unversioned_pins_pair_by_line_not_by_hash_order() -> None:
+    """Without version comments the only order is the SHA prefix, which says nothing about lineage."""
+    a, b, c, d = ("a" * 40, "b" * 40, "c" * 40, "e" * 40)
+    before = _workflow("org/act", b, "") + _workflow("org/act", a, "")
+    after = _workflow("org/act", c, "") + _workflow("org/act", d, "")
+    # SemVer orders 1.0.0-1 before 1.0.0 while PEP 440 reads it as a post-release; the line decides.
     semver_before = _workflow("org/act", a, "v1.0.0-1") + _workflow("org/act", b, "v1.0.0")
     semver_after = _workflow("org/act", c, "v1.0.0-2") + _workflow("org/act", d, "v1.0.1")
-    semver = vet.action_pin_changes(semver_before, semver_after)
+    # A line was added above, so no line keeps its place: compare each new pin with every dropped one.
+    moved = "# comment\n" + after
 
-    assert {(change.old_sha, change.new_sha) for change in semver} == {(None, c), (None, d)}
-    assert all(change.ambiguous for change in semver)
-    assert {(change.old_sha, change.new_sha) for change in changes} == {(None, c), (None, d)}
-    assert [check.verdict for check in checks] == ["WARN", "WARN"]
-    assert all("一意に特定できない" in check.detail for check in checks)
-    # One dropped pin and one new pin pair unambiguously even without comments.
-    assert [(change.old_sha, change.new_sha) for change in single] == [(a, c)]
+    unversioned = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+    semver = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(semver_before, semver_after)}
+    unknown = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, moved)}
+    # Nothing new and a line gone: the dropped pin's step was removed or now uses the kept pin.
+    onto_kept = vet.action_pin_changes(before, "# comment\n" + _workflow("org/act", b, ""))
+
+    assert unversioned == {(b, c), (a, d)}
+    assert semver == {(a, c), (b, d)}
+    assert unknown == {(a, c), (a, d), (b, c), (b, d)}
+    assert [(change.old_sha, change.new_sha) for change in onto_kept] == [(a, b)]
 
 
 def test_unchanged_sibling_pin_does_not_hide_a_runtime_change() -> None:
@@ -1719,6 +1788,29 @@ def test_recording_a_lock_fork_keeps_the_releases_of_the_lower_candidate(
 
     assert [bump.new for bump in recorded.bumps] == ["0.16.8", "0.16.10"]
     assert replayed.checks == recorded.checks
+
+
+@pytest.mark.parametrize("name", ["check-runs", "pulls", "releases", "compare", "commits", "files"])
+def test_a_repository_named_like_an_endpoint_keeps_its_repository_fields(name: str) -> None:
+    """Codex P2 on #790: `/repos/org/check-runs` is the repository, not a check-runs listing."""
+    repository = {"full_name": f"org/{name}", "description": "untrusted"}
+    pulls = [{"number": 1, "user": {"login": "x"}, "title": "untrusted"}]
+
+    trimmed = vet._trim_for_fixture(f"{vet.GITHUB_API}/repos/org/{name}", repository)
+    endpoint = vet._trim_for_fixture(f"{vet.GITHUB_API}/repos/org/{name}/pulls?state=open", pulls)
+
+    assert trimmed == {"full_name": f"org/{name}"}
+    assert endpoint == [{"number": 1, "user": {"login": "x"}}]
+
+
+def test_every_recorded_github_response_has_a_field_list() -> None:
+    """Anchored shapes must still cover every endpoint the recorded fixture uses."""
+    index = json.loads((FIXTURE_DIR / "index.json").read_text(encoding="utf-8"))
+    paths = [urlsplit(key.split(" ", 1)[1]).path for key in index if key.startswith(f"GET {vet.GITHUB_API}/")]
+    json_paths = [path for path in paths if "/contents/" not in path]
+
+    assert json_paths
+    assert [path for path in json_paths if not any(pattern.match(path) for pattern, _ in vet.FIXTURE_FIELDS)] == []
 
 
 def test_recorded_fixture_stays_under_the_size_budget() -> None:

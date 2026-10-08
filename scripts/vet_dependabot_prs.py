@@ -201,9 +201,11 @@ def _not_found(url: str) -> requests.HTTPError:
 # The fields each GitHub endpoint is read for (None keeps a value whole, a one-item list applies
 # to every element). Titles, bodies, check-run output and links are never read: recording them
 # only bloated the fixture past 300 KB (issue #765) and put free text where agents read it.
+# Shapes match the whole path: a repository may itself be called `check-runs` or `pulls`.
+REPO_PATH = r"^/repos/[^/]+/[^/]+"
 FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (
-        re.compile(r"/pulls/\d+$"),
+        re.compile(REPO_PATH + r"/pulls/\d+$"),
         {
             "user": {"login": None},
             "created_at": None,
@@ -212,17 +214,23 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
             "base": {"sha": None},
         },
     ),
-    (re.compile(r"/pulls/\d+/files$"), [{"filename": None}]),
-    (re.compile(r"/pulls/\d+/commits$"), [{"author": {"login": None}}]),
-    (re.compile(r"/pulls$"), [{"number": None, "user": {"login": None}}]),
-    (re.compile(r"/compare/"), {"merge_base_commit": {"sha": None}}),
-    (re.compile(r"/check-runs$"), {"check_runs": [{"name": None, "status": None, "conclusion": None}]}),
-    (re.compile(r"/releases$"), [{"tag_name": None, "published_at": None, "draft": None, "prerelease": None}]),
-    (re.compile(r"/releases/tags/"), {"published_at": None}),
-    (re.compile(r"/git/ref/tags/"), {"object": None}),
-    (re.compile(r"/git/tags/"), {"tagger": {"date": None}, "object": None}),
-    (re.compile(r"/git/commits/"), {"committer": {"date": None}}),
-    (re.compile(r"^/repos/[^/]+/[^/]+$"), {"full_name": None}),
+    (re.compile(REPO_PATH + r"/pulls/\d+/files$"), [{"filename": None}]),
+    (re.compile(REPO_PATH + r"/pulls/\d+/commits$"), [{"author": {"login": None}}]),
+    (re.compile(REPO_PATH + r"/pulls$"), [{"number": None, "user": {"login": None}}]),
+    (re.compile(REPO_PATH + r"/compare/[^/]+$"), {"merge_base_commit": {"sha": None}}),
+    (
+        re.compile(REPO_PATH + r"/commits/[^/]+/check-runs$"),
+        {"check_runs": [{"name": None, "status": None, "conclusion": None}]},
+    ),
+    (
+        re.compile(REPO_PATH + r"/releases$"),
+        [{"tag_name": None, "published_at": None, "draft": None, "prerelease": None}],
+    ),
+    (re.compile(REPO_PATH + r"/releases/tags/"), {"published_at": None}),
+    (re.compile(REPO_PATH + r"/git/ref/tags/"), {"object": None}),
+    (re.compile(REPO_PATH + r"/git/tags/[^/]+$"), {"tagger": {"date": None}, "object": None}),
+    (re.compile(REPO_PATH + r"/git/commits/[^/]+$"), {"committer": {"date": None}}),
+    (re.compile(REPO_PATH + "$"), {"full_name": None}),
 )
 PYPI_RELEASE_PATH = re.compile(r"^/pypi/(?P<name>[^/]+)/(?P<version>[^/]+)/json$")
 
@@ -260,7 +268,7 @@ def _trim_for_fixture(url: str, payload: Any, candidates: dict[str, Version] | N
                 if floor is None or ((parsed := _parse_version(version)) is not None and parsed > floor)
             }
         return trimmed
-    spec = next((fields for pattern, fields in FIXTURE_FIELDS if pattern.search(parts.path)), None)
+    spec = next((fields for pattern, fields in FIXTURE_FIELDS if pattern.match(parts.path)), None)
     return _pick(payload, spec)
 
 
@@ -497,56 +505,50 @@ class ActionPinChange:
     old_version: str | None
     new_sha: str
     new_version: str
-    # Several pins moved and at least one has no version to order them by.
-    ambiguous: bool = False
 
     @property
     def action(self) -> str:
         return f"{self.repo}/{self.subpath}" if self.subpath else self.repo
 
 
-def _action_pins(text: str | None) -> dict[tuple[str, str], dict[str, str]]:
-    pins: dict[tuple[str, str], dict[str, str]] = {}
-    for line in (text or "").splitlines():
+Pin = tuple[str | None, str | None]
+
+
+def _action_pins(text: str | None) -> dict[tuple[str, str], list[tuple[int, str, str]]]:
+    """Each `uses:` line of a path in file order: (line number, sha, version)."""
+    pins: dict[tuple[str, str], list[tuple[int, str, str]]] = {}
+    for number, line in enumerate((text or "").splitlines()):
         if match := USES_PATTERN.match(line):
-            pins.setdefault((match[1], match[2].removeprefix("/")), {})[match[3]] = match[4] or match[3][:SHORT_SHA]
+            version = match[4] or match[3][:SHORT_SHA]
+            pins.setdefault((match[1], match[2].removeprefix("/")), []).append((number, match[3], version))
     return pins
-
-
-def _is_versioned(version: str, sha: str) -> bool:
-    # Numeric only, as in advisory matching: PEP 440 would order SemVer prereleases (`1.0.0-1`) as post-releases.
-    return version != sha[:SHORT_SHA] and _numeric_version(version) is not None
 
 
 def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinChange]:
     old_pins, new_pins = _action_pins(before), _action_pins(after)
     changes: list[ActionPinChange] = []
-    for (repo, subpath), new_by_sha in sorted(new_pins.items()):
-        old_by_sha = old_pins.get((repo, subpath), {})
-        # Only a pin this path dropped can be the predecessor: a sibling pin left in place says
-        # nothing about the one that moved. Each dropped pin pairs with one new pin: going from the
-        # highest new version down, take the highest unused dropped version not above it, else the
-        # lowest unused one (v1/v2 -> v3/v4 pairs v2 -> v4 and v1 -> v3). Nothing left, nothing to compare.
-        removed = sorted(
-            (sha for sha in old_by_sha if sha not in new_by_sha), key=lambda sha: _version_key(old_by_sha[sha])
-        )
-        added = sorted(
-            (sha for sha in new_by_sha if sha not in old_by_sha), key=lambda sha: _version_key(new_by_sha[sha])
-        )
-        pins = [(old_by_sha, sha) for sha in removed] + [(new_by_sha, sha) for sha in added]
-        if removed and len(pins) > 2 and not all(_is_versioned(by_sha[sha], sha) for by_sha, sha in pins):
-            # A bare SHA pin only has its hash prefix to sort by, which says nothing about lineage.
-            changes.extend(
-                ActionPinChange(repo, subpath, None, None, sha, new_by_sha[sha], ambiguous=True) for sha in added
-            )
-            continue
-        for sha in reversed(added):
-            version = new_by_sha[sha]
-            below = [old for old in removed if _version_key(old_by_sha[old]) <= _version_key(version)]
-            old_sha = below[-1] if below else removed[0] if removed else None
-            if old_sha is not None:
-                removed.remove(old_sha)
-            changes.append(ActionPinChange(repo, subpath, old_sha, old_by_sha.get(old_sha or ""), sha, version))
+    for (repo, subpath), new_uses in sorted(new_pins.items()):
+        old_uses = old_pins.get((repo, subpath), [])
+        pairs: list[tuple[Pin, tuple[str, str]]]
+        if [number for number, _, _ in old_uses] == [number for number, _, _ in new_uses]:
+            # Dependabot rewrites each `uses:` line in place, so a line's old pin is what its step
+            # moved from: steps converging on one pin, or onto a pin a sibling kept, each keep theirs.
+            pairs = [((old[1], old[2]), (new[1], new[2])) for old, new in zip(old_uses, new_uses, strict=True)]
+        else:
+            # Lines were added or removed, so which step became which is unknown. Compare each new
+            # pin with every pin the path dropped rather than guess one; a pin left in place is no
+            # predecessor. With nothing new, a dropped pin's step went away or onto a kept pin.
+            old_by_sha = {sha: version for _, sha, version in old_uses}
+            new_by_sha = {sha: version for _, sha, version in new_uses}
+            dropped: list[Pin] = [(sha, version) for sha, version in old_by_sha.items() if sha not in new_by_sha]
+            added = [(sha, version) for sha, version in new_by_sha.items() if sha not in old_by_sha]
+            if added:
+                pairs = [(old, new) for new in added for old in dropped or [(None, None)]]
+            else:
+                pairs = [(old, new) for new in new_by_sha.items() for old in dropped]
+        for (old_sha, old_version), (new_sha, new_version) in dict.fromkeys(pairs):
+            if old_sha != new_sha:
+                changes.append(ActionPinChange(repo, subpath, old_sha, old_version, new_sha, new_version))
     return changes
 
 
@@ -1053,6 +1055,12 @@ def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
         elif name in old_inputs and "default" in old_inputs[name] and "default" not in spec:
             # A caller that relied on the old default now passes nothing.
             reasons.append(f"input {_metadata_name(name)} の default を削除 ({'必須' if required else '任意'})")
+    new_inputs = _mapping(new, "inputs")
+    for name, spec in old_inputs.items():
+        if name not in new_inputs:
+            # A caller that passed it is now ignored; one that relied on its default gets nothing.
+            default = "default あり" if "default" in spec else "default なし"
+            reasons.append(f"input {_metadata_name(name)} を削除 ({default})")
     new_outputs = _mapping(new, "outputs")
     if removed := [name for name in _mapping(old, "outputs") if name not in new_outputs]:
         reasons.append(f"output を削除: {', '.join(_metadata_name(name) for name in removed)}")
@@ -1065,8 +1073,6 @@ def _uncomparable(change: ActionPinChange) -> str | None:
         return "サブパスを解釈できないため比較不能"
     if len(parts) >= 3 and parts[:2] == [".github", "workflows"]:
         return "再利用ワークフローは action metadata を持たないため比較不能"
-    if change.ambiguous:
-        return "版コメントの無い pin が複数動いており、置き換えた旧 pin を一意に特定できないため比較不能"
     if change.old_sha is None:
         return "置き換えた旧 pin が無いため比較不能 (新規追加など)"
     return None
