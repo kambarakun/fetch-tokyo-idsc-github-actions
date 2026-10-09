@@ -142,6 +142,7 @@ PR ごとに次を貼る。
 - `WARN` は `::warning::` 注釈を出すだけでジョブは緑。`BLOCK` と exit 2 はジョブを赤くする
 - required status check にはしていない (マージは止めない)。required 化は人間が ruleset で判断する
 - `--comment` は CI では拒否される (exit 2)。投稿は手元から明示的に行う
+- Markdown レポート (標準出力・`--report`・`--comment`) の表は 1 PR あたり 60,000 文字 (`REPORT_BODY_LIMIT`。GitHub のコメント上限 65,536 文字の内側) に収まる行だけを BLOCK → WARN → OK の順に載せ、載せきれない行は「表に載せきれない N 行を省略 (WARN a / OK b)」と件数で示す。行は PR の内容 (bump ごと、Action のパスごと、行が動いたときは旧 pin × 新 pin の組ごと) で増えるため。末尾の判定行は省略した行も含めて数え、全行は `--json` に残る
 
 ## 手動検証
 

@@ -1644,6 +1644,46 @@ def test_pr_controlled_strings_cannot_break_the_report_table() -> None:
         assert not re.search(r"(?<!\\)<img", row)
 
 
+def test_moved_pins_cannot_grow_the_report_past_the_comment_limit() -> None:
+    """Codex P2 on #790: N old and N new pins on moved lines made N x N rows, past GitHub's comment limit."""
+    responses: dict[str, Any] = {}
+    count = 40
+    before = "".join(_workflow("org/act", f"{index:040x}", f"v1.{index}.0") for index in range(count))
+    after = "# moved\n" + "".join(
+        _workflow("org/act", f"{index + count:040x}", f"v2.{index}.0") for index in range(count)
+    )
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-2.0.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+
+    verdict = _vet(responses)
+    report = vet.render_pull_request(verdict)
+    rows = [line for line in report.splitlines() if line.startswith("| ") and not line.startswith(("| 依存", "| ---"))]
+
+    assert sum(check.check_id == "action_metadata" for check in verdict.checks) == count * count
+    assert len(report) <= vet.REPORT_BODY_LIMIT
+    assert len(rows) < len(verdict.checks)
+    assert f"{len(verdict.checks) - len(rows)} 行を省略" in report
+    # The verdict still counts every check, shown or not.
+    assert report.rstrip().endswith(vet.verdict_line(verdict))
+
+
+def test_omitted_rows_never_hide_a_more_severe_one() -> None:
+    filler = [vet.CheckResult("cooldown", f"dep{index}", "OK", "x" * 200) for index in range(1_000)]
+    block = vet.CheckResult("tag_sha", "last", "BLOCK", "タグ v1 が存在しない (404)")
+    verdict = vet.PullRequestVerdict(1, "uv", HEAD_SHA, [], [*filler, block])
+
+    report = vet.render_pull_request(verdict)
+
+    assert len(report) <= vet.REPORT_BODY_LIMIT
+    assert "| last | - | tag\\_sha | BLOCK |" in report or "| last | - | tag_sha | BLOCK |" in report
+    assert "(OK " in report
+    assert "判定: BLOCK (1 件)" in report
+
+
 def test_each_row_shows_the_bump_it_was_computed_for(action_pr: dict[str, Any]) -> None:
     # Two bumps of one action: rows must not borrow the other bump's versions.
     path = ".github/workflows/watchdog.yml"

@@ -92,6 +92,13 @@ RUNTIME_NAME = re.compile(r"[\w.-]{1,32}", re.ASCII)
 METADATA_DIFF_LIMIT = 10
 # GitHub calls a workflow only as a file directly in `.github/workflows/`; deeper paths are Actions.
 REUSABLE_WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
+# GitHub rejects a comment body over 65,536 characters (the --comment POST then exits 2). Rows come
+# from PR content (one per bump, per pinned action path and, when lines moved, per old x new pin
+# pair), so the table keeps the most severe rows that fit; the verdict line still counts every
+# check and --json keeps them all. The margin leaves room for the omission and verdict lines.
+REPORT_BODY_LIMIT = 60_000
+REPORT_TAIL_MARGIN = 200
+VERDICT_ORDER = ("BLOCK", "WARN", "OK")
 # Report cells are plain text: escape what could open a link, image, code span, HTML or a new cell.
 MARKDOWN_SPECIAL = re.compile(r"([\\|`\[\]<])")
 SHORT_SHA = 12
@@ -1343,14 +1350,26 @@ def render_pull_request(verdict: PullRequestVerdict) -> str:
         "| 依存 | 旧 → 新 | 検査 | 結果 | 根拠 |",
         "| --- | --- | --- | --- | --- |",
     ]
-    for check in verdict.checks:
-        change = _cell(check.change)
-        links = " ".join(f"[{index}]({_link(link)})" for index, link in enumerate(check.links, start=1))
-        evidence = f"{_cell(check.detail)} {links}".strip()
-        cells = [_cell(check.dependency), change, _cell(check.check_id), _cell(check.verdict), evidence]
-        lines.append(f"| {' | '.join(cells)} |")
+    rows = [_row(check) for check in verdict.checks]
+    budget = REPORT_BODY_LIMIT - REPORT_TAIL_MARGIN - len("\n".join(lines))
+    kept: set[int] = set()
+    for index in sorted(range(len(rows)), key=lambda index: VERDICT_ORDER.index(verdict.checks[index].verdict)):
+        if len(rows[index]) + 1 <= budget:
+            kept.add(index)
+            budget -= len(rows[index]) + 1
+    lines += [row for index, row in enumerate(rows) if index in kept]
+    if omitted := Counter(check.verdict for index, check in enumerate(verdict.checks) if index not in kept):
+        counts = " / ".join(f"{level} {omitted[level]}" for level in VERDICT_ORDER if omitted[level])
+        lines += ["", f"表に載せきれない {omitted.total()} 行を省略 ({counts})。全件は --json で確認する"]
     lines += ["", verdict_line(verdict)]
     return "\n".join(lines) + "\n"
+
+
+def _row(check: CheckResult) -> str:
+    links = " ".join(f"[{index}]({_link(link)})" for index, link in enumerate(check.links, start=1))
+    evidence = f"{_cell(check.detail)} {links}".strip()
+    cells = [_cell(check.dependency), _cell(check.change), _cell(check.check_id), _cell(check.verdict), evidence]
+    return f"| {' | '.join(cells)} |"
 
 
 def render_markdown(verdicts: Sequence[PullRequestVerdict]) -> str:
