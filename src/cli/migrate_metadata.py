@@ -14,8 +14,14 @@ Usage:
     # 詳細出力
     uv run migrate-metadata --verbose
 
-    # 特定バージョンへのマイグレーション
+    # 特定バージョンへのマイグレーション (登録済みのバージョンのみ。未登録は exit 2)
     uv run migrate-metadata --target-version 1.0
+
+    # processed メタデータの移行 (quality は ../raw の raw ソースで検証する)
+    uv run migrate-metadata --metadata-dir data/processed/.metadata --data-dir data/processed
+
+    # JSON形式で統計を出力 (GitHub Actions連携用。ログはstderr、JSONはstdout)
+    uv run migrate-metadata --dry-run --output-json
 """
 
 from __future__ import annotations
@@ -54,6 +60,9 @@ from src.utils.version import parse_version  # noqa: E402
 from src.validators.quality_validator import QualityValidator  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# .metadata ディレクトリにある、個別メタデータではない集約/インデックスファイル
+NON_METADATA_FILES = frozenset({"hash_index.json", "processing_log.json"})
 
 
 class MigrationRegistry:
@@ -581,12 +590,45 @@ V1_1_REQUIRED_FIELDS: set[str] = {
 V1_2_REQUIRED_FIELDS: set[str] = V1_1_REQUIRED_FIELDS.copy()
 
 
+def _processed_source_csv(migrated: dict[str, Any]) -> str | None:
+    """processed メタデータの raw ソースの CSV ファイル名を返す (_process.source_name、無ければ sources[0].title)."""
+    process = migrated.get("_process")
+    name = process.get("source_name") if isinstance(process, dict) else None
+    if not isinstance(name, str) or not name:
+        sources = migrated.get("sources")
+        first = sources[0] if isinstance(sources, list) and sources else None
+        name = first.get("title") if isinstance(first, dict) else None
+    if not isinstance(name, str) or not name:
+        return None
+    # ファイル名のみを抽出してパストラバーサルを防止
+    name = Path(name).name
+    return name if name.endswith(".csv") else f"{name}.csv"
+
+
+def _quality_target(migrated: dict[str, Any], data_file: Path | None) -> Path | None:
+    """品質検証にかける CSV を返す. 見つからなければ None.
+
+    性別合計の検証は Shift_JIS の raw を前提にしているため、processed (UTF-8) は
+    DataProcessor と同じく raw ソース (<data-dir>/../raw/<source>.csv) を検証する。
+    """
+    if data_file is None:
+        return None
+    target: Path | None = data_file
+    if migrated.get("profile") == "tokyo-idsc-processed":
+        source_csv = _processed_source_csv(migrated)
+        target = data_file.parent.parent / "raw" / source_csv if source_csv else None
+    if target is None or not target.exists():
+        return None
+    return target
+
+
 def _build_quality_metadata_for_v1_2(migrated: dict[str, Any], data_file: Path | None) -> tuple[dict[str, Any], str]:
     """v1.2.0向けqualityフィールドを構築する."""
     from datetime import UTC, datetime
 
     default_timestamp = datetime.now(UTC).isoformat()
-    if data_file is None or not data_file.exists():
+    data_file = _quality_target(migrated, data_file)
+    if data_file is None:
         return (
             {
                 "validation_timestamp": default_timestamp,
@@ -614,8 +656,10 @@ def _build_quality_metadata_for_v1_2(migrated: dict[str, Any], data_file: Path |
             "quality: added (validation_status=skipped)",
         )
 
+    # 取得・処理経路と同じく QualityValidator の status をそのまま使う
+    # (issues があっても検証プロセス自体は completed)
     issues = quality.get("issues", [])
-    status = "failed" if issues else "completed"
+    status = quality.get("validation_status", "completed")
     return (
         {
             "validation_timestamp": quality.get("validation_timestamp", default_timestamp),
@@ -831,8 +875,7 @@ def run_migration(
     }
 
     metadata_files = sorted(metadata_dir.glob("*.json"))
-    # hash_index.json は除外
-    metadata_files = [f for f in metadata_files if f.name != "hash_index.json"]
+    metadata_files = [f for f in metadata_files if f.name not in NON_METADATA_FILES]
 
     stats["total"] = len(metadata_files)
     logger.info(f"Found {stats['total']} metadata files to check")
@@ -842,6 +885,11 @@ def run_migration(
         try:
             with metadata_path.open() as f:
                 metadata = json.load(f)
+
+            if not isinstance(metadata, dict):
+                stats["errors"] += 1
+                logger.error(f"Not a metadata object ({type(metadata).__name__}): {metadata_path.name}")
+                continue
 
             if not needs_migration(metadata, target_version):
                 stats["skipped"] += 1
@@ -871,7 +919,8 @@ def run_migration(
 
             stats["migrated"] += 1
 
-        except (json.JSONDecodeError, OSError, KeyError, ValueError):
+        except (json.JSONDecodeError, OSError, KeyError, ValueError, TypeError, AttributeError):
+            # 型の崩れた 1 ファイルで全体を止めない (Summary を出し、errors > 0 で exit 1)
             stats["errors"] += 1
             logger.exception(f"Error processing {metadata_path.name}")
 
@@ -915,14 +964,20 @@ def main() -> int:
         action="store_true",
         help="サポートされているバージョンを表示して終了",
     )
+    parser.add_argument(
+        "--output-json",
+        action="store_true",
+        help="JSON形式で統計を出力する (GitHub Actions連携用)",
+    )
     args = parser.parse_args()
 
-    # ログ設定
+    # ログ設定 (stderrに出力、--output-jsonと併用時もJSONを汚染しない)
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
+        stream=sys.stderr,
     )
 
     if args.list_versions:
@@ -932,6 +987,12 @@ def main() -> int:
             logger.info(f"  - {ver or 'None'} {label}")
         logger.info(f"Latest version: {migration_registry.latest_version}")
         return 0
+
+    # 未登録の target は全ファイルがエラーになるだけなので、走査の前に止める ("1.3" と "1.3.0" は別物)
+    registered = [v for v in migration_registry.supported_versions if v is not None]
+    if args.target_version not in registered:
+        logger.error(f"Unsupported target version: {args.target_version!r} (registered: {', '.join(registered)})")
+        return 2
 
     if not args.metadata_dir.exists():
         logger.error(f"Metadata directory not found: {args.metadata_dir}")
@@ -955,6 +1016,9 @@ def main() -> int:
     logger.info(f"Migrated:       {stats['migrated']}")
     logger.info(f"Skipped:        {stats['skipped']}")
     logger.info(f"Errors:         {stats['errors']}")
+
+    if args.output_json:
+        print(json.dumps(stats))
 
     if args.dry_run and stats["migrated"] > 0:
         logger.info("\nTo apply changes, run without --dry-run")

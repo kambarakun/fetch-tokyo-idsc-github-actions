@@ -63,9 +63,10 @@ set -e
 #   3. リモートにプッシュ
 #   4. PRを作成（ラベル付与）
 #   5. 自動マージを設定（squashマージ、マージ後ブランチ自動削除）
-#      - auto-merge有効化により、CI/CD成功後に自動的にマージ
-#      - マージ完了後、ブランチは自動的に削除される
-#      - ブランチ保護ルールの要件を満たす必要がある
+#      - gh pr merge --auto --squash --delete-branch を実行するのは AUTO_MERGE_EFFECTIVE=true のときだけ
+#        (判定は scripts/auto_merge_gate.sh)
+#      - main の ruleset に required status checks が無いため、CI (test.yml など) を待たずに即時マージされる
+#      - マージ後、ブランチは削除される
 #
 # 終了コード:
 #   0 : 成功
@@ -379,7 +380,7 @@ PR_BODY_FILE="/tmp/pr_body.md"
     migrate-metadata)
       # チェック範囲: マイグレーション対象の定義
       [ -n "${TARGET_VERSION:-}" ] && echo "- **目標バージョン**: ${TARGET_VERSION}"
-      echo "- **対象ディレクトリ**: data/raw/.metadata/"
+      echo "- **対象ディレクトリ**: data/raw/.metadata/, data/processed/.metadata/"
       ;;
   esac
 
@@ -518,7 +519,7 @@ PR_BODY_FILE="/tmp/pr_body.md"
       ;;
     migrate-metadata)
       echo "- メタデータファイルのスキーマバージョンを更新しました"
-      echo "- メタデータは data/raw/.metadata/ ディレクトリに保存されています"
+      echo "- メタデータは data/raw/.metadata/ と data/processed/.metadata/ ディレクトリに保存されています"
       ;;
   esac
 

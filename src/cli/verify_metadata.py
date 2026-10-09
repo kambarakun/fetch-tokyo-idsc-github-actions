@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """メタデータの検証フィールドを更新するスクリプト.
 
-既存のCSVファイルを読み込み、データ品質検証を実行して
-メタデータの verification フィールドを更新する。
+既存のCSVファイルを読み込み、ファイル形式の検証結果を verification に、
+性別合計などのデータ品質検証の結果を top-level の quality に書く
+(取得経路の storage_manager と同じ分担)。verified / failed の件数は
+ファイル形式の検証だけを反映する。
 
 Usage:
     # ドライラン (変更内容を表示するだけ)
@@ -28,12 +30,14 @@ import argparse
 import json
 import logging
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:  # pragma: no cover
     from typing import Any
 
+from src.cli.migrate_metadata import NON_METADATA_FILES
 from src.managers.storage_manager import StorageManager
 from src.validators.quality_validator import QualityValidator
 
@@ -48,6 +52,27 @@ class VerificationStats(TypedDict):
     failed: int
     skipped: int
     errors: int
+
+
+def _failed_quality(source_file: str, error: Exception) -> dict[str, Any]:
+    """品質検証が例外で終わったときの quality (GenderSumValidator の結果と同じ形、schema 適合)."""
+    return {
+        "validation_timestamp": datetime.now(UTC).isoformat(),
+        "validation_status": "failed",
+        "issues": [
+            {
+                "check_type": "gender_sum_consistency",
+                "validation_status": "failed",
+                "message": f"Validation failed: {error!s}",
+                "details": {
+                    "source_file": source_file,
+                    "affected_count": 0,
+                    "truncated": False,
+                    "affected_locations": [],
+                },
+            }
+        ],
+    }
 
 
 def _process_single_file(
@@ -77,6 +102,10 @@ def _process_single_file(
     """
     with metadata_path.open(encoding="utf-8") as f:
         metadata = json.load(f)
+
+    if not isinstance(metadata, dict):
+        logger.error(f"Not a metadata object ({type(metadata).__name__}): {metadata_path.name}")
+        return "error", None
 
     # only_unverified モードの場合、既に検証済みならスキップ
     # ただし既存の検証ステータスは返す (統計や再集計に使用可能)
@@ -112,37 +141,11 @@ def _process_single_file(
             data_type = ""
 
         try:
-            quality = quality_validator.validate(csv_filename, data_type, {})
+            metadata_quality = quality_validator.validate(csv_filename, data_type, {})
         except (OSError, ValueError) as e:
-            verification.setdefault("checks", {})["gender_sum_consistency"] = False
-            verification.setdefault("errors", []).append(f"[gender_sum_consistency] Validation failed: {e!s}")
-            verification["status"] = "failed"
-        else:
-            metadata_quality = quality
-
-            issues = quality.get("issues", [])
-            has_gender_sum_errors = False
-            if isinstance(issues, list):
-                for issue in issues:
-                    if not isinstance(issue, dict):
-                        continue
-                    if issue.get("check_type") != "gender_sum_consistency":
-                        continue
-
-                    details = issue.get("details")
-                    affected_count = details.get("affected_count", 0) if isinstance(details, dict) else 0
-                    issue_status = issue.get("validation_status")
-                    message = issue.get("message", "Validation failed")
-                    if not isinstance(message, str):
-                        message = str(message)
-
-                    if issue_status == "failed" or (issue_status == "completed" and affected_count > 0):
-                        has_gender_sum_errors = True
-                        verification.setdefault("errors", []).append(f"[gender_sum_consistency] {message}")
-
-            verification.setdefault("checks", {})["gender_sum_consistency"] = not has_gender_sum_errors
-            if has_gender_sum_errors:
-                verification["status"] = "failed"
+            # 品質検証の失敗は quality にだけ記録し、ファイル形式の verification には触れない
+            logger.warning(f"Quality validation failed for {csv_filename}: {e!s}")
+            metadata_quality = _failed_quality(csv_filename, e)
 
     status: str = verification["status"]
 
@@ -204,8 +207,7 @@ def run_verification(
     quality_validator = QualityValidator(data_dir)
 
     metadata_files = sorted(metadata_dir.glob("*.json"))
-    # hash_index.json は除外
-    metadata_files = [f for f in metadata_files if f.name != "hash_index.json"]
+    metadata_files = [f for f in metadata_files if f.name not in NON_METADATA_FILES]
 
     stats["total"] = len(metadata_files)
     logger.info(f"Found {stats['total']} metadata files to verify")

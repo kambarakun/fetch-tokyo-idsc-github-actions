@@ -10,25 +10,44 @@ tests/test_generate_charts.py - グラフ生成機能のテスト
 - parse_notifiable_weekly: 全数週次CSVパース
 """
 
+import hashlib
+import itertools
+import re
 import tempfile
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.font_manager as fm
+import matplotlib.pyplot as plt
 import pytest
 
 # テスト対象モジュールのインポート
+from scripts import generate_charts
 from scripts.generate_charts import (
     _EXTRA_MARKERS,
     _PRIMARY_MARKERS,
+    FONT_SHA256,
+    FONT_URL,
     DiseaseStyle,
     _format_period_label,
+    _setup_x_axis_ticks,
     build_consistent_style_map,
+    build_ranking_eligibility,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
+    filter_rates_for_ranking,
+    format_legend_label,
+    get_all_weeks_data,
     parse_notifiable_weekly,
     parse_period_from_filename,
+    parse_sentinel_gender_counts,
     parse_sentinel_weekly_gender,
     select_top_absolute_diseases,
     select_top_deviation_diseases,
+    setup_japanese_font,
 )
 
 
@@ -722,3 +741,382 @@ class TestParseNotifiableWeekly:
             assert result["デング熱"] == 5.0
         finally:
             temp_path.unlink()
+
+
+SENTINEL_HEADER = "疾病名,男性,女性,男女合計,定点数"
+NOTIFIABLE_HEADER = "疾病名,報告数"
+
+
+def _write_shift_jis(path: Path, lines: list[str]) -> None:
+    path.write_text("\n".join(lines) + "\n", encoding="shift_jis")
+
+
+class TestParseSentinelGenderCounts:
+    """parse_sentinel_gender_counts() と get_all_weeks_data(parser=...) のテスト"""
+
+    def test_counts_are_not_divided_by_sentinels(self, tmp_path):
+        # Arrange: 実データと同じ形状のヘッダーと行
+        csv_path = tmp_path / "sentinel_weekly_gender_2025_01.csv"
+        _write_shift_jis(csv_path, [SENTINEL_HEADER, "インフルエンザ,2000,1991,3991,419"])
+
+        # Act / Assert
+        assert parse_sentinel_weekly_gender(csv_path) == {"インフルエンザ": 3991 / 419}
+        assert parse_sentinel_gender_counts(csv_path) == {"インフルエンザ": 3991.0}
+
+    def test_get_all_weeks_data_uses_given_parser(self, tmp_path):
+        _write_shift_jis(
+            tmp_path / "sentinel_weekly_gender_2025_01.csv", [SENTINEL_HEADER, "インフルエンザ,2000,1991,3991,419"]
+        )
+        _write_shift_jis(tmp_path / "sentinel_weekly_gender_2025_02.csv", [SENTINEL_HEADER, "インフルエンザ,1,1,2,419"])
+
+        assert get_all_weeks_data(tmp_path, parser=parse_sentinel_gender_counts) == {
+            "インフルエンザ": {202501: 3991.0, 202502: 2.0}
+        }
+        assert get_all_weeks_data(tmp_path)["インフルエンザ"][202501] == 3991 / 419
+
+    def test_skips_masked_and_non_numeric_values_like_existing_parser(self, tmp_path):
+        csv_path = tmp_path / "sentinel_weekly_gender_2025_01.csv"
+        _write_shift_jis(csv_path, [SENTINEL_HEADER, "A,1,1,*,10", "B,1,1,abc,10", "C,1,1,0,10", "D,1"])
+
+        assert parse_sentinel_gender_counts(csv_path) == {"C": 0.0}
+
+    def test_missing_header_returns_empty(self, tmp_path):
+        csv_path = tmp_path / "sentinel_weekly_gender_2025_01.csv"
+        _write_shift_jis(csv_path, ["疾病名,男性,女性,合計"])
+
+        assert parse_sentinel_gender_counts(csv_path) == {}
+
+
+class _FakeResponse:
+    def __init__(self, content: bytes):
+        self.content = content
+
+    def raise_for_status(self) -> None:
+        return None
+
+
+@pytest.fixture
+def isolated_font_env(tmp_path, monkeypatch):
+    """HOME を tmp に差し替え、待機を無くし、フォント登録をテスト内に閉じ込める"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(generate_charts.time, "sleep", lambda _seconds: None)
+    # addfont は fontManager.ttflist に追記するので、テスト後に元のリストへ戻す
+    monkeypatch.setattr(fm.fontManager, "ttflist", list(fm.fontManager.ttflist))
+    return tmp_path / ".local" / "share" / "fonts" / "NotoSansCJKjp-Regular.otf"
+
+
+class TestFont:
+    """setup_japanese_font() の取得・照合・登録のテスト (実フォントはダウンロードしない)"""
+
+    def test_font_url_and_hash_are_pinned(self):
+        assert re.search(r"/noto-cjk/[0-9a-f]{40}/", FONT_URL)
+        assert "/main/" not in FONT_URL
+        assert FONT_URL == (
+            "https://raw.githubusercontent.com/notofonts/noto-cjk/"
+            "165c01b46ea533872e002e0785ff17e44f6d97d8/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+        )
+        assert FONT_SHA256 == "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5"
+
+    def test_download_with_wrong_hash_is_rejected(self, isolated_font_env, monkeypatch, capsys):
+        calls = []
+
+        def fake_get(url, timeout):
+            calls.append(url)
+            return _FakeResponse(b"tampered font" * 100)
+
+        monkeypatch.setattr(generate_charts.requests, "get", fake_get)
+
+        assert setup_japanese_font() is None
+        assert not isolated_font_env.exists()
+        assert calls == [FONT_URL] * 3
+        assert "[font] sha256 verified:" not in capsys.readouterr().out
+
+    def test_existing_font_with_wrong_hash_is_redownloaded(self, isolated_font_env, monkeypatch, capsys):
+        # Arrange: 本物のフォント (DejaVuSans) をダウンロード結果にし、期待 sha256 をそれに合わせる
+        font_bytes = (Path(matplotlib.get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
+        monkeypatch.setattr(generate_charts, "FONT_SHA256", hashlib.sha256(font_bytes).hexdigest())
+        monkeypatch.setattr(generate_charts.requests, "get", lambda url, timeout: _FakeResponse(font_bytes))
+        isolated_font_env.parent.mkdir(parents=True)
+        isolated_font_env.write_bytes(b"stale or truncated font")
+
+        # Act
+        font_prop = setup_japanese_font()
+
+        # Assert
+        assert font_prop is not None
+        assert isolated_font_env.read_bytes() == font_bytes
+        assert capsys.readouterr().out.count(f"[font] sha256 verified: {isolated_font_env}") == 1
+
+    def test_existing_font_with_matching_hash_is_used_without_download(self, isolated_font_env, monkeypatch, capsys):
+        font_bytes = (Path(matplotlib.get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf").read_bytes()
+        monkeypatch.setattr(generate_charts, "FONT_SHA256", hashlib.sha256(font_bytes).hexdigest())
+
+        def fail_get(url, timeout):
+            raise AssertionError("verified font must not be downloaded again")
+
+        monkeypatch.setattr(generate_charts.requests, "get", fail_get)
+        isolated_font_env.parent.mkdir(parents=True)
+        isolated_font_env.write_bytes(font_bytes)
+
+        assert setup_japanese_font() is not None
+        assert "[font] sha256 verified:" in capsys.readouterr().out
+
+    def test_unreadable_font_cache_returns_none(self, isolated_font_env, monkeypatch):
+        # キャッシュの読み取り・削除に失敗しても例外を伝播させず None を返す (main() が ::error を出せるように)
+        def fail_get(url, timeout):
+            raise AssertionError("must not download when the cache cannot be checked")
+
+        monkeypatch.setattr(generate_charts.requests, "get", fail_get)
+        isolated_font_env.mkdir(parents=True)  # フォントのパスがディレクトリで read_bytes が OSError になる
+
+        assert setup_japanese_font() is None
+
+    def test_corrupt_font_returns_none(self, isolated_font_env, monkeypatch):
+        # 照合は通るが addfont が RuntimeError (FT_Open_Face 失敗) を投げるバイト列
+        corrupt = b"not a font" * 100
+        monkeypatch.setattr(generate_charts, "FONT_SHA256", hashlib.sha256(corrupt).hexdigest())
+        monkeypatch.setattr(generate_charts.requests, "get", lambda url, timeout: _FakeResponse(corrupt))
+
+        assert setup_japanese_font() is None
+
+
+def _png_files(root: Path) -> list[Path]:
+    return sorted((root / "docs" / "images").glob("*.png"))
+
+
+class TestMainFailClosed:
+    """main() が PNG を書く前に失敗を検出して非 0 を返すことのテスト"""
+
+    def test_main_returns_nonzero_without_font_and_writes_no_png(self, tmp_path, monkeypatch, capsys):
+        # Arrange: 入力はあるのでフォントだけが失敗要因になる
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        _write_shift_jis(raw_dir / "notifiable_weekly_2025_01.csv", [NOTIFIABLE_HEADER, "結核,40"])
+        monkeypatch.setattr(generate_charts, "get_japanese_font", lambda: None)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert
+        assert exit_code != 0
+        assert _png_files(tmp_path) == []
+        assert "::error title=Japanese font unavailable::" in capsys.readouterr().out
+
+    def test_main_returns_nonzero_when_no_input_files(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "data" / "raw").mkdir(parents=True)
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        assert generate_charts.main() == 2
+        assert _png_files(tmp_path) == []
+        assert "::error title=Chart input error::no chart input files under data/raw" in capsys.readouterr().out
+
+
+class TestMainEndToEnd:
+    """合成データで main() を最後まで通し、乖離率の選定が件数下限と最新期間フィルタに従うことを確認する"""
+
+    @staticmethod
+    def _write_dataset(raw_dir: Path) -> None:
+        # 定点数 1000: 定点当たりでは 5 未満になる値でも、実数で判定していれば順位付けに入る
+        sentinels = 1000
+        for year in (2024, 2025):
+            for week in range(1, 53):
+                latest = year == 2025 and week == 52
+                rows = [
+                    f"大流行病,0,0,{3500 if latest else 1000},{sentinels}",
+                    f"少数病,0,0,{4 if (year, week) == (2025, 30) else 1},{sentinels}",
+                    f"ゼロ基準病,0,0,{3 if (year, week) == (2025, 40) else 0},{sentinels}",
+                ]
+                if year == 2024 or week < 45:
+                    rows.append(f"消失病,0,0,{100 if (year, week) == (2025, 10) else 10},{sentinels}")
+                _write_shift_jis(raw_dir / f"sentinel_weekly_gender_{year}_{week:02d}.csv", [SENTINEL_HEADER, *rows])
+
+                rows = [
+                    f"流行病N,{50 if latest else 10}",
+                    f"単発病N,{3 if (year, week) == (2025, 20) else 0}",
+                ]
+                if year == 2024 or week < 40:
+                    rows.append(f"消失病N,{60 if (year, week) == (2025, 5) else 5}")
+                _write_shift_jis(raw_dir / f"notifiable_weekly_{year}_{week:02d}.csv", [NOTIFIABLE_HEADER, *rows])
+
+            for month in range(1, 13):
+                rows = [f"月流行病,0,0,{400 if (year, month) == (2025, 12) else 100},{sentinels}"]
+                if year == 2024 or month < 5:
+                    rows.append(f"月消失病,0,0,{100 if (year, month) == (2025, 3) else 10},{sentinels}")
+                _write_shift_jis(raw_dir / f"sentinel_monthly_gender_{year}_{month:02d}.csv", [SENTINEL_HEADER, *rows])
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_writes_six_charts_and_ranks_only_eligible_current_diseases(self, tmp_path, monkeypatch, capsys):
+        # Arrange
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        self._write_dataset(raw_dir)
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert
+        assert exit_code == 0
+        assert [p.name for p in _png_files(tmp_path)] == [
+            "notifiable_weekly_absolute.png",
+            "notifiable_weekly_deviation.png",
+            "sentinel_monthly_absolute.png",
+            "sentinel_monthly_deviation.png",
+            "sentinel_weekly_absolute.png",
+            "sentinel_weekly_deviation.png",
+        ]
+        chart_lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[chart] ")]
+        assert len(chart_lines) == 6
+        assert "[chart] sentinel_weekly_deviation: 大流行病" in chart_lines
+        assert "[chart] notifiable_weekly_deviation: 流行病N" in chart_lines
+        assert "[chart] sentinel_monthly_deviation: 月流行病" in chart_lines
+
+
+class TestWeekTicks:
+    """_setup_x_axis_ticks() の週次目盛りのテスト"""
+
+    @staticmethod
+    def _ticks(periods: list[int]) -> tuple[list[float], list[str]]:
+        fig, ax = plt.subplots()
+        try:
+            ax.plot(range(len(periods)), [0] * len(periods))
+            _setup_x_axis_ticks(ax, periods, "week", None)
+            return list(ax.get_xticks()), [label.get_text() for label in ax.get_xticklabels()]
+        finally:
+            plt.close(fig)
+
+    def test_year_boundary_ticks_include_year_and_do_not_collide(self):
+        periods = list(range(202538, 202553)) + list(range(202601, 202638))
+
+        positions, labels = self._ticks(periods)
+
+        assert labels == ["2025/40", "45", "50", "2026/1", "5", "10", "15", "20", "25", "30", "35"]
+        assert "52" not in labels
+        assert "1" not in labels
+        assert min(b - a for a, b in itertools.pairwise(positions)) >= 2
+
+    def test_week53_window_ticks_do_not_collide(self):
+        periods = [*range(202603, 202654), 202701]
+
+        positions, labels = self._ticks(periods)
+
+        assert labels[0] == "2026/5"
+        assert labels[-1] == "2027/1"
+        assert "53" not in labels
+        assert min(b - a for a, b in itertools.pairwise(positions)) >= 2
+
+    def test_year_start_before_first_candidate_carries_the_year(self):
+        periods = [202552, 202601, 202602, 202603, 202604, 202605]
+
+        _, labels = self._ticks(periods)
+
+        assert labels == ["2026/1", "5"]
+
+
+class TestDeviationRanking:
+    """件数下限 (build_ranking_eligibility) と最新期間フィルタ (filter_rates_for_ranking) のテスト"""
+
+    @staticmethod
+    def _rank(counts, count_baseline, periods, data=None, rates=None):
+        data = counts if data is None else data
+        rates = calculate_deviation_rate(data, count_baseline) if rates is None else rates
+        eligible = build_ranking_eligibility(counts, count_baseline, periods)
+        return select_top_deviation_diseases(filter_rates_for_ranking(data, rates, eligible), top_n=5)
+
+    def test_small_count_spikes_are_not_ranked(self):
+        p = 202637
+        counts = {"新規": {p: 1.0}, "数例": {p: 1.0}, "大流行": {p: 3515.0}}
+        count_baseline = {"新規": {p: 0.0}, "数例": {p: 0.2}, "大流行": {p: 963.8}}
+
+        top, fallback_used = self._rank(counts, count_baseline, [p])
+
+        assert [d for d, _ in top] == ["大流行"]
+        assert fallback_used is False
+
+    def test_floor_boundaries(self):
+        p = 202637
+        counts = {"実測4": {p: 4.0}, "実測5": {p: 5.0}, "基準0.9": {p: 10.0}, "基準1.0": {p: 10.0}}
+        count_baseline = {"実測4": {p: 1.0}, "実測5": {p: 1.0}, "基準0.9": {p: 0.9}, "基準1.0": {p: 1.0}}
+
+        eligible = build_ranking_eligibility(counts, count_baseline, [p])
+
+        assert eligible == {"実測5": {p}, "基準1.0": {p}}
+
+    def test_zero_baseline_is_not_ranked(self):
+        # 麻しん 202616 型: 46 例 vs 基準 0 は描画上 100% だが順位付けには使わない
+        counts = {"麻しん": {202616: 46.0}}
+        count_baseline = {"麻しん": {202616: 0.0}}
+
+        assert calculate_deviation_rate(counts, count_baseline) == {"麻しん": {202616: 100.0}}
+        assert self._rank(counts, count_baseline, [202616]) == ([], True)
+
+    def test_disease_missing_latest_period_is_not_ranked(self):
+        p1, p2 = 202603, 202604
+        counts = {"報告中": {p1: 10.0, p2: 12.0}, "報告停止": {p1: 100.0}}
+        count_baseline = {"報告中": {p1: 5.0, p2: 5.0}, "報告停止": {p1: 2.0}}
+
+        top, _ = self._rank(counts, count_baseline, [p1, p2])
+
+        assert [d for d, _ in top] == ["報告中"]
+
+    def test_past_peak_with_negative_latest_is_still_ranked(self):
+        p1, p2 = 202603, 202604
+        counts = {"過去ピーク": {p1: 40.0, p2: 5.0}}
+        count_baseline = {"過去ピーク": {p1: 10.0, p2: 10.0}}
+
+        top, fallback_used = self._rank(counts, count_baseline, [p1, p2])
+
+        assert top == [("過去ピーク", 300.0)]
+        assert fallback_used is False
+
+    def test_fallback_uses_only_eligible_periods(self):
+        p1, p2 = 202603, 202604
+        counts = {"A": {p1: 4.0, p2: 9.0}, "B": {p1: 5.0, p2: 8.0}}
+        count_baseline = {"A": {p1: 40.0, p2: 10.0}, "B": {p1: 10.0, p2: 10.0}}
+
+        top, fallback_used = self._rank(counts, count_baseline, [p1, p2])
+
+        # A の -90% (実測 4 例) は不適格なので、A の代表値は適格な期間の -10% になる
+        assert fallback_used is True
+        assert top == [("B", -50.0), ("A", -10.0)]
+
+    def test_rates_are_ranked_on_chart_values_while_floors_use_counts(self):
+        # 定点当たりの値 (チャートの値) が小さくても、実数が下限を満たせば順位付けに入る
+        p = 202637
+        counts = {"定点病": {p: 3500.0}}
+        count_baseline = {"定点病": {p: 1000.0}}
+        per_sentinel = {"定点病": {p: 3.5}}
+        rates = calculate_deviation_rate(per_sentinel, {"定点病": {p: 1.0}})
+
+        top, _ = self._rank(counts, count_baseline, [p], data=per_sentinel, rates=rates)
+
+        assert top == [("定点病", 250.0)]
+
+    def test_none_eligibility_applies_only_latest_period_filter(self):
+        data = {"報告中": {202603: 1.0, 202604: 1.0}, "報告停止": {202603: 1.0}}
+        rates = {"報告中": {202603: 900.0, 202604: 100.0}, "報告停止": {202603: 999.0}}
+
+        assert filter_rates_for_ranking(data, rates, None) == {"報告中": {202603: 900.0, 202604: 100.0}}
+        assert filter_rates_for_ranking({}, rates, None) == {}
+
+
+class TestLegendLabel:
+    """format_legend_label() のテスト"""
+
+    def test_latest_label(self):
+        assert format_legend_label("結核", "44.0", 202637, 202637, "week") == "結核 (最新: 44.0)"
+
+    def test_last_period_label_when_latest_missing(self):
+        assert format_legend_label("疾患X", "-100%", 202604, 202608, "month") == "疾患X (最終 2026年4月: -100%)"
+        assert format_legend_label("疾患X", "+10%", 202636, 202637, "week") == "疾患X (最終 2026年第36週: +10%)"
+
+    def test_provisional_label_only_when_flagged(self):
+        assert (
+            format_legend_label("結核", "44.0", 202637, 202637, "week", provisional=True) == "結核 (最新・速報: 44.0)"
+        )
+        assert format_legend_label("結核", "40.0", 202636, 202637, "week", provisional=True) == (
+            "結核 (最終 2026年第36週: 40.0)"
+        )

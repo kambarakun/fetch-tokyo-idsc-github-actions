@@ -130,7 +130,7 @@ def check_file(filepath: Path) -> bool:
         print("  1. 最も長いパス名を見つける")
         print("  2. その末尾から2スペース空けた位置に全ての # を揃える")
         print("  3. 短いパス名はスペースで位置調整")
-        print("\n参考: CLAUDE.md セクション 5.6")
+        print("\n参考: docs/markdown-style.md「tree 形式のコメント位置」")
         return False
 
     return True

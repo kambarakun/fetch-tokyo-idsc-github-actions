@@ -13,7 +13,7 @@ Usage:
     # 複数ファイルを処理
     uv run process-data --files file1.csv file2.csv file3.csv
 
-    # ドライラン
+    # ドライラン (引数と data ディレクトリの存在のみ確認。対象ファイル確認・変換・stats.json 更新はしない)
     uv run process-data --all --dry-run
 
     # 詳細ログ
@@ -72,7 +72,7 @@ def main() -> None:
   # 複数ファイルを処理
   %(prog)s --files file1.csv file2.csv file3.csv
 
-  # ドライラン
+  # ドライラン (引数と data ディレクトリの存在のみ確認)
   %(prog)s --all --dry-run
         """,
     )
@@ -80,7 +80,14 @@ def main() -> None:
     # 基本オプション
     parser.add_argument("--data-dir", type=str, default="data", help="dataディレクトリのパス(デフォルト: data)")
 
-    parser.add_argument("--dry-run", action="store_true", help="ドライランモード(実際の処理は行わない)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "ドライランモード (引数と data ディレクトリの存在のみ確認する。"
+            "対象ファイルの存在確認・変換・品質検証・stats.json の更新は行わない)"
+        ),
+    )
 
     parser.add_argument("-v", "--verbose", action="store_true", help="詳細ログを出力")
 
@@ -102,11 +109,10 @@ def main() -> None:
         logger.error(f"データディレクトリが見つかりません: {data_dir}")
         sys.exit(1)
 
-    # ドライラン表示
+    # ドライランは DataProcessor を初期化しないので、ここで確認できるのは引数と data ディレクトリだけ
     if args.dry_run:
-        logger.info("🔍 ドライランモード(実際の処理は行いません)")
-        # ドライランの場合はここで終了
-        logger.info("ドライラン完了")
+        logger.info("🔍 ドライラン: 引数と data ディレクトリの存在のみ確認しました")
+        logger.info("対象ファイルの存在確認・変換・品質検証は行っていません (stats.json も更新していません)")
         return
 
     # DataProcessor初期化

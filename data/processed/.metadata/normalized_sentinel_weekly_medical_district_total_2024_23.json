@@ -1,0 +1,142 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_weekly_medical_district_total_2024_23",
+  "filename": "normalized_sentinel_weekly_medical_district_total_2024_23.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_total_2024_23.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2024,
+    "period": 23,
+    "period_type": "weekly"
+  },
+  "bytes": 2715,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "96992ab23c358cc78667727567e8de24e21e1f7affff78d7b4d02b5b87e9c9fa"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-09T03:41:17.762768+00:00",
+  "modified": "2026-10-09T03:41:17.762768+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2024_23.csv",
+      "path": "raw/sentinel_weekly_medical_district_2024_23.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2024_23",
+    "source_hash": "1f1dc9f939dfc127c92413b1ed8c933152dbf9b2a5d433d63c8bb853277e7be9",
+    "processing_time_seconds": 0.0007283687591552734,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:41:17.762776+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 10 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2024_23.csv",
+          "affected_count": 10,
+          "truncated": false,
+          "affected_locations": [
+            {
+              "location": "区南部",
+              "column": "流行性耳下腺炎",
+              "row_index": 4,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "不明発しん症",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "流行性耳下腺炎",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東部",
+              "column": "不明発しん症",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "伝染性紅斑",
+              "row_index": 10,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "南多摩",
+              "column": "インフルエンザ",
+              "row_index": 11,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "北多摩西部",
+              "column": "突発性発しん",
+              "row_index": 12,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "北多摩南部",
+              "column": "インフルエンザ",
+              "row_index": 13,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "島しょ",
+              "column": "COVID-19入院",
+              "row_index": 15,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "合計",
+              "column": "インフルエンザ",
+              "row_index": 16,
+              "male": 21,
+              "female": 44,
+              "total": 61,
+              "expected": 65
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

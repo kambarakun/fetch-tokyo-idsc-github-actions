@@ -87,6 +87,16 @@ def extract_gender_section_data(lines: list[str], section: dict[str, Any]) -> li
     return data_lines
 
 
+def section_has_data_rows(section_lines: list[str]) -> bool:
+    """Return True when an extracted gender section has rows beyond its header.
+
+    The medical_district 男女合計 section is header-only in the 2000-W14..2006-W52 weekly raw files.
+    The processor skips such a section and check-data-status does not expect an output for it;
+    both call this function so the two cannot disagree.
+    """
+    return len(section_lines) > 1
+
+
 def find_data_start_line(lines: list[str], markers: tuple[str, ...]) -> int | None:
     """Return the first line containing one of the processor's data markers."""
     for line_number, line in enumerate(lines):
@@ -247,8 +257,7 @@ class DataProcessor:
 
             # データ部分を抽出して保存
             data_lines = lines[data_start_idx:]
-            with output_file.open("w", encoding="utf-8") as f:
-                f.writelines(data_lines)
+            self._write_if_changed(output_file, data_lines)
 
             processing_time = time.time() - start_time
             logger.info(f"全数報告処理成功: {source_file.name} → {output_filename}")
@@ -313,11 +322,13 @@ class DataProcessor:
         gender_info: dict[Path, str] = {}
 
         for section in gender_sections:
-            # medical_districtのtotalセクションはスキップ(元データに含まれない仕様)
-            if metadata.get("aggregation") == "medical_district" and section.get("gender") == self.GENDER_TOTAL:
-                logger.info(
-                    "medical_districtのtotalセクションをスキップします(元データに男女合計が含まれていない仕様です)"
-                )
+            # medical_districtの男女合計は2000-W14〜2006-W52の週報でヘッダーのみのため、データ行が無ければ出力しない
+            if (
+                metadata.get("aggregation") == "medical_district"
+                and section.get("gender") == self.GENDER_TOTAL
+                and not section_has_data_rows(self._extract_section_data(lines, section))
+            ):
+                logger.info("medical_districtのtotalセクションにデータ行がないため出力しません")
                 continue
 
             output_file = self._save_gender_section(lines, section, metadata)
@@ -332,6 +343,10 @@ class DataProcessor:
                     female_file = output_file
                 elif gender == self.GENDER_TOTAL:
                     total_file = output_file
+
+        # 改訂でtotalがヘッダーのみ・セクションごと消えた場合に、前回のtotalが現行データとして残らないようにする
+        if metadata.get("aggregation") == "medical_district" and total_file is None:
+            self._remove_output(self._gender_output_path({"gender": self.GENDER_TOTAL}, metadata))
 
         return output_files, male_file, female_file, total_file, gender_info
 
@@ -442,8 +457,7 @@ class DataProcessor:
 
             # データ部分を抽出して保存
             data_lines = lines[data_start_idx:]
-            with output_file.open("w", encoding="utf-8") as f:
-                f.writelines(data_lines)
+            self._write_if_changed(output_file, data_lines)
 
             processing_time = time.time() - start_time
             logger.info(f"定点監視処理成功(単純): {source_file.name} → {output_filename}")
@@ -483,12 +497,8 @@ class DataProcessor:
         """
         try:
             gender = section["gender"]
-            gender_suffix = self._get_gender_suffix(gender)
-
-            # ファイル名: normalized_{type}_{frequency}_{aggregation}_{gender}_{year}_{period}.csv
-            # 例: normalized_sentinel_weekly_age_male_2000_01.csv
-            output_filename = f"normalized_{metadata['category']}_{metadata['frequency']}_{metadata['aggregation']}_{gender_suffix}_{metadata['year']}_{metadata['period']}.csv"
-            output_file = self.processed_dir / output_filename
+            output_file = self._gender_output_path(section, metadata)
+            output_filename = output_file.name
 
             # セクションのデータを抽出
             section_lines = self._extract_section_data(lines, section)
@@ -498,8 +508,7 @@ class DataProcessor:
                 return None
 
             # 保存
-            with output_file.open("w", encoding="utf-8") as f:
-                f.writelines(section_lines)
+            self._write_if_changed(output_file, section_lines)
 
             logger.debug(f"セクション保存成功: {gender} → {output_filename}")
 
@@ -508,6 +517,35 @@ class DataProcessor:
         except (OSError, csv.Error, ValueError):
             logger.exception(f"セクション保存失敗: {gender}")
             return None
+
+    def _gender_output_path(self, section: dict[str, Any], metadata: dict[str, Any]) -> Path:
+        """性別セクションの出力ファイルパスを返す
+
+        Args:
+            section: セクション情報
+            metadata: ファイルメタデータ
+
+        Returns:
+            出力ファイルパス
+        """
+        gender_suffix = self._get_gender_suffix(section["gender"])
+        # ファイル名: normalized_{type}_{frequency}_{aggregation}_{gender}_{year}_{period}.csv
+        # 例: normalized_sentinel_weekly_age_male_2000_01.csv
+        output_filename = f"normalized_{metadata['category']}_{metadata['frequency']}_{metadata['aggregation']}_{gender_suffix}_{metadata['year']}_{metadata['period']}.csv"
+        return self.processed_dir / output_filename
+
+    def _remove_output(self, output_file: Path) -> None:
+        """出力ファイルとそのメタデータを削除する (存在しなければ何もしない)
+
+        改訂で出力対象でなくなったセクションの古い出力が、現行データとして残り続けないようにするため。
+
+        Args:
+            output_file: 削除する出力ファイルパス
+        """
+        for path in (output_file, self.processed_dir / ".metadata" / f"{output_file.stem}.json"):
+            if path.exists():
+                path.unlink()
+                logger.info(f"出力対象でなくなった古い出力を削除しました: {path.name}")
 
     def _extract_section_data(self, lines: list[str], section: dict[str, Any]) -> list[str]:
         """セクションのデータ部分を抽出
@@ -580,6 +618,67 @@ class DataProcessor:
         except (KeyError, ValueError, AttributeError, IndexError):
             logger.exception(f"メタデータ抽出失敗: {filename}")
             return None
+
+    def _write_if_changed(self, output_file: Path, lines: list[str]) -> None:
+        """出力内容が既存ファイルとバイト単位で同じなら書き込まない
+
+        再処理のたびに processed が書き換わると、mtime と再生成 PR の差分が無意味に増えるため。
+
+        Args:
+            output_file: 出力ファイルパス
+            lines: 書き込む行のリスト
+        """
+        if output_file.exists() and output_file.read_bytes() == "".join(lines).encode("utf-8"):
+            logger.debug(f"出力内容に変更がないため書き込みをスキップ: {output_file.name}")
+            return
+        # newline="" で改行を変換せず、比較したバイト列と同じものを書く
+        with output_file.open("w", encoding="utf-8", newline="") as f:
+            f.writelines(lines)
+
+    def _load_existing_metadata(self, metadata_file: Path) -> dict[str, Any] | None:
+        """既存のメタデータを読み込む (存在しない・読めない場合は None)
+
+        Args:
+            metadata_file: メタデータファイルパス
+
+        Returns:
+            メタデータ辞書。存在しない、JSONとして読めない、辞書でない場合は None
+        """
+        if not metadata_file.exists():
+            return None
+        try:
+            existing = json.loads(metadata_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            logger.debug(f"既存メタデータを読めないため新規として扱います: {metadata_file.name}")
+            return None
+        return existing if isinstance(existing, dict) else None
+
+    @staticmethod
+    def _metadata_unchanged(existing: dict[str, Any], meta: dict[str, Any]) -> bool:
+        """既存メタデータと新しいメタデータが実質的に同じか判定する
+
+        実行ごとに変わる created / modified / _process.processing_time_seconds /
+        quality.validation_timestamp だけを除き、それ以外の全項目を比較する。
+
+        Args:
+            existing: 既存のメタデータ
+            meta: 新しく構築したメタデータ
+
+        Returns:
+            メタデータを書き直す必要がなければ True
+        """
+
+        def stable_fields(metadata: dict[str, Any]) -> Any:
+            # JSON 往復で型をそろえてから、実行ごとに変わる項目を除く
+            stable = json.loads(json.dumps(metadata))
+            stable.pop("created", None)
+            stable.pop("modified", None)
+            for key, volatile in (("_process", "processing_time_seconds"), ("quality", "validation_timestamp")):
+                if isinstance(stable.get(key), dict):
+                    stable[key].pop(volatile, None)
+            return stable
+
+        return stable_fields(existing) == stable_fields(meta)
 
     def _is_empty_data_file(self, file_path: Path) -> bool:
         """データファイルが空(ヘッダーのみ)かチェック
@@ -811,8 +910,18 @@ class DataProcessor:
                 metadata_dir = self.processed_dir / ".metadata"
                 metadata_dir.mkdir(parents=True, exist_ok=True)
 
-                # メタデータファイルを保存
+                # 入力・出力・品質検証結果が変わらなければ書き直さない (再処理を冪等にする)
                 metadata_file = metadata_dir / f"{output.stem}.json"
+                existing = self._load_existing_metadata(metadata_file)
+                if existing is not None:
+                    if self._metadata_unchanged(existing, meta):
+                        logger.debug(f"メタデータに変更がないため書き込みをスキップ: {metadata_file.name}")
+                        continue
+                    # 初回処理時刻は再処理で失わない
+                    if isinstance(existing.get("created"), str):
+                        meta["created"] = existing["created"]
+
+                # メタデータファイルを保存
                 with metadata_file.open("w", encoding="utf-8") as f:
                     json.dump(meta, f, ensure_ascii=False, indent=2)
 

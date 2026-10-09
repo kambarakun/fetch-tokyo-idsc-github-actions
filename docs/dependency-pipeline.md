@@ -45,7 +45,7 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
   - **宣言レンジの Python を満たさないリリース**: Dependabot も uv も提案できない。数えると恒久的に解消しない滞留になる。判定は実行中インタプリタではなく `pyproject.toml` の `requires-python` (`>=3.11,<3.12`) の**レンジ全体**に対して行う。uv はレンジ内の全インタプリタに対して解決するため、下限を上げた版 (`>=3.11.10`)・上限を下げた版 (`<3.11.5`)・レンジ内を除外した版 (`!=3.11.4`, `!=3.11.*`) はいずれも lock できない。監視の実行環境 (3.11.15 など) では動いてしまうため、実行中インタプリタでは判定できない。判定は宣言レンジを具体的なバージョンへ列挙して行う (ワイルドカードや除外の意味論を自前で再実装せず `packaging` に委ねるため。`SpecifierSet.contains` はワイルドカードを引数に取れない)
   - **最後の updater 実行時点で cooldown 内だったリリース**: 判定の基準時刻は「実行時刻」ではなく **`dependabot.yml` のスケジュールから求めた直近の updater 実行時刻**である。本ワークフローは水曜、updater は月曜なので、月曜時点で 6 日だったリリースは水曜には 8 日になる。実行時刻で判定すると、Dependabot に提案の機会が無かったものを停止と誤判定する
   - なお `info.version` ではなくリリース履歴全体を走査する。頻繁にリリースされるパッケージでは、滞留中の版の上に major 版や cooldown 内の版が来た瞬間に滞留が見えなくなり、**まさに updater が止まっているときに検知できない**ため
-- **検査 3 の比較対象は upstream 最新版ではない**。setup-uv は既知 checksum の無い uv を検証をスキップしてインストールするため、pin の上限は「pin 中の setup-uv が checksum を知る最新版」である (CLAUDE.md「uv 本体の更新経路」)。upstream 最新と比較すると正常状態が常時アラートになる
+- **検査 3 の比較対象は upstream 最新版ではない**。setup-uv は既知 checksum の無い uv を検証をスキップしてインストールするため、pin の上限は「pin 中の setup-uv が checksum を知る最新版」である ([docs/development.md「uv 本体の更新経路」](development.md#uv-本体の更新経路))。upstream 最新と比較すると正常状態が常時アラートになる
 - **検査 4 は Dependabot の死角を埋める** (issue #656)。pin した Action は自身の lockfile を同梱して実行される。Dependabot の github-actions エコシステムが追跡するのは **Action 自身のバージョンだけ**で、その中で固定されている依存は見ない。したがって Action 同梱依存の CVE は検査 1〜3 のどれにも映らず、`.github/workflows` の差分にも現れない。監視対象は `scripts/check_dependency_pipeline.py` の `WATCHED_ACTION_DEPENDENCIES` テーブルに 1 行ずつ書く
   - **アラートは「対応可能になった瞬間」だけに絞る**。脆弱版に留まっていること自体では発火させない。追随先が存在しない間に発火させると追跡 issue が数か月 open のままになり、検査 1〜3 の本物のアラートがその中に埋もれる。逆に、追随先が出た週に確実に赤くなる。追随先とは「修正版を lock した release」だけでなく「対象依存を同梱しなくなった release」も含む — どちらへ更新してもこの行が追う脆弱性は解消するため
   - 「上流最新の release」の判定に `/releases/latest` は使えない。anthropics/claude-code-action は浮動の `v1` release を貼り替えて公開しており、このエンドポイントはそれを返す。`v1.2.3` 形式のタグのうち **semver で最大**のものを採る (文字列比較では `v1.0.9` が `v1.0.220` より大きくなる)
@@ -83,7 +83,7 @@ issue #680 で更新経路を uv 1 系統へ集約したことにより、この
 
 ### 検査 3a: uv pin が既知 checksum に含まれない
 
-CI が checksum 未検証の uv バイナリを導入している状態なので即対応する。`.tool-versions` を、pin 中の setup-uv が知る最新版まで戻す。**setup-uv を上げてから uv を上げる**という順序は CLAUDE.md「uv 本体の更新経路」のとおり。
+CI が checksum 未検証の uv バイナリを導入している状態なので即対応する。`.tool-versions` を、pin 中の setup-uv が知る最新版まで戻す。**setup-uv を上げてから uv を上げる**という順序は [docs/development.md「uv 本体の更新経路」](development.md#uv-本体の更新経路) のとおり。
 
 ### 検査 3b: 検証つきで上げられる uv がある
 

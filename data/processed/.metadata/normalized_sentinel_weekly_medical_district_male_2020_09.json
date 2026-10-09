@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.3.0",
   "name": "normalized_sentinel_weekly_medical_district_male_2020_09",
   "filename": "normalized_sentinel_weekly_medical_district_male_2020_09.csv",
   "path": "processed/normalized_sentinel_weekly_medical_district_male_2020_09.csv",
@@ -18,7 +18,7 @@
   },
   "encoding": "utf-8",
   "created": "2025-12-18T07:33:03.871432+00:00",
-  "modified": "2025-12-18T07:33:03.871432+00:00",
+  "modified": "2026-10-09T03:41:15.760102+00:00",
   "sources": [
     {
       "title": "sentinel_weekly_medical_district_2020_09.csv",
@@ -28,7 +28,115 @@
   "_process": {
     "source_name": "sentinel_weekly_medical_district_2020_09",
     "source_hash": "d0961c0f2a7f146350bfe947e4533eba5af83a596b5512487e2c1a4ec31982c3",
-    "processing_time_seconds": 0.00026297569274902344,
+    "processing_time_seconds": 0.0009691715240478516,
     "gender": "male"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:41:15.760113+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 12 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2020_09.csv",
+          "affected_count": 12,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "伝染性紅斑",
+              "row_index": 3,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区南部",
+              "column": "RSウイルス感染症",
+              "row_index": 4,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区西南部",
+              "column": "手足口病",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "流行性角結膜炎",
+              "row_index": 6,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "流行性耳下腺炎",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "咽頭結膜熱",
+              "row_index": 8,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区東部",
+              "column": "流行性耳下腺炎",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "流行性耳下腺炎",
+              "row_index": 12,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩南部",
+              "column": "RSウイルス感染症",
+              "row_index": 13,
+              "male": 4,
+              "female": 4,
+              "total": 4,
+              "expected": 8
+            },
+            {
+              "location": "北多摩北部",
+              "column": "RSウイルス感染症",
+              "row_index": 14,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            }
+          ]
+        }
+      }
+    ]
   }
 }

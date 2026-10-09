@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.3.0",
   "name": "normalized_sentinel_weekly_medical_district_male_2020_07",
   "filename": "normalized_sentinel_weekly_medical_district_male_2020_07.csv",
   "path": "processed/normalized_sentinel_weekly_medical_district_male_2020_07.csv",
@@ -18,7 +18,7 @@
   },
   "encoding": "utf-8",
   "created": "2025-12-18T07:33:01.973754+00:00",
-  "modified": "2025-12-18T07:33:01.973754+00:00",
+  "modified": "2026-10-09T03:41:15.740739+00:00",
   "sources": [
     {
       "title": "sentinel_weekly_medical_district_2020_07.csv",
@@ -28,7 +28,115 @@
   "_process": {
     "source_name": "sentinel_weekly_medical_district_2020_07",
     "source_hash": "3b94e6f004521e2c5df3423a7d6252999f4cd685e2deb24d91f39ca9a1e140eb",
-    "processing_time_seconds": 0.0002903938293457031,
+    "processing_time_seconds": 0.0006201267242431641,
     "gender": "male"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:41:15.740747+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 10 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2020_07.csv",
+          "affected_count": 10,
+          "truncated": false,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "手足口病",
+              "row_index": 3,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区南部",
+              "column": "流行性耳下腺炎",
+              "row_index": 4,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西南部",
+              "column": "手足口病",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "手足口病",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "流行性耳下腺炎",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "インフルエンザ入院",
+              "row_index": 10,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "南多摩",
+              "column": "流行性耳下腺炎",
+              "row_index": 11,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "RSウイルス感染症",
+              "row_index": 12,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩南部",
+              "column": "RSウイルス感染症",
+              "row_index": 13,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "合計",
+              "column": "RSウイルス感染症",
+              "row_index": 16,
+              "male": 29,
+              "female": 28,
+              "total": 54,
+              "expected": 57
+            }
+          ]
+        }
+      }
+    ]
   }
 }

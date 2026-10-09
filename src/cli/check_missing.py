@@ -94,6 +94,7 @@ class ContinuityReport:
     target_end: Period | None
     watermark: Period
     missing_periods: list[dict[str, Any]] = field(default_factory=list)
+    pending_periods: list[dict[str, Any]] = field(default_factory=list)
     unexpected_files: list[str] = field(default_factory=list)
     is_valid: bool = True
     error_messages: list[str] = field(default_factory=list)
@@ -109,18 +110,27 @@ class ContinuityValidator:
         as_of: date | None = None,
         weekly_lag: int = DEFAULT_WEEKLY_LAG,
         monthly_lag: int = DEFAULT_MONTHLY_LAG,
+        grace_periods: int = 0,
     ) -> None:
         if weekly_lag < 0 or monthly_lag < 0:
             raise ValueError("publication lag must be zero or greater")
+        if grace_periods < 0:
+            raise ValueError("grace periods must be zero or greater")
 
         self.data_dir = data_dir
         self.as_of = as_of or datetime.now(JST).date()
         self.weekly_lag = weekly_lag
         self.monthly_lag = monthly_lag
+        self.grace_periods = grace_periods
         self.logger = logging.getLogger(__name__)
         self.watermarks: dict[Frequency, Period] = {
             "weekly": _weekly_watermark(self.as_of, weekly_lag),
             "monthly": _monthly_watermark(self.as_of, monthly_lag),
+        }
+        # Gaps newer than these are reported as pending: publication can slip past the default lag.
+        self.strict_watermarks: dict[Frequency, Period] = {
+            "weekly": _weekly_watermark(self.as_of, weekly_lag + grace_periods),
+            "monthly": _monthly_watermark(self.as_of, monthly_lag + grace_periods),
         }
 
     def validate_all(self, start_year: int | None = None, end_year: int | None = None) -> dict[str, ContinuityReport]:
@@ -148,18 +158,20 @@ class ContinuityValidator:
 
         expected_periods = self._generate_expected_periods(frequency, target_start, target_end)
         periods_in_scope = existing_periods & expected_periods
-        missing_periods = [
-            {
+        strict_watermark = self.strict_watermarks[frequency]
+        missing_periods: list[dict[str, Any]] = []
+        pending_periods: list[dict[str, Any]] = []
+        for year, period in sorted(expected_periods - periods_in_scope):
+            gap = {
                 "year": year,
                 "period": period,
                 "type": frequency,
                 "filename": f"{data_type}_{year}_{period:02d}.csv",
             }
-            for year, period in sorted(expected_periods - periods_in_scope)
-        ]
+            (pending_periods if (year, period) > strict_watermark else missing_periods).append(gap)
 
         error_messages: list[str] = []
-        if expected_periods and not existing_periods:
+        if missing_periods and not existing_periods:
             error_messages.append("データファイルが見つかりません")
         if missing_periods:
             error_messages.append(f"{len(missing_periods)}件の欠損期間があります")
@@ -177,8 +189,9 @@ class ContinuityValidator:
             target_end=effective_end,
             watermark=watermark,
             missing_periods=missing_periods,
+            pending_periods=pending_periods,
             unexpected_files=unexpected_files,
-            is_valid=not missing_periods and (not expected_periods or bool(existing_periods)),
+            is_valid=not missing_periods,
             error_messages=error_messages,
         )
         if not report.is_valid:
@@ -247,6 +260,7 @@ class ContinuityValidator:
         expected_count = sum(report.expected_count for report in reports.values())
         actual_count = sum(report.actual_count for report in reports.values())
         missing_count = sum(len(report.missing_periods) for report in reports.values())
+        pending_count = sum(len(report.pending_periods) for report in reports.values())
         payload = {
             "summary": {
                 "is_valid": valid_count == len(reports),
@@ -256,6 +270,8 @@ class ContinuityValidator:
                 "expected_count": expected_count,
                 "actual_count": actual_count,
                 "missing_count": missing_count,
+                "pending_count": pending_count,
+                "grace_periods": self.grace_periods,
                 "requested_start_year": requested_start_year,
                 "requested_end_year": requested_end_year,
                 "watermarks": {
@@ -288,6 +304,8 @@ class ContinuityValidator:
                     "missing_count": len(report.missing_periods),
                     "is_valid": report.is_valid,
                     "missing_periods": report.missing_periods,
+                    "pending_count": len(report.pending_periods),
+                    "pending_periods": report.pending_periods,
                     "unexpected_files": report.unexpected_files,
                     "error_messages": report.error_messages,
                 }
@@ -307,12 +325,19 @@ class ContinuityValidator:
                 [
                     f"{data_type}: {status}",
                     f"  対象: {target_start} - {target_end}",
-                    f"  期待数: {report.expected_count} / 実数: {report.actual_count} / 欠損: {len(report.missing_periods)}",
+                    f"  期待数: {report.expected_count} / 実数: {report.actual_count} / "
+                    f"欠損: {len(report.missing_periods)} / 保留: {len(report.pending_periods)}",
                 ]
             )
         total_missing = sum(len(report.missing_periods) for report in reports.values())
+        total_pending = sum(len(report.pending_periods) for report in reports.values())
         invalid_count = sum(not report.is_valid for report in reports.values())
-        lines.extend(["", f"検証対象: {len(reports)}種 / 異常: {invalid_count}種 / 欠損: {total_missing}件"])
+        lines.extend(
+            [
+                "",
+                f"検証対象: {len(reports)}種 / 異常: {invalid_count}種 / 欠損: {total_missing}件 / 保留: {total_pending}件",
+            ]
+        )
         return "\n".join(lines)
 
     def _generate_markdown_report(self, reports: dict[str, ContinuityReport]) -> str:
@@ -366,6 +391,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MONTHLY_LAG,
         help=f"月次公開lag (既定: {DEFAULT_MONTHLY_LAG}か月)",
     )
+    parser.add_argument(
+        "--grace-periods",
+        type=_non_negative_int,
+        default=0,
+        help="lagに加える猶予期間数。猶予内の欠損は保留として報告し失敗にしない (既定: 0)",
+    )
     parser.add_argument("--format", choices=["json", "text", "markdown"], default="text", help="出力形式")
     parser.add_argument("--output", type=Path, help="レポート保存先")
     parser.add_argument(
@@ -395,6 +426,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         as_of=args.as_of,
         weekly_lag=args.weekly_lag,
         monthly_lag=args.monthly_lag,
+        grace_periods=args.grace_periods,
     )
     if args.data_type:
         reports = {args.data_type: validator.validate_data_type(args.data_type, args.start_year, args.end_year)}

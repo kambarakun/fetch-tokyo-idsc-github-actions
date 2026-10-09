@@ -1,0 +1,39 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_monthly_medical_district_total_2017_04",
+  "filename": "normalized_sentinel_monthly_medical_district_total_2017_04.csv",
+  "path": "processed/normalized_sentinel_monthly_medical_district_total_2017_04.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_monthly_medical_district",
+  "temporal": {
+    "year": 2017,
+    "period": 4,
+    "period_type": "monthly"
+  },
+  "bytes": 1171,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "3da47e3fe7aca2059d678bc99a6e91aa1c8f9f7eb255f853d5dbf845a6ea285a"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-09T03:18:30.301089+00:00",
+  "modified": "2026-10-09T03:18:30.301089+00:00",
+  "sources": [
+    {
+      "title": "sentinel_monthly_medical_district_2017_04.csv",
+      "path": "raw/sentinel_monthly_medical_district_2017_04.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_monthly_medical_district_2017_04",
+    "source_hash": "5759c0a0ee37bc5e9895df753e7eb0148fb23f4e6390eca0ebaa37b13e4f5d9c",
+    "processing_time_seconds": 0.0003879070281982422,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:18:30.301095+00:00",
+    "validation_status": "completed",
+    "issues": []
+  }
+}

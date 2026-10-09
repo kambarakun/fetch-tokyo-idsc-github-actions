@@ -14,11 +14,13 @@
 乖離率: (実測値 - ベースライン) / ベースライン x 100
 """
 
+import contextlib
 import csv
 import hashlib
+import sys
 import time
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
@@ -51,6 +53,15 @@ _PRIMARY_MARKERS: tuple[str, ...] = ("o", "s", "D", "^", "*")
 # 塗りプラス・塗りX・下向き三角・六角・右向き三角
 # (細い `+` は密データで線状に見えるため SAS 推奨に従い使用しない)
 _EXTRA_MARKERS: tuple[str, ...] = ("P", "X", "v", "h", ">")
+
+# 日本語フォントの取得元 (可変ブランチではなく固定コミット) と期待する sha256
+FONT_URL = "https://raw.githubusercontent.com/notofonts/noto-cjk/165c01b46ea533872e002e0785ff17e44f6d97d8/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+FONT_SHA256 = "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5"
+
+# 乖離率ランキングに使う期間の件数下限 (定点当たりではなく実数。定点は男女合計、全数は報告数)
+# 数例のスパイクや baseline=0 の固定 100% が順位を占有しないようにする
+DEVIATION_MIN_OBSERVED_CASES = 5
+DEVIATION_MIN_BASELINE_CASES = 1.0
 
 # マーカーサイズ (推移・乖離率の両チャート共通)
 # 形状による識別性を確保するため十分な大きさを設定 (色覚多様性配慮)
@@ -126,94 +137,75 @@ def _add_annotation(
 
 
 def setup_japanese_font():
-    """日本語フォントを設定(Noto Sans CJK JPを使用)"""
-    # フォントディレクトリ
+    """日本語フォント (Noto Sans CJK JP) を固定コミットから取得・sha256 照合して登録する
+
+    Returns:
+        登録した FontProperties。取得・照合・登録のいずれかに失敗した場合は None
+        (呼び出し側は PNG を書かずに非 0 で終了する。豆腐グラフを公開しないため)
+    """
+    # HOME 差し替えがテストで効くよう、モジュール定数にせず毎回 Path.home() から求める
     font_dir = Path.home() / ".local" / "share" / "fonts"
-    font_dir.mkdir(parents=True, exist_ok=True)
     font_path = font_dir / "NotoSansCJKjp-Regular.otf"
 
-    # フォントが存在しない場合はダウンロード
+    # 既存ファイルも無条件には信用しない (不完全な取得や別版のフォントを使い続けないため)
+    try:
+        font_dir.mkdir(parents=True, exist_ok=True)
+        if font_path.exists() and hashlib.sha256(font_path.read_bytes()).hexdigest() != FONT_SHA256:
+            print(f"[WARNING] 既存フォントの sha256 が一致しないため削除して再取得します: {font_path}")
+            font_path.unlink()
+    except OSError as e:
+        # 例外を伝播させると main() が ::error 注記を出せないため None で返す
+        print(f"[ERROR] フォントキャッシュを確認できません: {e}")
+        return None
+
     if not font_path.exists():
         print("📥 日本語フォント (Noto Sans CJK JP) をダウンロード中...")
-        # セキュリティ: 許可されたURLのみ使用可能
-        ALLOWED_FONT_URL = "https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
-        # フォントファイルの最小サイズ (Noto Sans CJK JP Regular は約15-20MB)
-        MIN_FONT_SIZE = 1024 * 1024  # 1MB (空ファイルや不完全なダウンロードを検出)
-
-        # リトライロジック (最大3回)
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
                 print(f"[INFO] ダウンロード試行 {attempt}/{max_retries}...")
-                # GitHubのCDNリダイレクトを許可 (allow_redirects=True)
-                response = requests.get(ALLOWED_FONT_URL, timeout=30, allow_redirects=True)
+                response = requests.get(FONT_URL, timeout=30)
                 response.raise_for_status()
 
-                # ダウンロードしたデータのサイズとSHA256ハッシュを検証
                 downloaded_data = response.content
-                file_size = len(downloaded_data)
                 sha256_hash = hashlib.sha256(downloaded_data).hexdigest()
+                print(f"[INFO] ダウンロードサイズ: {len(downloaded_data) / 1024 / 1024:.2f} MB")
+                if sha256_hash != FONT_SHA256:
+                    raise ValueError(f"sha256 が一致しません (expected {FONT_SHA256}, got {sha256_hash})")
 
-                print(f"[INFO] ダウンロードサイズ: {file_size / 1024 / 1024:.2f} MB")
-                print(f"[INFO] SHA256: {sha256_hash}")
-
-                # ファイルサイズの検証
-                if file_size < MIN_FONT_SIZE:
-                    raise ValueError(
-                        f"ダウンロードしたファイルが小さすぎます ({file_size} bytes < {MIN_FONT_SIZE} bytes). "
-                        f"不完全なダウンロードの可能性があります。"
-                    )
-
-                # ダウンロードしたデータを保存
+                # 照合に成功したバイト列だけを保存する
                 font_path.write_bytes(downloaded_data)
                 print(f"[SUCCESS] フォントをダウンロード: {font_path}")
-                break  # 成功したらループを抜ける
+                break
 
             except requests.exceptions.RequestException as e:
                 print(f"[WARNING] フォントのダウンロードに失敗 (試行 {attempt}/{max_retries}): {e}")
-                if attempt == max_retries:
-                    print("[ERROR] 最大リトライ回数に達しました。フォントなしで続行します。")
-                    return None
             except (ValueError, OSError) as e:
                 print(f"[WARNING] フォントの検証/保存に失敗 (試行 {attempt}/{max_retries}): {e}")
-                if attempt == max_retries:
-                    print("[ERROR] 最大リトライ回数に達しました。フォントなしで続行します。")
-                    return None
-                # 不完全なファイルを削除
-                if font_path.exists():
-                    font_path.unlink()
+                # 書きかけのファイルを残さない (削除にも失敗した場合は次回の sha256 照合で検出される)
+                with contextlib.suppress(OSError):
+                    font_path.unlink(missing_ok=True)
 
-            # リトライ前に少し待機
-            if attempt < max_retries:
-                time.sleep(2)
+            if attempt == max_retries:
+                print("[ERROR] 最大リトライ回数に達しました。日本語フォントを取得できません。")
+                return None
+            time.sleep(2)
+
+    print(f"[font] sha256 verified: {font_path}")
 
     # フォントを登録してFontPropertiesオブジェクトを返す
     try:
         # フォントを明示的に追加 (matplotlib 3.10.8以降はキャッシュ自動更新)
         fm.fontManager.addfont(str(font_path))
-
-        # FontPropertiesオブジェクトを作成
         font_prop = fm.FontProperties(fname=str(font_path))
-
-        # グローバル設定も試みる
-        plt.rcParams["font.family"] = font_prop.get_name()
-        plt.rcParams["axes.unicode_minus"] = False
-
-        print(f"✅ 日本語フォントを設定: {font_prop.get_name()}")
-    except (OSError, ValueError) as e:
-        print(f"⚠️ フォントの設定に失敗: {e}")
-        # フォールバック: システムの日本語フォントを試す
-        plt.rcParams["font.family"] = "sans-serif"
-        plt.rcParams["font.sans-serif"] = [
-            "Hiragino Sans",
-            "Hiragino Kaku Gothic Pro",
-            "Yu Gothic",
-            "Meirio",
-        ]
-        plt.rcParams["axes.unicode_minus"] = False
+    except (OSError, ValueError, RuntimeError) as e:
+        # 壊れたフォントでは FT_Open_Face 失敗が RuntimeError として送出される
+        print(f"[ERROR] フォントの登録に失敗: {e}")
         return None
-    else:
-        return font_prop
+
+    plt.rcParams["axes.unicode_minus"] = False
+    print(f"✅ 日本語フォントを設定: {font_prop.get_name()}")
+    return font_prop
 
 
 @lru_cache(maxsize=1)
@@ -275,6 +267,52 @@ def parse_period_from_filename(file_path: Path) -> tuple[int, int, int] | None:
         return None
 
 
+def _find_sentinel_gender_header(rows: list[list[str]]) -> tuple[int, int] | None:
+    """定点・性別データのヘッダー行と男女合計列を探す
+
+    Returns:
+        (ヘッダー行のインデックス, 男女合計列のインデックス)、見つからなければ None
+    """
+    # ヘッダー行を探す(疾病名男性女性男女合計を含む行)
+    for i, row in enumerate(rows):
+        if len(row) >= 4 and "疾病名" in str(row[0]):
+            # 男女合計列のインデックスを探す
+            for j, cell in enumerate(row):
+                if "男女合計" in str(cell):
+                    return i, j
+            return None
+    return None
+
+
+def parse_sentinel_gender_counts(csv_path: Path) -> dict[str, float]:
+    """定点・性別データから疾患別の実患者数 (男女合計列、定点数で割らない) を抽出
+
+    乖離率ランキングの件数下限の判定に使う。読み方 (ヘッダー探索、`*`/`-`/空・
+    非数値のスキップ) は parse_sentinel_weekly_gender と同じ。
+
+    Returns:
+        疾患名 -> 患者数 (実数) のdict
+    """
+    rows = read_csv_shift_jis(csv_path)
+    header = _find_sentinel_gender_header(rows)
+    if header is None:
+        return {}
+    header_row, total_col_idx = header
+
+    disease_data = {}
+    for row in rows[header_row + 1 :]:
+        if len(row) <= total_col_idx:
+            continue
+        disease_name = str(row[0]).strip()
+        value_str = str(row[total_col_idx]).strip()
+        if disease_name and value_str and value_str not in ["*", "-", ""]:
+            try:
+                disease_data[disease_name] = float(value_str)
+            except ValueError:
+                continue
+    return disease_data
+
+
 def parse_sentinel_weekly_gender(csv_path: Path) -> dict[str, float]:
     """定点週次・性別データから疾患別患者数を抽出
 
@@ -283,22 +321,10 @@ def parse_sentinel_weekly_gender(csv_path: Path) -> dict[str, float]:
     """
     rows = read_csv_shift_jis(csv_path)
 
-    # ヘッダー行を探す(疾病名男性女性男女合計を含む行)
-    header_row = None
-    total_col_idx = None
-
-    for i, row in enumerate(rows):
-        if len(row) >= 4 and "疾病名" in str(row[0]):
-            header_row = i
-            # 男女合計列のインデックスを探す
-            for j, cell in enumerate(row):
-                if "男女合計" in str(cell):
-                    total_col_idx = j
-                    break
-            break
-
-    if header_row is None or total_col_idx is None:
+    header = _find_sentinel_gender_header(rows)
+    if header is None:
         return {}
+    header_row, total_col_idx = header
 
     # データ行を読み込み(ヘッダーの次の行から)
     disease_data = {}
@@ -465,8 +491,14 @@ def get_recent_months_data(data_dir: Path, num_months: int = 12) -> dict[str, di
     return dict(all_data)
 
 
-def get_all_weeks_data(data_dir: Path) -> dict[str, dict[int, float]]:
+def get_all_weeks_data(
+    data_dir: Path, parser: Callable[[Path], dict[str, float]] = parse_sentinel_weekly_gender
+) -> dict[str, dict[int, float]]:
     """全週次データを取得 (季節性ベースライン計算用)
+
+    Args:
+        data_dir: データディレクトリ
+        parser: 1ファイル分を読むパーサー (既定は定点あたり患者数。実数は parse_sentinel_gender_counts)
 
     Returns:
         疾患名 -> {週番号: 患者数} のdict
@@ -481,7 +513,7 @@ def get_all_weeks_data(data_dir: Path) -> dict[str, dict[int, float]]:
 
         _, _, period_key = period_info
 
-        disease_data = parse_sentinel_weekly_gender(file_path)
+        disease_data = parser(file_path)
         for disease, value in disease_data.items():
             all_data[disease][period_key] = value
 
@@ -511,8 +543,14 @@ def get_all_notifiable_weeks_data(data_dir: Path) -> dict[str, dict[int, float]]
     return dict(all_data)
 
 
-def get_all_months_data(data_dir: Path) -> dict[str, dict[int, float]]:
+def get_all_months_data(
+    data_dir: Path, parser: Callable[[Path], dict[str, float]] = parse_sentinel_monthly_gender
+) -> dict[str, dict[int, float]]:
     """全月次データを取得 (季節性ベースライン計算用)
+
+    Args:
+        data_dir: データディレクトリ
+        parser: 1ファイル分を読むパーサー (既定は定点あたり患者数。実数は parse_sentinel_gender_counts)
 
     Returns:
         疾患名 -> {月番号: 患者数} のdict
@@ -527,7 +565,7 @@ def get_all_months_data(data_dir: Path) -> dict[str, dict[int, float]]:
 
         _, _, period_key = period_info
 
-        disease_data = parse_sentinel_monthly_gender(file_path)
+        disease_data = parser(file_path)
         for disease, value in disease_data.items():
             all_data[disease][period_key] = value
 
@@ -684,6 +722,81 @@ def select_top_deviation_diseases(
     return ranked_fallback[:top_n], True
 
 
+def build_ranking_eligibility(
+    counts: Mapping[str, Mapping[int, float]],
+    count_baseline: Mapping[str, Mapping[int, float]],
+    periods: list[int],
+    min_observed: float = DEVIATION_MIN_OBSERVED_CASES,
+    min_baseline: float = DEVIATION_MIN_BASELINE_CASES,
+) -> dict[str, set[int]]:
+    """乖離率ランキングに使える (疾患, 期間) を実数の件数下限で判定する
+
+    期間 p が使えるのは「実測件数 >= min_observed かつ ベースライン件数 >= min_baseline」のとき。
+    baseline=0 の期間 (描画上は固定 100%) はベースライン件数の下限で自動的に不適格になる。
+
+    Args:
+        counts: 実数の全期間データ (疾患名 -> {期間番号: 件数})
+        count_baseline: counts に calculate_seasonal_baseline を適用した実数ベースライン
+        periods: 判定対象の期間 (チャートの窓)
+        min_observed: 実測件数の下限
+        min_baseline: ベースライン件数の下限
+
+    Returns:
+        疾患名 -> 適格な期間番号の集合 (適格な期間が無い疾患は含まない)
+    """
+    eligible: dict[str, set[int]] = {}
+    for disease, disease_counts in counts.items():
+        disease_baseline = count_baseline.get(disease, {})
+        ok_periods = {
+            p
+            for p in periods
+            if p in disease_counts
+            and p in disease_baseline
+            and disease_counts[p] >= min_observed
+            and disease_baseline[p] >= min_baseline
+        }
+        if ok_periods:
+            eligible[disease] = ok_periods
+    return eligible
+
+
+def filter_rates_for_ranking(
+    data: Mapping[str, Mapping[int, float]],
+    deviation_rates: Mapping[str, Mapping[int, float]],
+    eligible_periods: Mapping[str, set[int]] | None,
+) -> dict[str, dict[int, float]]:
+    """乖離率ランキング (select_top_deviation_diseases) に渡す乖離率を絞り込む
+
+    - 最新期間 (data の全期間の最大) に実測データが無い疾患は除外する
+      (報告されなくなった疾患が過去の値で順位を占有しないため。乖離率の有無ではなく
+      実測データの有無で判定するので、ベースラインが無い期間でも全疾患が消えることはない)
+    - eligible_periods が与えられれば、適格な期間の乖離率だけを残す (fallback 経路も同じ)
+
+    Args:
+        data: チャートの実測値 (疾患名 -> {期間番号: 値})
+        deviation_rates: calculate_deviation_rate の戻り値
+        eligible_periods: build_ranking_eligibility の戻り値。None なら期間の絞り込みはしない
+
+    Returns:
+        疾患名 -> {期間番号: 乖離率} のdict
+    """
+    all_periods = {p for periods in data.values() for p in periods}
+    if not all_periods:
+        return {}
+    latest_period = max(all_periods)
+
+    filtered: dict[str, dict[int, float]] = {}
+    for disease, rates in deviation_rates.items():
+        if latest_period not in data.get(disease, {}):
+            continue
+        if eligible_periods is None:
+            filtered[disease] = dict(rates)
+        else:
+            allowed = eligible_periods.get(disease, set())
+            filtered[disease] = {p: v for p, v in rates.items() if p in allowed}
+    return filtered
+
+
 def select_top_absolute_diseases(data: Mapping[str, Mapping[int, float]], top_n: int = 5) -> list[tuple[str, float]]:
     """絶対数グラフ用のトップN疾患を選定 (最新期間の値が大きい順)
 
@@ -785,6 +898,38 @@ def _format_period_label(min_period: int, max_period: int, period_type: str) -> 
     return f"{min_period // 100}年{min_period % 100}月 - {max_period // 100}年{max_period % 100}月"
 
 
+def format_legend_label(
+    disease: str,
+    value_text: str,
+    last_period: int,
+    final_period: int,
+    period_type: str,
+    provisional: bool = False,
+) -> str:
+    """凡例ラベルを生成する
+
+    「最新」は表示値が最終期間の値のときだけ使い、それ以外は値の期間を明示する
+    (最終期間に値が無い疾患の過去の値を「最新」と誤読させないため)。
+
+    Args:
+        disease: 疾患名
+        value_text: 表示する値 (例: "12.3", "+45%")
+        last_period: 表示値の期間 (YYYYPP形式)
+        final_period: チャートの最終期間 (YYYYPP形式)
+        period_type: 期間タイプ ('week' or 'month')
+        provisional: 最終期間の値が速報値なら True
+
+    Returns:
+        凡例ラベル
+    """
+    if last_period == final_period:
+        prefix = "最新・速報" if provisional else "最新"
+        return f"{disease} ({prefix}: {value_text})"
+    year, number = divmod(last_period, 100)
+    period_text = f"{year}年第{number}週" if period_type == "week" else f"{year}年{number}月"
+    return f"{disease} (最終 {period_text}: {value_text})"
+
+
 def _apply_cdc_styling(ax, fig) -> None:
     """CDCスタイルをグラフに適用
 
@@ -816,28 +961,30 @@ def _setup_x_axis_ticks(ax, all_periods: list[int], period_type: str, japanese_f
         japanese_font: 日本語フォントプロパティ (None可)
     """
     if period_type == "week":
-        # 週番号ベースで5の倍数を表示 (最小・最大は必ず含む)
-        week_numbers = [p % 100 for p in all_periods]
-        min_week = min(week_numbers)
-        max_week = max(week_numbers)
+        # 週番号が5の倍数の期間を目盛り候補にし、窓内の最初の目盛りと年が変わる最初の期間には
+        # 年を付ける (YYYY/W)。週番号だけだと年跨ぎで 52 と 1 が隣接し「521」と誤読されるため
+        year_tick_positions: list[int] = []
+        plain_tick_positions: list[int] = []
+        for i, period in enumerate(all_periods):
+            is_year_start = i > 0 and period // 100 != all_periods[i - 1] // 100
+            is_candidate = period % 100 % 5 == 0
+            if is_year_start or (is_candidate and not year_tick_positions and not plain_tick_positions):
+                year_tick_positions.append(i)
+            elif is_candidate:
+                plain_tick_positions.append(i)
 
-        # 表示する週番号を決定 (5の倍数 + 最小・最大)
-        display_weeks = set()
-        display_weeks.add(min_week)  # 最小週
-        display_weeks.add(max_week)  # 最大週
+        # 年付き目盛りから2位置未満の年なし目盛りはラベルが重なるので出さない
+        plain_tick_positions = [i for i in plain_tick_positions if all(abs(i - y) >= 2 for y in year_tick_positions)]
 
-        # 5の倍数を追加
-        for week in range(0, 55, 5):  # 0, 5, 10, ..., 50
-            if min_week <= week <= max_week:
-                display_weeks.add(week)
-
-        # インデックスと週番号のマッピング
-        tick_positions = []
-        tick_labels_list = []
-        for i, week in enumerate(week_numbers):
-            if week in display_weeks:
-                tick_positions.append(i)
-                tick_labels_list.append(str(week))
+        tick_positions = sorted(year_tick_positions + plain_tick_positions)
+        tick_labels_list = [
+            (
+                f"{all_periods[i] // 100}/{all_periods[i] % 100}"
+                if i in year_tick_positions
+                else str(all_periods[i] % 100)
+            )
+            for i in tick_positions
+        ]
     else:  # month
         # 12ヶ月を全て表示
         tick_positions = list(range(len(all_periods)))
@@ -874,6 +1021,33 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, japanese_
         ax.legend(loc="upper left", fontsize=12, frameon=False)
 
 
+# 全数週次の最新週は初回公表 (速報) 値で、後日の追加報告で修正される
+_PROVISIONAL_NOTE = "※ 最新週は速報値 (後日の追加報告で修正され、多くは上方修正される)"
+
+
+def _draw_footer(fig, footer_lines: list[str], japanese_font) -> None:
+    """フッター (注釈とデータソース) を図の下端に描画する"""
+    footer_text = "\n".join(footer_lines)
+    if japanese_font:
+        # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
+        fig.text(
+            0.99,
+            0.01,
+            footer_text,
+            ha="right",
+            va="bottom",
+            color="#666666",
+            fontproperties=_copy_font_properties(japanese_font, 8),
+        )
+    else:
+        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
+
+
+def _footer_bottom(footer_lines: list[str]) -> float:
+    """フッター行数に応じた tight_layout の下端 (2行で従来どおり 6%)"""
+    return max(0.06, 0.03 * len(footer_lines))
+
+
 def generate_absolute_chart(
     data: dict[str, dict[int, float]],
     output_path: Path,
@@ -883,6 +1057,7 @@ def generate_absolute_chart(
     period_type: str = "week",
     top_n: int = 5,
     style_map: dict[str, DiseaseStyle] | None = None,
+    provisional_latest: bool = False,
 ) -> None:
     """絶対数推移グラフを生成 (CDCスタイル)
 
@@ -895,6 +1070,7 @@ def generate_absolute_chart(
         period_type: 期間タイプ ('week' or 'month')
         top_n: トップN疾患を表示
         style_map: 疾患名 -> DiseaseStyle(color, marker) のマップ (省略時はseabornデフォルトcycler+'o')
+        provisional_latest: 最終期間の値が速報値なら True (凡例とフッターに明示する)
     """
     if not data:
         print("警告: データが空のため、グラフを生成できません")
@@ -913,6 +1089,7 @@ def generate_absolute_chart(
 
     # 最新期間のトップN疾患を選択
     top_diseases = select_top_absolute_diseases(data, top_n=top_n)
+    print(f"[chart] {output_path.stem}: {' | '.join(d for d, _ in top_diseases)}")
 
     # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -925,14 +1102,17 @@ def generate_absolute_chart(
         # 全期間に対してデータをマッピング(欠損値はNone)
         values = [data[disease].get(p) for p in all_periods]
 
-        # 最新値を取得(Noneでない最後の値)
-        latest_value = next((v for v in reversed(values) if v is not None), 0)
+        # 最新値を取得(Noneでない最後の値)とその期間
+        last_idx = next((i for i in range(len(values) - 1, -1, -1) if values[i] is not None), len(values) - 1)
+        latest_value = values[last_idx] or 0
 
         # 桁数を値に応じて調整(定点データは小数)
         value_format = f"{latest_value:.1f}" if latest_value >= 10 else f"{latest_value:.2f}"
 
         # 折れ線グラフ (CDCスタイル) - 凡例に最新値を含める
-        label_with_value = f"{disease} (最新: {value_format})"
+        label_with_value = format_legend_label(
+            disease, value_format, all_periods[last_idx], max_period, period_type, provisional=provisional_latest
+        )
         style = style_map[disease] if style_map and disease in style_map else None
         plot_kwargs: dict = {"marker": style.marker, "color": style.color} if style else {"marker": "o"}
         line = ax.plot(
@@ -959,25 +1139,13 @@ def generate_absolute_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
-    plt.tight_layout(rect=(0, 0.06, 1, 0.98))
-
     # データソースと注釈 (下側の確保したスペースに配置)
     note_text = "※ 最新週の患者数トップ5を表示" if period_type == "week" else "※ 最新月の患者数トップ5を表示"
-    footer_text = f"{note_text}\n{data_source}"
-    if JAPANESE_FONT:
-        # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
-        fig.text(
-            0.99,
-            0.01,
-            footer_text,
-            ha="right",
-            va="bottom",
-            color="#666666",
-            fontproperties=_copy_font_properties(JAPANESE_FONT, 8),
-        )
-    else:
-        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
+    footer_lines = [note_text, *([_PROVISIONAL_NOTE] if provisional_latest else []), data_source]
+
+    # レイアウト調整 (上2%=タイトル用、下端はフッター行数に応じて確保)
+    plt.tight_layout(rect=(0, _footer_bottom(footer_lines), 1, 0.98))
+    _draw_footer(fig, footer_lines, JAPANESE_FONT)
 
     plt.savefig(output_path, dpi=100)
     plt.close()
@@ -994,6 +1162,8 @@ def generate_deviation_chart(
     period_type: str = "week",
     top_n: int = 5,
     style_map: dict[str, DiseaseStyle] | None = None,
+    eligible_periods: dict[str, set[int]] | None = None,
+    provisional_latest: bool = False,
 ) -> None:
     """ベースライン乖離率グラフを生成 (CDCスタイル)
 
@@ -1006,6 +1176,9 @@ def generate_deviation_chart(
         period_type: 期間タイプ ('week' or 'month')
         top_n: トップN疾患を表示
         style_map: 疾患名 -> DiseaseStyle(color, marker) のマップ (省略時はseabornデフォルトcycler+'o')
+        eligible_periods: build_ranking_eligibility の戻り値 (順位付けに使える期間)。
+            None なら最新期間フィルタだけを適用する
+        provisional_latest: 最終期間の値が速報値なら True (凡例とフッターに明示する)
     """
     if not data or not baseline:
         print("警告: データが空のため、グラフを生成できません")
@@ -1037,7 +1210,12 @@ def generate_deviation_chart(
     # 期間全体で baseline を超えた疾患 (最大正乖離) を優先選定。
     # 最新期間1点だけで判定すると、期間内で流行した疾患が現在 baseline 以下に
     # 戻った瞬間に全て消えて空グラフになるため (CDC FluView 同様 full-season 方式)。
-    top_diseases, fallback_used = select_top_deviation_diseases(deviation_rates, top_n=top_n)
+    # 順位付けには最新期間に報告のある疾患の、件数下限を満たす期間だけを使う
+    # (main() の style map 用の選定と同じ入力にして、両チャートの色の一貫性を保つ)
+    top_diseases, fallback_used = select_top_deviation_diseases(
+        filter_rates_for_ranking(data, deviation_rates, eligible_periods), top_n=top_n
+    )
+    print(f"[chart] {output_path.stem}: {' | '.join(d for d, _ in top_diseases)}")
 
     # グラフ作成 (800x500px固定サイズ)
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -1053,11 +1231,19 @@ def generate_deviation_chart(
         # 全期間に対してデータをマッピング(欠損値はNone)
         values = [deviation_rates[disease].get(p) for p in all_periods]
 
-        # 最新値を取得(Noneでない最後の値)
-        latest_value = next((v for v in reversed(values) if v is not None), 0)
+        # 最新値を取得(Noneでない最後の値)とその期間
+        last_idx = next((i for i in range(len(values) - 1, -1, -1) if values[i] is not None), len(values) - 1)
+        latest_value = values[last_idx] or 0
 
         # 折れ線グラフ (CDCスタイル) - 凡例に最新値を含める
-        label_with_value = f"{disease} (最新: {latest_value:+.0f}%)"
+        label_with_value = format_legend_label(
+            disease,
+            f"{latest_value:+.0f}%",
+            all_periods[last_idx],
+            max_period,
+            period_type,
+            provisional=provisional_latest,
+        )
         style = style_map[disease] if style_map and disease in style_map else None
         plot_kwargs: dict = {"marker": style.marker, "color": style.color} if style else {"marker": "o"}
         line = ax.plot(
@@ -1088,28 +1274,22 @@ def generate_deviation_chart(
     # X軸目盛りを設定
     _setup_x_axis_ticks(ax, all_periods, period_type, JAPANESE_FONT)
 
-    # レイアウト調整 (上下にスペースを確保: 上2%=タイトル用, 下6%=フッター用)
-    plt.tight_layout(rect=(0, 0.06, 1, 0.98))
-
     # データソースと注釈 (下側の確保したスペースに配置)
     if fallback_used:
         note_text = f"※ 期間中ベースラインを超える疾患なし — 参考として乖離絶対値の大きい疾患を最大{top_n}つ表示"
     else:
         note_text = f"※ 期間中の最大正乖離(流行兆候)が大きい疾患を最大{top_n}つ表示"
-    footer_text = f"{note_text}\n{data_source}"
-    if JAPANESE_FONT:
-        # FontPropertiesをサイズ指定でcopy (fontsize上書き問題を回避)
-        fig.text(
-            0.99,
-            0.01,
-            footer_text,
-            ha="right",
-            va="bottom",
-            color="#666666",
-            fontproperties=_copy_font_properties(JAPANESE_FONT, 8),
+    ranking_note = "※ 順位付けは最新期間に報告のある疾患のみ"
+    if eligible_periods is not None:
+        ranking_note += (
+            f"。実測{DEVIATION_MIN_OBSERVED_CASES}例未満または"
+            f"ベースライン{DEVIATION_MIN_BASELINE_CASES:g}例未満の期間は使わない"
         )
-    else:
-        fig.text(0.99, 0.01, footer_text, ha="right", va="bottom", fontsize=8, color="#666666")
+    footer_lines = [note_text, ranking_note, *([_PROVISIONAL_NOTE] if provisional_latest else []), data_source]
+
+    # レイアウト調整 (上2%=タイトル用、下端はフッター行数に応じて確保)
+    plt.tight_layout(rect=(0, _footer_bottom(footer_lines), 1, 0.98))
+    _draw_footer(fig, footer_lines, JAPANESE_FONT)
 
     plt.savefig(output_path, dpi=100)
     plt.close()
@@ -1117,15 +1297,36 @@ def generate_deviation_chart(
     print(f"✅ {title}グラフを生成: {output_path} (800x500px)")
 
 
-def main():
-    """メイン処理"""
+def _ranking_eligibility_for(
+    counts_all: dict[str, dict[int, float]], window_data: dict[str, dict[int, float]]
+) -> dict[str, set[int]]:
+    """実数の全期間データから、チャートの窓の各期間が順位付けに使えるかを判定する"""
+    window_periods = sorted({p for periods in window_data.values() for p in periods})
+    count_baseline = calculate_seasonal_baseline(counts_all, window_periods, years=5)
+    return build_ranking_eligibility(counts_all, count_baseline, window_periods)
+
+
+def main() -> int:
+    """メイン処理
+
+    Returns:
+        終了コード (0: 正常、1: 日本語フォントを用意できない、2: 入力ファイルが無い)。
+        異常時は PNG を 1 枚も書かない (豆腐や空のグラフを公開しないため)
+    """
     print("📊 感染症データ可視化グラフ生成 (CDCスタイル)")
     print("=" * 50)
 
     # データディレクトリ
     data_dir = Path("data/raw")
     output_dir = Path("docs/images")
-    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 日本語フォントを最初に確認する (取得できなければ PNG を書く前に失敗させる)
+    if get_japanese_font() is None:
+        print(
+            "::error title=Japanese font unavailable::日本語フォントを取得・照合・登録できないため"
+            "グラフを生成しません (FONT_URL / FONT_SHA256 を確認してください)"
+        )
+        return 1
 
     print("\n📥 データ読み込み中...")
 
@@ -1144,25 +1345,35 @@ def main():
     all_notifiable_weeks = get_all_notifiable_weeks_data(data_dir)
     all_months = get_all_months_data(data_dir)
 
+    # 乖離率ランキングの件数下限用の実数 (定点は男女合計。全数の報告数はもともと実数)
+    sentinel_week_counts = get_all_weeks_data(data_dir, parser=parse_sentinel_gender_counts)
+    sentinel_month_counts = get_all_months_data(data_dir, parser=parse_sentinel_gender_counts)
+
     if not sentinel_weekly_data and not notifiable_weekly_data and not monthly_data:
-        print("❌ データが見つかりませんでした")
-        return
+        print("::error title=Chart input error::no chart input files under data/raw")
+        return 2
+
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n🎨 グラフ生成中...")
 
     # データセット対 (推移 + 乖離率) ごとに色マップを共有し、
     # 両チャートに登場する疾患は同色、乖離率のみの疾患は別系統色を割り当てる。
+    # 乖離率の選定はチャート内と同じく filter_rates_for_ranking を通した値で行う。
 
     # 1+2. 週次定点
     if sentinel_weekly_data:
         sw_abs_top = select_top_absolute_diseases(sentinel_weekly_data, top_n=5)
         sw_dev_diseases: list[str] = []
         seasonal_baseline: dict[str, dict[int, float]] = {}
+        sw_eligible = _ranking_eligibility_for(sentinel_week_counts, sentinel_weekly_data)
         if all_sentinel_weeks:
             recent_week_periods = sorted({p for periods in sentinel_weekly_data.values() for p in periods})
             seasonal_baseline = calculate_seasonal_baseline(all_sentinel_weeks, recent_week_periods, years=5)
             sw_dev_rates = calculate_deviation_rate(sentinel_weekly_data, seasonal_baseline)
-            sw_dev_top, _ = select_top_deviation_diseases(sw_dev_rates, top_n=5)
+            sw_dev_top, _ = select_top_deviation_diseases(
+                filter_rates_for_ranking(sentinel_weekly_data, sw_dev_rates, sw_eligible), top_n=5
+            )
             sw_dev_diseases = [d for d, _ in sw_dev_top]
         sw_style_map = build_consistent_style_map([d for d, _ in sw_abs_top], sw_dev_diseases)
 
@@ -1187,20 +1398,28 @@ def main():
                 period_type="week",
                 top_n=5,
                 style_map=sw_style_map,
+                eligible_periods=sw_eligible,
             )
 
-    # 3+4. 週次全数
+    # 3+4. 週次全数 (最新週は速報値)
     if notifiable_weekly_data:
         nw_abs_top = select_top_absolute_diseases(notifiable_weekly_data, top_n=5)
         nw_dev_diseases: list[str] = []
         notifiable_seasonal_baseline: dict[str, dict[int, float]] = {}
+        nw_eligible: dict[str, set[int]] = {}
         if all_notifiable_weeks:
             recent_notifiable_periods = sorted({p for periods in notifiable_weekly_data.values() for p in periods})
             notifiable_seasonal_baseline = calculate_seasonal_baseline(
                 all_notifiable_weeks, recent_notifiable_periods, years=5
             )
+            # 報告数はそのまま実数なので、ベースラインもそのまま件数下限の判定に使える
+            nw_eligible = build_ranking_eligibility(
+                all_notifiable_weeks, notifiable_seasonal_baseline, recent_notifiable_periods
+            )
             nw_dev_rates = calculate_deviation_rate(notifiable_weekly_data, notifiable_seasonal_baseline)
-            nw_dev_top, _ = select_top_deviation_diseases(nw_dev_rates, top_n=5)
+            nw_dev_top, _ = select_top_deviation_diseases(
+                filter_rates_for_ranking(notifiable_weekly_data, nw_dev_rates, nw_eligible), top_n=5
+            )
             nw_dev_diseases = [d for d, _ in nw_dev_top]
         nw_style_map = build_consistent_style_map([d for d, _ in nw_abs_top], nw_dev_diseases)
 
@@ -1213,6 +1432,7 @@ def main():
             period_type="week",
             top_n=5,
             style_map=nw_style_map,
+            provisional_latest=True,
         )
 
         if all_notifiable_weeks:
@@ -1225,6 +1445,8 @@ def main():
                 period_type="week",
                 top_n=5,
                 style_map=nw_style_map,
+                eligible_periods=nw_eligible,
+                provisional_latest=True,
             )
 
     # 5+6. 月次定点
@@ -1232,11 +1454,14 @@ def main():
         mo_abs_top = select_top_absolute_diseases(monthly_data, top_n=5)
         mo_dev_diseases: list[str] = []
         monthly_seasonal_baseline: dict[str, dict[int, float]] = {}
+        mo_eligible = _ranking_eligibility_for(sentinel_month_counts, monthly_data)
         if all_months:
             recent_month_periods = sorted({p for periods in monthly_data.values() for p in periods})
             monthly_seasonal_baseline = calculate_seasonal_baseline(all_months, recent_month_periods, years=5)
             mo_dev_rates = calculate_deviation_rate(monthly_data, monthly_seasonal_baseline)
-            mo_dev_top, _ = select_top_deviation_diseases(mo_dev_rates, top_n=5)
+            mo_dev_top, _ = select_top_deviation_diseases(
+                filter_rates_for_ranking(monthly_data, mo_dev_rates, mo_eligible), top_n=5
+            )
             mo_dev_diseases = [d for d, _ in mo_dev_top]
         mo_style_map = build_consistent_style_map([d for d, _ in mo_abs_top], mo_dev_diseases)
 
@@ -1261,10 +1486,12 @@ def main():
                 period_type="month",
                 top_n=5,
                 style_map=mo_style_map,
+                eligible_periods=mo_eligible,
             )
 
     print("\n✅ グラフ生成完了 (6枚)")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

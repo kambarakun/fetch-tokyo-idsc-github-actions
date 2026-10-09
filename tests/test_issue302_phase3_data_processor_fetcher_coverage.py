@@ -353,10 +353,10 @@ def test_extract_section_data_skips_blank_comment_and_stops_at_total(tmp_path: P
     assert extracted == ["疾病名,インフルエンザ,RSウイルス\n", "0歳,1,2\n", '"合計",1,2\n']
 
 
-def test_extract_metadata_from_filename_handles_attribute_error() -> None:
+def test_extract_metadata_from_filename_handles_attribute_error(tmp_path: Path) -> None:
     """_extract_metadata_from_filename returns None when filename is not a string."""
     # Arrange
-    processor = DataProcessor(Path("data"))
+    processor = DataProcessor(tmp_path)
 
     # Act
     metadata = processor._extract_metadata_from_filename(None)  # type: ignore[arg-type]

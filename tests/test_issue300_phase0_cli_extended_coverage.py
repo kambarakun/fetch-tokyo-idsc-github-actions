@@ -639,10 +639,12 @@ def test_verify_metadata_main_and_extra_branches(
         only_unverified=False,
         quality_validator=quality_validator,
     )
-    assert result_gender_fail == ("failed", "failed")
+    assert result_gender_fail == ("verified", "verified")
     updated_with_quality = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert updated_with_quality["verification"]["checks"]["gender_sum_consistency"] is False
-    assert updated_with_quality["verification"]["status"] == "failed"
+    assert "gender_sum_consistency" not in updated_with_quality["verification"]["checks"]
+    assert updated_with_quality["verification"]["errors"] == []
+    assert updated_with_quality["verification"]["status"] == "verified"
+    assert len(updated_with_quality["quality"]["issues"]) == 1
 
     storage.validate_file.return_value = {
         "status": "verified",
@@ -684,7 +686,7 @@ def test_verify_metadata_main_and_extra_branches(
         only_unverified=False,
         quality_validator=quality_validator,
     )
-    assert result_mixed_issues == ("failed", "failed")
+    assert result_mixed_issues == ("verified", "verified")
 
     storage.validate_file.return_value = {
         "status": "verified",
@@ -724,7 +726,7 @@ def test_verify_metadata_main_and_extra_branches(
         only_unverified=False,
         quality_validator=quality_validator,
     )
-    assert result_quality_error == ("failed", "failed")
+    assert result_quality_error == ("verified", "verified")
 
     bad_meta = metadata_dir / "bad.json"
     bad_meta.write_text("{ invalid", encoding="utf-8")
@@ -885,8 +887,9 @@ def test_migrate_metadata_additional_branches(tmp_path: Path, monkeypatch: pytes
         {"metadata_version": "1.1.0", "data_type": "sentinel_weekly_age"},
         csv_file,
     )
-    assert migrated_v12_failed["quality"]["validation_status"] == "failed"
-    assert any("validation_status=failed" in c for c in changes_v12_failed)
+    assert migrated_v12_failed["quality"]["validation_status"] == "completed"
+    assert len(migrated_v12_failed["quality"]["issues"]) == 1
+    assert any("validation_status=completed" in c for c in changes_v12_failed)
 
     monkeypatch.setattr(
         mm,

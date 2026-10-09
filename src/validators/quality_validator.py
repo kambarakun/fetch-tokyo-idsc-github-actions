@@ -45,7 +45,8 @@ class QualityValidator:
             # Add to issues based on validation status:
             # - "completed" with errors: data has issues, user should know
             # - "failed": validation process failed, user should know
-            # - "skipped": validation not applicable, no need to notify
+            # - "skipped" for a row count mismatch: sections exist but could not be compared, user should know
+            # - other "skipped": sections unavailable (e.g. header-only total), no need to notify
             if gender_result["validation_status"] == "completed":
                 if gender_result["details"]["affected_count"] > 0:
                     issues.append(gender_result)
@@ -54,7 +55,8 @@ class QualityValidator:
                 # Validation process failed (e.g., file read error, parsing error)
                 # User should be notified about this
                 issues.append(gender_result)
-            # "skipped" status: validation not applicable, don't add to issues
+            elif gender_result["details"].get("skip_reason") == "row_count_mismatch":
+                issues.append(gender_result)
 
         # Build quality metadata according to v1.2.0 schema
         return {

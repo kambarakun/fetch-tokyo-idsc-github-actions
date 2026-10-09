@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.3.0",
   "name": "normalized_sentinel_weekly_medical_district_female_2019_39",
   "filename": "normalized_sentinel_weekly_medical_district_female_2019_39.csv",
   "path": "processed/normalized_sentinel_weekly_medical_district_female_2019_39.csv",
@@ -18,7 +18,7 @@
   },
   "encoding": "utf-8",
   "created": "2025-12-18T07:32:56.856079+00:00",
-  "modified": "2025-12-18T07:32:56.856079+00:00",
+  "modified": "2026-10-09T03:31:34.778004+00:00",
   "sources": [
     {
       "title": "sentinel_weekly_medical_district_2019_39.csv",
@@ -28,7 +28,106 @@
   "_process": {
     "source_name": "sentinel_weekly_medical_district_2019_39",
     "source_hash": "43ee9fbf34b4a712d50f171a9a8b31f1924efd68c861e373d6a90504b84aa1e2",
-    "processing_time_seconds": 0.0002734661102294922,
+    "processing_time_seconds": 0.0007114410400390625,
     "gender": "female"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:31:34.778013+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 9 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2019_39.csv",
+          "affected_count": 9,
+          "truncated": false,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "流行性耳下腺炎",
+              "row_index": 3,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "区西南部",
+              "column": "無菌性髄膜炎",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "川崎病",
+              "row_index": 6,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区東北部",
+              "column": "水痘",
+              "row_index": 8,
+              "male": 4,
+              "female": 4,
+              "total": 4,
+              "expected": 8
+            },
+            {
+              "location": "区東部",
+              "column": "流行性耳下腺炎",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "流行性耳下腺炎",
+              "row_index": 10,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩南部",
+              "column": "不明発しん症",
+              "row_index": 13,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩北部",
+              "column": "伝染性紅斑",
+              "row_index": 14,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "合計",
+              "column": "水痘",
+              "row_index": 16,
+              "male": 36,
+              "female": 39,
+              "total": 71,
+              "expected": 75
+            }
+          ]
+        }
+      }
+    ]
   }
 }
