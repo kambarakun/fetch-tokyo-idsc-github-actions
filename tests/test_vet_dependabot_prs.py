@@ -1378,6 +1378,86 @@ def test_reusable_workflow_and_unsafe_subpaths_are_not_compared() -> None:
     assert "サブパスを解釈できない" in checks[("action_metadata", traversal)].detail
 
 
+@pytest.mark.parametrize(
+    ("subpath", "reusable"),
+    [
+        (".github/workflows/ci.yaml", True),
+        (".github/workflows/actions/setup", False),
+        (".github/workflows/sub/ci.yml", False),
+    ],
+    ids=["yaml-workflow", "nested-action", "nested-yml-directory"],
+)
+def test_only_workflow_files_directly_under_workflows_are_reusable_workflows(subpath: str, reusable: bool) -> None:
+    """Codex P2 on #790: GitHub calls only `.github/workflows/<file>.yml` as a workflow; deeper paths are Actions."""
+    responses: dict[str, Any] = {}
+    action, old_sha, new_sha = f"org/shared/{subpath}", "1" * 40, "2" * 40
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/shared-1.1.0",
+        files={".github/workflows/x.yml": (_workflow(action, old_sha, "v1.0.0"), _workflow(action, new_sha, "v1.1.0"))},
+    )
+    _releases(responses, "org/shared", {})
+    responses[_metadata_url(action, old_sha)] = _action_yml("node20")
+
+    check = _metadata_check(_vet(responses), action)
+
+    assert check.verdict == "WARN"
+    assert ("再利用ワークフロー" in check.detail) is reusable
+    assert ("runs.using node20 → node24" in check.detail) is not reusable
+
+
+@pytest.mark.parametrize(
+    ("old_default", "new_default", "expected"),
+    [
+        ("\"['x']\"", "[x]", "を解釈できないため比較不能"),
+        ("x", "{x: 1}", "を解釈できないため比較不能"),
+        ("'1'", "1", "input cache の default を変更 (任意)"),
+    ],
+    ids=["string-to-sequence", "scalar-to-mapping", "string-to-integer"],
+)
+def test_default_changes_keep_their_yaml_type(
+    action_pr: dict[str, Any], old_default: str, new_default: str, expected: str
+) -> None:
+    """Codex P2 on #790: `str()` made the text "['x']" equal to the sequence [x] and read as unchanged."""
+    for sha, default in ((SETUP_UV_OLD, old_default), (SETUP_UV_NEW, new_default)):
+        inputs = f"  cache:\n    description: c\n    default: {default}\n"
+        action_pr[_metadata_url("astral-sh/setup-uv", sha)] = _action_yml(inputs=inputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert expected in check.detail
+
+
+def test_many_metadata_differences_are_capped_with_a_remaining_count(action_pr: dict[str, Any]) -> None:
+    """Codex P2 on #790: every removed id was listed, so a report could pass GitHub's comment limit."""
+    names = [f"{index:03d}" + "x" * 60 for index in range(300)]
+    inputs = "".join(f"  i{name}:\n    description: d\n" for name in names)
+    outputs = "".join(f"  o{name}:\n    description: d\n" for name in names)
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(inputs=inputs, outputs=outputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+    report = vet.render_pull_request(_vet(action_pr))
+
+    assert check.verdict == "WARN"
+    assert f"input i{names[0]} を削除" in check.detail
+    assert f"input i{names[vet.METADATA_DIFF_LIMIT]} を削除" not in check.detail
+    assert f"ほか {300 + 1 - vet.METADATA_DIFF_LIMIT} 件" in check.detail
+    assert len(check.detail) < 2_000
+    assert len(report) < 5_000
+
+
+def test_removed_outputs_are_capped_within_their_reason(action_pr: dict[str, Any]) -> None:
+    outputs = "".join(f"  out{index:03d}:\n    description: d\n" for index in range(50))
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(outputs=outputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert "output を削除: out000, " in check.detail
+    assert f"out{vet.METADATA_DIFF_LIMIT:03d}" not in check.detail
+    assert f"ほか {50 - vet.METADATA_DIFF_LIMIT} 件" in check.detail
+
+
 def test_untrusted_default_values_are_not_echoed_into_the_report(action_pr: dict[str, Any]) -> None:
     old = "  token:\n    description: t\n    default: '[a](https://old.example)'\n"
     new = "  token:\n    description: t\n    default: '[b](https://new.example)'\n"
@@ -1891,12 +1971,13 @@ def test_recorded_action_metadata_keeps_only_the_compared_fields(
     assert _metadata_check(recorded, "astral-sh/setup-uv").verdict == "WARN"
 
 
+@pytest.mark.parametrize("subpath", [".github/actions/setup", ".github/workflows/actions/setup"])
 def test_recording_trims_actions_under_dot_github_but_keeps_workflows(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, subpath: str
 ) -> None:
-    """An Action may live in `.github/actions/`; only this repository's workflows stay whole."""
+    """An Action may live in `.github/actions/` or below `.github/workflows/`; only workflow files stay whole."""
     responses: dict[str, Any] = {}
-    action, old_sha, new_sha = "org/act/.github/actions/setup", "1" * 40, "2" * 40
+    action, old_sha, new_sha = f"org/act/{subpath}", "1" * 40, "2" * 40
     before, after = _workflow(action, old_sha, "v1.0.0"), _workflow(action, new_sha, "v1.1.0")
     _pr(
         responses,

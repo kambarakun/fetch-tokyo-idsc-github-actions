@@ -84,6 +84,13 @@ ACTION_METADATA_FILES = ("action.yml", "action.yaml")
 # like an input id or a runtime are echoed.
 METADATA_NAME = re.compile(r"[A-Za-z_][\w-]{0,63}", re.ASCII)
 RUNTIME_NAME = re.compile(r"[\w.-]{1,32}", re.ASCII)
+# Third-party metadata may differ in any number of inputs and outputs. Listing all of them could
+# push a PR comment past GitHub's 65,536-character body limit (the --comment POST then fails with
+# exit 2) and grows what agents read without bound; names are at most 64 characters, so capping
+# the count caps the length too.
+METADATA_DIFF_LIMIT = 10
+# GitHub calls a workflow only as a file directly in `.github/workflows/`; deeper paths are Actions.
+REUSABLE_WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
 # Report cells are plain text: escape what could open a link, image, code span, HTML or a new cell.
 MARKDOWN_SPECIAL = re.compile(r"([\\|`\[\]<])")
 SHORT_SHA = 12
@@ -235,9 +242,12 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (re.compile(REPO_PATH + "$"), {"full_name": None}),
 )
 PYPI_RELEASE_PATH = re.compile(r"^/pypi/(?P<name>[^/]+)/(?P<version>[^/]+)/json$")
-# An Action's metadata, also under `.github/actions/`; a workflow (this repository's included)
-# lives in `.github/workflows/` and is never compared as metadata, so it is kept whole.
-ACTION_METADATA_PATH = re.compile(REPO_PATH + r"/contents/(?!\.github/workflows/)(?:[^?]+/)?action\.ya?ml$")
+# An Action's metadata, also under `.github/actions/` or below `.github/workflows/`; a workflow
+# (this repository's included) is a file directly in `.github/workflows/` and is never compared
+# as metadata, so it is kept whole.
+ACTION_METADATA_PATH = re.compile(
+    REPO_PATH + r"/contents/(?!\.github/workflows/action\.ya?ml$)(?:[^?]+/)?action\.ya?ml$"
+)
 
 
 def _pick(value: Any, spec: Any) -> Any:
@@ -1001,6 +1011,12 @@ def _metadata_name(name: Any) -> str:
     return str(name) if METADATA_NAME.fullmatch(str(name)) else "(表示できない名前)"
 
 
+def _capped(items: Sequence[str], separator: str) -> str:
+    shown = separator.join(items[:METADATA_DIFF_LIMIT])
+    rest = len(items) - METADATA_DIFF_LIMIT
+    return f"{shown}{separator}ほか {rest} 件" if rest > 0 else shown
+
+
 def _mapping(metadata: dict[str, Any], key: str) -> dict[str, dict[str, Any]]:
     value = metadata.get(key)
     if value is None:
@@ -1032,6 +1048,9 @@ def _parse_action_metadata(text: str) -> dict[str, Any] | None:
             return None
         for spec in _mapping(metadata, "inputs").values():
             _required(spec)
+            # A default is a scalar the runner reads as text; a sequence or mapping cannot be compared.
+            if isinstance(spec.get("default"), (dict, list, set)):
+                return None
         _mapping(metadata, "outputs")
     except (yaml.YAMLError, TypeError, KeyError, ValueError):
         return None
@@ -1092,8 +1111,9 @@ def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
             reasons.append(f"input {_metadata_name(name)} が任意 → 必須 ({default})")
         # A caller that omits the input gets the default, so adding, changing or dropping it changes
         # what that caller passes. The values are third-party text and never reach the report.
+        # Compared with their YAML types: `'1'` and `1` are different values to the runner.
         had, has = "default" in old_spec, "default" in spec
-        if had and has and str(old_spec["default"]) != str(spec["default"]):
+        if had and has and _typed(old_spec["default"]) != _typed(spec["default"]):
             change = "変更"
         else:
             change = "削除" if had and not has else "追加" if has and not had else ""
@@ -1105,16 +1125,20 @@ def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
             default = "default あり" if "default" in spec else "default なし"
             reasons.append(f"input {_metadata_name(name)} を削除 ({default})")
     new_outputs = _mapping(new, "outputs")
-    if removed := [name for name in _mapping(old, "outputs") if name not in new_outputs]:
-        reasons.append(f"output を削除: {', '.join(_metadata_name(name) for name in removed)}")
+    if removed := [_metadata_name(name) for name in _mapping(old, "outputs") if name not in new_outputs]:
+        reasons.append(f"output を削除: {_capped(removed, ', ')}")
     return reasons
+
+
+def _typed(value: Any) -> tuple[type, Any]:
+    return type(value), value
 
 
 def _uncomparable(change: ActionPinChange) -> str | None:
     parts = change.subpath.split("/") if change.subpath else []
     if any(part in {"", ".", ".."} for part in parts):
         return "サブパスを解釈できないため比較不能"
-    if len(parts) >= 3 and parts[:2] == [".github", "workflows"]:
+    if REUSABLE_WORKFLOW.fullmatch(change.subpath):
         return "再利用ワークフローは action metadata を持たないため比較不能"
     if change.old_sha is None:
         return "置き換えた旧 pin が無いため比較不能 (新規追加など)"
@@ -1142,7 +1166,7 @@ def check_action_metadata(fetch_text: FetchText, change: ActionPinChange) -> lis
         loaded.append((path, metadata))
     (_, old), (_, new) = loaded
     if reasons := _contract_changes(old, new):
-        return row("WARN", "; ".join(reasons), links)
+        return row("WARN", _capped(reasons, "; "), links)
     detail = f"runs.using {new['runs']['using']} のまま、必須 input の追加・output の削除なし"
     return row("OK", detail, links)
 
