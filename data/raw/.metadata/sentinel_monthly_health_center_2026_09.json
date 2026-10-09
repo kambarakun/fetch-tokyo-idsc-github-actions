@@ -1,0 +1,57 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "sentinel_monthly_health_center_2026_09",
+  "filename": "sentinel_monthly_health_center_2026_09.csv",
+  "path": "sentinel_monthly_health_center_2026_09.csv",
+  "profile": "tokyo-idsc-raw",
+  "data_type": "sentinel_monthly_health_center",
+  "temporal": {
+    "year": 2026,
+    "period": 9,
+    "period_type": "monthly"
+  },
+  "bytes": 5285,
+  "lines": 123,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "abe21b545260ea14c42088ec9779894df8fe3b2570c4d8c2047066e0376f6888"
+  },
+  "encoding": "shift_jis",
+  "created": "2026-10-09T08:22:58.182345+00:00",
+  "modified": "2026-10-09T08:22:58.182345+00:00",
+  "sources": [],
+  "_fetch": {
+    "source_url": null,
+    "fetch_time_seconds": 0.971505880355835,
+    "force_overwrite": false,
+    "save_all_zero": false
+  },
+  "verification": {
+    "status": "verified",
+    "verified_at": "2026-10-09T08:22:58.182583+00:00",
+    "method": "automated",
+    "checks": {
+      "file_size": true,
+      "encoding": true,
+      "csv_format": true,
+      "path_safety": true
+    },
+    "errors": [],
+    "warnings": [
+      "[csv_format] Inconsistent column count"
+    ],
+    "details": {
+      "column_counts": [
+        0,
+        1,
+        2,
+        10
+      ]
+    }
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T08:22:58.182590+00:00",
+    "validation_status": "completed",
+    "issues": []
+  }
+}
