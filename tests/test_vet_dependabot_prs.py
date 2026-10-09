@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 import pytest
 import requests
@@ -90,6 +91,21 @@ def _workflow(action: str, sha: str, tag: str) -> str:
     return f"jobs:\n  test:\n    steps:\n      - name: Step\n        uses: {action}@{sha}{comment}\n"
 
 
+def _action_yml(using: str = "node24", inputs: str = "", outputs: str = "") -> str:
+    text = f"name: Action\ndescription: Synthetic\nruns:\n  using: {using}\n  main: index.js\n"
+    if inputs:
+        text += f"inputs:\n{inputs}"
+    if outputs:
+        text += f"outputs:\n{outputs}"
+    return text
+
+
+def _metadata_url(action: str, sha: str, filename: str = "action.yml") -> str:
+    """The contents API at the pinned commit; `action` may carry a subpath (`owner/repo/init`)."""
+    owner, name, *subpath = action.split("/")
+    return f"{vet.GITHUB_API}/repos/{owner}/{name}/contents/{'/'.join([*subpath, filename])}?ref={sha}"
+
+
 def _pre_commit(repo: str, rev: str, comment: str = "") -> str:
     suffix = f"  # {comment}" if comment else ""
     return f"repos:\n  - repo: {repo}\n    rev: {rev}{suffix}\n    hooks:\n      - id: hook\n  - repo: local\n    hooks: []\n"
@@ -125,6 +141,10 @@ def _pr(
             responses[f"{API}/contents/{path}?ref={MERGE_BASE}"] = before
         if after is not None:
             responses[f"{API}/contents/{path}?ref={head_sha}"] = after
+        # Every pinned action gets unchanged metadata unless a test says otherwise.
+        for text in (before or "", after or ""):
+            for action, sha in re.findall(r"uses:\s*([\w./-]+)@([0-9a-f]{40})", text):
+                responses.setdefault(_metadata_url(action, sha), _action_yml())
     responses.setdefault(f"{API}/contents/pyproject.toml?ref={head_sha}", PYPROJECT)
     responses[f"{API}/contents/.github/dependabot.yml?ref={head_sha}"] = DEPENDABOT_YML
     runs = GREEN_RUNS if check_runs is None else check_runs
@@ -633,7 +653,7 @@ def test_wildcard_package_advisory_applies_to_every_action() -> None:
     assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
 
 
-@pytest.mark.parametrize("comment", ["v0.0.0-alpha", "v1.0.0-1"])
+@pytest.mark.parametrize("comment", ["v0.0.0-alpha", "v1.0.0-1", "v0.0.0+build.1"])
 def test_semver_prerelease_or_build_pin_is_not_ordered_with_pep_440(comment: str) -> None:
     # PEP 440 reads `1.0.0-1` as the post-release 1.0.0.post1, after 1.0.0; SemVer puts it before.
     # Neither order is trusted for an Action, so a range that may cover the pin is a WARN, never OK.
@@ -679,6 +699,22 @@ def test_semver_prerelease_range_bound_is_unevaluable() -> None:
     )
 
     assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "WARN"
+
+
+def test_version_comment_keeps_its_build_metadata() -> None:
+    """Codex P2 on #790: `+build.1` was cut off, so the pin was checked against the tag `v1.2.3`."""
+    comment, decoy = "v1.2.3+build.1", "d" * 40
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "")
+    responses[f"{API}/contents/.github/workflows/ci.yml?ref={HEAD_SHA}"] = _workflow(
+        "astral-sh/setup-uv", SETUP_UV_NEW, comment
+    )
+    _tag(responses, "astral-sh/setup-uv", quote(comment), SETUP_UV_NEW)
+    _tag(responses, "astral-sh/setup-uv", "v1.2.3", decoy)
+
+    check = _checks(_vet(responses))[("tag_sha", "astral-sh/setup-uv")]
+
+    assert check.verdict == "OK"
+    assert f"タグ {comment} → {SETUP_UV_NEW}" in check.detail
 
 
 def test_sha_pin_without_version_comment_and_any_advisory_is_a_warn() -> None:
@@ -921,6 +957,585 @@ def test_yaml_extension_workflows_are_parsed() -> None:
     assert _checks(verdict)[("pr_hygiene", "-")].verdict == "OK"
 
 
+def _metadata_check(verdict: vet.PullRequestVerdict, action: str) -> vet.CheckResult:
+    return _checks(verdict)[("action_metadata", action)]
+
+
+def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr: dict[str, Any]) -> None:
+    fetched: list[str] = []
+    fetch_json, fetch_text, post_json = _fetchers(action_pr)
+
+    def recording_text(url: str) -> str:
+        fetched.append(url)
+        return fetch_text(url)
+
+    verdict = vet.vet_pull_request(fetch_json, recording_text, post_json, REPO, 748)
+    check = _metadata_check(verdict, "astral-sh/setup-uv")
+
+    assert check.verdict == "OK"
+    assert check.change == "v10.1.0 → v10.2.0"
+    assert "node24" in check.detail
+    # The commits the workflows pin, never the tags their comments claim (tags can move).
+    assert _metadata_url("astral-sh/setup-uv", SETUP_UV_OLD) in fetched
+    assert _metadata_url("astral-sh/setup-uv", SETUP_UV_NEW) in fetched
+    assert not [url for url in fetched if "ref=v" in url]
+    assert verdict.verdict == "OK"
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "verdict", "expected"),
+    [
+        (_action_yml("node20"), _action_yml("node24"), "WARN", "runs.using node20 → node24"),
+        (
+            _action_yml(),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n"),
+            "WARN",
+            "必須 input token を追加 (default なし",
+        ),
+        (
+            _action_yml(),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n    default: abc\n"),
+            "WARN",
+            "必須 input token を追加 (default あり",
+        ),
+        (
+            _action_yml(inputs="  token:\n    description: t\n"),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n"),
+            "WARN",
+            "input token が任意 → 必須 (default なし",
+        ),
+        (
+            _action_yml(outputs="  cache-hit:\n    description: c\n  path:\n    description: p\n"),
+            _action_yml(outputs="  path:\n    description: p\n"),
+            "WARN",
+            "output を削除: cache-hit",
+        ),
+        (
+            _action_yml(),
+            _action_yml(inputs="  verbose:\n    description: v\n    required: false\n"),
+            "OK",
+            "必須 input の追加",
+        ),
+        (
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n    default: abc\n"),
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n"),
+            "WARN",
+            "input token の default を削除 (必須",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n    default: 'true'\n"),
+            _action_yml(inputs="  cache:\n    description: c\n"),
+            "WARN",
+            "input cache の default を削除 (任意",
+        ),
+        (
+            _action_yml(inputs="  token:\n    description: t\n    required: true\n    default: abc\n"),
+            _action_yml(),
+            "WARN",
+            "input token を削除 (default あり)",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n    default: 'true'\n"),
+            _action_yml(inputs="  other:\n    description: o\n"),
+            "WARN",
+            "input cache を削除 (default あり)",
+        ),
+        (
+            _action_yml(inputs="  verbose:\n    description: v\n"),
+            _action_yml(),
+            "WARN",
+            "input verbose を削除 (default なし)",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n    default: false\n"),
+            _action_yml(inputs="  cache:\n    description: c\n    default: true\n"),
+            "WARN",
+            "input cache の default を変更 (任意)",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: c\n"),
+            _action_yml(inputs="  cache:\n    description: c\n    default: 'true'\n"),
+            "WARN",
+            "input cache の default を追加 (任意)",
+        ),
+        (
+            _action_yml(inputs="  cache:\n    description: old\n    default: 'true'\n"),
+            _action_yml(inputs="  cache:\n    description: new\n    default: 'true'\n"),
+            "OK",
+            "必須 input の追加・output の削除なし",
+        ),
+    ],
+    ids=[
+        "runtime",
+        "required-added",
+        "required-added-with-default",
+        "optional-to-required",
+        "output-removed",
+        "optional-added",
+        "required-default-removed",
+        "optional-default-removed",
+        "required-input-with-default-removed",
+        "optional-input-with-default-removed",
+        "input-without-default-removed",
+        "default-changed",
+        "default-added-to-existing-input",
+        "default-unchanged",
+    ],
+)
+def test_action_metadata_contract_changes(
+    action_pr: dict[str, Any], old: str, new: str, verdict: str, expected: str
+) -> None:
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = old
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = new
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == verdict
+    assert expected in check.detail
+
+
+def test_action_yaml_extension_is_read_when_action_yml_is_absent(action_pr: dict[str, Any]) -> None:
+    for sha in (SETUP_UV_OLD, SETUP_UV_NEW):
+        action_pr[_metadata_url("astral-sh/setup-uv", sha, "action.yaml")] = action_pr.pop(
+            _metadata_url("astral-sh/setup-uv", sha)
+        )
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW, "action.yaml")] = _action_yml("node26")
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "runs.using node24 → node26" in check.detail
+    assert check.links[-1].endswith(f"/blob/{SETUP_UV_NEW}/action.yaml")
+
+
+def test_actions_under_subpaths_of_one_repository_are_compared_separately() -> None:
+    responses: dict[str, Any] = {}
+    old_sha, new_sha = "1" * 40, "2" * 40
+    steps = "".join(f"      - uses: github/codeql-action/{name}@{{sha}} # {{tag}}\n" for name in ("init", "analyze"))
+    workflow = "jobs:\n  scan:\n    steps:\n" + steps
+    files = {
+        ".github/workflows/codeql.yml": (
+            workflow.format(sha=old_sha, tag="v4.1.0"),
+            workflow.format(sha=new_sha, tag="v4.2.0"),
+        )
+    }
+    responses[_metadata_url("github/codeql-action/init", old_sha)] = _action_yml("node20")
+    responses[_metadata_url("github/codeql-action/init", new_sha)] = _action_yml("node24")
+    _pr(responses, head_ref="dependabot/github_actions/github/codeql-action-4.2.0", files=files)
+    _releases(responses, "github/codeql-action", {})
+
+    verdict = _vet(responses)
+
+    assert verdict.bumps == [vet.Bump("github/codeql-action", "v4.1.0", "v4.2.0", "action", sha=new_sha)]
+    assert _metadata_check(verdict, "github/codeql-action/init").verdict == "WARN"
+    assert _metadata_check(verdict, "github/codeql-action/analyze").verdict == "OK"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected"),
+    [
+        (lambda r: r.pop(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)), "action.yml / action.yaml が無い"),
+        (lambda r: r.pop(_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)), "action.yml / action.yaml が無い"),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), "runs: [unclosed"),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD), "name: no runs\n"),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), _action_yml("'node24 | x'")),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(
+                _metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), _action_yml(inputs="  token: 42\n")
+            ),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(
+                _metadata_url("astral-sh/setup-uv", SETUP_UV_NEW),
+                _action_yml(inputs="  token:\n    required: [true]\n"),
+            ),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(
+                _metadata_url("astral-sh/setup-uv", SETUP_UV_OLD), _action_yml(outputs="  path: 5\n")
+            ),
+            "を解釈できない",
+        ),
+        (
+            lambda r: r.__setitem__(_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW), _action_yml("24")),
+            "を解釈できない",
+        ),
+    ],
+    ids=[
+        "new-missing",
+        "old-missing",
+        "new-not-yaml",
+        "old-without-runs",
+        "untrusted-runtime",
+        "input-spec-not-a-mapping",
+        "required-not-a-boolean",
+        "output-spec-not-a-mapping",
+        "runtime-not-a-string",
+    ],
+)
+def test_unreadable_action_metadata_is_an_explicit_warn(
+    action_pr: dict[str, Any], mutate: Callable[[dict[str, Any]], Any], expected: str
+) -> None:
+    mutate(action_pr)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert expected in check.detail
+
+
+def test_each_new_pin_is_compared_with_the_pin_it_replaced() -> None:
+    """Two pins of one action path: each new pin pairs with the old one it removed, not the highest."""
+    a, b, c, d = ("a" * 40, "b" * 40, "c" * 40, "e" * 40)
+    before = "".join(_workflow("org/act", sha, tag) for sha, tag in ((a, "v1.0.0"), (b, "v2.0.0")))
+    after = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v1.1.0"), (d, "v2.1.0")))
+    kept = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v1.2.0"), (b, "v2.0.0")))
+
+    jumped = "".join(_workflow("org/act", sha, tag) for sha, tag in ((c, "v3.0.0"), (d, "v4.0.0")))
+    merged = _workflow("org/act", d, "v2.1.0")
+
+    pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+    only_one_moved = vet.action_pin_changes(before, kept)
+    both_above = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, jumped)}
+    one_left = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, merged)}
+
+    assert pairs == {(a, c), (b, d)}
+    assert [(change.old_sha, change.new_sha) for change in only_one_moved] == [(a, c)]
+    # Each step keeps its own line: v1 -> v3 and v2 -> v4, never both against v2.
+    assert both_above == {(a, c), (b, d)}
+    # A step was removed, so which one the survivor was is unknown: compare it with both.
+    assert one_left == {(a, d), (b, d)}
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "expected"),
+    [
+        # Two steps on different pins both move to one new pin.
+        ([("a", "v1.0.0"), ("b", "v1.1.0")], [("d", "v2.0.0"), ("d", "v2.0.0")], {("a", "d"), ("b", "d")}),
+        # One pin used twice moves to two different pins.
+        ([("a", "v1.0.0"), ("a", "v1.0.0")], [("c", "v1.1.0"), ("d", "v1.2.0")], {("a", "c"), ("a", "d")}),
+        # A step moves onto a pin a sibling step already used: nothing new is added, but it moved.
+        ([("a", "v1.0.0"), ("b", "v1.1.0")], [("b", "v1.1.0"), ("b", "v1.1.0")], {("a", "b")}),
+        # The line, not the version order, says which pin a step left.
+        ([("b", "v2.0.0"), ("a", "v1.0.0")], [("c", "v1.1.0"), ("d", "v2.1.0")], {("b", "c"), ("a", "d")}),
+    ],
+    ids=["converge", "split", "converge-onto-kept-pin", "line-not-version-order"],
+)
+def test_each_rewritten_line_is_compared_with_the_pin_it_held(
+    before: list[tuple[str, str]], after: list[tuple[str, str]], expected: set[tuple[str, str]]
+) -> None:
+    def text(pins: list[tuple[str, str]]) -> str:
+        return "".join(_workflow("org/act", letter * 40, tag) for letter, tag in pins)
+
+    changes = vet.action_pin_changes(text(before), text(after))
+
+    assert {(change.old_sha, change.new_sha) for change in changes} == {(old * 40, new * 40) for old, new in expected}
+
+
+def test_converging_pins_report_the_change_from_every_predecessor() -> None:
+    """Codex P2 on #790: the dropped node20 pin was ignored and the converged pin read as OK."""
+    responses: dict[str, Any] = {}
+    node20, node24, new = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("org/act", node20, "v1.0.0") + _workflow("org/act", node24, "v1.1.0")
+    after = _workflow("org/act", new, "v2.0.0") + _workflow("org/act", new, "v2.0.0")
+    responses[_metadata_url("org/act", node20)] = _action_yml("node20")
+    responses[_metadata_url("org/act", node24)] = _action_yml("node24")
+    responses[_metadata_url("org/act", new)] = _action_yml("node24")
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-2.0.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+
+    rows = [check for check in _vet(responses).checks if check.check_id == "action_metadata"]
+
+    assert sorted((check.change, check.verdict) for check in rows) == [
+        ("v1.0.0 → v2.0.0", "WARN"),
+        ("v1.1.0 → v2.0.0", "OK"),
+    ]
+    assert "runs.using node20 → node24" in next(check.detail for check in rows if check.verdict == "WARN")
+
+
+def test_unversioned_pins_pair_by_line_not_by_hash_order() -> None:
+    """Without version comments the only order is the SHA prefix, which says nothing about lineage."""
+    a, b, c, d = ("a" * 40, "b" * 40, "c" * 40, "e" * 40)
+    before = _workflow("org/act", b, "") + _workflow("org/act", a, "")
+    after = _workflow("org/act", c, "") + _workflow("org/act", d, "")
+    # SemVer orders 1.0.0-1 before 1.0.0 while PEP 440 reads it as a post-release; the line decides.
+    semver_before = _workflow("org/act", a, "v1.0.0-1") + _workflow("org/act", b, "v1.0.0")
+    semver_after = _workflow("org/act", c, "v1.0.0-2") + _workflow("org/act", d, "v1.0.1")
+    # A line was added above, so lines no longer name steps: compare each new pin with every old one.
+    moved = "# comment\n" + after
+
+    unversioned = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+    semver = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(semver_before, semver_after)}
+    unknown = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, moved)}
+    # Nothing new and a line gone: the dropped pin's step was removed or now uses the kept pin.
+    onto_kept = vet.action_pin_changes(before, "# comment\n" + _workflow("org/act", b, ""))
+
+    assert unversioned == {(b, c), (a, d)}
+    assert semver == {(a, c), (b, d)}
+    assert unknown == {(a, c), (a, d), (b, c), (b, d)}
+    assert [(change.old_sha, change.new_sha) for change in onto_kept] == [(a, b)]
+
+
+def test_shifted_lines_compare_a_kept_pin_as_a_possible_predecessor() -> None:
+    """Supervisor repro on #790: a -> b and b -> c with a line added above read as a -> c only."""
+    responses: dict[str, Any] = {}
+    a, b, c = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("org/act", a, "v1.0.0") + _workflow("org/act", b, "v2.0.0")
+    after = "# comment\n" + _workflow("org/act", b, "v2.0.0") + _workflow("org/act", c, "v3.0.0")
+    for sha, runtime in ((a, "node24"), (b, "node20"), (c, "node24")):
+        responses[_metadata_url("org/act", sha)] = _action_yml(runtime)
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-3.0.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+
+    pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+    rows = {check.change: check for check in _vet(responses).checks if check.check_id == "action_metadata"}
+
+    assert {(a, b), (b, c)} <= pairs
+    assert rows["v1.0.0 → v2.0.0"].verdict == "WARN"
+    assert rows["v2.0.0 → v3.0.0"].verdict == "WARN"
+
+
+def test_swapped_steps_are_not_paired_by_line() -> None:
+    """Only a pure pin rewrite keeps lines comparable: swapped steps carry their `with:` along."""
+    a, b, c = "a" * 40, "b" * 40, "c" * 40
+
+    def step(name: str, sha: str, tag: str) -> str:
+        return f"      - name: {name}\n        uses: org/act@{sha} # {tag}\n"
+
+    before = "jobs:\n  t:\n    steps:\n" + step("one", a, "v1.0.0") + step("two", b, "v2.0.0")
+    after = "jobs:\n  t:\n    steps:\n" + step("two", c, "v2.1.0") + step("one", a, "v1.0.0")
+
+    pairs = {(change.old_sha, change.new_sha) for change in vet.action_pin_changes(before, after)}
+
+    assert (b, c) in pairs
+
+
+def test_unchanged_sibling_pin_does_not_hide_a_runtime_change() -> None:
+    responses: dict[str, Any] = {}
+    old, sibling, new = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("org/act", old, "v1.0.0") + _workflow("org/act", sibling, "v1.1.0")
+    after = _workflow("org/act", new, "v1.2.0") + _workflow("org/act", sibling, "v1.1.0")
+    responses[_metadata_url("org/act", old)] = _action_yml("node20")
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-1.2.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+
+    check = _metadata_check(_vet(responses), "org/act")
+
+    assert check.verdict == "WARN"
+    assert check.change == "v1.0.0 → v1.2.0"
+    assert "runs.using node20 → node24" in check.detail
+
+
+def test_yaml_boolean_like_ids_stay_distinct(action_pr: dict[str, Any]) -> None:
+    """YAML 1.1 reads `on` and `yes` as true; as ids they are different outputs."""
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(outputs="  on:\n    description: o\n")
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(outputs="  yes:\n    description: y\n")
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "output を削除: on" in check.detail
+
+
+def test_newly_added_action_without_an_old_pin_is_not_reported_as_compatible() -> None:
+    responses: dict[str, Any] = {}
+    files = {".github/workflows/test.yml": (None, _workflow("astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0"))}
+    _pr(responses, head_ref="dependabot/github_actions/astral-sh/setup-uv-10.2.0", files=files)
+    _releases(responses, "astral-sh/setup-uv", {})
+
+    check = _metadata_check(_vet(responses), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert check.change == "(新規) → v10.2.0"
+    assert "置き換えた旧 pin が無いため比較不能" in check.detail
+
+
+def test_reusable_workflow_and_unsafe_subpaths_are_not_compared() -> None:
+    responses: dict[str, Any] = {}
+    reusable = "org/shared/.github/workflows/ci.yml"
+    traversal = "org/shared/../evil"
+    before = "".join(_workflow(name, "1" * 40, "v1.0.0") for name in (reusable, traversal))
+    after = "".join(_workflow(name, "2" * 40, "v1.1.0") for name in (reusable, traversal))
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/shared-1.1.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/shared", {})
+
+    checks = _checks(_vet(responses))
+
+    assert checks[("action_metadata", reusable)].verdict == "WARN"
+    assert "再利用ワークフロー" in checks[("action_metadata", reusable)].detail
+    assert checks[("action_metadata", traversal)].verdict == "WARN"
+    assert "サブパスを解釈できない" in checks[("action_metadata", traversal)].detail
+
+
+@pytest.mark.parametrize(
+    ("subpath", "reusable"),
+    [
+        (".github/workflows/ci.yaml", True),
+        (".github/workflows/actions/setup", False),
+        (".github/workflows/sub/ci.yml", False),
+    ],
+    ids=["yaml-workflow", "nested-action", "nested-yml-directory"],
+)
+def test_only_workflow_files_directly_under_workflows_are_reusable_workflows(subpath: str, reusable: bool) -> None:
+    """Codex P2 on #790: GitHub calls only `.github/workflows/<file>.yml` as a workflow; deeper paths are Actions."""
+    responses: dict[str, Any] = {}
+    action, old_sha, new_sha = f"org/shared/{subpath}", "1" * 40, "2" * 40
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/shared-1.1.0",
+        files={".github/workflows/x.yml": (_workflow(action, old_sha, "v1.0.0"), _workflow(action, new_sha, "v1.1.0"))},
+    )
+    _releases(responses, "org/shared", {})
+    responses[_metadata_url(action, old_sha)] = _action_yml("node20")
+
+    check = _metadata_check(_vet(responses), action)
+
+    assert check.verdict == "WARN"
+    assert ("再利用ワークフロー" in check.detail) is reusable
+    assert ("runs.using node20 → node24" in check.detail) is not reusable
+
+
+@pytest.mark.parametrize(
+    ("old_default", "new_default", "expected"),
+    [
+        ("\"['x']\"", "[x]", "を解釈できないため比較不能"),
+        ("x", "{x: 1}", "を解釈できないため比較不能"),
+        ("'1'", "1", "input cache の default を変更 (任意)"),
+    ],
+    ids=["string-to-sequence", "scalar-to-mapping", "string-to-integer"],
+)
+def test_default_changes_keep_their_yaml_type(
+    action_pr: dict[str, Any], old_default: str, new_default: str, expected: str
+) -> None:
+    """Codex P2 on #790: `str()` made the text "['x']" equal to the sequence [x] and read as unchanged."""
+    for sha, default in ((SETUP_UV_OLD, old_default), (SETUP_UV_NEW, new_default)):
+        inputs = f"  cache:\n    description: c\n    default: {default}\n"
+        action_pr[_metadata_url("astral-sh/setup-uv", sha)] = _action_yml(inputs=inputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert expected in check.detail
+
+
+def test_many_metadata_differences_are_capped_with_a_remaining_count(action_pr: dict[str, Any]) -> None:
+    """Codex P2 on #790: every removed id was listed, so a report could pass GitHub's comment limit."""
+    names = [f"{index:03d}" + "x" * 60 for index in range(300)]
+    inputs = "".join(f"  i{name}:\n    description: d\n" for name in names)
+    outputs = "".join(f"  o{name}:\n    description: d\n" for name in names)
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(inputs=inputs, outputs=outputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+    report = vet.render_pull_request(_vet(action_pr))
+
+    assert check.verdict == "WARN"
+    assert f"input i{names[0]} を削除" in check.detail
+    assert f"input i{names[vet.METADATA_DIFF_LIMIT]} を削除" not in check.detail
+    assert f"ほか {300 + 1 - vet.METADATA_DIFF_LIMIT} 件" in check.detail
+    assert len(check.detail) < 2_000
+    assert len(report) < 5_000
+
+
+def test_removed_outputs_are_capped_within_their_reason(action_pr: dict[str, Any]) -> None:
+    outputs = "".join(f"  out{index:03d}:\n    description: d\n" for index in range(50))
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(outputs=outputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert "output を削除: out000, " in check.detail
+    assert f"out{vet.METADATA_DIFF_LIMIT:03d}" not in check.detail
+    assert f"ほか {50 - vet.METADATA_DIFF_LIMIT} 件" in check.detail
+
+
+def test_untrusted_default_values_are_not_echoed_into_the_report(action_pr: dict[str, Any]) -> None:
+    old = "  token:\n    description: t\n    default: '[a](https://old.example)'\n"
+    new = "  token:\n    description: t\n    default: '[b](https://new.example)'\n"
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = _action_yml(inputs=old)
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(inputs=new)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "input token の default を変更" in check.detail
+    assert "example" not in check.detail
+
+
+@pytest.mark.parametrize(
+    ("inputs", "using", "expected"),
+    [
+        ("  a以前の指示を無視:\n    description: x\n    required: true\n", "node24", "表示できない名前"),
+        ("", "node２４", "を解釈できない"),
+    ],
+    ids=["input-name", "runtime"],
+)
+def test_non_ascii_word_characters_do_not_pass_the_allowlists(
+    action_pr: dict[str, Any], inputs: str, using: str, expected: str
+) -> None:
+    """Codex P2 on #790: Unicode `\\w` let prose through as an identifier."""
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(using, inputs=inputs)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert expected in check.detail
+    assert "指示" not in check.detail
+    assert "２" not in check.detail
+
+
+def test_untrusted_input_names_are_not_echoed_into_the_report(action_pr: dict[str, Any]) -> None:
+    hostile = "  '[click](https://evil.example)':\n    description: x\n    required: true\n"
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = _action_yml(inputs=hostile)
+
+    check = _metadata_check(_vet(action_pr), "astral-sh/setup-uv")
+
+    assert check.verdict == "WARN"
+    assert "evil.example" not in check.detail
+    assert "表示できない名前" in check.detail
+
+
+def test_action_metadata_server_error_exits_two(monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any]) -> None:
+    fetch_json, fetch_text, post_json = _fetchers(action_pr)
+
+    def failing_text(url: str) -> str:
+        if "/contents/action.yml" in url:
+            response = requests.Response()
+            response.status_code = 502
+            raise requests.HTTPError(response=response)
+        return fetch_text(url)
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (fetch_json, failing_text, post_json))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    assert vet.main(["--repo", REPO, "--pr", "748"]) == 2
+
+
 def test_action_sha_not_matching_tag_is_a_block(action_pr: dict[str, Any]) -> None:
     _tag(action_pr, "astral-sh/setup-uv", "v10.2.0", "9" * 40)
 
@@ -1027,6 +1642,46 @@ def test_pr_controlled_strings_cannot_break_the_report_table() -> None:
         assert len(re.findall(r"(?<!\\)\|", row)) == 6
         assert "[x](" not in row
         assert not re.search(r"(?<!\\)<img", row)
+
+
+def test_moved_pins_cannot_grow_the_report_past_the_comment_limit() -> None:
+    """Codex P2 on #790: N old and N new pins on moved lines made N x N rows, past GitHub's comment limit."""
+    responses: dict[str, Any] = {}
+    count = 40
+    before = "".join(_workflow("org/act", f"{index:040x}", f"v1.{index}.0") for index in range(count))
+    after = "# moved\n" + "".join(
+        _workflow("org/act", f"{index + count:040x}", f"v2.{index}.0") for index in range(count)
+    )
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-2.0.0",
+        files={".github/workflows/x.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+
+    verdict = _vet(responses)
+    report = vet.render_pull_request(verdict)
+    rows = [line for line in report.splitlines() if line.startswith("| ") and not line.startswith(("| 依存", "| ---"))]
+
+    assert sum(check.check_id == "action_metadata" for check in verdict.checks) == count * count
+    assert len(report) <= vet.REPORT_BODY_LIMIT
+    assert len(rows) < len(verdict.checks)
+    assert f"{len(verdict.checks) - len(rows)} 行を省略" in report
+    # The verdict still counts every check, shown or not.
+    assert report.rstrip().endswith(vet.verdict_line(verdict))
+
+
+def test_omitted_rows_never_hide_a_more_severe_one() -> None:
+    filler = [vet.CheckResult("cooldown", f"dep{index}", "OK", "x" * 200) for index in range(1_000)]
+    block = vet.CheckResult("tag_sha", "last", "BLOCK", "タグ v1 が存在しない (404)")
+    verdict = vet.PullRequestVerdict(1, "uv", HEAD_SHA, [], [*filler, block])
+
+    report = vet.render_pull_request(verdict)
+
+    assert len(report) <= vet.REPORT_BODY_LIMIT
+    assert "| last | - | tag\\_sha | BLOCK |" in report or "| last | - | tag_sha | BLOCK |" in report
+    assert "(OK " in report
+    assert "判定: BLOCK (1 件)" in report
 
 
 def test_each_row_shows_the_bump_it_was_computed_for(action_pr: dict[str, Any]) -> None:
@@ -1308,7 +1963,9 @@ def test_recording_writes_a_fixture_that_replays_identically(
     monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
 ) -> None:
     uv_pr[f"{API}/pulls/748"]["body"] = "untrusted text"
+    uv_pr[f"{API}/pulls/748"]["title"] = "untrusted title"
     uv_pr[f"{API}/pulls/748/files?per_page=100&page=1"][0]["patch"] = "@@ -1 +1 @@"
+    uv_pr[f"{API}/commits/{HEAD_SHA}/check-runs?per_page=100&page=1"]["check_runs"][0]["output"] = {"text": "log"}
     monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
     fetch_json, fetch_text, post_json = vet.make_recording_fetchers(None, tmp_path)
 
@@ -1318,7 +1975,195 @@ def test_recording_writes_a_fixture_that_replays_identically(
 
     assert recorded.checks == replayed.checks
     assert "untrusted text" not in stored
+    assert "untrusted title" not in stored
     assert "@@ -1 +1 @@" not in stored
+    assert '"output"' not in stored
+    index = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
+    project = json.loads((tmp_path / index[f"GET {vet.PYPI_PROJECT.format(name='ruff')}"]).read_text(encoding="utf-8"))
+    # Only releases above the candidate (0.16.8) can supersede it; 0.16.7 is history.
+    assert sorted(project["releases"]) == ["0.16.10", "0.16.9"]
+
+
+@pytest.mark.parametrize(
+    "new_metadata",
+    [
+        _action_yml(
+            "node26",
+            inputs="  token:\n    description: t\n    required: true\n  'on':\n    description: o\n    default: yes\n",
+            outputs="  path:\n    description: p\n",
+        ),
+        "runs: [unclosed",
+        _action_yml(inputs="  token: 42\n"),
+    ],
+    ids=["comparable", "not-yaml", "wrong-type"],
+)
+def test_recorded_action_metadata_keeps_only_the_compared_fields(
+    monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any], tmp_path: Path, new_metadata: str
+) -> None:
+    """Codex P2 on #790: descriptions and branding were stored verbatim, past the size budget."""
+    prose = "Third-party prose. " * 5000
+    branding = f"branding:\n  icon: box\n  color: blue\ndescription2: {prose}\n"
+    old = _action_yml(
+        inputs="  token:\n    description: t\n    default: abc\n", outputs="  path:\n    description: p\n"
+    )
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD)] = old.replace("Synthetic", prose) + branding
+    action_pr[_metadata_url("astral-sh/setup-uv", SETUP_UV_NEW)] = new_metadata.replace("Synthetic", prose)
+    live = _fetchers(action_pr)
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: live)
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    returned = recording[1](_metadata_url("astral-sh/setup-uv", SETUP_UV_OLD))
+    recorded = vet.vet_pull_request(*recording, REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+
+    # The checker still gets the live response; only the stored copy is trimmed.
+    assert prose in returned
+    assert replayed.checks == recorded.checks
+    assert replayed.verdict == recorded.verdict
+    assert "Third-party prose" not in stored
+    assert "branding" not in stored
+    assert len(stored) < 20_000
+    assert _metadata_check(recorded, "astral-sh/setup-uv").verdict == "WARN"
+
+
+@pytest.mark.parametrize("subpath", [".github/actions/setup", ".github/workflows/actions/setup", ".github/workflows"])
+def test_recording_trims_actions_under_dot_github_but_keeps_workflows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, subpath: str
+) -> None:
+    """An Action may live anywhere, even at `.github/workflows/action.yml`; only the PR's own files stay whole."""
+    responses: dict[str, Any] = {}
+    action, old_sha, new_sha = f"org/act/{subpath}", "1" * 40, "2" * 40
+    before, after = _workflow(action, old_sha, "v1.0.0"), _workflow(action, new_sha, "v1.1.0")
+    _pr(
+        responses,
+        head_ref="dependabot/github_actions/org/act-1.1.0",
+        files={".github/workflows/action.yml": (before, after)},
+    )
+    _releases(responses, "org/act", {})
+    prose = "Third-party prose. " * 100
+    responses[_metadata_url(action, old_sha)] = _action_yml("node20").replace("Synthetic", prose)
+    responses[_metadata_url(action, new_sha)] = _action_yml("node24").replace("Synthetic", prose)
+    live = _fetchers(responses)
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: live)
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    returned = recording[1](_metadata_url(action, new_sha))
+    recorded = vet.vet_pull_request(*recording, REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+
+    assert prose in returned
+    assert "Third-party prose" not in stored
+    assert after in stored
+    assert before in stored
+    assert replayed.checks == recorded.checks
+    assert replayed.verdict == recorded.verdict
+    assert "runs.using node20 → node24" in _metadata_check(replayed, action).detail
+
+
+@pytest.mark.parametrize(
+    ("old_inputs", "new_inputs", "expected"),
+    [
+        ("  cache:\n    default: '{prose}'\n", "  cache:\n    default: '{prose}'\n", None),
+        ("  cache:\n    default: '{prose}'\n", "  cache:\n    default: '{prose}!'\n", "input cache の default を変更"),
+        ("  cache:\n    default: '1'\n", "  cache:\n    default: 1\n", "input cache の default を変更"),
+        # Explicit keys: YAML caps implicit ones at 1024 characters, not these.
+        ("  ? '{prose}'\n  : {{required: true}}\n", "  ? '{prose}'\n  : {{required: true}}\n", None),
+        ("  ? '{prose}'\n  : {{required: true}}\n", "  ? '{prose}!'\n  : {{required: true}}\n", "表示できない名前"),
+        ("  cache:\n    required: '{pad}true'\n", "  cache:\n    required: 'true{pad}'\n", None),
+    ],
+    ids=["same-long-default", "changed-long-default", "typed-default", "same-long-name", "changed-long-name", "padded"],
+)
+def test_recorded_defaults_and_names_are_bounded_digests(
+    monkeypatch: pytest.MonkeyPatch,
+    action_pr: dict[str, Any],
+    tmp_path: Path,
+    old_inputs: str,
+    new_inputs: str,
+    expected: str | None,
+) -> None:
+    """Codex P2 on #790: a third-party default (or name) was stored verbatim, past the fixture budget."""
+    prose, pad = "Third-party prose " * 20_000, " " * 300_000
+    for sha, inputs in ((SETUP_UV_OLD, old_inputs), (SETUP_UV_NEW, new_inputs)):
+        action_pr[_metadata_url("astral-sh/setup-uv", sha)] = _action_yml(inputs=inputs.format(prose=prose, pad=pad))
+    live = _fetchers(action_pr)
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: live)
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    recorded = vet.vet_pull_request(*recording, REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = sum(path.stat().st_size for path in tmp_path.iterdir())
+    check = _metadata_check(replayed, "astral-sh/setup-uv")
+
+    assert replayed.checks == recorded.checks
+    assert stored < 20_000
+    assert check.verdict == ("OK" if expected is None else "WARN")
+    assert expected is None or expected in check.detail
+
+
+def test_recording_two_candidates_of_one_project_keeps_every_later_release(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    """The higher candidate recorded first must not drop releases the lower one still needs."""
+    other_head, other_base = "f" * 40, "9" * 40
+    _pr(uv_pr, number=750, head_sha=other_head, head_ref="dependabot/uv/ruff-0.16.10", files={})
+    uv_pr[f"{API}/pulls/750/files?per_page=100&page=1"] = [{"filename": "uv.lock"}]
+    uv_pr[f"{API}/compare/{BASE_SHA}...{other_head}"] = {"merge_base_commit": {"sha": other_base}}
+    uv_pr[f"{API}/contents/uv.lock?ref={other_base}"] = _uv_lock(ruff="0.16.9")
+    uv_pr[f"{API}/contents/uv.lock?ref={other_head}"] = _uv_lock(ruff="0.16.10")
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    recorded = [vet.vet_pull_request(*recording, REPO, number) for number in (750, 748)]
+    replayed = [vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, number) for number in (750, 748)]
+
+    assert [verdict.bumps[0].new for verdict in recorded] == ["0.16.10", "0.16.8"]
+    assert [verdict.checks for verdict in replayed] == [verdict.checks for verdict in recorded]
+
+
+def test_recording_a_lock_fork_keeps_the_releases_of_the_lower_candidate(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    """Within one PR the lower new version is vetted first (_pair_bumps sorts), so its floor wins."""
+    fork = '[[package]]\nname = "ruff"\nversion = "{}"\nsource = {{ registry = "https://pypi.org/simple" }}\n\n'
+    uv_pr[f"{API}/contents/uv.lock?ref={MERGE_BASE}"] = _uv_lock() + fork.format("0.16.7") + fork.format("0.16.9")
+    uv_pr[f"{API}/contents/uv.lock?ref={HEAD_SHA}"] = _uv_lock() + fork.format("0.16.8") + fork.format("0.16.10")
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
+
+    recorded = vet.vet_pull_request(*vet.make_recording_fetchers(None, tmp_path), REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+
+    assert [bump.new for bump in recorded.bumps] == ["0.16.8", "0.16.10"]
+    assert replayed.checks == recorded.checks
+
+
+@pytest.mark.parametrize("name", ["check-runs", "pulls", "releases", "compare", "commits", "files"])
+def test_a_repository_named_like_an_endpoint_keeps_its_repository_fields(name: str) -> None:
+    """Codex P2 on #790: `/repos/org/check-runs` is the repository, not a check-runs listing."""
+    repository = {"full_name": f"org/{name}", "description": "untrusted"}
+    pulls = [{"number": 1, "user": {"login": "x"}, "title": "untrusted"}]
+
+    trimmed = vet._trim_for_fixture(f"{vet.GITHUB_API}/repos/org/{name}", repository)
+    endpoint = vet._trim_for_fixture(f"{vet.GITHUB_API}/repos/org/{name}/pulls?state=open", pulls)
+
+    assert trimmed == {"full_name": f"org/{name}"}
+    assert endpoint == [{"number": 1, "user": {"login": "x"}}]
+
+
+def test_every_recorded_github_response_has_a_field_list() -> None:
+    """Anchored shapes must still cover every endpoint the recorded fixture uses."""
+    index = json.loads((FIXTURE_DIR / "index.json").read_text(encoding="utf-8"))
+    paths = [urlsplit(key.split(" ", 1)[1]).path for key in index if key.startswith(f"GET {vet.GITHUB_API}/")]
+    json_paths = [path for path in paths if "/contents/" not in path]
+
+    assert json_paths
+    assert [path for path in json_paths if not any(pattern.match(path) for pattern, _ in vet.FIXTURE_FIELDS)] == []
+
+
+def test_recorded_fixture_stays_under_the_size_budget() -> None:
+    """issue #765: 300 KB was the budget set in #762; uv.lock twice already takes 225 KB of it."""
+    assert sum(path.stat().st_size for path in FIXTURE_DIR.iterdir()) < 300_000
 
 
 def test_the_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) -> None:

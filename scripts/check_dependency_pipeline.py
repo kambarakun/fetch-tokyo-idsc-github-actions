@@ -30,9 +30,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
+import http_fetch
 import requests
 import yaml
 from packaging.requirements import Requirement
@@ -41,8 +42,7 @@ from packaging.version import InvalidVersion, Version
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-GITHUB_API_HOST = "api.github.com"
-GITHUB_API = f"https://{GITHUB_API_HOST}"
+GITHUB_API = f"https://{http_fetch.GITHUB_API_HOST}"
 PYPI_JSON = "https://pypi.org/pypi/{name}/json"
 SETUP_UV_CHECKSUMS = "https://raw.githubusercontent.com/astral-sh/setup-uv/{sha}/src/download/checksum/{filename}"
 DEPENDABOT_CORE_LATEST_RELEASE = f"{GITHUB_API}/repos/dependabot/dependabot-core/releases/latest"
@@ -198,22 +198,16 @@ WATCHED_ACTION_DEPENDENCIES = (
 
 
 def _http_get(url: str, token: str | None, accept: str) -> requests.Response:
-    headers = {"Accept": accept, "User-Agent": "fetch-tokyo-idsc-dependency-watchdog"}
     # The workflow token carries `issues: write` (plus read scopes for contents, pull requests
-    # and Actions runs). The same fetchers
-    # also call pypi.org and raw.githubusercontent.com, so gate the credential on the host
-    # rather than on the caller: a future check cannot leak it by picking the wrong fetcher.
-    if token and urlsplit(url).hostname == GITHUB_API_HOST:
-        headers["Authorization"] = f"Bearer {token}"
-    response = requests.get(url, headers=headers, timeout=30)
+    # and Actions runs); http_fetch only attaches it for api.github.com.
+    response = http_fetch.get(url, token, accept=accept, user_agent="fetch-tokyo-idsc-dependency-watchdog")
     if not response.ok:
         # issue #697: a bare status code sent two runs chasing the wrong cause. GitHub explains
         # itself in the body ("Resource not accessible by integration", rate limits, ...), so
         # print the first part of it to the job log. It stays out of the exception, whose text
         # reaches the report table and the tracking issue: third-party text does not belong there.
-        detail = " ".join(response.text.split())[:200]
-        message = f"{response.status_code} {response.reason} for {url}"
-        print(f"{message}: {detail}", file=sys.stderr)
+        message = http_fetch.status_line(response, url)
+        print(f"{message}: {http_fetch.error_detail(response)}", file=sys.stderr)
         raise requests.HTTPError(message, response=response)
     return response
 
