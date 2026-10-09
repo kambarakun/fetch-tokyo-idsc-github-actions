@@ -1,0 +1,142 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_weekly_medical_district_total_2012_36",
+  "filename": "normalized_sentinel_weekly_medical_district_total_2012_36.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_total_2012_36.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2012,
+    "period": 36,
+    "period_type": "weekly"
+  },
+  "bytes": 2462,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "63331807214f09a7681662711db69c89c585638d544526775d65c04bfb10dd56"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-09T03:31:31.278781+00:00",
+  "modified": "2026-10-09T03:31:31.278781+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2012_36.csv",
+      "path": "raw/sentinel_weekly_medical_district_2012_36.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2012_36",
+    "source_hash": "2fe4de0be1e3d1c362b94fd466aba22e7e2dcdfa95ad40d0bf28ad55df4634dc",
+    "processing_time_seconds": 0.0007557868957519531,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:31:31.278790+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 11 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2012_36.csv",
+          "affected_count": 11,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "咽頭結膜熱",
+              "row_index": 3,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区南部",
+              "column": "百日咳",
+              "row_index": 4,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "区西南部",
+              "column": "インフルエンザ",
+              "row_index": 5,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "区西部",
+              "column": "インフルエンザ",
+              "row_index": 6,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "流行性角結膜炎",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "百日咳",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "RSウイルス感染症",
+              "row_index": 10,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "伝染性紅斑",
+              "row_index": 12,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩南部",
+              "column": "咽頭結膜熱",
+              "row_index": 13,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩北部",
+              "column": "流行性耳下腺炎",
+              "row_index": 14,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

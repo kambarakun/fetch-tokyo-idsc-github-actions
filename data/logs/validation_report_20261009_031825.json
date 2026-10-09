@@ -1,0 +1,13 @@
+{
+  "validation_status": "passed",
+  "validate_exit": 0,
+  "summary": {
+    "total_files": 17288,
+    "valid_files": 17288,
+    "invalid_files": 0,
+    "has_errors": false,
+    "has_warnings": true,
+    "success_rate": 100.0
+  },
+  "invalid_results": []
+}

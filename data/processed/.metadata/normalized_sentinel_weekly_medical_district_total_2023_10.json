@@ -1,0 +1,133 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_weekly_medical_district_total_2023_10",
+  "filename": "normalized_sentinel_weekly_medical_district_total_2023_10.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_total_2023_10.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2023,
+    "period": 10,
+    "period_type": "weekly"
+  },
+  "bytes": 2459,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "e9adb27851b0e6a0dcdf3dabdbfdad4d1dc8da8d3a7bfb2d7128ab68f2030380"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-09T03:41:17.163533+00:00",
+  "modified": "2026-10-09T03:41:17.163533+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2023_10.csv",
+      "path": "raw/sentinel_weekly_medical_district_2023_10.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2023_10",
+    "source_hash": "37a3fab5b9a0905aa0b55af4bed9c6c1a69b1ee8278359b6cdcead01c2edc70b",
+    "processing_time_seconds": 0.0007557868957519531,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:41:17.163546+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 9 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2023_10.csv",
+          "affected_count": 9,
+          "truncated": false,
+          "affected_locations": [
+            {
+              "location": "区南部",
+              "column": "RSウイルス感染症",
+              "row_index": 4,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西南部",
+              "column": "咽頭結膜熱",
+              "row_index": 5,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区西部",
+              "column": "咽頭結膜熱",
+              "row_index": 6,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "突発性発しん",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東部",
+              "column": "インフルエンザ入院",
+              "row_index": 9,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "南多摩",
+              "column": "RSウイルス感染症",
+              "row_index": 11,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "手足口病",
+              "row_index": 12,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩北部",
+              "column": "インフルエンザ入院",
+              "row_index": 14,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "合計",
+              "column": "RSウイルス感染症",
+              "row_index": 16,
+              "male": 11,
+              "female": 17,
+              "total": 26,
+              "expected": 28
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

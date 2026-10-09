@@ -1,0 +1,142 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_weekly_medical_district_total_2009_47",
+  "filename": "normalized_sentinel_weekly_medical_district_total_2009_47.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_total_2009_47.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2009,
+    "period": 47,
+    "period_type": "weekly"
+  },
+  "bytes": 2342,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "8e91477917a6bb099b7209f06082396366534412fa1f3ea18855be84696c1759"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-09T03:18:31.592502+00:00",
+  "modified": "2026-10-09T03:18:31.592502+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2009_47.csv",
+      "path": "raw/sentinel_weekly_medical_district_2009_47.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2009_47",
+    "source_hash": "2881495bccffab57c21f1397fcb9f3594d1cbf3e14cef570347c82dcf9c07b99",
+    "processing_time_seconds": 0.0005002021789550781,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:18:31.592508+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 11 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2009_47.csv",
+          "affected_count": 11,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "RSウイルス感染症",
+              "row_index": 3,
+              "male": 5,
+              "female": 5,
+              "total": 5,
+              "expected": 10
+            },
+            {
+              "location": "区南部",
+              "column": "RSウイルス感染症",
+              "row_index": 4,
+              "male": 4,
+              "female": 4,
+              "total": 4,
+              "expected": 8
+            },
+            {
+              "location": "区西南部",
+              "column": "Ａ群溶血性レンサ球菌咽頭炎",
+              "row_index": 5,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "RSウイルス感染症",
+              "row_index": 6,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "Ａ群溶血性レンサ球菌咽頭炎",
+              "row_index": 7,
+              "male": 4,
+              "female": 4,
+              "total": 4,
+              "expected": 8
+            },
+            {
+              "location": "区東北部",
+              "column": "ヘルパンギーナ",
+              "row_index": 8,
+              "male": 3,
+              "female": 3,
+              "total": 3,
+              "expected": 6
+            },
+            {
+              "location": "区東部",
+              "column": "流行性角結膜炎",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "水痘",
+              "row_index": 12,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "北多摩南部",
+              "column": "手足口病",
+              "row_index": 13,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩北部",
+              "column": "ヘルパンギーナ",
+              "row_index": 14,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
