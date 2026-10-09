@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.3.0",
   "name": "normalized_sentinel_monthly_medical_district_male_2001_08",
   "filename": "normalized_sentinel_monthly_medical_district_male_2001_08.csv",
   "path": "processed/normalized_sentinel_monthly_medical_district_male_2001_08.csv",
@@ -18,7 +18,7 @@
   },
   "encoding": "utf-8",
   "created": "2025-12-18T07:33:01.525063+00:00",
-  "modified": "2025-12-18T07:33:01.525063+00:00",
+  "modified": "2026-10-09T03:18:27.375006+00:00",
   "sources": [
     {
       "title": "sentinel_monthly_medical_district_2001_08.csv",
@@ -28,7 +28,12 @@
   "_process": {
     "source_name": "sentinel_monthly_medical_district_2001_08",
     "source_hash": "3a86efa89b0d49b4ae7bb6ce95b0e30d9cccca0c2536e9333b07ed44e401ebe6",
-    "processing_time_seconds": 0.00024580955505371094,
+    "processing_time_seconds": 0.0005121231079101562,
     "gender": "male"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:18:27.375014+00:00",
+    "validation_status": "completed",
+    "issues": []
   }
 }

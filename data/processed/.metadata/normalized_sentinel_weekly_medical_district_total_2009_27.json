@@ -1,0 +1,142 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_weekly_medical_district_total_2009_27",
+  "filename": "normalized_sentinel_weekly_medical_district_total_2009_27.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_total_2009_27.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2009,
+    "period": 27,
+    "period_type": "weekly"
+  },
+  "bytes": 2338,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "334b1594f40a160e5cdabf56faee5e8ed3b667698e9fcb29d225aca2bf59f06b"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-09T03:18:31.460951+00:00",
+  "modified": "2026-10-09T03:18:31.460951+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2009_27.csv",
+      "path": "raw/sentinel_weekly_medical_district_2009_27.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2009_27",
+    "source_hash": "b0d750650ed02ae704c171926d5b7df2a2981f04802d3ec11c8717cabe007687",
+    "processing_time_seconds": 0.00048351287841796875,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:18:31.460958+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 13 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2009_27.csv",
+          "affected_count": 13,
+          "truncated": true,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "川崎病",
+              "row_index": 3,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区南部",
+              "column": "流行性角結膜炎",
+              "row_index": 4,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西部",
+              "column": "咽頭結膜熱",
+              "row_index": 6,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "咽頭結膜熱",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "咽頭結膜熱",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東部",
+              "column": "伝染性紅斑",
+              "row_index": 9,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "西多摩",
+              "column": "咽頭結膜熱",
+              "row_index": 10,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "南多摩",
+              "column": "百日咳",
+              "row_index": 11,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "伝染性紅斑",
+              "row_index": 12,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩南部",
+              "column": "伝染性紅斑",
+              "row_index": 13,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
