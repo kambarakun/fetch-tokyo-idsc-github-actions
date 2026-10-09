@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import pytest
 import requests
@@ -653,7 +653,7 @@ def test_wildcard_package_advisory_applies_to_every_action() -> None:
     assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "BLOCK"
 
 
-@pytest.mark.parametrize("comment", ["v0.0.0-alpha", "v1.0.0-1"])
+@pytest.mark.parametrize("comment", ["v0.0.0-alpha", "v1.0.0-1", "v0.0.0+build.1"])
 def test_semver_prerelease_or_build_pin_is_not_ordered_with_pep_440(comment: str) -> None:
     # PEP 440 reads `1.0.0-1` as the post-release 1.0.0.post1, after 1.0.0; SemVer puts it before.
     # Neither order is trusted for an Action, so a range that may cover the pin is a WARN, never OK.
@@ -699,6 +699,22 @@ def test_semver_prerelease_range_bound_is_unevaluable() -> None:
     )
 
     assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "WARN"
+
+
+def test_version_comment_keeps_its_build_metadata() -> None:
+    """Codex P2 on #790: `+build.1` was cut off, so the pin was checked against the tag `v1.2.3`."""
+    comment, decoy = "v1.2.3+build.1", "d" * 40
+    responses = _single_action_pr("astral-sh/setup-uv", SETUP_UV_NEW, "")
+    responses[f"{API}/contents/.github/workflows/ci.yml?ref={HEAD_SHA}"] = _workflow(
+        "astral-sh/setup-uv", SETUP_UV_NEW, comment
+    )
+    _tag(responses, "astral-sh/setup-uv", quote(comment), SETUP_UV_NEW)
+    _tag(responses, "astral-sh/setup-uv", "v1.2.3", decoy)
+
+    check = _checks(_vet(responses))[("tag_sha", "astral-sh/setup-uv")]
+
+    assert check.verdict == "OK"
+    assert f"タグ {comment} → {SETUP_UV_NEW}" in check.detail
 
 
 def test_sha_pin_without_version_comment_and_any_advisory_is_a_warn() -> None:
@@ -2004,6 +2020,46 @@ def test_recording_trims_actions_under_dot_github_but_keeps_workflows(
     assert replayed.checks == recorded.checks
     assert replayed.verdict == recorded.verdict
     assert "runs.using node20 → node24" in _metadata_check(replayed, action).detail
+
+
+@pytest.mark.parametrize(
+    ("old_inputs", "new_inputs", "expected"),
+    [
+        ("  cache:\n    default: '{prose}'\n", "  cache:\n    default: '{prose}'\n", None),
+        ("  cache:\n    default: '{prose}'\n", "  cache:\n    default: '{prose}!'\n", "input cache の default を変更"),
+        ("  cache:\n    default: '1'\n", "  cache:\n    default: 1\n", "input cache の default を変更"),
+        # Explicit keys: YAML caps implicit ones at 1024 characters, not these.
+        ("  ? '{prose}'\n  : {{required: true}}\n", "  ? '{prose}'\n  : {{required: true}}\n", None),
+        ("  ? '{prose}'\n  : {{required: true}}\n", "  ? '{prose}!'\n  : {{required: true}}\n", "表示できない名前"),
+        ("  cache:\n    required: '{pad}true'\n", "  cache:\n    required: 'true{pad}'\n", None),
+    ],
+    ids=["same-long-default", "changed-long-default", "typed-default", "same-long-name", "changed-long-name", "padded"],
+)
+def test_recorded_defaults_and_names_are_bounded_digests(
+    monkeypatch: pytest.MonkeyPatch,
+    action_pr: dict[str, Any],
+    tmp_path: Path,
+    old_inputs: str,
+    new_inputs: str,
+    expected: str | None,
+) -> None:
+    """Codex P2 on #790: a third-party default (or name) was stored verbatim, past the fixture budget."""
+    prose, pad = "Third-party prose " * 20_000, " " * 300_000
+    for sha, inputs in ((SETUP_UV_OLD, old_inputs), (SETUP_UV_NEW, new_inputs)):
+        action_pr[_metadata_url("astral-sh/setup-uv", sha)] = _action_yml(inputs=inputs.format(prose=prose, pad=pad))
+    live = _fetchers(action_pr)
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: live)
+    recording = vet.make_recording_fetchers(None, tmp_path)
+
+    recorded = vet.vet_pull_request(*recording, REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = sum(path.stat().st_size for path in tmp_path.iterdir())
+    check = _metadata_check(replayed, "astral-sh/setup-uv")
+
+    assert replayed.checks == recorded.checks
+    assert stored < 20_000
+    assert check.verdict == ("OK" if expected is None else "WARN")
+    assert expected is None or expected in check.detail
 
 
 def test_recording_two_candidates_of_one_project_keeps_every_later_release(

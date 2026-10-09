@@ -19,6 +19,7 @@ A network or parse failure is always 2 -- "could not check" is never reported as
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -76,7 +77,7 @@ PAGE_SIZE = 100
 # but is an action of its own with its own metadata. The version comment is optional: a bare SHA
 # pin is still a bump, vetted as "no tag to compare".
 USES_PATTERN = re.compile(
-    r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)((?:/[\w./-]+)?)@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.-]*))?", re.ASCII
+    r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)((?:/[\w./-]+)?)@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.+-]*))?", re.ASCII
 )
 # GitHub reads `action.yml`, else `action.yaml`, at the root of the action (metadata syntax docs).
 ACTION_METADATA_FILES = ("action.yml", "action.yaml")
@@ -1011,6 +1012,11 @@ def _metadata_name(name: Any) -> str:
     return str(name) if METADATA_NAME.fullmatch(str(name)) else "(表示できない名前)"
 
 
+def _digest(value: Any) -> str:
+    """A bounded stand-in for third-party text, equal exactly when the type and the value are."""
+    return hashlib.sha256(f"{type(value).__name__}:{value!r}".encode()).hexdigest()
+
+
 def _capped(items: Sequence[str], separator: str) -> str:
     shown = separator.join(items[:METADATA_DIFF_LIMIT])
     rest = len(items) - METADATA_DIFF_LIMIT
@@ -1060,19 +1066,30 @@ def _parse_action_metadata(text: str) -> dict[str, Any] | None:
 UNREADABLE_METADATA = "# Unreadable action metadata; --record keeps none of its text.\n"
 
 
+def _trimmed_name(name: str) -> str:
+    # A name the report would not show anyway becomes a digest: still distinct, never prose.
+    return name if METADATA_NAME.fullmatch(name) else f"({_digest(name)})"
+
+
 def _trim_action_metadata(text: str) -> str:
-    """Only what _contract_changes reads, so descriptions and branding stay out of the fixture."""
+    """Only what _contract_changes reads, so descriptions and branding stay out of the fixture.
+
+    Every kept value is bounded: a default is compared, never reported, so its digest replays the
+    same comparison without storing third-party text of any length.
+    """
     metadata = _parse_action_metadata(text)
     if metadata is None:
         return UNREADABLE_METADATA
+    inputs: dict[str, dict[str, str]] = {}
+    for name, spec in _mapping(metadata, "inputs").items():
+        kept_spec = {"required": "true" if _required(spec) else "false"}
+        if "default" in spec:
+            kept_spec["default"] = _digest(spec["default"])
+        inputs[_trimmed_name(name)] = kept_spec
     kept = {
         "runs": {"using": metadata["runs"]["using"]},
-        # The default is compared, never reported.
-        "inputs": {
-            name: {key: spec[key] for key in ("required", "default") if key in spec}
-            for name, spec in _mapping(metadata, "inputs").items()
-        },
-        "outputs": {name: {} for name in _mapping(metadata, "outputs")},
+        "inputs": inputs,
+        "outputs": {_trimmed_name(name): {} for name in _mapping(metadata, "outputs")},
     }
     return str(yaml.safe_dump(kept, sort_keys=False))
 
@@ -1111,9 +1128,9 @@ def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
             reasons.append(f"input {_metadata_name(name)} が任意 → 必須 ({default})")
         # A caller that omits the input gets the default, so adding, changing or dropping it changes
         # what that caller passes. The values are third-party text and never reach the report.
-        # Compared with their YAML types: `'1'` and `1` are different values to the runner.
+        # Compared with their YAML types (`'1'` and `1` differ), through the digest a recording keeps.
         had, has = "default" in old_spec, "default" in spec
-        if had and has and _typed(old_spec["default"]) != _typed(spec["default"]):
+        if had and has and _digest(old_spec["default"]) != _digest(spec["default"]):
             change = "変更"
         else:
             change = "削除" if had and not has else "追加" if has and not had else ""
@@ -1128,10 +1145,6 @@ def _contract_changes(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
     if removed := [_metadata_name(name) for name in _mapping(old, "outputs") if name not in new_outputs]:
         reasons.append(f"output を削除: {_capped(removed, ', ')}")
     return reasons
-
-
-def _typed(value: Any) -> tuple[type, Any]:
-    return type(value), value
 
 
 def _uncomparable(change: ActionPinChange) -> str | None:
