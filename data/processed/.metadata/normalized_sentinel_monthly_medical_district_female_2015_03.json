@@ -1,5 +1,5 @@
 {
-  "metadata_version": "1.1.0",
+  "metadata_version": "1.3.0",
   "name": "normalized_sentinel_monthly_medical_district_female_2015_03",
   "filename": "normalized_sentinel_monthly_medical_district_female_2015_03.csv",
   "path": "processed/normalized_sentinel_monthly_medical_district_female_2015_03.csv",
@@ -18,7 +18,7 @@
   },
   "encoding": "utf-8",
   "created": "2025-12-18T07:32:58.354024+00:00",
-  "modified": "2025-12-18T07:32:58.354024+00:00",
+  "modified": "2026-10-09T03:18:30.231539+00:00",
   "sources": [
     {
       "title": "sentinel_monthly_medical_district_2015_03.csv",
@@ -28,7 +28,12 @@
   "_process": {
     "source_name": "sentinel_monthly_medical_district_2015_03",
     "source_hash": "6b925ee6889e2ecc9dc0ec0875b974bdf35f7f095572eebabba6bfa3c649b84d",
-    "processing_time_seconds": 0.0002598762512207031,
+    "processing_time_seconds": 0.0003933906555175781,
     "gender": "female"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:18:30.231546+00:00",
+    "validation_status": "completed",
+    "issues": []
   }
 }

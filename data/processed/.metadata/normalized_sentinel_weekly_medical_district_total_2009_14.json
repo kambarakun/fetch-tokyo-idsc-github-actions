@@ -1,0 +1,133 @@
+{
+  "metadata_version": "1.3.0",
+  "name": "normalized_sentinel_weekly_medical_district_total_2009_14",
+  "filename": "normalized_sentinel_weekly_medical_district_total_2009_14.csv",
+  "path": "processed/normalized_sentinel_weekly_medical_district_total_2009_14.csv",
+  "profile": "tokyo-idsc-processed",
+  "data_type": "sentinel_weekly_medical_district",
+  "temporal": {
+    "year": 2009,
+    "period": 14,
+    "period_type": "weekly"
+  },
+  "bytes": 2350,
+  "lines": 15,
+  "hash": {
+    "algorithm": "sha256",
+    "value": "f7c1ceb033f1c3fc329581360683360baee403715133d78a7c739b00ee2b3b70"
+  },
+  "encoding": "utf-8",
+  "created": "2026-10-09T03:18:31.378758+00:00",
+  "modified": "2026-10-09T03:18:31.378758+00:00",
+  "sources": [
+    {
+      "title": "sentinel_weekly_medical_district_2009_14.csv",
+      "path": "raw/sentinel_weekly_medical_district_2009_14.csv"
+    }
+  ],
+  "_process": {
+    "source_name": "sentinel_weekly_medical_district_2009_14",
+    "source_hash": "d6b690090f1bdb0dc1de2b2059834c2b7e5db4f738bb0bb9e6b5e8ad34221cd3",
+    "processing_time_seconds": 0.0006000995635986328,
+    "gender": "total"
+  },
+  "quality": {
+    "validation_timestamp": "2026-10-09T03:18:31.378765+00:00",
+    "validation_status": "completed",
+    "issues": [
+      {
+        "check_type": "gender_sum_consistency",
+        "validation_status": "completed",
+        "message": "Observed mismatch between (male + female) and reported total in 9 record(s)",
+        "details": {
+          "source_file": "sentinel_weekly_medical_district_2009_14.csv",
+          "affected_count": 9,
+          "truncated": false,
+          "affected_locations": [
+            {
+              "location": "区中央部",
+              "column": "ヘルパンギーナ",
+              "row_index": 3,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区西北部",
+              "column": "流行性角結膜炎",
+              "row_index": 7,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東北部",
+              "column": "咽頭結膜熱",
+              "row_index": 8,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "区東部",
+              "column": "手足口病",
+              "row_index": 9,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "西多摩",
+              "column": "伝染性紅斑",
+              "row_index": 10,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "南多摩",
+              "column": "百日咳",
+              "row_index": 11,
+              "male": 1,
+              "female": 1,
+              "total": 1,
+              "expected": 2
+            },
+            {
+              "location": "北多摩西部",
+              "column": "咽頭結膜熱",
+              "row_index": 12,
+              "male": 5,
+              "female": 5,
+              "total": 5,
+              "expected": 10
+            },
+            {
+              "location": "北多摩北部",
+              "column": "咽頭結膜熱",
+              "row_index": 14,
+              "male": 2,
+              "female": 2,
+              "total": 2,
+              "expected": 4
+            },
+            {
+              "location": "合計",
+              "column": "咽頭結膜熱",
+              "row_index": 16,
+              "male": 14,
+              "female": 17,
+              "total": 23,
+              "expected": 31
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
