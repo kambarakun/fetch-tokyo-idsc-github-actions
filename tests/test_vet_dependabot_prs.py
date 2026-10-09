@@ -1987,11 +1987,11 @@ def test_recorded_action_metadata_keeps_only_the_compared_fields(
     assert _metadata_check(recorded, "astral-sh/setup-uv").verdict == "WARN"
 
 
-@pytest.mark.parametrize("subpath", [".github/actions/setup", ".github/workflows/actions/setup"])
+@pytest.mark.parametrize("subpath", [".github/actions/setup", ".github/workflows/actions/setup", ".github/workflows"])
 def test_recording_trims_actions_under_dot_github_but_keeps_workflows(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, subpath: str
 ) -> None:
-    """An Action may live in `.github/actions/` or below `.github/workflows/`; only workflow files stay whole."""
+    """An Action may live anywhere, even at `.github/workflows/action.yml`; only the PR's own files stay whole."""
     responses: dict[str, Any] = {}
     action, old_sha, new_sha = f"org/act/{subpath}", "1" * 40, "2" * 40
     before, after = _workflow(action, old_sha, "v1.0.0"), _workflow(action, new_sha, "v1.1.0")

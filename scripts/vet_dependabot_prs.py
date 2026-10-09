@@ -243,12 +243,11 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (re.compile(REPO_PATH + "$"), {"full_name": None}),
 )
 PYPI_RELEASE_PATH = re.compile(r"^/pypi/(?P<name>[^/]+)/(?P<version>[^/]+)/json$")
-# An Action's metadata, also under `.github/actions/` or below `.github/workflows/`; a workflow
-# (this repository's included) is a file directly in `.github/workflows/` and is never compared
-# as metadata, so it is kept whole.
-ACTION_METADATA_PATH = re.compile(
-    REPO_PATH + r"/contents/(?!\.github/workflows/action\.ya?ml$)(?:[^?]+/)?action\.ya?ml$"
-)
+# An Action's metadata may sit at any path, `.github/workflows/action.yml` included, so the path
+# alone cannot tell it from a workflow of the same name: the PR's own files (its pulls/N/files)
+# are what the script parses whole, and only they are kept whole.
+ACTION_METADATA_PATH = re.compile(REPO_PATH + r"/contents/(?:[^?]+/)?action\.ya?ml$")
+PULL_FILES_PATH = re.compile(r"^(?P<repo>/repos/[^/]+/[^/]+)/pulls/\d+/files$")
 
 
 def _pick(value: Any, spec: Any) -> Any:
@@ -301,6 +300,7 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
     record_dir.mkdir(parents=True, exist_ok=True)
     index: dict[str, str] = {}
     candidates: dict[str, Version] = {}
+    pr_files: set[str] = set()
 
     def save(key: str, payload: Any, *, raw: bool, refresh: bool = False) -> None:
         if key in index and not refresh:
@@ -318,6 +318,9 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
     def fetch_json(url: str) -> Any:
         payload = _trim_for_fixture(url, live_json(url), candidates)
         parts = urlsplit(url)
+        if files := PULL_FILES_PATH.match(parts.path):
+            # The same quoting as file_at, so the contents URL of each file matches below.
+            pr_files.update(f"{files['repo']}/contents/{quote(item['filename'])}" for item in payload)
         match = PYPI_RELEASE_PATH.match(parts.path) if parts.hostname == "pypi.org" else None
         if match and (version := _parse_version(match["version"])) is not None:
             candidates[match["name"]] = min(version, candidates.get(match["name"], version))
@@ -327,7 +330,8 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
 
     def fetch_text(url: str) -> str:
         text = live_text(url)
-        metadata = ACTION_METADATA_PATH.match(urlsplit(url).path)
+        path = urlsplit(url).path
+        metadata = ACTION_METADATA_PATH.match(path) and path not in pr_files
         save(f"GET {url}", _trim_action_metadata(text) if metadata else text, raw=True)
         return text
 
