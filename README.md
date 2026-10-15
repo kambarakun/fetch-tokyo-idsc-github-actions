@@ -19,10 +19,10 @@
 
 | 項目 | 値 |
 |------|-----|
-| **最新週次データ** | 2026年第40週 |
+| **最新週次データ** | 2026年第41週 |
 | **最新月次データ** | 2026年9月 |
-| **最新データ取得日時** | 2026-10-09 17:23 JST |
-| **最終データ更新日時** | 2026-10-09 17:23 JST |
+| **最新データ取得日時** | 2026-10-15 17:20 JST |
+| **最終データ更新日時** | 2026-10-15 17:20 JST |
 
 > 📝 **日時の説明**
 > - **最新データ取得日時**: データ取得処理が最後に実行された日時 (毎日自動実行)
@@ -81,10 +81,10 @@
 
 | 項目 | 値 |
 |------|-----|
-| **総データ件数** | 8,235件 |
-| **週次データ期間** | 2000年第1週 - 2026年第40週 |
+| **総データ件数** | 8,240件 |
+| **週次データ期間** | 2000年第1週 - 2026年第41週 |
 | **月次データ期間** | 2000年1月 - 2026年9月 |
-| **収集週数** | 1,396週 |
+| **収集週数** | 1,397週 |
 | **収集月数** | 321ヶ月 |
 | **データ種別数** | 9種類 |
 
@@ -92,11 +92,11 @@
 
 | データ種別 | 件数 | データ期間 | 欠損 |
 |-----------|------|-----------|------|
-| 全数週次 | 1,396件 | 2000年第1週-2026年第40週 | なし |
-| 定点週次・年齢群 | 1,396件 | 2000年第1週-2026年第40週 | なし |
-| 定点週次・保健所別 | 1,396件 | 2000年第1週-2026年第40週 | なし |
-| 定点週次・性別 | 1,383件 | 2000年第14週-2026年第40週 | なし |
-| 定点週次・医療圏別 | 1,383件 | 2000年第14週-2026年第40週 | なし |
+| 全数週次 | 1,397件 | 2000年第1週-2026年第41週 | なし |
+| 定点週次・年齢群 | 1,397件 | 2000年第1週-2026年第41週 | なし |
+| 定点週次・保健所別 | 1,397件 | 2000年第1週-2026年第41週 | なし |
+| 定点週次・性別 | 1,384件 | 2000年第14週-2026年第41週 | なし |
+| 定点週次・医療圏別 | 1,384件 | 2000年第14週-2026年第41週 | なし |
 | 定点月次・年齢群 | 321件 | 2000年1月-2026年9月 | なし |
 | 定点月次・保健所別 | 321件 | 2000年1月-2026年9月 | なし |
 | 定点月次・医療圏別 | 321件 | 2000年1月-2026年9月 | なし |
@@ -106,14 +106,19 @@
 
 #### 📁 生データ (raw) の検証
 
-##### ⚠️ 警告 (8235件)
+##### ⚠️ 警告 (8240件)
 
 > 💡 CSVファイル内で行ごとにカラム数が異なります。東京都IDSCの元データには注釈行や集計期間情報が含まれているため発生します。
 
 <details>
-<summary><strong>[csv_format] Inconsistent column count</strong> (8235件)</summary>
+<summary><strong>[csv_format] Inconsistent column count</strong> (8240件)</summary>
 
 ```text
+notifiable_weekly_2026_41.csv
+sentinel_weekly_age_2026_41.csv
+sentinel_weekly_gender_2026_41.csv
+sentinel_weekly_health_center_2026_41.csv
+sentinel_weekly_medical_district_2026_41.csv
 notifiable_weekly_2026_40.csv
 sentinel_weekly_age_2026_40.csv
 sentinel_weekly_gender_2026_40.csv
@@ -159,12 +164,7 @@ sentinel_weekly_age_2026_32.csv
 sentinel_weekly_gender_2026_32.csv
 sentinel_weekly_health_center_2026_32.csv
 sentinel_weekly_medical_district_2026_32.csv
-notifiable_weekly_2026_31.csv
-sentinel_weekly_age_2026_31.csv
-sentinel_weekly_gender_2026_31.csv
-sentinel_weekly_health_center_2026_31.csv
-sentinel_weekly_medical_district_2026_31.csv
-... 他8185件
+... 他8190件
 ```
 
 </details>
@@ -172,14 +172,15 @@ sentinel_weekly_medical_district_2026_31.csv
 
 #### 📊 処理済みデータ (processed) の品質チェック
 
-##### 🔍 データ品質の問題 (1031件)
+##### 🔍 データ品質の問題 (1032件)
 
 > 🔍 性別データの合計値検証で不整合が検出されました。男性+女性の合計が、元データの男女合計値と一致しません。
 
 <details>
-<summary><strong>gender_sum_consistency</strong> (1031ファイル, 不整合: 11923件)</summary>
+<summary><strong>gender_sum_consistency</strong> (1032ファイル, 不整合: 11933件)</summary>
 
 ```text
+sentinel_weekly_medical_district_2026_41.csv (不整合: 10件)
 sentinel_weekly_medical_district_2026_40.csv (不整合: 13件)
 sentinel_weekly_medical_district_2026_39.csv (不整合: 13件)
 sentinel_weekly_medical_district_2026_38.csv (不整合: 13件)
@@ -229,8 +230,7 @@ sentinel_weekly_medical_district_2025_47.csv (不整合: 14件)
 sentinel_weekly_medical_district_2025_46.csv (不整合: 13件)
 sentinel_weekly_medical_district_2025_45.csv (不整合: 13件)
 sentinel_weekly_medical_district_2025_44.csv (不整合: 13件)
-sentinel_weekly_medical_district_2025_43.csv (不整合: 11件)
-... 他981ファイル
+... 他982ファイル
 ```
 
 </details>
