@@ -14,11 +14,11 @@
   "lines": 25,
   "hash": {
     "algorithm": "sha256",
-    "value": "585b34ee9f40a8b9a17dc09dcc8e2b665284d6a2b545a4a066a518fc6119573d"
+    "value": "20d94bfb0d432bb4a7df4605ab526c4016940f496f178fef11f36736b1a87939"
   },
   "encoding": "utf-8",
   "created": "2026-10-15T08:20:32.273331+00:00",
-  "modified": "2026-10-15T08:20:32.273331+00:00",
+  "modified": "2026-10-22T08:54:06.159200+00:00",
   "sources": [
     {
       "title": "sentinel_weekly_gender_2026_41.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "sentinel_weekly_gender_2026_41",
-    "source_hash": "bf56c067ae272da0b747aa37effbb032de34bf7e6b6a1d1401dd417da576cc81",
-    "processing_time_seconds": 0.00010848045349121094,
+    "source_hash": "a83cca5c54ed9507bd598fbee371440211b56e7b9724b2d496497c5a17da8678",
+    "processing_time_seconds": 0.00018858909606933594,
     "gender": null
   },
   "quality": {
-    "validation_timestamp": "2026-10-15T08:20:32.273342+00:00",
+    "validation_timestamp": "2026-10-22T08:54:06.159210+00:00",
     "validation_status": "completed",
     "issues": []
   }
