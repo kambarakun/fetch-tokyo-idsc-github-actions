@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -75,7 +76,8 @@ def _fetchers(responses: dict[str, Any]) -> vet.Fetchers:
         assert url == vet.OSV_QUERY
         return responses.get(f"osv:{vet._osv_key(payload)}", {})
 
-    return fetch_json, fetch_text, post_json
+    # Every page already joined: cursor paging itself is tested against make_fetchers.
+    return fetch_json, fetch_text, post_json, fetch_json
 
 
 def _uv_lock(**versions: str) -> str:
@@ -119,11 +121,16 @@ def _pr(
     number: int = 748,
     head_sha: str = HEAD_SHA,
     created_at: datetime = NOW,
+    committed_at: datetime | None = None,
     author: str = vet.DEPENDABOT_AUTHOR,
     human_commits: int = 0,
     check_runs: list[tuple[str, str]] | None = None,
 ) -> None:
-    """Register one PR: its metadata, changed files at both refs, commits and check runs."""
+    """Register one PR: its metadata, changed files at both refs, commits and check runs.
+
+    Dependabot commits when it opens the PR, so its commit carries `created_at` unless a test
+    says Dependabot rewrote the PR later.
+    """
     responses[f"{API}/pulls/{number}"] = {
         "number": number,
         "user": {"login": author},
@@ -132,9 +139,9 @@ def _pr(
         "base": {"sha": BASE_SHA},
     }
     responses[f"{API}/pulls/{number}/files?per_page=100&page=1"] = [{"filename": path} for path in files]
-    responses[f"{API}/pulls/{number}/commits?per_page=100&page=1"] = [{"author": {"login": vet.DEPENDABOT_AUTHOR}}] + [
-        {"author": {"login": "human"}} for _ in range(human_commits)
-    ]
+    responses[f"{API}/pulls/{number}/commits?per_page=100&page=1"] = [
+        _commit(vet.DEPENDABOT_AUTHOR, committed_at or created_at)
+    ] + [_commit("human", created_at) for _ in range(human_commits)]
     responses[f"{API}/compare/{BASE_SHA}...{head_sha}"] = {"merge_base_commit": {"sha": MERGE_BASE}}
     for path, (before, after) in files.items():
         if before is not None:
@@ -143,7 +150,7 @@ def _pr(
             responses[f"{API}/contents/{path}?ref={head_sha}"] = after
         # Every pinned action gets unchanged metadata unless a test says otherwise.
         for text in (before or "", after or ""):
-            for action, sha in re.findall(r"uses:\s*([\w./-]+)@([0-9a-f]{40})", text):
+            for action, sha in re.findall(r"uses:\s*[\"']?([\w./-]+)@([0-9a-f]{40})", text):
                 responses.setdefault(_metadata_url(action, sha), _action_yml())
     responses.setdefault(f"{API}/contents/pyproject.toml?ref={head_sha}", PYPROJECT)
     responses[f"{API}/contents/.github/dependabot.yml?ref={head_sha}"] = DEPENDABOT_YML
@@ -157,6 +164,14 @@ def _pr(
     }
 
 
+def _commit(login: str, committed_at: datetime) -> dict[str, Any]:
+    return {"author": {"login": login}, "commit": {"committer": {"date": _iso(committed_at)}}}
+
+
+def _advisories_url(repo: str) -> str:
+    return vet.REPOSITORY_ADVISORIES.format(repo=repo)
+
+
 def _pypi(
     responses: dict[str, Any],
     name: str,
@@ -164,7 +179,15 @@ def _pypi(
     *,
     yanked: tuple[str, ...] = (),
     requires_python: str = ">=3.7",
+    project_urls: dict[str, str] | None = None,
 ) -> None:
+    """Register PyPI releases; the project's repository (`astral-sh/<name>`) has no advisory."""
+    if project_urls is None:
+        project_urls = {
+            "Documentation": f"https://docs.astral.sh/{name}",
+            "Repository": f"https://github.com/astral-sh/{name}",
+        }
+        responses.setdefault(_advisories_url(f"astral-sh/{name}"), [])
     for version, uploaded in releases.items():
         files = [{"upload_time_iso_8601": _iso(uploaded), "yanked": version in yanked, "packagetype": "sdist"}]
         responses[vet.PYPI_RELEASE.format(name=name, version=version)] = {
@@ -172,6 +195,7 @@ def _pypi(
                 "yanked": version in yanked,
                 "yanked_reason": "broken" if version in yanked else None,
                 "requires_python": requires_python,
+                "project_urls": project_urls,
             },
             "urls": files,
         }
@@ -251,8 +275,7 @@ def action_pr() -> dict[str, Any]:
 
 
 def _vet(responses: dict[str, Any], number: int = 748) -> vet.PullRequestVerdict:
-    fetch_json, fetch_text, post_json = _fetchers(responses)
-    return vet.vet_pull_request(fetch_json, fetch_text, post_json, repo=REPO, number=number)
+    return vet.vet_pull_request(*_fetchers(responses), repo=REPO, number=number)
 
 
 def _checks(verdict: vet.PullRequestVerdict) -> dict[tuple[str, str], vet.CheckResult]:
@@ -446,9 +469,11 @@ def test_osv_pagination_is_followed_before_reporting_no_advisory(action_pr: dict
 
 
 def test_endless_osv_pagination_exits_two(monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any]) -> None:
-    fetch_json, fetch_text, _ = _fetchers(action_pr)
+    fetch_json, fetch_text, _, fetch_list = _fetchers(action_pr)
     monkeypatch.setattr(
-        vet, "make_fetchers", lambda token: (fetch_json, fetch_text, lambda url, payload: {"next_page_token": "again"})
+        vet,
+        "make_fetchers",
+        lambda token: (fetch_json, fetch_text, lambda url, payload: {"next_page_token": "again"}, fetch_list),
     )
 
     assert vet.main(["--pr", "748", "--repo", REPO]) == 2
@@ -742,6 +767,254 @@ def test_withdrawn_advisories_are_ignored(uv_pr: dict[str, Any]) -> None:
     assert _checks(_vet(responses))[("advisory", "astral-sh/setup-uv")].verdict == "OK"
 
 
+def _repo_advisory(
+    vulnerable: str | None,
+    *,
+    name: str | None = "ruff",
+    ecosystem: str = "pip",
+    state: str = "published",
+    withdrawn_at: str | None = None,
+    ghsa: str = "GHSA-8rjx-v5ww-45pp",
+) -> dict[str, Any]:
+    """One repository security advisory as the REST API lists it (fields the check ignores included)."""
+    return {
+        "ghsa_id": ghsa,
+        "state": state,
+        "withdrawn_at": withdrawn_at,
+        "summary": "untrusted prose",
+        "description": "untrusted prose",
+        "vulnerabilities": [
+            {
+                "package": {"ecosystem": ecosystem, "name": name},
+                "vulnerable_version_range": vulnerable,
+                "patched_versions": "0.16.9",
+            }
+        ],
+    }
+
+
+def _repo_check(responses: dict[str, Any]) -> vet.CheckResult:
+    return _checks(_vet(responses))[("repo_advisory", "ruff")]
+
+
+@pytest.mark.parametrize(
+    ("advisory", "expected"),
+    [
+        (_repo_advisory("<= 0.16.8"), "BLOCK"),
+        (_repo_advisory(">= 0.16.0, < 0.16.9"), "BLOCK"),
+        (_repo_advisory("= 0.16.8"), "BLOCK"),
+        # certifi and virtualenv write the operator without the documented space.
+        (_repo_advisory(">=0.16.8"), "BLOCK"),
+        (_repo_advisory("< 0.16.8"), "OK"),
+        (_repo_advisory("> 0, < 0.16.8"), "OK"),
+        (_repo_advisory("= 0.16.7"), "OK"),
+        # Pillow writes `Pillow` and `pillow` side by side: PyPI names compare normalised.
+        (_repo_advisory("<= 0.16.8", name="Ruff"), "BLOCK"),
+        (_repo_advisory("<= 0.16.8", name="ruff-lsp"), "OK"),
+        (_repo_advisory("<= 0.16.8", ecosystem="actions"), "OK"),
+        (_repo_advisory("<= 0.16.8", state="draft"), "OK"),
+        (_repo_advisory("<= 0.16.8", state="withdrawn", withdrawn_at="2026-09-20T00:00:00Z"), "OK"),
+        (_repo_advisory("<= 0.16.8", withdrawn_at="2026-09-20T00:00:00Z"), "OK"),
+        # psf/black GHSA-3936-cmfr-pm3m names its pip package `psf/black`, which PyPI cannot hold.
+        (_repo_advisory("<= 0.16.8", name="astral-sh/ruff"), "WARN"),
+        (_repo_advisory("< 0.16.0", name="astral-sh/ruff"), "OK"),
+        (_repo_advisory("<= 0.16.8", name=None), "WARN"),
+        # Pillow's hyphen form, black's bare version list and a Unicode operator are not the documented syntax.
+        (_repo_advisory("0.16.0 - 0.16.9"), "WARN"),
+        (_repo_advisory("0.16.7, 0.16.8"), "WARN"),
+        (_repo_advisory("≤ 0.16.8"), "WARN"),
+        (_repo_advisory(">= 0.16.0, < bogus"), "WARN"),
+        # CodeRabbit on #825: terms outside "lower, upper" read as AND turned a version list into a false OK.
+        (_repo_advisory("= 0.16.8, = 0.16.9"), "WARN"),
+        (_repo_advisory("< 0.16.0, >= 0.16.8"), "WARN"),
+        (_repo_advisory("< 0.17.0, < 0.18.0"), "WARN"),
+        (_repo_advisory("= 0.16.8, < 0.17.0"), "WARN"),
+        (_repo_advisory(">= 0.16.0, < 0.17.0, < 0.18.0"), "WARN"),
+        (_repo_advisory(">= 0.17.0, < 0.16.0"), "WARN"),
+        (_repo_advisory("> 0.16.8, < 0.16.8"), "WARN"),
+        (_repo_advisory(">= 0.16.8, < 0.16.8"), "WARN"),
+        (_repo_advisory(">= 0.16.8, <= 0.16.8"), "BLOCK"),
+        (_repo_advisory(None), "WARN"),
+        ({**_repo_advisory(None), "vulnerabilities": []}, "WARN"),
+        (
+            {**_repo_advisory(None), "vulnerabilities": [{"package": None, "vulnerable_version_range": "<= 0.16.8"}]},
+            "WARN",
+        ),
+    ],
+    ids=[
+        "upper-inclusive",
+        "bounded",
+        "single",
+        "no-space",
+        "patched",
+        "patched-lower-zero",
+        "other-single",
+        "case",
+        "other-package",
+        "other-ecosystem",
+        "draft",
+        "withdrawn-state",
+        "withdrawn-at",
+        "invalid-name-in-range",
+        "invalid-name-out-of-range",
+        "no-name",
+        "hyphen",
+        "version-list",
+        "unicode-operator",
+        "bad-bound",
+        "two-singles",
+        "upper-before-lower",
+        "two-uppers",
+        "single-with-upper",
+        "three-terms",
+        "lower-above-upper",
+        "empty-open-interval",
+        "empty-half-open-interval",
+        "single-version-interval",
+        "no-range",
+        "no-vulnerabilities",
+        "no-package",
+    ],
+)
+def test_repository_advisory_is_matched_by_state_package_and_range(
+    uv_pr: dict[str, Any], advisory: dict[str, Any], expected: str
+) -> None:
+    uv_pr[_advisories_url("astral-sh/ruff")] = [advisory]
+
+    assert _repo_check(uv_pr).verdict == expected
+
+
+def test_repository_advisory_missing_from_osv_is_a_block(uv_pr: dict[str, Any]) -> None:
+    """#765: virtualenv GHSA-8rjx-v5ww-45pp sat in the repository while OSV and GitHub's database had nothing."""
+    uv_pr[_advisories_url("astral-sh/ruff")] = [_repo_advisory("<= 0.16.8")]
+
+    verdict = _vet(uv_pr)
+    check = _checks(verdict)[("repo_advisory", "ruff")]
+
+    assert _checks(verdict)[("advisory", "ruff")].verdict == "OK"
+    assert check.verdict == "BLOCK"
+    assert "GHSA-8rjx-v5ww-45pp" in check.detail
+    assert check.links == ["https://github.com/astral-sh/ruff/security/advisories/GHSA-8rjx-v5ww-45pp"]
+    assert "untrusted prose" not in vet.render_markdown([verdict])
+
+
+def test_untrusted_advisory_ids_are_not_echoed_into_the_report(uv_pr: dict[str, Any]) -> None:
+    uv_pr[_advisories_url("astral-sh/ruff")] = [_repo_advisory("<= 0.16.8", ghsa="](https://evil.example)")]
+
+    check = _repo_check(uv_pr)
+
+    assert check.verdict == "BLOCK"
+    assert "evil" not in check.detail
+    assert check.links == ["https://github.com/astral-sh/ruff/security/advisories"]
+
+
+@pytest.mark.parametrize(
+    ("osv", "expected"),
+    [
+        ({"vulns": [{"id": "GHSA-654x-cwwv-5j9c"}]}, "OK"),
+        ({"vulns": [{"id": "PYSEC-2026-1", "aliases": ["GHSA-654x-cwwv-5j9c"]}]}, "OK"),
+        # A copy OSV withdrew vouches for nothing; the repository's own statement stands.
+        ({"vulns": [{"id": "GHSA-654x-cwwv-5j9c", "withdrawn": "2026-10-20T00:00:00Z"}]}, "WARN"),
+        ({}, "WARN"),
+    ],
+    ids=["osv-id", "osv-alias", "osv-withdrawn", "osv-absent"],
+)
+def test_repository_advisory_that_osv_carries_is_left_to_the_osv_check(
+    uv_pr: dict[str, Any], osv: dict[str, Any], expected: str
+) -> None:
+    """Pillow GHSA-654x-cwwv-5j9c: the repository wrote `11.2.1 - 13.0.0`, OSV the reviewed `< 13.0.0`."""
+    uv_pr[_advisories_url("astral-sh/ruff")] = [_repo_advisory("0.16.0 - 0.16.8", ghsa="GHSA-654x-cwwv-5j9c")]
+    uv_pr["osv:PyPI/ruff@*"] = osv
+
+    check = _repo_check(uv_pr)
+
+    assert check.verdict == expected
+    assert ("OSV" in check.detail) == (expected == "OK")
+
+
+@pytest.mark.parametrize(
+    ("project_urls", "expected"),
+    [
+        ({}, "WARN"),
+        ({"Homepage": "http://pythonhosted.org/pytz"}, "WARN"),
+        # A page inside the repository is not the repository itself.
+        ({"Issues": "https://github.com/astral-sh/ruff/issues"}, "WARN"),
+        ({"Source": "https://mirror.example/github.com/astral-sh/ruff"}, "WARN"),
+        # `sponsors/<user>` looks like a repository and answers 404.
+        ({"Funding": "https://github.com/sponsors/someone"}, "WARN"),
+        ({"Funding": "https://github.com/sponsors/someone", "Source": "https://github.com/astral-sh/ruff"}, "OK"),
+    ],
+    ids=["none", "elsewhere", "page", "mirror", "sponsors-only", "sponsors-and-source"],
+)
+def test_repository_advisories_need_a_github_repository_in_project_urls(
+    uv_pr: dict[str, Any], project_urls: dict[str, str], expected: str
+) -> None:
+    _pypi(uv_pr, "ruff", {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC)}, project_urls=project_urls)
+    uv_pr[_advisories_url("astral-sh/ruff")] = []
+
+    check = _repo_check(uv_pr)
+
+    assert check.verdict == expected
+    assert ("astral-sh/ruff" in check.detail) == (expected == "OK")
+
+
+def test_every_repository_in_project_urls_is_queried_once(uv_pr: dict[str, Any]) -> None:
+    project_urls = {
+        "Source": "https://github.com/astral-sh/ruff",
+        "Homepage": "https://GitHub.com/Astral-sh/Ruff.git",
+        "Upstream": "https://github.com/other/ruff",
+    }
+    _pypi(uv_pr, "ruff", {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC)}, project_urls=project_urls)
+    uv_pr[_advisories_url("other/ruff")] = [_repo_advisory("<= 0.16.8")]
+    fetch_json, fetch_text, post_json, fetch_list = _fetchers(uv_pr)
+    listed: list[str] = []
+
+    def counting_list(url: str) -> Any:
+        listed.append(url)
+        return fetch_list(url)
+
+    verdict = vet.vet_pull_request(fetch_json, fetch_text, post_json, counting_list, REPO, 748)
+
+    assert _checks(verdict)[("repo_advisory", "ruff")].verdict == "BLOCK"
+    assert listed == [_advisories_url("astral-sh/ruff"), _advisories_url("other/ruff")]
+
+
+def test_bumps_sharing_a_repository_list_its_advisories_once(uv_pr: dict[str, Any]) -> None:
+    """Stub packages such as `types-*` share python/typeshed; one group PR may bump several.
+
+    CodeRabbit on #825: each package may spell the repository with its own casing.
+    """
+    lock = (_uv_lock(ruff="0.16.7", **{"ruff-lsp": "0.0.1"}), _uv_lock(ruff="0.16.8", **{"ruff-lsp": "0.0.2"}))
+    uv_pr[f"{API}/contents/uv.lock?ref={MERGE_BASE}"], uv_pr[f"{API}/contents/uv.lock?ref={HEAD_SHA}"] = lock
+    project_urls = {"Source": "https://github.com/Astral-sh/Ruff"}
+    _pypi(uv_pr, "ruff-lsp", {"0.0.2": datetime(2026, 9, 1, tzinfo=UTC)}, project_urls=project_urls)
+    fetch_json, fetch_text, post_json, fetch_list = _fetchers(uv_pr)
+    listed: list[str] = []
+
+    def counting_list(url: str) -> Any:
+        listed.append(url)
+        return fetch_list(url)
+
+    verdict = vet.vet_pull_request(fetch_json, fetch_text, post_json, counting_list, REPO, 748)
+
+    assert [check.verdict for check in verdict.checks if check.check_id == "repo_advisory"] == ["OK", "OK"]
+    assert listed == [_advisories_url("astral-sh/ruff")]
+
+
+def test_repository_advisory_server_error_exits_two(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:
+    fetch_json, fetch_text, post_json, _ = _fetchers(uv_pr)
+
+    def failing_list(url: str) -> Any:
+        response = requests.Response()
+        response.status_code = 502
+        raise requests.HTTPError(response=response)
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (fetch_json, fetch_text, post_json, failing_list))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    assert vet.main(["--repo", REPO, "--pr", "748"]) == 2
+
+
 @pytest.mark.parametrize("comment", ["v7", ""])
 def test_superseded_is_not_evaluated_without_an_exact_version(comment: str) -> None:
     # The pinned SHA may itself be 7.1.0; every 7.x release would otherwise count as its successor.
@@ -791,6 +1064,36 @@ def test_cooldown_counts_calendar_days_like_dependabot(action_pr: dict[str, Any]
 
     assert check.verdict == "WARN"
     assert "6 日" in check.detail
+
+
+def test_cooldown_counts_from_the_latest_dependabot_commit_of_an_updated_pr() -> None:
+    """Codex P2 on #764: #799 opened 2026-10-12 and was rewritten to a newer candidate on 2026-10-19."""
+    opened, rewritten = datetime(2026, 10, 12, 0, 23, tzinfo=UTC), datetime(2026, 10, 19, 0, 7, tzinfo=UTC)
+    responses: dict[str, Any] = {}
+    lock = (_uv_lock(ruff="0.16.7"), _uv_lock(ruff="0.16.8"))
+    _pr(
+        responses,
+        head_ref="dependabot/uv/ruff-0.16.8",
+        files={"uv.lock": lock},
+        created_at=opened,
+        committed_at=rewritten,
+    )
+    # A commit the PR's own author did not make is not a proposal: it must not move the base.
+    responses[f"{API}/pulls/748/commits?per_page=100&page=1"].append(_commit("human", rewritten + timedelta(days=9)))
+    _pypi(responses, "ruff", {"0.16.8": datetime(2026, 10, 11, 9, tzinfo=UTC)})
+
+    check = _checks(_vet(responses))[("cooldown", "ruff")]
+
+    assert check.verdict == "OK"
+    assert check.detail == "2026-10-11 → 2026-10-19 (Dependabot の最新 commit) = 8 日 (≥ 7)"
+
+
+def test_cooldown_falls_back_to_the_pr_creation_without_a_dependabot_commit(uv_pr: dict[str, Any]) -> None:
+    uv_pr[f"{API}/pulls/748/commits?per_page=100&page=1"] = [_commit("human", NOW + timedelta(days=30))]
+
+    check = _checks(_vet(uv_pr))[("cooldown", "ruff")]
+
+    assert check.detail == "2026-09-16 → 2026-09-28 (PR 作成) = 12 日 (≥ 7)"
 
 
 def test_release_superseded_within_seven_days_is_a_warn(uv_pr: dict[str, Any]) -> None:
@@ -859,7 +1162,10 @@ def test_superseded_is_not_evaluated_for_repositories_without_releases() -> None
     assert checks[("superseded", "rbubley/mirrors-prettier")].verdict == "OK"
     assert "評価不能" in checks[("superseded", "rbubley/mirrors-prettier")].detail
     # With neither a release nor an annotated tag, the commit date stands in for publication.
-    assert "2026-09-18 → 2026-09-28 = 10 日" in checks[("cooldown", "rbubley/mirrors-prettier")].detail
+    assert (
+        "2026-09-18 → 2026-09-28 (Dependabot の最新 commit) = 10 日"
+        in checks[("cooldown", "rbubley/mirrors-prettier")].detail
+    )
 
 
 def test_action_sha_matching_lightweight_tag_is_ok(action_pr: dict[str, Any]) -> None:
@@ -895,7 +1201,9 @@ def test_action_sha_matching_dereferenced_annotated_tag_is_ok() -> None:
     checks = _checks(verdict)
 
     assert checks[("tag_sha", "reviewdog/action-actionlint")].verdict == "OK"
-    assert checks[("cooldown", "reviewdog/action-actionlint")].detail.startswith("2026-09-18 → 2026-09-28 = 10 日")
+    assert checks[("cooldown", "reviewdog/action-actionlint")].detail.startswith(
+        "2026-09-18 → 2026-09-28 (Dependabot の最新 commit) = 10 日"
+    )
     assert checks[("superseded", "reviewdog/action-actionlint")].verdict == "WARN"
     assert vet.verdict_line(verdict) == "判定: WARN (1 件)"
 
@@ -957,19 +1265,55 @@ def test_yaml_extension_workflows_are_parsed() -> None:
     assert _checks(verdict)[("pr_hygiene", "-")].verdict == "OK"
 
 
+def _quoted_workflow(action: str, sha: str, tag: str, quote_mark: str) -> str:
+    return f"jobs:\n  test:\n    steps:\n      - uses: {quote_mark}{action}@{sha}{quote_mark} # {tag}\n"
+
+
+@pytest.mark.parametrize("quote_mark", ['"', "'"])
+def test_quoted_uses_are_vetted_like_plain_ones(action_pr: dict[str, Any], quote_mark: str) -> None:
+    """Codex P2 on #764: a quoted scalar was not detected, so only a pr_hygiene WARN remained."""
+    for name in ("test", "watchdog"):
+        path = f".github/workflows/{name}.yml"
+        action_pr[f"{API}/contents/{path}?ref={MERGE_BASE}"] = _quoted_workflow(
+            "astral-sh/setup-uv", SETUP_UV_OLD, "v10.1.0", quote_mark
+        )
+        action_pr[f"{API}/contents/{path}?ref={HEAD_SHA}"] = _quoted_workflow(
+            "astral-sh/setup-uv", SETUP_UV_NEW, "v10.2.0", quote_mark
+        )
+
+    verdict = _vet(action_pr)
+    checks = _checks(verdict)
+
+    assert verdict.bumps == [vet.Bump("astral-sh/setup-uv", "v10.1.0", "v10.2.0", "action", sha=SETUP_UV_NEW)]
+    assert checks[("tag_sha", "astral-sh/setup-uv")].verdict == "OK"
+    assert _metadata_check(verdict, "astral-sh/setup-uv").change == "v10.1.0 → v10.2.0"
+    assert checks[("pr_hygiene", "-")].verdict == "OK"
+
+
+def test_quoted_subpath_keeps_its_path_and_mismatched_quotes_are_not_a_pin() -> None:
+    sha = "1" * 40
+    quoted = _quoted_workflow("github/codeql-action/init", sha, "v4.1.0", '"')
+    mismatched = f"      - uses: \"github/codeql-action@{sha}' # v4.1.0\n"
+
+    assert vet.action_pin_changes(None, quoted) == [
+        vet.ActionPinChange("github/codeql-action", "init", None, None, sha, "v4.1.0")
+    ]
+    assert vet.workflow_bumps(None, mismatched) == []
+
+
 def _metadata_check(verdict: vet.PullRequestVerdict, action: str) -> vet.CheckResult:
     return _checks(verdict)[("action_metadata", action)]
 
 
 def test_unchanged_action_metadata_is_ok_and_read_at_both_pinned_shas(action_pr: dict[str, Any]) -> None:
     fetched: list[str] = []
-    fetch_json, fetch_text, post_json = _fetchers(action_pr)
+    fetch_json, fetch_text, post_json, fetch_list = _fetchers(action_pr)
 
     def recording_text(url: str) -> str:
         fetched.append(url)
         return fetch_text(url)
 
-    verdict = vet.vet_pull_request(fetch_json, recording_text, post_json, REPO, 748)
+    verdict = vet.vet_pull_request(fetch_json, recording_text, post_json, fetch_list, REPO, 748)
     check = _metadata_check(verdict, "astral-sh/setup-uv")
 
     assert check.verdict == "OK"
@@ -1521,7 +1865,7 @@ def test_untrusted_input_names_are_not_echoed_into_the_report(action_pr: dict[st
 
 
 def test_action_metadata_server_error_exits_two(monkeypatch: pytest.MonkeyPatch, action_pr: dict[str, Any]) -> None:
-    fetch_json, fetch_text, post_json = _fetchers(action_pr)
+    fetch_json, fetch_text, post_json, fetch_list = _fetchers(action_pr)
 
     def failing_text(url: str) -> str:
         if "/contents/action.yml" in url:
@@ -1530,7 +1874,7 @@ def test_action_metadata_server_error_exits_two(monkeypatch: pytest.MonkeyPatch,
             raise requests.HTTPError(response=response)
         return fetch_text(url)
 
-    monkeypatch.setattr(vet, "make_fetchers", lambda token: (fetch_json, failing_text, post_json))
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (fetch_json, failing_text, post_json, fetch_list))
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 
     assert vet.main(["--repo", REPO, "--pr", "748"]) == 2
@@ -1586,6 +1930,51 @@ def test_pre_commit_repo_outside_github_is_a_warn() -> None:
     assert checks[("tag_exists", repo_url)].verdict == "WARN"
     assert checks[("cooldown", repo_url)].verdict == "WARN"
     assert checks[("superseded", repo_url)].verdict == "OK"
+
+
+@pytest.mark.parametrize(
+    "repo_url",
+    ["https://mirror.example/github.com/pycqa/flake8", "git@gitlab.com:pycqa/flake8.git"],
+    ids=["github-in-path", "scp-on-another-host"],
+)
+def test_pre_commit_repo_that_only_mentions_github_is_a_warn(repo_url: str) -> None:
+    """Codex P2 on #764: an unanchored search read `pycqa/flake8` out of a mirror URL."""
+    responses: dict[str, Any] = {}
+    files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "7.0.0"), _pre_commit(repo_url, "7.1.0"))}
+    _pr(responses, head_ref="dependabot/pre_commit/mirror/pycqa/flake8-7.1.0", files=files)
+    # Were the URL taken for GitHub, these would answer and turn the WARN into OK.
+    _tag(responses, "pycqa/flake8", "7.1.0", "a" * 40)
+
+    checks = _checks(_vet(responses))
+
+    assert checks[("tag_exists", repo_url)].verdict == "WARN"
+    assert checks[("cooldown", repo_url)].verdict == "WARN"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://github.com/rhysd/actionlint", "rhysd/actionlint"),
+        ("https://GitHub.com/rhysd/actionlint.git/", "rhysd/actionlint"),
+        ("http://github.com/fonttools/fonttools", "fonttools/fonttools"),
+        ("https://github.com/owner/repo.name", "owner/repo.name"),
+        ("git@github.com:owner/repo.name.git", "owner/repo.name"),
+        ("ssh://git@github.com/owner/repo.git", "owner/repo"),
+        ("https://mirror.example/github.com/owner/repo", None),
+        ("https://github.com.evil.example/owner/repo", None),
+        ("https://notgithub.com/owner/repo", None),
+        ("https://github.com:8443/owner/repo", None),
+        ("https://github.com:bad/owner/repo", None),
+        ("git@gitlab.com:owner/repo.git", None),
+        ("file:///github.com/owner/repo", None),
+        ("https://github.com/owner/repo/issues", None),
+        ("https://github.com/owner/repo?tab=readme", None),
+        ("https://github.com/owner", None),
+        ("https://github.com/owner/..", None),
+    ],
+)
+def test_github_repository_requires_the_github_host_and_a_repository_path(url: str, expected: str | None) -> None:
+    assert vet.github_repository(url) == expected
 
 
 def test_release_without_requires_python_is_ok(uv_pr: dict[str, Any]) -> None:
@@ -1776,7 +2165,18 @@ def test_healthy_uv_pr_is_ok_on_every_check(uv_pr: dict[str, Any]) -> None:
     verdict = _vet(uv_pr)
 
     assert {check.check_id: check.verdict for check in verdict.checks} == dict.fromkeys(
-        ["yanked", "advisory", "python_range", "cooldown", "superseded", "major_bump", "pr_hygiene", "ci_green"], "OK"
+        [
+            "yanked",
+            "advisory",
+            "repo_advisory",
+            "python_range",
+            "cooldown",
+            "superseded",
+            "major_bump",
+            "pr_hygiene",
+            "ci_green",
+        ],
+        "OK",
     )
     assert vet.verdict_line(verdict) == "判定: OK"
 
@@ -1809,7 +2209,7 @@ def test_network_failure_exits_two_not_block(monkeypatch: pytest.MonkeyPatch, tm
     def broken(url: str) -> Any:
         raise requests.ConnectionError("network down")
 
-    monkeypatch.setattr(vet, "make_fetchers", lambda token: (broken, broken, lambda url, payload: broken(url)))
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (broken, broken, lambda url, payload: broken(url), broken))
     report, report_json = tmp_path / "report.md", tmp_path / "report.json"
 
     status = vet.main(["--pr", "748", "--repo", REPO, "--report", str(report), "--json", str(report_json)])
@@ -1966,10 +2366,12 @@ def test_recording_writes_a_fixture_that_replays_identically(
     uv_pr[f"{API}/pulls/748"]["title"] = "untrusted title"
     uv_pr[f"{API}/pulls/748/files?per_page=100&page=1"][0]["patch"] = "@@ -1 +1 @@"
     uv_pr[f"{API}/commits/{HEAD_SHA}/check-runs?per_page=100&page=1"]["check_runs"][0]["output"] = {"text": "log"}
+    uv_pr[f"{API}/pulls/748/commits?per_page=100&page=1"][0]["commit"]["message"] = "untrusted message"
+    release = uv_pr[vet.PYPI_RELEASE.format(name="ruff", version="0.16.8")]
+    release["info"]["project_urls"]["untrusted label"] = "https://example.invalid/untrusted-url"
+    uv_pr[_advisories_url("astral-sh/ruff")] = [_repo_advisory("< 0.16.8")]
     monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
-    fetch_json, fetch_text, post_json = vet.make_recording_fetchers(None, tmp_path)
-
-    recorded = vet.vet_pull_request(fetch_json, fetch_text, post_json, REPO, 748)
+    recorded = vet.vet_pull_request(*vet.make_recording_fetchers(None, tmp_path), REPO, 748)
     replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
     stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
 
@@ -1978,6 +2380,9 @@ def test_recording_writes_a_fixture_that_replays_identically(
     assert "untrusted title" not in stored
     assert "@@ -1 +1 @@" not in stored
     assert '"output"' not in stored
+    assert "untrusted message" not in stored
+    assert "untrusted" not in stored
+    assert "https://github.com/astral-sh/ruff" in stored
     index = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
     project = json.loads((tmp_path / index[f"GET {vet.PYPI_PROJECT.format(name='ruff')}"]).read_text(encoding="utf-8"))
     # Only releases above the candidate (0.16.8) can supersede it; 0.16.7 is history.
@@ -2166,6 +2571,53 @@ def test_recorded_fixture_stays_under_the_size_budget() -> None:
     assert sum(path.stat().st_size for path in FIXTURE_DIR.iterdir()) < 300_000
 
 
+class _PagedResponse:
+    """What `make_fetchers` reads from a page: the body and the `Link: rel="next"` target."""
+
+    ok = True
+
+    def __init__(self, payload: Any, following: str | None) -> None:
+        self.payload = payload
+        self.links = {"next": {"url": following, "rel": "next"}} if following else {}
+
+    def json(self) -> Any:
+        return self.payload
+
+
+def test_repository_advisories_follow_the_link_header_to_the_last_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The listing pages by cursor (`after=`) under `/repositories/{id}`, never by page number."""
+    first = _advisories_url("astral-sh/ruff")
+    second = f"{vet.GITHUB_API}/repositories/1/security-advisories?state=published&per_page=100&after=Y3Vy"
+    pages = {first: ([{"ghsa_id": "GHSA-1"}], second), second: ([{"ghsa_id": "GHSA-2"}], None)}
+    seen: list[tuple[str, str | None]] = []
+
+    def get(url: str, headers: dict[str, str], **kwargs: Any) -> _PagedResponse:
+        seen.append((url, headers.get("Authorization")))
+        return _PagedResponse(*pages[url])
+
+    monkeypatch.setattr(requests, "get", get)
+
+    listed = vet.make_fetchers("secret-token")[3](first)
+
+    assert listed == [{"ghsa_id": "GHSA-1"}, {"ghsa_id": "GHSA-2"}]
+    assert seen == [(first, "Bearer secret-token"), (second, "Bearer secret-token")]
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [([{"ghsa_id": "GHSA-1"}], ValueError), ({"message": "not a listing"}, TypeError)],
+    ids=["endless", "not-a-list"],
+)
+def test_repository_advisory_pages_that_never_end_or_are_not_lists_fail(
+    monkeypatch: pytest.MonkeyPatch, payload: Any, error: type[Exception]
+) -> None:
+    following = f"{vet.GITHUB_API}/repositories/1/security-advisories?after=again"
+    monkeypatch.setattr(requests, "get", lambda url, headers, **kwargs: _PagedResponse(payload, following))
+
+    with pytest.raises(error):
+        vet.make_fetchers(None)[3](_advisories_url("astral-sh/ruff"))
+
+
 def test_the_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, dict[str, str]] = {}
 
@@ -2181,7 +2633,7 @@ def test_the_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(requests, "get", record)
     monkeypatch.setattr(requests, "post", record)
-    fetch_json, _, post_json = vet.make_fetchers("secret-token")
+    fetch_json, _, post_json, _ = vet.make_fetchers("secret-token")
 
     fetch_json(f"{API}/pulls/748")
     fetch_json(vet.PYPI_PROJECT.format(name="ruff"))
@@ -2192,10 +2644,43 @@ def test_the_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) 
     assert "Authorization" not in seen[vet.OSV_QUERY]
 
 
+def _origin(monkeypatch: pytest.MonkeyPatch, remote: str) -> None:
+    """Stand in for `git remote get-url origin`: the checkout's own remote must not decide a test."""
+
+    def run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert command == ["git", "remote", "get-url", "origin"]
+        return subprocess.CompletedProcess(command, 0, stdout=f"{remote}\n", stderr="")
+
+    monkeypatch.setattr(vet.subprocess, "run", run)
+
+
 def test_repository_is_resolved_from_the_environment_then_git_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    _origin(monkeypatch, "git@github.com:origin/repo.git")
     monkeypatch.setenv("GITHUB_REPOSITORY", "env/repo")
     assert vet.resolve_repo(None) == "env/repo"
 
     monkeypatch.delenv("GITHUB_REPOSITORY")
-    assert vet.resolve_repo(None) == "kambarakun/fetch-tokyo-idsc-github-actions"
+    assert vet.resolve_repo(None) == "origin/repo"
     assert vet.resolve_repo("given/repo") == "given/repo"
+
+
+@pytest.mark.parametrize(
+    ("remote", "expected"),
+    [
+        (
+            "https://github.com/kambarakun/fetch-tokyo-idsc-github-actions.git",
+            "kambarakun/fetch-tokyo-idsc-github-actions",
+        ),
+        ("git@github.com:owner/repo.name.git", "owner/repo.name"),
+        ("https://mirror.example/github.com/owner/repo", None),
+        ("git@gitlab.com:owner/repo.git", None),
+    ],
+)
+def test_git_remote_names_a_repository_only_on_github(
+    monkeypatch: pytest.MonkeyPatch, remote: str, expected: str | None
+) -> None:
+    """Codex P2 on #764: the remote pattern was unanchored and stopped at the first `.` of a name."""
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
+    _origin(monkeypatch, remote)
+
+    assert vet.resolve_repo(None) == expected

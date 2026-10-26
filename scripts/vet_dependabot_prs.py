@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import operator
 import os
 import re
 import subprocess
@@ -38,12 +39,18 @@ import http_fetch
 import requests
 import yaml
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.utils import InvalidName, canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 GITHUB_API = "https://api.github.com"
 PYPI_RELEASE = "https://pypi.org/pypi/{name}/{version}/json"
 PYPI_PROJECT = "https://pypi.org/pypi/{name}/json"
 OSV_QUERY = "https://api.osv.dev/v1/query"
+# Repository security advisories (REST "List repository security advisories"): what a maintainer
+# published on GitHub, often days before OSV or GitHub's own database carries it (virtualenv
+# GHSA-8rjx-v5ww-45pp, issue #765). Public ones need no permission; the listing pages by cursor.
+REPOSITORY_ADVISORIES = GITHUB_API + "/repos/{repo}/security-advisories?state=published&per_page=100"
+LIST_MAX_PAGES = 20
 OSV_MAX_PAGES = 20
 # OSV's `introduced: "0"` sorts before every version; Version("0") would sit above 0.0.0-alpha.
 # Only `introduced` carries that meaning: `fixed` / `last_affected` / `limit` of "0" stay literal 0.
@@ -76,8 +83,11 @@ PAGE_SIZE = 100
 # A trailing subpath (`github/codeql-action/init@...`) still names the `owner/repo` that owns the tag,
 # but is an action of its own with its own metadata. The version comment is optional: a bare SHA
 # pin is still a bump, vetted as "no tag to compare".
+# YAML may quote the scalar (`uses: "owner/repo@<sha>" # v1`); the comment follows the closing quote.
 USES_PATTERN = re.compile(
-    r"^\s*-?\s*uses:\s*([\w.-]+/[\w.-]+)((?:/[\w./-]+)?)@([0-9a-f]{40})(?:\s*#\s*(v?\d[\w.+-]*))?", re.ASCII
+    r"^\s*-?\s*uses:\s*(?P<quote>[\"']?)(?P<repo>[\w.-]+/[\w.-]+)(?P<subpath>(?:/[\w./-]+)?)"
+    r"@(?P<sha>[0-9a-f]{40})(?P=quote)(?:\s*#\s*(?P<version>v?\d[\w.+-]*))?",
+    re.ASCII,
 )
 # GitHub reads `action.yml`, else `action.yaml`, at the root of the action (metadata syntax docs).
 ACTION_METADATA_FILES = ("action.yml", "action.yaml")
@@ -103,13 +113,25 @@ VERDICT_ORDER = ("BLOCK", "WARN", "OK")
 MARKDOWN_SPECIAL = re.compile(r"([\\|`\[\]<])")
 SHORT_SHA = 12
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
-GITHUB_URL_PATTERN = re.compile(r"github\.com/([^/]+/[^/]+?)(?:\.git)?/?$")
-REMOTE_PATTERN = re.compile(r"github\.com[:/]([^/]+/[^/.]+)")
+GITHUB_HOST = "github.com"
+URL_SCHEMES = {"http", "https", "ssh"}
+# The path of a repository itself (`/owner/repo`, `.git` and a trailing `/` allowed), no page inside it.
+REPOSITORY_PATH = re.compile(r"/(?P<owner>[A-Za-z0-9_.-]+)/(?P<name>[A-Za-z0-9_.-]+?)(?:\.git)?/?", re.ASCII)
+# Git's scp-like remote `git@github.com:owner/repo.git` has no scheme for urlsplit to read.
+SCP_REMOTE = re.compile(r"(?:[\w.-]+@)?(?P<host>[\w.-]+):(?P<path>[^/].*)", re.ASCII)
+REPOSITORY_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", re.ASCII)
+# Advisory IDs come from a third party and reach the report; only the GHSA shape is echoed.
+GHSA_ID = re.compile(r"GHSA(?:-[0-9a-z]{4}){3}", re.ASCII)
+# GitHub's affected-version syntax: `= n`, or a lower and / or upper bound joined by ", ". The
+# space after the operator is documented but not always written (`>=2019.03.09`); anything else
+# (Pillow's `1.0 - 2.0`, a bare version list, `≤`) is not the syntax and stays unevaluable.
+ADVISORY_BOUND = re.compile(r"(?P<operator>>=|<=|>|<|=) ?(?P<version>[^\s,]+)", re.ASCII)
 
 FetchJson = Callable[[str], Any]
 FetchText = Callable[[str], str]
 PostJson = Callable[[str, dict[str, Any]], Any]
-Fetchers = tuple[FetchJson, FetchText, PostJson]
+FetchList = Callable[[str], list[Any]]
+Fetchers = tuple[FetchJson, FetchText, PostJson, FetchList]
 
 
 class NotDependabotPullRequestError(Exception):
@@ -187,7 +209,23 @@ def make_fetchers(token: str | None) -> Fetchers:
     def post_json(url: str, payload: dict[str, Any]) -> Any:
         return _http_post(url, token, payload).json()
 
-    return fetch_json, fetch_text, post_json
+    def fetch_list(url: str) -> list[Any]:
+        """Every page of a listing GitHub pages by cursor: the next page is only named in `Link`."""
+        items: list[Any] = []
+        page_url = url
+        for _ in range(LIST_MAX_PAGES):
+            response = _http_get(page_url, token, "application/vnd.github+json")
+            page = response.json()
+            if not isinstance(page, list):
+                raise TypeError(f"{page_url} did not answer with a list")
+            items.extend(page)
+            following = response.links.get("next", {}).get("url")
+            if not following:
+                return items
+            page_url = following
+        raise ValueError(f"{url} returned more than {LIST_MAX_PAGES} pages")
+
+    return fetch_json, fetch_text, post_json, fetch_list
 
 
 def make_poster(token: str | None) -> PostJson:
@@ -232,7 +270,10 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
         },
     ),
     (re.compile(REPO_PATH + r"/pulls/\d+/files$"), [{"filename": None}]),
-    (re.compile(REPO_PATH + r"/pulls/\d+/commits$"), [{"author": {"login": None}}]),
+    (
+        re.compile(REPO_PATH + r"/pulls/\d+/commits$"),
+        [{"author": {"login": None}, "commit": {"committer": {"date": None}}}],
+    ),
     (re.compile(REPO_PATH + r"/pulls$"), [{"number": None, "user": {"login": None}}]),
     (re.compile(REPO_PATH + r"/compare/[^/]+$"), {"merge_base_commit": {"sha": None}}),
     (
@@ -247,6 +288,17 @@ FIXTURE_FIELDS: tuple[tuple[re.Pattern[str], Any], ...] = (
     (re.compile(REPO_PATH + r"/git/ref/tags/"), {"object": None}),
     (re.compile(REPO_PATH + r"/git/tags/[^/]+$"), {"tagger": {"date": None}, "object": None}),
     (re.compile(REPO_PATH + r"/git/commits/[^/]+$"), {"committer": {"date": None}}),
+    (
+        re.compile(REPO_PATH + r"/security-advisories$"),
+        [
+            {
+                "ghsa_id": None,
+                "state": None,
+                "withdrawn_at": None,
+                "vulnerabilities": [{"package": None, "vulnerable_version_range": None}],
+            }
+        ],
+    ),
     (re.compile(REPO_PATH + "$"), {"full_name": None}),
 )
 PYPI_RELEASE_PATH = re.compile(r"^/pypi/(?P<name>[^/]+)/(?P<version>[^/]+)/json$")
@@ -280,6 +332,8 @@ def _trim_for_fixture(url: str, payload: Any, candidates: dict[str, Version] | N
         # file is, so one synthetic file per release preserves both answers.
         info = payload.get("info") or {}
         trimmed: dict[str, Any] = {"info": {key: info.get(key) for key in ("yanked", "requires_python")}}
+        # Only repository URLs are read; labels and other URLs are publisher-written text.
+        trimmed["info"]["project_urls"] = {str(index): url for index, url in enumerate(_repository_urls(info))}
         if "urls" in payload:
             trimmed["urls"] = [_compact_files(payload["urls"])] if payload["urls"] else []
         if "releases" in payload:
@@ -303,7 +357,7 @@ def _compact_files(files: list[dict[str, Any]]) -> dict[str, Any]:
 
 def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
     """Live fetchers that also write every successful response into a replayable fixture."""
-    live_json, live_text, live_post = make_fetchers(token)
+    live_json, live_text, live_post, live_list = make_fetchers(token)
     record_dir.mkdir(parents=True, exist_ok=True)
     index: dict[str, str] = {}
     candidates: dict[str, Version] = {}
@@ -347,7 +401,12 @@ def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
         save(f"POST {url} {_osv_key(payload)}", response, raw=False)
         return response
 
-    return fetch_json, fetch_text, post_json
+    def fetch_list(url: str) -> list[Any]:
+        payload = _trim_for_fixture(url, live_list(url))
+        save(f"GET {url}", payload, raw=False)
+        return list(payload)
+
+    return fetch_json, fetch_text, post_json, fetch_list
 
 
 def make_fixture_fetchers(fixture_dir: Path) -> Fetchers:
@@ -368,7 +427,8 @@ def make_fixture_fetchers(fixture_dir: Path) -> Fetchers:
     def post_json(url: str, payload: dict[str, Any]) -> Any:
         return json.loads(load(f"POST {url} {_osv_key(payload)}", url))
 
-    return fetch_json, fetch_text, post_json
+    # Every page was joined into one recording.
+    return fetch_json, fetch_text, post_json, fetch_json
 
 
 def _memoize(fetch: Callable[[str], Any]) -> Callable[[str], Any]:
@@ -505,7 +565,7 @@ def _workflow_pins(text: str | None) -> dict[str, dict[str, str]]:
     pins: dict[str, dict[str, str]] = {}
     for line in (text or "").splitlines():
         if match := USES_PATTERN.match(line):
-            pins.setdefault(match[1], {})[match[3]] = match[4] or match[3][:SHORT_SHA]
+            pins.setdefault(match["repo"], {})[match["sha"]] = match["version"] or match["sha"][:SHORT_SHA]
     return pins
 
 
@@ -547,15 +607,16 @@ def _action_pins(text: str | None) -> dict[tuple[str, str], list[tuple[int, str,
     pins: dict[tuple[str, str], list[tuple[int, str, str]]] = {}
     for number, line in enumerate((text or "").splitlines()):
         if match := USES_PATTERN.match(line):
-            version = match[4] or match[3][:SHORT_SHA]
-            pins.setdefault((match[1], match[2].removeprefix("/")), []).append((number, match[3], version))
+            version = match["version"] or match["sha"][:SHORT_SHA]
+            key = (match["repo"], match["subpath"].removeprefix("/"))
+            pins.setdefault(key, []).append((number, match["sha"], version))
     return pins
 
 
 def _without_pins(text: str | None) -> list[str]:
     """The file with every pinned commit and its version comment cut out of the `uses:` lines."""
     return [
-        line[: match.start(3)] + line[match.end() :] if (match := USES_PATTERN.match(line)) else line
+        line[: match.start("sha")] + line[match.end() :] if (match := USES_PATTERN.match(line)) else line
         for line in (text or "").splitlines()
     ]
 
@@ -605,8 +666,7 @@ def pre_commit_bumps(before: str | None, after: str | None) -> list[Bump]:
     for repo_url, (rev, comment) in sorted(new_revs.items()):
         if old_revs.get(repo_url, (None, None))[0] == rev:
             continue
-        match = GITHUB_URL_PATTERN.search(repo_url)
-        name = match[1] if match else repo_url
+        name = github_repository(repo_url) or repo_url
         old_rev, old_comment = old_revs.get(repo_url, (None, None))
         is_sha = SHA_PATTERN.fullmatch(rev) is not None
         bumps.append(
@@ -649,9 +709,34 @@ def _dedupe(bumps: Iterable[Bump]) -> list[Bump]:
 # --- release metadata ----------------------------------------------------------------------
 
 
+def github_repository(url: str) -> str | None:
+    """`owner/repo` when the URL is a repository on github.com itself, else None.
+
+    The host must be github.com exactly, not merely appear in the URL (a mirror at
+    `https://mirror.example/github.com/owner/repo` is not GitHub), and the path must be the
+    repository, not a page in it: `/owner/repo/issues` is left alone rather than trimmed.
+    """
+    scp = None if "://" in url else SCP_REMOTE.fullmatch(url)
+    if scp:
+        host, path = scp["host"], f"/{scp['path']}"
+    else:
+        parts = urlsplit(url)
+        try:
+            port = parts.port
+        except ValueError:
+            return None
+        if parts.scheme not in URL_SCHEMES or port is not None or parts.query or parts.fragment:
+            return None
+        host, path = parts.hostname or "", parts.path
+    match = REPOSITORY_PATH.fullmatch(path)
+    if host.lower() != GITHUB_HOST or match is None or {match["owner"], match["name"]} & {".", ".."}:
+        return None
+    return f"{match['owner']}/{match['name']}"
+
+
 def _github_repo(bump: Bump) -> str | None:
     # Pre-commit hooks hosted outside GitHub keep their full URL as the name.
-    return None if bump.kind == "pypi" or "://" in bump.name else bump.name
+    return None if bump.kind == "pypi" or not REPOSITORY_NAME.fullmatch(bump.name) else bump.name
 
 
 def _tag(bump: Bump) -> str | None:
@@ -925,6 +1010,164 @@ def check_advisory(fetch_json: FetchJson, post_json: PostJson, bump: Bump) -> li
     return [_result("advisory", bump, "OK", "OSV に該当なし")]
 
 
+def _repository_urls(info: dict[str, Any]) -> dict[str, str]:
+    """Each project URL that is a GitHub repository itself, with its `owner/repo`, in the publisher's order."""
+    found: dict[str, str] = {}
+    for url in (info.get("project_urls") or {}).values():
+        if isinstance(url, str) and (repo := github_repository(url)):
+            found[url] = repo
+    return found
+
+
+def _project_repositories(release: dict[str, Any]) -> list[str]:
+    # GitHub names are case-insensitive: `Astral-sh/Ruff.git` is the same repository, and one
+    # spelling keeps its advisory listing a single cached URL across packages.
+    return list(dict.fromkeys(repo.lower() for repo in _repository_urls(release["info"]).values()))
+
+
+ADVISORY_COMPARISONS: dict[str, Callable[[Version, Version], bool]] = {
+    ">=": operator.ge,
+    ">": operator.gt,
+    "<=": operator.le,
+    "<": operator.lt,
+    "=": operator.eq,
+}
+
+
+def _in_advisory_range(text: Any, version: Version) -> bool | None:
+    """Whether a `vulnerable_version_range` covers the version; None when it is not GitHub's syntax."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    terms: list[tuple[str, Version]] = []
+    for term in text.split(","):
+        match = ADVISORY_BOUND.fullmatch(term.strip())
+        bound = _parse_version(match["version"]) if match else None
+        if match is None or bound is None:
+            return None
+        terms.append((match["operator"], bound))
+    # One field holds one range: a single term, or a lower bound followed by an upper bound. Read
+    # as AND, anything else (`= 1.0, = 1.1` listing versions) would cover nothing and pass as OK;
+    # so would bounds that cross (`>= 2, < 1`) or meet with a strict side (`> 1, < 1`).
+    kinds = [kind for kind, _ in terms]
+    if len(terms) > 2 or (len(terms) == 2 and (kinds[0] not in {">=", ">"} or kinds[1] not in {"<=", "<"})):
+        return None
+    if len(terms) == 2:
+        (lower_kind, lower), (upper_kind, upper) = terms
+        if lower > upper or (lower == upper and (lower_kind, upper_kind) != (">=", "<=")):
+            return None
+    return all(ADVISORY_COMPARISONS[kind](version, bound) for kind, bound in terms)
+
+
+def _pypi_name(name: Any) -> str | None:
+    """The normalised name, or None when the advisory names nothing PyPI could hold (`psf/black`)."""
+    try:
+        return canonicalize_name(name, validate=True) if isinstance(name, str) else None
+    except InvalidName:
+        return None
+
+
+def _repository_advisory_match(advisory: dict[str, Any], name: str, version: Version) -> str | None:
+    """One of hit / possible (the package is unnamed or unreadable) / unevaluable, or None: not this package."""
+    outcomes: set[str] = set()
+    # An advisory listing no vulnerability says neither which package nor which versions.
+    for vulnerability in advisory.get("vulnerabilities") or [{}]:
+        package = vulnerability.get("package") or {}
+        ecosystem, named = package.get("ecosystem"), _pypi_name(package.get("name"))
+        # Another ecosystem, or another package of the same repository, is not this candidate.
+        if (ecosystem is not None and ecosystem != "pip") or (named is not None and named != name):
+            continue
+        inside = _in_advisory_range(vulnerability.get("vulnerable_version_range"), version)
+        if inside is None:
+            outcomes.add("unevaluable")
+        elif inside:
+            outcomes.add("hit" if named is not None and ecosystem == "pip" else "possible")
+    return next((outcome for outcome in ("hit", "possible", "unevaluable") if outcome in outcomes), None)
+
+
+def _osv_ids(post_json: PostJson, name: str) -> set[str]:
+    """Every ID and alias OSV carries for the package, withdrawn ones excepted."""
+    vulns = _active(_osv_vulns(post_json, {"package": {"name": name, "ecosystem": "PyPI"}}))
+    return {vuln_id for vuln in vulns for vuln_id in [vuln.get("id"), *(vuln.get("aliases") or [])] if vuln_id}
+
+
+def check_repository_advisory(
+    fetch_json: FetchJson, post_json: PostJson, fetch_list: FetchList, bump: Bump
+) -> list[CheckResult]:
+    """Advisories the project published in its own GitHub repository, for the ones OSV does not carry yet.
+
+    The repository comes from the candidate's PyPI `project_urls`. Not finding one, an affected range
+    that is not GitHub's syntax, or an advisory without a readable package is a WARN, never "no advisory".
+    """
+    release = fetch_json(PYPI_RELEASE.format(name=bump.name, version=bump.new))
+    repositories = _project_repositories(release)
+    if not repositories:
+        detail = "PyPI の project_urls に GitHub の repo が無いため repo advisory を確認できない"
+        return [_result("repo_advisory", bump, "WARN", detail, [_release_link(bump)])]
+    listed: dict[str, list[dict[str, Any]]] = {}
+    for repo in repositories:
+        # 404: shaped like a repository but not one, such as a `github.com/sponsors/<user>` link.
+        if (advisories := _get_or_none(fetch_list, REPOSITORY_ADVISORIES.format(repo=repo))) is not None:
+            listed[repo] = advisories
+    if not listed:
+        detail = (
+            f"project_urls の GitHub repo ({', '.join(repositories)}) がどれも 404 のため repo advisory を確認できない"
+        )
+        return [_result("repo_advisory", bump, "WARN", detail, [_release_link(bump)])]
+    version, name = Version(bump.new), canonicalize_name(bump.name)
+    published = [
+        (repo, advisory)
+        for repo, advisories in listed.items()
+        for advisory in advisories
+        if advisory.get("state") == "published" and not advisory.get("withdrawn_at")
+    ]
+    matched = [
+        (repo, advisory, outcome)
+        for repo, advisory in published
+        if (outcome := _repository_advisory_match(advisory, name, version)) is not None
+    ]
+    # OSV judges what it carries with the reviewed range; the repository's own text may be looser.
+    covered = _osv_ids(post_json, bump.name) if matched else set()
+    pending = [
+        (repo, advisory, outcome) for repo, advisory, outcome in matched if advisory.get("ghsa_id") not in covered
+    ]
+    by_outcome = {
+        outcome: [(repo, advisory) for repo, advisory, found in pending if found == outcome]
+        for outcome in ("hit", "possible", "unevaluable")
+    }
+    if by_outcome["hit"]:
+        ids, links = _advisory_refs(by_outcome["hit"])
+        return [_result("repo_advisory", bump, "BLOCK", f"OSV 未掲載の repo advisory に該当 ({ids})", links)]
+    reasons: list[str] = []
+    refs: list[str] = []
+    for outcome, label in (
+        ("possible", "PyPI の名前として読めない package の advisory の範囲に入る"),
+        ("unevaluable", "影響範囲を解釈できない"),
+    ):
+        if by_outcome[outcome]:
+            ids, links = _advisory_refs(by_outcome[outcome])
+            reasons.append(f"{label} ({ids})")
+            refs += links
+    if reasons:
+        detail = f"{'; '.join(reasons)}。advisory 本文の対象 package と影響範囲を手で照合する"
+        return [_result("repo_advisory", bump, "WARN", detail, list(dict.fromkeys(refs)))]
+    detail = f"{', '.join(listed)} の公開 repo advisory {len(published)} 件に該当なし"
+    if deferred := len(matched) - len(pending):
+        detail += f" (OSV 掲載済みの {deferred} 件は advisory 行で判定)"
+    return [_result("repo_advisory", bump, "OK", detail)]
+
+
+def _advisory_refs(found: Sequence[tuple[str, dict[str, Any]]]) -> tuple[str, list[str]]:
+    """Displayable IDs and their links; a value not shaped like a GHSA ID is neither shown nor linked."""
+    ids: list[str] = []
+    links: list[str] = []
+    for repo, advisory in found:
+        ghsa = str(advisory.get("ghsa_id"))
+        valid = GHSA_ID.fullmatch(ghsa) is not None
+        ids.append(ghsa if valid else "(表示できない ID)")
+        links.append(f"https://github.com/{repo}/security/advisories{f'/{ghsa}' if valid else ''}")
+    return _capped(ids, ", "), list(dict.fromkeys(links))[:METADATA_DIFF_LIMIT]
+
+
 def check_python_range(fetch_json: FetchJson, bump: Bump, floor: Version) -> list[CheckResult]:
     spec = fetch_json(PYPI_RELEASE.format(name=bump.name, version=bump.new))["info"].get("requires_python")
     if not spec:
@@ -965,13 +1208,32 @@ def check_tag_exists(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
     return [_result("tag_exists", bump, "OK", f"タグ {bump.new} が存在する", [link])]
 
 
-def check_cooldown(fetch_json: FetchJson, bump: Bump, created_at: datetime, days: int) -> list[CheckResult]:
+def _is_dependabot_commit(commit: dict[str, Any]) -> bool:
+    return (commit.get("author") or {}).get("login") == DEPENDABOT_AUTHOR
+
+
+def proposed_at(pr: dict[str, Any], commits: list[dict[str, Any]]) -> tuple[datetime, str]:
+    """When Dependabot proposed the candidate the PR now holds, and where that time comes from.
+
+    Dependabot rewrites its commit when it moves an open PR to a newer version (#799 was opened
+    2026-10-12 and rewritten 2026-10-19), so `created_at` dates an older candidate. A rebase moves
+    the commit too, but never past the moment of vetting, so a release still inside the cooldown
+    then is never counted as old enough.
+    """
+    dates = [_parse_time(commit["commit"]["committer"]["date"]) for commit in commits if _is_dependabot_commit(commit)]
+    if dates:
+        return max(dates), "Dependabot の最新 commit"
+    return _parse_time(pr["created_at"]), "PR 作成"
+
+
+def check_cooldown(fetch_json: FetchJson, bump: Bump, proposed: tuple[datetime, str], days: int) -> list[CheckResult]:
     published = release_published_at(fetch_json, bump)
     if published is None:
         return [_result("cooldown", bump, "WARN", "公開時刻を取得できない (タグ無し、または照合先不明)")]
     # Calendar days in UTC, as Dependabot counts them: #745 was proposed 6.45 days after the release.
-    elapsed = (created_at.date() - published.date()).days
-    detail = f"{published.date()} → {created_at.date()} = {elapsed} 日 ({'≥' if elapsed >= days else '<'} {days})"
+    at, source = proposed
+    elapsed = (at.date() - published.date()).days
+    detail = f"{published.date()} → {at.date()} ({source}) = {elapsed} 日 ({'≥' if elapsed >= days else '<'} {days})"
     return [_result("cooldown", bump, "OK" if elapsed >= days else "WARN", detail, [_release_link(bump)])]
 
 
@@ -1210,7 +1472,7 @@ def check_pr_hygiene(
         problems.append("head.ref の接頭辞がどのエコシステムにも一致しない")
     if extra := [path for path in files if not _expected(path, ecosystem)]:
         problems.append(f"期待外のファイル: {', '.join(extra)}")
-    humans = [c for c in commits if (c.get("author") or {}).get("login") != DEPENDABOT_AUTHOR]
+    humans = [c for c in commits if not _is_dependabot_commit(c)]
     if humans:
         problems.append(f"Dependabot 以外の commit {len(humans)} 件")
     if problems:
@@ -1272,11 +1534,13 @@ def _collect_action_changes(
 
 
 def vet_pull_request(
-    fetch_json: FetchJson, fetch_text: FetchText, post_json: PostJson, repo: str, number: int
+    fetch_json: FetchJson, fetch_text: FetchText, post_json: PostJson, fetch_list: FetchList, repo: str, number: int
 ) -> PullRequestVerdict:
     fetch_json = _memoize(fetch_json)
     # Workflow files are parsed twice (bumps per repository, metadata per action path).
     fetch_text = _memoize(fetch_text)
+    # Packages of one repository (`types-*` stubs in python/typeshed) share its advisories.
+    fetch_list = _memoize(fetch_list)
     pr = load_pull_request(fetch_json, repo, number)
     if pr["user"]["login"] != DEPENDABOT_AUTHOR:
         raise NotDependabotPullRequestError(
@@ -1289,7 +1553,7 @@ def vet_pull_request(
     before_ref = merge_base(fetch_json, repo, pr["base"]["sha"], head_sha)
     bumps = _collect_bumps(fetch_text, repo, files, ecosystem, before_ref, head_sha)
     action_changes = _collect_action_changes(fetch_text, repo, files, ecosystem, before_ref, head_sha)
-    created_at = _parse_time(pr["created_at"])
+    proposed = proposed_at(pr, commits)
     dependabot_yml = file_at(fetch_text, repo, ".github/dependabot.yml", head_sha)
     floor = (
         requires_python_floor(file_at(fetch_text, repo, "pyproject.toml", head_sha))
@@ -1303,6 +1567,8 @@ def vet_pull_request(
             checks += check_yanked(fetch_json, bump)
         if bump.kind in {"pypi", "action"}:
             checks += check_advisory(fetch_json, post_json, bump)
+        if bump.kind == "pypi":
+            checks += check_repository_advisory(fetch_json, post_json, fetch_list, bump)
         if bump.kind == "pypi" and floor is not None:
             checks += check_python_range(fetch_json, bump, floor)
         if bump.kind == "action" or (bump.kind == "pre-commit" and bump.sha):
@@ -1310,7 +1576,7 @@ def vet_pull_request(
         if bump.kind == "pre-commit" and not bump.sha:
             checks += check_tag_exists(fetch_json, bump)
         days = cooldown_days(dependabot_yml, ECOSYSTEM_BY_KIND[bump.kind])
-        checks += check_cooldown(fetch_json, bump, created_at, days)
+        checks += check_cooldown(fetch_json, bump, proposed, days)
         checks += check_superseded(fetch_json, bump)
         checks += check_major_bump(bump)
     for change in action_changes:
@@ -1413,8 +1679,7 @@ def resolve_repo(explicit: str | None) -> str | None:
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
-    match = REMOTE_PATTERN.search(remote)
-    return match[1] if match else None
+    return github_repository(remote)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1445,13 +1710,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     # other failure must surface as 2 (a broken fixture or an unwritable report is not a verdict).
     try:
         if args.fixture:
-            fetch_json, fetch_text, post_json = make_fixture_fetchers(args.fixture)
+            fetchers = make_fixture_fetchers(args.fixture)
         elif args.record:
-            fetch_json, fetch_text, post_json = make_recording_fetchers(token, args.record)
+            fetchers = make_recording_fetchers(token, args.record)
         else:
-            fetch_json, fetch_text, post_json = make_fetchers(token)
-        numbers = args.pr or open_dependabot_prs(fetch_json, repo)
-        verdicts = [vet_pull_request(fetch_json, fetch_text, post_json, repo, number) for number in numbers]
+            fetchers = make_fetchers(token)
+        numbers = args.pr or open_dependabot_prs(fetchers[0], repo)
+        verdicts = [vet_pull_request(*fetchers, repo, number) for number in numbers]
         markdown = render_markdown(verdicts)
         print(markdown, end="")
         if args.report:
