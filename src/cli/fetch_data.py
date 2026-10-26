@@ -121,10 +121,10 @@ class DataCollector:
             "total_files": 0,
             "successful": 0,
             "failed": 0,
-            "duplicates": 0,
             "skipped": 0,  # 全て0のデータとしてスキップされたファイル数
             "new_files": 0,  # 新規追加ファイル数
-            "updated_files": 0,  # 更新されたファイル数
+            "updated_files": 0,  # 内容が変わって書き換えたファイル数
+            "unchanged_files": 0,  # 同一パスに同一内容があり書き換えなかったファイル数
             "errors": [],
             "start_time": None,
             "end_time": None,
@@ -250,7 +250,7 @@ class DataCollector:
                     if result.source_url:
                         additional_metadata["source_url"] = result.source_url
 
-                    # 強制更新モードの場合、既存ファイルも上書き
+                    # FORCEかどうかを記録する (保存の判定には使わない。同一内容なら書き換えない)
                     save_result = self.storage.save_with_metadata(
                         result.data,
                         data_type,
@@ -258,17 +258,17 @@ class DataCollector:
                         int(params.start_sub_period),
                         is_monthly,
                         additional_metadata,
-                        force_overwrite=(self.mode == CollectionMode.FORCE),  # FORCEモード時のみ強制上書き
+                        force_overwrite=(self.mode == CollectionMode.FORCE),  # 記録用 (保存の判定には使わない)
                         save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
 
-                    # 統計カウント優先順位: duplicate > skipped > success
-                    # - duplicateとskippedはsuccessの一種だが、別カウントで追跡
+                    # 統計カウント優先順位: 内容不変 > 全ゼロ > 成功
+                    # - 内容不変(is_duplicate)と全ゼロ(is_skipped)はsuccessの一種だが、別カウントで追跡
                     # - モードに関わらず、is_duplicate/is_skippedを優先
-                    # - これにより、FORCEモードでも全ゼロデータがスキップされた場合、
-                    #   updated_filesではなくskippedとして正確にカウントされる
+                    # - これにより、FORCEモードでも同一内容の再取得や全ゼロデータは
+                    #   updated_filesではなくunchanged_files/skippedとして正確にカウントされる
                     if save_result.is_duplicate:
-                        self.stats["duplicates"] += 1
+                        self.stats["unchanged_files"] += 1
                     elif save_result.is_skipped:
                         self.stats["skipped"] += 1
                     elif save_result.success:
@@ -398,7 +398,7 @@ class DataCollector:
         self.logger.info(f"    - 新規: {self.stats['new_files']}")
         self.logger.info(f"    - 更新: {self.stats['updated_files']}")
         self.logger.info(f"  失敗: {self.stats['failed']}")
-        self.logger.info(f"  重複: {self.stats['duplicates']}")
+        self.logger.info(f"  変更なし (同一内容): {self.stats['unchanged_files']}")
         self.logger.info(f"  スキップ(全て0): {self.stats['skipped']}")
 
         if self.stats["errors"]:

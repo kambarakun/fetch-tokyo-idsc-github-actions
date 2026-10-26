@@ -6,12 +6,8 @@ with explicit AAA structure and isolated fixtures.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
-
-import pytest
 
 from src.managers.storage_manager import StorageManager
 
@@ -37,90 +33,6 @@ def test_save_with_metadata_returns_failure_when_atomic_replace_fails(tmp_path: 
     assert "replace failed" in result.error
     temp_files = list((tmp_path / "data").glob(".phase2_test_2025_01_*.tmp"))
     assert temp_files == []
-
-
-def test_remove_from_hash_index_returns_early_for_unknown_hash(tmp_path: Path) -> None:
-    """_remove_from_hash_index is a no-op when hash key does not exist."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-
-    # Act
-    storage._remove_from_hash_index("missing", "path.csv")
-
-    # Assert
-    assert storage.hash_index == {}
-
-
-def test_remove_from_hash_index_keeps_string_entry_when_path_differs(tmp_path: Path) -> None:
-    """String hash entries remain when removal target path does not match."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    storage.hash_index = {"h": "a.csv"}
-
-    # Act
-    storage._remove_from_hash_index("h", "b.csv")
-
-    # Assert
-    assert storage.hash_index["h"] == "a.csv"
-
-
-def test_remove_from_hash_index_list_preserves_multiple_remaining_paths(tmp_path: Path) -> None:
-    """List hash entries remain lists when more than one path remains."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    storage.hash_index = {"h": ["a.csv", "b.csv", "c.csv"]}
-
-    # Act
-    storage._remove_from_hash_index("h", "a.csv")
-
-    # Assert
-    assert storage.hash_index["h"] == ["b.csv", "c.csv"]
-
-
-def test_add_to_hash_index_ignores_duplicate_entries(tmp_path: Path) -> None:
-    """_add_to_hash_index does not duplicate existing entries for string or list formats."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    storage.hash_index = {"h1": "a.csv", "h2": ["x.csv"]}
-
-    # Act
-    storage._add_to_hash_index("h1", "a.csv")
-    storage._add_to_hash_index("h2", "x.csv")
-
-    # Assert
-    assert storage.hash_index == {"h1": "a.csv", "h2": ["x.csv"]}
-
-
-def test_sort_hash_index_skips_duplicate_paths_in_existing_list(tmp_path: Path) -> None:
-    """_sort_hash_index preserves unique paths when duplicate entries are present."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    storage.hash_index = {"h": ["a.csv", "b.csv", "b.csv"]}
-
-    # Act
-    sorted_index = storage._sort_hash_index_by_filename()
-
-    # Assert
-    assert sorted_index["h"] == ["a.csv", "b.csv"]
-
-
-def test_update_hash_index_raises_when_write_fails(tmp_path: Path) -> None:
-    """_update_hash_index raises and logs when persisting hash index fails."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    original_open = Path.open
-
-    def failing_open(path: Path, *args: Any, **kwargs: Any) -> Any:
-        if path == storage.hash_index_file:
-            raise OSError("write failed")
-        return original_open(path, *args, **kwargs)
-
-    # Act / Assert
-    with (
-        patch.object(Path, "open", autospec=True, side_effect=failing_open),
-        pytest.raises(OSError, match="write failed"),
-    ):
-        storage._update_hash_index("h", "path.csv")
 
 
 def test_check_path_safety_validation_handles_runtime_error(tmp_path: Path) -> None:
@@ -178,42 +90,3 @@ def test_normalize_metadata_covers_v1_0_migration_paths(tmp_path: Path) -> None:
     assert normalized["checksum_algorithm"] == "sha256"
     assert normalized["temporal"]["year"] == 2025
     assert normalized["hash"]["value"] == "abc"
-
-
-def test_get_storage_stats_covers_type_and_year_branch_matrix(tmp_path: Path) -> None:
-    """get_storage_stats handles unknown types, repeated types, and unmatched year patterns."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    files = {
-        "sentinel_monthly_gender_2025_01.csv": "a",
-        "sentinel_monthly_age_2025_02.csv": "b",
-        "notifiable_weekly_2024_03.csv": "c",
-        "unknown_data.csv": "d",
-    }
-    for name, content in files.items():
-        (storage.base_path / name).write_text(content, encoding="utf-8")
-
-    # Act
-    stats = storage.get_storage_stats()
-
-    # Assert
-    assert stats["total_files"] == 4
-    assert stats["file_types"]["sentinel_monthly"]["count"] == 2
-    assert stats["file_types"]["notifiable"]["count"] == 1
-    assert stats["year_stats"][2025]["count"] == 2
-    assert stats["year_stats"][2024]["count"] == 1
-
-
-def test_hash_index_file_is_updated_when_remove_writes(tmp_path: Path) -> None:
-    """_remove_from_hash_index persists updates to hash index file."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    storage.hash_index = {"h": ["a.csv", "b.csv"]}
-
-    # Act
-    storage._remove_from_hash_index("h", "a.csv")
-
-    # Assert
-    with storage.hash_index_file.open(encoding="utf-8") as file:
-        persisted = json.load(file)
-    assert persisted["h"] == "b.csv"

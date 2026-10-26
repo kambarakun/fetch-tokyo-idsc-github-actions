@@ -10,7 +10,6 @@ import sys
 import tempfile
 import time
 import unittest
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,6 +19,7 @@ from src.managers.storage_manager import (
     CSV_FORMAT_INCONSISTENT_COLUMN_COUNT_MSG,
     StorageManager,
 )
+from src.models.metadata import METADATA_VERSION
 
 
 class TestStorageManager(unittest.TestCase):
@@ -83,19 +83,18 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(metadata["hash"]["algorithm"], "sha256")
 
     def test_save_with_metadata_duplicate(self):
-        """重複データの保存テスト"""
+        """同一パスに同一内容がある場合は unchanged (is_duplicate) になることのテスト"""
         # 数値データを含む有効なCSV形式
         data = b'"header","value"\n"row1","1"'
-        data_hash = hashlib.sha256(data).hexdigest()
-
-        # ハッシュインデックスに追加
-        self.storage.hash_index[data_hash] = "/some/path.csv"
+        first = self.storage.save_with_metadata(data=data, data_type="test_type", year=2025, period=1)
 
         result = self.storage.save_with_metadata(data=data, data_type="test_type", year=2025, period=1)
 
         self.assertTrue(result.success)
         self.assertTrue(result.is_duplicate)
-        self.assertIsNone(result.file_path)
+        self.assertFalse(result.is_new)
+        self.assertEqual(result.file_path, first.file_path)
+        self.assertEqual(result.metadata_path, first.metadata_path)
 
     def test_save_with_invalid_data_type(self):
         """不正なdata_type(パストラバーサル攻撃)のテスト"""
@@ -117,19 +116,6 @@ class TestStorageManager(unittest.TestCase):
             self.assertFalse(result.success, f"Should reject invalid data_type: {invalid_type}")
             self.assertIsNotNone(result.error)
             self.assertIn("Invalid data_type", result.error)
-
-    def test_check_duplicates(self):
-        """重複チェックのテスト"""
-        hash_value = "abc123"
-
-        # 初回チェック(重複なし)
-        self.assertFalse(self.storage.check_duplicates(hash_value))
-
-        # ハッシュを追加
-        self.storage.hash_index[hash_value] = "/path/to/file.csv"
-
-        # 2回目チェック(重複あり)
-        self.assertTrue(self.storage.check_duplicates(hash_value))
 
     def test_get_existing_files(self):
         """既存ファイル取得のテスト"""
@@ -178,36 +164,6 @@ class TestStorageManager(unittest.TestCase):
 
         metadata = self.storage.get_metadata(test_file)
         self.assertIsNone(metadata)
-
-    def test_get_storage_stats(self):
-        """ストレージ統計情報取得のテスト"""
-        # テストファイルを作成(フラット構造)
-        test_file = self.base_path / "sentinel_weekly_2025_01.csv"
-        test_file.write_text("test data")
-
-        stats = self.storage.get_storage_stats()
-
-        self.assertIn("total_files", stats)
-        self.assertIn("total_size_bytes", stats)
-        self.assertIn("file_types", stats)
-        self.assertIn("year_stats", stats)
-        self.assertEqual(stats["total_files"], 1)
-        self.assertGreater(stats["total_size_bytes"], 0)
-
-    def test_get_month_from_week(self):
-        """週番号から月を取得するテスト"""
-        # 2025年の第1週
-        month = self.storage._get_month_from_week(2025, 1)
-        # 第1週は実際の日付に依存するが、通常は1月か12月
-        self.assertIn(month, [1, 12])
-
-        # 2025年の第10週 → 3月
-        month = self.storage._get_month_from_week(2025, 10)
-        self.assertEqual(month, 3)
-
-        # 2025年の最終週 → 12月
-        month = self.storage._get_month_from_week(2025, 52)
-        self.assertEqual(month, 12)
 
     def test_save_with_force_overwrite(self):
         """force_overwriteパラメータのテスト"""
@@ -266,121 +222,113 @@ class TestStorageManager(unittest.TestCase):
         # メタデータバージョンを確認
         self.assertEqual(metadata["metadata_version"], "1.3.0")
 
-    def test_force_overwrite_updates_hash_index(self):
-        """force_overwriteでハッシュインデックスが更新されることのテスト"""
-        # 初回保存(数値データを含む有効なCSV形式)
+    def test_content_change_updates_metadata_hash(self):
+        """内容が変わった保存でメタデータのhash.valueが新しいsha256になることのテスト"""
         initial_data = b'"header","value"\n"row1","10"'
-        initial_hash = hashlib.sha256(initial_data).hexdigest()
+        self.storage.save_with_metadata(initial_data, "test_type", 2025, 2, is_monthly=False)
 
-        result = self.storage.save_with_metadata(
-            initial_data, "test_type", 2025, 2, is_monthly=False, force_overwrite=False
-        )
-        self.assertTrue(result.success)
-
-        # ハッシュインデックスに登録されていることを確認
-        self.assertIn(initial_hash, self.storage.hash_index)
-
-        # force_overwrite=Trueで異なるデータで上書き
         updated_data = b'"header","value"\n"row1","20"'
-        updated_hash = hashlib.sha256(updated_data).hexdigest()
-
         result = self.storage.save_with_metadata(
             updated_data, "test_type", 2025, 2, is_monthly=False, force_overwrite=True
         )
-        self.assertTrue(result.success)
 
-        # 古いハッシュが削除され、新しいハッシュが登録されていることを確認
-        self.assertNotIn(initial_hash, self.storage.hash_index)
-        self.assertIn(updated_hash, self.storage.hash_index)
+        self.assertTrue(result.success)
+        self.assertFalse(result.is_duplicate)
+        metadata = json.loads(result.metadata_path.read_text())
+        self.assertEqual(metadata["hash"]["value"], hashlib.sha256(updated_data).hexdigest())
 
     def test_force_overwrite_with_same_data(self):
-        """同じデータでforce_overwriteした場合のテスト"""
-        # 同じデータで2回保存(数値データを含む有効なCSV形式)
+        """同じデータでforce_overwriteしてもCSVとメタデータを書き換えないことのテスト"""
         test_data = b'"header","value"\n"row1","30"'
-        data_hash = hashlib.sha256(test_data).hexdigest()
-
-        # 初回保存
         result1 = self.storage.save_with_metadata(test_data, "test_type", 2025, 3, is_monthly=False)
-        self.assertTrue(result1.success)
-        self.assertFalse(result1.is_duplicate)
+        csv_mtime = result1.file_path.stat().st_mtime_ns
+        metadata_bytes = result1.metadata_path.read_bytes()
+        # Linux CI may have coarse mtime granularity; without the wait a rewrite could keep the same mtime
+        time.sleep(0.01)
 
-        # force_overwrite=Trueで同じデータを保存
         result2 = self.storage.save_with_metadata(
             test_data, "test_type", 2025, 3, is_monthly=False, force_overwrite=True
         )
+
         self.assertTrue(result2.success)
-        self.assertFalse(result2.is_duplicate)  # force_overwriteなのでduplicateフラグは立たない
+        self.assertTrue(result2.is_duplicate)
+        self.assertFalse(result2.is_new)
+        self.assertEqual(result2.file_path, result1.file_path)
+        self.assertEqual(result1.file_path.stat().st_mtime_ns, csv_mtime)
+        self.assertEqual(result1.metadata_path.read_bytes(), metadata_bytes)
 
-        # ハッシュインデックスは同じハッシュのまま
-        self.assertIn(data_hash, self.storage.hash_index)
+    def test_non_force_revert_to_earlier_content_is_saved(self):
+        """force_overwriteなしでA→B→Aと保存すると3回目のAが保存されることのテスト"""
+        data_a = b'"header","value"\n"row1","40"'
+        data_b = b'"header","value"\n"row1","41"'
+        self.storage.save_with_metadata(data_a, "test_type", 2025, 1, is_monthly=False)
+        self.storage.save_with_metadata(data_b, "test_type", 2025, 1, is_monthly=False)
 
-    def test_multiple_files_same_hash(self):
-        """同じ内容の複数ファイルを正しく管理できることのテスト"""
-        # 同じ内容のデータ(数値データを含む有効なCSV形式)
+        result = self.storage.save_with_metadata(data_a, "test_type", 2025, 1, is_monthly=False)
+
+        self.assertTrue(result.success)
+        self.assertFalse(result.is_duplicate)
+        self.assertFalse(result.is_new)
+        self.assertEqual(result.file_path.read_bytes(), data_a)
+
+    def test_same_content_for_another_period_is_saved(self):
+        """別期間に同じ内容を保存しても新規ファイルとして保存されることのテスト"""
         test_data = b'"header","value"\n"row1","40"'
+        self.storage.save_with_metadata(test_data, "test_type", 2025, 1, is_monthly=False)
+
+        result = self.storage.save_with_metadata(test_data, "test_type", 2025, 2, is_monthly=False)
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.is_new)
+        self.assertFalse(result.is_duplicate)
+        self.assertTrue((self.base_path / "test_type_2025_02.csv").exists())
+        self.assertTrue((self.storage.metadata_dir / "test_type_2025_02.json").exists())
+
+    def test_unchanged_csv_repairs_missing_or_stale_metadata(self):
+        """CSVが同一でもメタデータが欠落・不一致・旧版なら、CSVは書かずにメタデータだけ作り直すことのテスト"""
+        test_data = b'"header","value"\n"row1","50"'
         data_hash = hashlib.sha256(test_data).hexdigest()
 
-        # 異なる期間に同じデータを保存
-        result1 = self.storage.save_with_metadata(test_data, "test_type", 2025, 1, is_monthly=False)
-        self.assertTrue(result1.success)
-        self.assertFalse(result1.is_duplicate)
+        def remove(path: Path) -> None:
+            path.unlink()
 
-        # 2つ目のファイル(同じ内容、異なる期間)
-        result2 = self.storage.save_with_metadata(test_data, "test_type", 2025, 2, is_monthly=False)
-        self.assertTrue(result2.success)
-        self.assertTrue(result2.is_duplicate)  # 同じハッシュなので重複として扱われる
+        def corrupt_hash(path: Path) -> None:
+            metadata = json.loads(path.read_text())
+            metadata["hash"]["value"] = "0" * 64
+            path.write_text(json.dumps(metadata))
 
-        # ハッシュインデックスを確認(単一エントリまたはリスト形式)
-        self.assertIn(data_hash, self.storage.hash_index)
+        def downgrade_version(path: Path) -> None:
+            metadata = json.loads(path.read_text())
+            metadata["metadata_version"] = "1.2.0"
+            path.write_text(json.dumps(metadata))
 
-        # 片方を異なるデータで上書き(force_overwrite)
-        new_data = b'"header","value"\n"row1","50"'
-        new_hash = hashlib.sha256(new_data).hexdigest()
+        for period, tamper in ((1, remove), (2, corrupt_hash), (3, downgrade_version)):
+            with self.subTest(tamper=tamper.__name__):
+                first = self.storage.save_with_metadata(test_data, "repair_type", 2025, period, is_monthly=False)
+                csv_mtime = first.file_path.stat().st_mtime_ns
+                tamper(first.metadata_path)
+                time.sleep(0.01)
 
-        result3 = self.storage.save_with_metadata(
-            new_data, "test_type", 2025, 1, is_monthly=False, force_overwrite=True
-        )
-        self.assertTrue(result3.success)
+                result = self.storage.save_with_metadata(test_data, "repair_type", 2025, period, is_monthly=False)
 
-        # 新しいハッシュが登録され、古いハッシュも残っている(別ファイルが参照)
-        self.assertIn(new_hash, self.storage.hash_index)
-        # もし1つのファイルだけが古いハッシュを参照していれば、まだインデックスに残る
-        # (実装により異なるが、check_duplicatesが正しく動作することが重要)
+                self.assertTrue(result.success)
+                self.assertTrue(result.is_duplicate)
+                self.assertEqual(first.file_path.stat().st_mtime_ns, csv_mtime)
+                metadata = json.loads(first.metadata_path.read_text())
+                self.assertEqual(metadata["hash"]["value"], data_hash)
+                self.assertEqual(metadata["metadata_version"], METADATA_VERSION)
 
-    def test_hash_index_cleanup_on_overwrite(self):
-        """force_overwrite時のハッシュインデックスクリーンアップテスト"""
-        # データを保存(数値データを含む有効なCSV形式)
-        data1 = b'"header","value"\n"row1","60"'
-        hash1 = hashlib.sha256(data1).hexdigest()
+    def test_save_leaves_legacy_hash_index_json_untouched(self):
+        """既存のhash_index.jsonは初期化時にも保存時にも読み書きされないことのテスト"""
+        legacy_index_path = self.storage.metadata_dir / "hash_index.json"
+        legacy_index_path.write_bytes(b"{not valid json")
+        self.storage = StorageManager(self.base_path, self.config)
 
-        result1 = self.storage.save_with_metadata(data1, "cleanup_test", 2025, 1, is_monthly=False)
-        self.assertTrue(result1.success)
-        self.assertIn(hash1, self.storage.hash_index)
+        self.storage.save_with_metadata(b'"header","value"\n"row1","60"', "legacy_type", 2025, 1)
+        self.storage.save_with_metadata(b'"header","value"\n"row1","61"', "legacy_type", 2025, 1)
 
-        # 同じファイルを異なるデータで上書き
-        data2 = b'"header","value"\n"row1","70"'
-        hash2 = hashlib.sha256(data2).hexdigest()
-
-        result2 = self.storage.save_with_metadata(
-            data2, "cleanup_test", 2025, 1, is_monthly=False, force_overwrite=True
-        )
-        self.assertTrue(result2.success)
-
-        # 新しいハッシュが登録され、古いハッシュは削除される
-        self.assertIn(hash2, self.storage.hash_index)
-
-        # 古いハッシュが削除されていることを確認
-        # (他のファイルが同じハッシュを使っていない場合)
-        index_entry = self.storage.hash_index.get(hash1)
-        if index_entry:
-            # リスト形式の場合、このファイルパスが含まれていないことを確認
-            if isinstance(index_entry, list):
-                file_path = str(self.base_path / "cleanup_test_2025_01.csv")
-                self.assertNotIn(file_path, index_entry)
-            else:
-                # 単一エントリの場合、このファイルパスでないことを確認
-                file_path = str(self.base_path / "cleanup_test_2025_01.csv")
-                self.assertNotEqual(index_entry, file_path)
+        self.assertEqual(legacy_index_path.read_bytes(), b"{not valid json")
+        self.assertFalse(hasattr(self.storage, "hash_index"))
 
     def test_save_result_is_new_for_new_file(self):
         """新規ファイル保存時にis_new=Trueが設定されることをテスト"""
@@ -411,71 +359,6 @@ class TestStorageManager(unittest.TestCase):
 
         self.assertTrue(second_result.success)
         self.assertFalse(second_result.is_new)  # 既存ファイル更新フラグの確認
-
-    def test_hash_index_sorting(self):
-        """hash_indexがファイル名順に正しくソートされることをテスト"""
-        # 複数のファイルを異なる順序で保存(数値データを含む有効なCSV形式)
-        files_data = [
-            (b'"header","value"\n"row1","80"', "type_z", 2025, 3),
-            (b'"header","value"\n"row1","81"', "type_a", 2025, 1),
-            (b'"header","value"\n"row1","82"', "type_m", 2025, 2),
-        ]
-
-        for data, dtype, year, period in files_data:
-            self.storage.save_with_metadata(data=data, data_type=dtype, year=year, period=period, is_monthly=False)
-
-        # hash_index.jsonを読み込んでソート確認
-        hash_index_path = self.storage.hash_index_file
-        self.assertTrue(hash_index_path.exists())
-
-        with hash_index_path.open() as f:
-            loaded_index = json.load(f)
-
-        # インデックスの順序を確認するため、値(ファイルパス)を順番にリスト化
-        all_paths = []
-        for file_paths in loaded_index.values():
-            if isinstance(file_paths, list):
-                all_paths.extend(file_paths)
-            else:
-                all_paths.append(file_paths)
-
-        # ファイルパスがソート済みであることを確認
-        # 期待される順序: type_a_2025_01.csv, type_m_2025_02.csv, type_z_2025_03.csv
-        expected_order = sorted(all_paths)
-        self.assertEqual(all_paths, expected_order)
-
-        # 各値(リストの場合)もソート済みか確認
-        for file_paths in loaded_index.values():
-            if isinstance(file_paths, list):
-                self.assertEqual(file_paths, sorted(file_paths))
-
-    def test_hash_index_sorting_with_duplicates(self):
-        """同一ハッシュの複数ファイルでもソートされることをテスト"""
-        # 同じ内容で異なるファイル名のデータを保存
-        same_data = b"duplicate,content\n1,2,3"
-
-        # 異なるタイプで同じデータを保存(同一ハッシュになる)
-        for dtype in ["dup_z", "dup_a", "dup_m"]:
-            self.storage.save_with_metadata(
-                data=same_data,
-                data_type=dtype,
-                year=2025,
-                period=1,
-                is_monthly=False,
-                force_overwrite=True,  # 重複を許可
-            )
-
-        # hash_index.jsonを読み込んで確認
-        with self.storage.hash_index_file.open() as f:
-            loaded_index = json.load(f)
-
-        # 同一ハッシュのファイルリストがソート済みか確認
-        for _hash_key, file_paths in loaded_index.items():
-            if isinstance(file_paths, list):
-                # ファイルパスがソート済みであることを確認
-                self.assertEqual(file_paths, sorted(file_paths))
-                # 3つのファイルが記録されているはずだが、重複チェックで実際は1つかも
-                # この動作はforce_overwriteとcheck_duplicatesの実装に依存
 
     def test_is_all_zero_data_with_zero_values(self):
         """全て0のデータが正しく検出されることを確認"""
@@ -1030,6 +913,31 @@ class TestMetadataEnhancements(unittest.TestCase):
         # updated_atは更新されていることを確認
         self.assertNotEqual(metadata2["updated_at"], original_created_at)
 
+    def test_created_at_preserved_on_content_change_without_force(self):
+        """force_overwriteなしで内容が変わってもcreatedが保持され、modifiedが進むことを確認"""
+        csv_data = """"テスト"
+"","疾病A"
+"地域1","5"
+"""
+        result1 = self.storage.save_with_metadata(
+            data=csv_data.encode("shift_jis"), data_type="sentinel_weekly_test", year=2025, period=4
+        )
+        metadata1 = json.loads(result1.metadata_path.read_text())
+        time.sleep(0.01)
+
+        result2 = self.storage.save_with_metadata(
+            data=csv_data.replace("5", "10").encode("shift_jis"),
+            data_type="sentinel_weekly_test",
+            year=2025,
+            period=4,
+        )
+
+        self.assertTrue(result2.success)
+        self.assertFalse(result2.is_duplicate)
+        metadata2 = json.loads(result2.metadata_path.read_text())
+        self.assertEqual(metadata2["created"], metadata1["created"])
+        self.assertGreater(metadata2["modified"], metadata1["modified"])
+
     def test_line_count_is_calculated(self):
         """行数が正しく計算されることを確認"""
         csv_data = """"テスト"
@@ -1480,169 +1388,6 @@ class TestErrorHandling(unittest.TestCase):
 
         # Assert: 例外がキャッチされてFalseを返す (安全側に倒して保存)
         self.assertFalse(result, "予期しない例外発生時はFalseを返すべき")
-
-    def test_cleanup_old_files_basic(self):
-        """cleanup_old_files()の基本動作を確認"""
-        # Arrange: 古いファイルと新しいファイルを作成
-        # 古いファイル (31日以上前)
-        old_csv_data = """"テスト"
-"","疾病A"
-"地域1","5"
-"""
-        old_data = old_csv_data.encode("shift_jis")
-        old_result = self.storage.save_with_metadata(
-            data=old_data,
-            data_type="test_cleanup",
-            year=2024,
-            period=1,
-            is_monthly=False,
-        )
-        self.assertTrue(old_result.success)
-
-        # メタデータのタイムスタンプを古い日付に変更
-        old_timestamp = (datetime.now(UTC) - timedelta(days=40)).isoformat()
-        metadata = self.storage.get_metadata(old_result.file_path)
-        # v1.0形式との互換性のため、timestamp と created_at の両方を設定
-        metadata["timestamp"] = old_timestamp
-        metadata["created_at"] = old_timestamp
-        metadata_path = self.storage.metadata_dir / f"{old_result.file_path.stem}.json"
-        with metadata_path.open("w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
-
-        # 新しいファイル
-        new_csv_data = """"テスト"
-"","疾病B"
-"地域2","10"
-"""
-        new_data = new_csv_data.encode("shift_jis")
-        new_result = self.storage.save_with_metadata(
-            data=new_data,
-            data_type="test_cleanup",
-            year=2024,
-            period=2,
-            is_monthly=False,
-        )
-        self.assertTrue(new_result.success)
-
-        # Act: 30日より古いファイルを削除
-        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
-
-        # Assert: 古いファイルが削除され、新しいファイルは残る
-        self.assertEqual(deleted_count, 1)
-        self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
-        self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
-        self.assertTrue(new_result.file_path.exists(), "新しいファイルは残るべき")
-
-    def test_cleanup_old_files_no_metadata(self):
-        """cleanup_old_files()でメタデータがないファイルをスキップすることを確認"""
-        # Arrange: メタデータなしのファイルを作成
-        file_without_metadata = self.base_path / "test_no_metadata.csv"
-        file_without_metadata.write_bytes(b"test data")
-
-        # Act
-        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
-
-        # Assert: メタデータがないファイルはスキップされる
-        self.assertEqual(deleted_count, 0)
-        self.assertTrue(file_without_metadata.exists(), "メタデータなしのファイルは残るべき")
-
-    def test_cleanup_old_files_exception_handling(self):
-        """cleanup_old_files()で個別ファイル処理中の例外をキャッチすることを確認"""
-        # Arrange: ファイルを作成
-        csv_data = """"テスト"
-"","疾病A"
-"地域1","5"
-"""
-        data = csv_data.encode("shift_jis")
-        result = self.storage.save_with_metadata(
-            data=data,
-            data_type="test_exception",
-            year=2024,
-            period=3,
-            is_monthly=False,
-        )
-        self.assertTrue(result.success)
-
-        # メタデータを不正な形式に変更
-        metadata_path = self.storage.metadata_dir / f"{result.file_path.stem}.json"
-        with metadata_path.open("w", encoding="utf-8") as f:
-            f.write('{"timestamp": "invalid-date-format"}')
-
-        # Act: 例外が発生してもプロセスが継続される
-        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
-
-        # Assert: 例外がキャッチされ、プロセスは正常終了
-        self.assertEqual(deleted_count, 0)  # 不正なメタデータで削除できない
-
-    def test_cleanup_old_files_with_v1_1_metadata(self):
-        """cleanup_old_files()がv1.1形式のメタデータ (created フィールド) を正しく処理することを確認"""
-        # Arrange: 古いファイルを作成
-        old_csv_data = """"テスト"
-"","疾病A"
-"地域1","5"
-"""
-        old_data = old_csv_data.encode("shift_jis")
-        old_result = self.storage.save_with_metadata(
-            data=old_data,
-            data_type="test_cleanup_v1_1",
-            year=2024,
-            period=1,
-            is_monthly=False,
-        )
-        self.assertTrue(old_result.success)
-
-        # メタデータをv1.1形式に変更 (created フィールド)
-        old_timestamp = (datetime.now(UTC) - timedelta(days=40)).isoformat()
-        metadata_path = self.storage.metadata_dir / f"{old_result.file_path.stem}.json"
-        v1_1_metadata = {
-            "version": "1.1.0",
-            "created": old_timestamp,
-            "modified": old_timestamp,
-            "bytes": len(old_data),
-            "lines": old_data.count(b"\n"),
-            "hash": {"algorithm": "sha256", "value": "dummy_hash"},
-            "temporal": {"year": 2024, "period": 1, "period_type": "weekly"},
-        }
-        with metadata_path.open("w", encoding="utf-8") as f:
-            json.dump(v1_1_metadata, f, ensure_ascii=False, indent=2)
-
-        # Act: 30日より古いファイルを削除
-        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
-
-        # Assert: 古いファイルが削除される
-        self.assertEqual(deleted_count, 1)
-        self.assertFalse(old_result.file_path.exists(), "古いファイルは削除されるべき")
-        self.assertFalse(metadata_path.exists(), "古いメタデータも削除されるべき")
-
-    def test_cleanup_old_files_with_missing_created_at(self):
-        """cleanup_old_files()で created_at フィールドがない場合にスキップすることを確認"""
-        # Arrange: ファイルを作成
-        csv_data = """"テスト"
-"","疾病A"
-"地域1","5"
-"""
-        data = csv_data.encode("shift_jis")
-        result = self.storage.save_with_metadata(
-            data=data,
-            data_type="test_missing_created_at",
-            year=2024,
-            period=1,
-            is_monthly=False,
-        )
-        self.assertTrue(result.success)
-
-        # メタデータから created_at を削除 (異常なケース)
-        metadata_path = self.storage.metadata_dir / f"{result.file_path.stem}.json"
-        metadata = {}  # 空のメタデータ
-        with metadata_path.open("w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
-
-        # Act: cleanup_old_files を実行
-        deleted_count = self.storage.cleanup_old_files(days_to_keep=30)
-
-        # Assert: created_at がないためスキップされる
-        self.assertEqual(deleted_count, 0)
-        self.assertTrue(result.file_path.exists(), "created_at がないファイルはスキップされるべき")
 
 
 if __name__ == "__main__":

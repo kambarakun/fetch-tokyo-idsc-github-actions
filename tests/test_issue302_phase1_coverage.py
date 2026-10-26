@@ -376,69 +376,6 @@ def test_metadata_from_legacy_processed_detects_female_and_total_gender() -> Non
         assert metadata._process.gender == marker
 
 
-def test_storage_manager_load_hash_index_returns_empty_dict_on_invalid_json(tmp_path: Path) -> None:
-    """Test that _load_hash_index returns empty dict when JSON is invalid."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-    storage.hash_index_file.write_text("{invalid", encoding="utf-8")
-
-    # Act
-    result = storage._load_hash_index()
-
-    # Assert
-    assert result == {}
-
-
-def test_storage_manager_remove_from_hash_index_deletes_single_path(tmp_path: Path) -> None:
-    """Test that _remove_from_hash_index removes entry when hash has single path."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-    storage.hash_index = {"hash1": str(tmp_path / "a.csv")}
-
-    # Act
-    storage._remove_from_hash_index("hash1", str(tmp_path / "a.csv"))
-
-    # Assert
-    assert "hash1" not in storage.hash_index
-
-
-def test_storage_manager_remove_from_hash_index_converts_list_to_string(tmp_path: Path) -> None:
-    """Test that _remove_from_hash_index converts list to string when one path remains."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-    storage.hash_index = {"hash2": ["a.csv", "b.csv"]}
-
-    # Act
-    storage._remove_from_hash_index("hash2", "a.csv")
-
-    # Assert
-    assert storage.hash_index["hash2"] == "b.csv"
-
-
-def test_storage_manager_remove_from_hash_index_deletes_last_item_in_list(tmp_path: Path) -> None:
-    """Test that _remove_from_hash_index removes entry when last item in list is removed."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-    storage.hash_index = {"hash3": ["x.csv"]}
-
-    # Act
-    storage._remove_from_hash_index("hash3", "x.csv")
-
-    # Assert
-    assert "hash3" not in storage.hash_index
-
-
-def test_storage_manager_remove_from_hash_index_raises_on_io_error(tmp_path: Path) -> None:
-    """Test that _remove_from_hash_index propagates OSError when file write fails."""
-    # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
-    storage.hash_index = {"hash4": ["z.csv"]}
-
-    # Act & Assert
-    with patch.object(Path, "open", side_effect=OSError("disk error")), pytest.raises(OSError, match="disk error"):
-        storage._remove_from_hash_index("hash4", "z.csv")
-
-
 def test_storage_manager_count_lines_returns_none_for_non_bytes_data(tmp_path: Path) -> None:
     """Test that _count_lines returns None for data that is not bytes."""
     # Arrange

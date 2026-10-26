@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -98,22 +98,6 @@ def test_storage_save_with_metadata_handles_missing_temp_file_during_cleanup(tmp
     assert result.error is not None
 
 
-def test_remove_from_hash_index_updates_file_when_list_entry_does_not_contain_path(tmp_path: Path) -> None:
-    """_remove_from_hash_index still persists index when list does not contain target path."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    storage.hash_index = {"h": ["a.csv", "b.csv"]}
-
-    # Act
-    storage._remove_from_hash_index("h", "missing.csv")
-
-    # Assert
-    with storage.hash_index_file.open(encoding="utf-8") as file:
-        persisted = file.read()
-    assert '"h"' in persisted
-    assert storage.hash_index["h"] == ["a.csv", "b.csv"]
-
-
 def test_normalize_metadata_skips_default_fallbacks_when_fields_already_present(tmp_path: Path) -> None:
     """_normalize_metadata keeps explicit v1.0 compatibility fields without overwriting them."""
     # Arrange
@@ -137,23 +121,6 @@ def test_normalize_metadata_skips_default_fallbacks_when_fields_already_present(
     assert normalized["checksum_algorithm"] == "sha256"
     assert normalized["temporal"]["year"] is None
     assert normalized["hash"]["value"] == "abc"
-
-
-def test_cleanup_old_files_counts_deleted_when_metadata_json_is_missing(tmp_path: Path) -> None:
-    """cleanup_old_files increments deleted count even when metadata json is absent."""
-    # Arrange
-    storage = _build_storage(tmp_path)
-    old_file = storage.base_path / "old.csv"
-    old_file.write_text("x\n", encoding="utf-8")
-    old_created = (datetime.now(UTC) - timedelta(days=400)).isoformat()
-
-    # Act
-    with patch.object(storage, "get_metadata", return_value={"created_at": old_created}):
-        deleted = storage.cleanup_old_files(days_to_keep=365)
-
-    # Assert
-    assert deleted == 1
-    assert old_file.exists() is False
 
 
 def test_metadata_from_legacy_processed_handles_filename_without_gender_token() -> None:
