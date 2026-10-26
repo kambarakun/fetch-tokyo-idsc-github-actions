@@ -83,7 +83,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(metadata["hash"]["algorithm"], "sha256")
 
     def test_save_with_metadata_duplicate(self):
-        """同一パスに同一内容がある場合は unchanged (is_duplicate) になることのテスト"""
+        """Saving the same content to the same path again is unchanged (is_duplicate) and returns the paths"""
         # 数値データを含む有効なCSV形式
         data = b'"header","value"\n"row1","1"'
         first = self.storage.save_with_metadata(data=data, data_type="test_type", year=2025, period=1)
@@ -223,7 +223,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(metadata["metadata_version"], "1.3.0")
 
     def test_content_change_updates_metadata_hash(self):
-        """内容が変わった保存でメタデータのhash.valueが新しいsha256になることのテスト"""
+        """A content change writes the new sha256 to the metadata hash.value"""
         initial_data = b'"header","value"\n"row1","10"'
         self.storage.save_with_metadata(initial_data, "test_type", 2025, 2, is_monthly=False)
 
@@ -238,7 +238,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(metadata["hash"]["value"], hashlib.sha256(updated_data).hexdigest())
 
     def test_force_overwrite_with_same_data(self):
-        """同じデータでforce_overwriteしてもCSVとメタデータを書き換えないことのテスト"""
+        """Re-saving identical data with force_overwrite rewrites neither the CSV nor the metadata"""
         test_data = b'"header","value"\n"row1","30"'
         result1 = self.storage.save_with_metadata(test_data, "test_type", 2025, 3, is_monthly=False)
         csv_mtime = result1.file_path.stat().st_mtime_ns
@@ -258,7 +258,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(result1.metadata_path.read_bytes(), metadata_bytes)
 
     def test_non_force_revert_to_earlier_content_is_saved(self):
-        """force_overwriteなしでA→B→Aと保存すると3回目のAが保存されることのテスト"""
+        """Saving A, B, then A without force_overwrite stores A again"""
         data_a = b'"header","value"\n"row1","40"'
         data_b = b'"header","value"\n"row1","41"'
         self.storage.save_with_metadata(data_a, "test_type", 2025, 1, is_monthly=False)
@@ -272,7 +272,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertEqual(result.file_path.read_bytes(), data_a)
 
     def test_same_content_for_another_period_is_saved(self):
-        """別期間に同じ内容を保存しても新規ファイルとして保存されることのテスト"""
+        """Identical content for another period is saved as a new file"""
         test_data = b'"header","value"\n"row1","40"'
         self.storage.save_with_metadata(test_data, "test_type", 2025, 1, is_monthly=False)
 
@@ -285,7 +285,7 @@ class TestStorageManager(unittest.TestCase):
         self.assertTrue((self.storage.metadata_dir / "test_type_2025_02.json").exists())
 
     def test_unchanged_csv_repairs_missing_or_stale_metadata(self):
-        """CSVが同一でもメタデータが欠落・不一致・旧版なら、CSVは書かずにメタデータだけ作り直すことのテスト"""
+        """With an identical CSV, missing, mismatched or outdated metadata is rebuilt without rewriting the CSV"""
         test_data = b'"header","value"\n"row1","50"'
         data_hash = hashlib.sha256(test_data).hexdigest()
 
@@ -319,7 +319,7 @@ class TestStorageManager(unittest.TestCase):
                 self.assertEqual(metadata["metadata_version"], METADATA_VERSION)
 
     def test_save_leaves_legacy_hash_index_json_untouched(self):
-        """既存のhash_index.jsonは初期化時にも保存時にも読み書きされないことのテスト"""
+        """A legacy hash_index.json is neither read at init nor read or written on save"""
         legacy_index_path = self.storage.metadata_dir / "hash_index.json"
         legacy_index_path.write_bytes(b"{not valid json")
         self.storage = StorageManager(self.base_path, self.config)
@@ -914,7 +914,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         self.assertNotEqual(metadata2["updated_at"], original_created_at)
 
     def test_created_at_preserved_on_content_change_without_force(self):
-        """force_overwriteなしで内容が変わってもcreatedが保持され、modifiedが進むことを確認"""
+        """A content change without force_overwrite keeps created and advances modified"""
         csv_data = """"テスト"
 "","疾病A"
 "地域1","5"

@@ -64,7 +64,7 @@ def delete_files(files: list[Path], storage: StorageManager, logger: logging.Log
         dry_run: Trueの場合、実際には削除しない
 
     Returns:
-        削除されたファイル数 (削除に失敗した分は数えない)
+        Number of deleted files (files that failed to delete are not counted)
     """
     deleted_count = 0
 

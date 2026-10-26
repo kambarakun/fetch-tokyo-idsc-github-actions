@@ -123,8 +123,8 @@ class DataCollector:
             "failed": 0,
             "skipped": 0,  # 全て0のデータとしてスキップされたファイル数
             "new_files": 0,  # 新規追加ファイル数
-            "updated_files": 0,  # 内容が変わって書き換えたファイル数
-            "unchanged_files": 0,  # 同一パスに同一内容があり書き換えなかったファイル数
+            "updated_files": 0,  # files rewritten because their content changed
+            "unchanged_files": 0,  # files left untouched because the same path already had the same content
             "errors": [],
             "start_time": None,
             "end_time": None,
@@ -250,7 +250,7 @@ class DataCollector:
                     if result.source_url:
                         additional_metadata["source_url"] = result.source_url
 
-                    # FORCEかどうかを記録する (保存の判定には使わない。同一内容なら書き換えない)
+                    # force_overwrite only records whether this is a FORCE run; identical content is never rewritten
                     save_result = self.storage.save_with_metadata(
                         result.data,
                         data_type,
@@ -258,15 +258,14 @@ class DataCollector:
                         int(params.start_sub_period),
                         is_monthly,
                         additional_metadata,
-                        force_overwrite=(self.mode == CollectionMode.FORCE),  # 記録用 (保存の判定には使わない)
+                        force_overwrite=(self.mode == CollectionMode.FORCE),  # recorded only, not used to decide saving
                         save_all_zero=self.save_all_zero,  # 全て0保存フラグを渡す
                     )
 
-                    # 統計カウント優先順位: 内容不変 > 全ゼロ > 成功
-                    # - 内容不変(is_duplicate)と全ゼロ(is_skipped)はsuccessの一種だが、別カウントで追跡
-                    # - モードに関わらず、is_duplicate/is_skippedを優先
-                    # - これにより、FORCEモードでも同一内容の再取得や全ゼロデータは
-                    #   updated_filesではなくunchanged_files/skippedとして正確にカウントされる
+                    # Count priority: unchanged > all-zero skipped > success
+                    # - unchanged (is_duplicate) and skipped (is_skipped) are successes but are counted separately
+                    # - they win regardless of mode, so an identical re-fetch or all-zero data in FORCE mode
+                    #   is counted as unchanged_files / skipped instead of updated_files
                     if save_result.is_duplicate:
                         self.stats["unchanged_files"] += 1
                     elif save_result.is_skipped:

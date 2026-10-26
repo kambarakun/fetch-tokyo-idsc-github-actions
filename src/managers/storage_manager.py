@@ -1,8 +1,8 @@
 """ストレージ管理システム
 
 東京都感染症データのファイル保存、メタデータ管理を担当するモジュール。
-フラットなディレクトリ構造でデータファイルを管理し、保存先の同一パスに
-同一内容のファイルがある場合は書き換えを省く。
+フラットなディレクトリ構造でデータファイルを管理する。
+A save is skipped when the same path already holds byte-identical content.
 """
 
 import csv
@@ -51,11 +51,11 @@ class SaveResult:
 
     Attributes:
         success: 保存操作が成功したかどうか
-        file_path: 保存先のファイルパス(成功時のみ。unchanged の場合も設定される)
-        metadata_path: 保存先のメタデータファイルのパス(成功時のみ。unchanged の場合も設定される)
+        file_path: Path of the data file (on success only; also set when unchanged)
+        metadata_path: Path of the metadata file (on success only; also set when unchanged)
         error: エラーメッセージ(失敗時のみ)
-        is_duplicate: unchanged かどうか。保存先の同一パスに同一内容(sha256一致)のCSVが既にあり、
-            CSVを書き換えなかった場合True。メタデータだけを作り直した場合もTrue
+        is_duplicate: True when unchanged: the same path already held a CSV with the same sha256,
+            so the CSV was not rewritten. Also True when only the metadata was rebuilt
         is_new: 新規ファイルとして保存されたかどうか
         is_skipped: 全て0のデータとしてスキップされたかどうか
     """
@@ -72,8 +72,8 @@ class SaveResult:
 class StorageManager:
     """データファイルとメタデータのストレージを管理するクラス。
 
-    東京都感染症データの保存、同一内容の再保存の検出、メタデータ管理などの
-    ストレージ関連機能を統合的に提供。
+    Saves Tokyo infectious-disease data files, detects re-saves of identical content
+    and manages their metadata.
 
     Attributes:
         base_path: データ保存のベースディレクトリ
@@ -143,23 +143,24 @@ class StorageManager:
             period: 期間(週番号または月番号)
             is_monthly: 月次データの場合True、週次データの場合False
             additional_metadata: 追加のメタデータ(オプション)
-            force_overwrite: FORCEモードの実行かどうか。メタデータの_fetch.force_overwriteに
-                記録するだけで、保存の判定には使わない(保存層ではFULLとFORCEが同じ動作になる)
+            force_overwrite: Whether this is a FORCE run. Only recorded in the metadata's
+                _fetch.force_overwrite, never used to decide saving (FULL and FORCE behave the same here)
             save_all_zero: 全て0のデータも保存する場合True(デフォルト: False)
 
         Returns:
             保存操作の結果を含むSaveResultオブジェクト
 
         Note:
-            - 保存先の同一パスにあるCSVの現在の内容とSHA256ハッシュで比較する。
-              一致し、メタデータも正常(hash.valueが一致し、metadata_versionが現行)なら
-              CSVもメタデータも書き換えず、unchanged(is_duplicate=True)を返す
-            - CSVは一致するがメタデータが欠落・破損・不一致・旧版の場合は、CSVは書かずに
-              メタデータだけを作り直し、この場合もunchangedとして返す
-            - 別パス(別期間)に同じ内容があっても保存する。差し戻し(A→B→A)も保存する
-            - 既存ファイルの内容を置き換える場合は、モードに関係なく既存メタデータのcreatedを引き継ぐ
-            - unchangedのファイルはverification/qualityを再計算しない。検証ロジックの変更の反映は
-              verify-metadata / migrate-metadata か、データの再生成で行う
+            - The data's SHA256 is compared with the current CSV at the same path. When they match
+              and the metadata is current (hash.value matches, metadata_version is the current one),
+              neither the CSV nor the metadata is rewritten and the result is unchanged (is_duplicate=True)
+            - When the CSV matches but the metadata is missing, broken, mismatched or outdated,
+              only the metadata is rebuilt; the result is still unchanged
+            - Identical content at another path (another period) is saved, and so is a revert (A→B→A)
+            - When an existing file's content is replaced, created is kept from the existing metadata
+              in every mode
+            - verification/quality are not recomputed for unchanged files; changes to the validation
+              logic reach them through verify-metadata / migrate-metadata or a data rebuild
             - 全て0のデータは保存をスキップする(save_all_zeroがFalseの場合)
             - パス安全性チェックは保存前に実行され、失敗時は保存を中断
               (パストラバーサル攻撃等のセキュリティリスクを事前に防止)
@@ -179,8 +180,7 @@ class StorageManager:
             data_hash = hashlib.sha256(data).hexdigest()
 
             # 全て0のデータかチェック(save_all_zeroがFalseの場合のみ)
-            # 優先度: 全て0チェック > 同一内容チェック
-            # 理由: 全て0のデータで既存の非ゼロファイルを上書きしないため、既存ファイルを読む前に判定する
+            # Runs before the existing file is read, so all-zero data never overwrites a non-zero file
             if not save_all_zero and self._is_all_zero_data(data):
                 logger.info(
                     f"Skipping all-zero unpublished data: {data_type}_{year}_{period:02d} "
@@ -208,7 +208,7 @@ class StorageManager:
             # 新規ファイルかどうかを判定
             is_new_file = not file_path.exists()
 
-            # 同一パスの現在の内容と比較する。createdを引き継ぐため、既存メタデータはモードに関係なく読む
+            # Compare with the current content at the same path; read the existing metadata in every mode to keep created
             csv_unchanged = False
             existing_metadata = None
             if not is_new_file:
@@ -304,14 +304,14 @@ class StorageManager:
             return SaveResult(success=False, error=str(e))
 
     def _is_metadata_current(self, metadata: dict[str, Any] | None, data_hash: str) -> bool:
-        """既存メタデータが内容不変のファイルにそのまま使えるかを判定する。
+        """Return whether the existing metadata can be kept as is for an unchanged file.
 
         Args:
-            metadata: get_metadata() で読んだ既存メタデータ (無ければNone)
-            data_hash: 保存しようとしているデータのSHA256ハッシュ
+            metadata: Existing metadata read by get_metadata() (None when absent or unreadable)
+            data_hash: SHA256 of the data being saved
 
         Returns:
-            hash.valueがdata_hashと一致し、metadata_versionが現行の場合True
+            True when hash.value equals data_hash and metadata_version is the current one
         """
         if metadata is None:
             return False
@@ -490,7 +490,7 @@ class StorageManager:
         """created_atとupdated_atを決定する。
 
         Args:
-            existing_metadata: 既存のメタデータ (既存ファイルがある場合にモードに関係なく取得)
+            existing_metadata: Existing metadata (read in every mode when the file already exists)
             now: 現在時刻のISO文字列
 
         Returns:
