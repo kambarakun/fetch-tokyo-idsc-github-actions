@@ -4,6 +4,7 @@ target-weeksとtarget-monthsパラメータのテスト
 
 import sys
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -12,6 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.cli.fetch_data import DataCollector
 from src.fetchers.enhanced_fetcher import FetchParams
+from src.fetchers.periods import JST
+
+# 2025-12-22 (Mon) is ISO 2025-W52 and December 2025, so every week / month of 2025 is requestable
+NOW_2025_W52 = datetime(2025, 12, 22, 17, 0, tzinfo=JST)
 
 
 class TestTargetFiltering(unittest.TestCase):
@@ -38,14 +43,12 @@ class TestTargetFiltering(unittest.TestCase):
         self.mock_config.storage.commit_message_template = "test commit"
         self.mock_config.storage.keep_shift_jis = True
 
-    @patch("src.cli.fetch_data.datetime")
+    @patch("src.fetchers.periods.now_jst", return_value=NOW_2025_W52)
     @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("src.cli.fetch_data.StorageManager")
-    def test_target_weeks_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
+    def test_target_weeks_filtering(self, mock_storage_class, mock_fetcher_class, mock_now):
         """対象週フィルタリングのテスト"""
-        # 2025年の第52週を現在週として設定(確実に52週が存在する状態にする)
-        mock_datetime.now.return_value.year = 2025
-        mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
+        # 現在を2025年の第52週に固定 (NOW_2025_W52。確実に52週が存在する状態にする)
 
         # 対象週を1週と52週のみに設定
         target_weeks = [1, 52]
@@ -73,14 +76,12 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertNotIn(10, generated_weeks)
         self.assertNotIn(30, generated_weeks)
 
-    @patch("src.cli.fetch_data.datetime")
+    @patch("src.fetchers.periods.now_jst", return_value=NOW_2025_W52)
     @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("src.cli.fetch_data.StorageManager")
-    def test_target_months_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
+    def test_target_months_filtering(self, mock_storage_class, mock_fetcher_class, mock_now):
         """対象月フィルタリングのテスト"""
-        # 2025年12月を現在月として設定(確実に12月まで存在する状態にする)
-        mock_datetime.now.return_value.year = 2025
-        mock_datetime.now.return_value.month = 12
+        # 現在を2025年12月に固定 (NOW_2025_W52。確実に12月まで存在する状態にする)
 
         # 対象月を1月と12月のみに設定
         target_months = [1, 12]
@@ -107,15 +108,12 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertNotIn(2, generated_months)
         self.assertNotIn(6, generated_months)
 
-    @patch("src.cli.fetch_data.datetime")
+    @patch("src.fetchers.periods.now_jst", return_value=NOW_2025_W52)
     @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("src.cli.fetch_data.StorageManager")
-    def test_combined_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
+    def test_combined_filtering(self, mock_storage_class, mock_fetcher_class, mock_now):
         """週と月の両方のフィルタリングのテスト"""
-        # 2025年の第52週12月を現在として設定
-        mock_datetime.now.return_value.year = 2025
-        mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
-        mock_datetime.now.return_value.month = 12
+        # 現在を2025年の第52週・12月に固定 (NOW_2025_W52)
 
         # 対象週を10, 11週、対象月を3, 4月に設定
         target_weeks = [10, 11]
@@ -152,15 +150,12 @@ class TestTargetFiltering(unittest.TestCase):
         self.assertNotIn(1, generated_months)
         self.assertNotIn(12, generated_months)
 
-    @patch("src.cli.fetch_data.datetime")
+    @patch("src.fetchers.periods.now_jst", return_value=NOW_2025_W52)
     @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("src.cli.fetch_data.StorageManager")
-    def test_no_filtering(self, mock_storage_class, mock_fetcher_class, mock_datetime):
+    def test_no_filtering(self, mock_storage_class, mock_fetcher_class, mock_now):
         """フィルタリングなしの場合のテスト"""
-        # 2025年の第52週を現在週として設定(確実な状態)
-        mock_datetime.now.return_value.year = 2025
-        mock_datetime.now.return_value.isocalendar.return_value = (2025, 52, 1)
-        mock_datetime.now.return_value.month = 12
+        # 現在を2025年の第52週・12月に固定 (NOW_2025_W52)
 
         collector = DataCollector(
             self.mock_config,
@@ -238,13 +233,15 @@ class TestTargetFiltering(unittest.TestCase):
             target_months=None,
         )
 
-        # _collect_data_typeを呼び出す
-        collector._collect_data_type("sentinel_weekly_gender", 2025, 2025)
+        # _collect_data_typeを呼び出す (取得と保存はこのテストの対象外)
+        with patch.object(collector, "_process_batch") as mock_process:
+            collector._collect_data_type("sentinel_weekly_gender", 2025, 2025)
 
-        # get_missing_dataが正しいパラメータで呼ばれたことを確認
+        # get_missing_dataが正しいパラメータで呼ばれ、その結果だけが取得に回ることを確認
         mock_fetcher.get_missing_data.assert_called_once_with(
             "sentinel_weekly_gender", existing_files, 2025, 2025, target_weeks, None
         )
+        mock_process.assert_called_once_with(expected_missing, "sentinel_weekly_gender", False)
 
     @patch("src.cli.fetch_data.EnhancedEpidemicDataFetcher")
     @patch("src.cli.fetch_data.StorageManager")

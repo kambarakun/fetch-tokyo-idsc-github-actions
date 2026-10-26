@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import mock_open, patch
 
+import yaml
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.managers.config_manager import (
@@ -269,6 +271,21 @@ class TestDataClasses(unittest.TestCase):
         self.assertTrue(config.enabled)
         self.assertEqual(config.fetch_method, "fetch_csv_sentinel_weekly_gender")
         self.assertEqual(config.epid_code, "501")
+
+
+SHIPPED_CONFIG = Path(__file__).parent.parent / "config/config.yml"
+
+
+def test_shipped_config_has_no_unused_keys():
+    """config/config.yml carries only keys the code reads, and still loads with all 9 data types"""
+    raw = yaml.safe_load(SHIPPED_CONFIG.read_text(encoding="utf-8"))
+
+    assert set(raw) == {"schedule", "collection", "storage"}
+    assert "retry_failed" not in raw["collection"]
+    assert set(raw["storage"]) == {"base_directory"}
+    assert "end_year" in raw["collection"]
+    config = ConfigurationManager(SHIPPED_CONFIG).load_config()
+    assert len(config.collection.data_types_to_collect) == 9
 
 
 if __name__ == "__main__":

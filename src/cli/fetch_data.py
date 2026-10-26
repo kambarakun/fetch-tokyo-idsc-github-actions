@@ -11,12 +11,14 @@ import random
 import re
 import sys
 import time
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchParams
+from src.fetchers import periods
+from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchParams, FetchResult
+from src.fetchers.response_contract import InvalidResponseError, validate_response
 from src.managers.config_manager import ConfigurationManager, DataCollectionConfig
 from src.managers.storage_manager import StorageManager
 
@@ -112,10 +114,7 @@ class DataCollector:
         self.fetcher = EnhancedEpidemicDataFetcher(fetcher_config)
 
         # ストレージマネージャー初期化
-        storage_config = {
-            "keep_shift_jis": config.storage.keep_shift_jis,
-        }
-        self.storage = StorageManager(Path(config.storage.base_directory), storage_config)
+        self.storage = StorageManager(Path(config.storage.base_directory), {})
 
         # 統計情報
         self.stats: dict[str, Any] = {
@@ -141,7 +140,8 @@ class DataCollector:
         # パラメータ設定
         data_types = data_types or self.config.collection.data_types_to_collect
         start_year = start_year or self.config.collection.start_year
-        end_year = end_year or datetime.now(UTC).year
+        # Precedence: --end-year > collection.end_year in config > the current JST year
+        end_year = end_year or self.config.collection.end_year or periods.now_jst().year
 
         self.logger.info(f"収集パラメータ: データタイプ={data_types}, 期間={start_year}-{end_year}")
 
@@ -229,12 +229,20 @@ class DataCollector:
                 "hc_code": params.hc_code,
                 "epid_code": self._get_epid_code(data_type),
                 "total_mode": params.total_mode,
+                # Popped by fetch_with_retry_async for the source URL and metadata; not passed to fetch_method
+                "data_type": data_type,
+                "report_type": params.report_type,
             }
 
             # データ取得実行
             result = self.fetcher.fetch_with_retry(fetch_method, **fetch_params)
 
-            if result.success:
+            if result.success and (rejection := self._reject_invalid_response(result, data_type, params)):
+                # A 200 body that breaks the contract is not saved and counts as failed; the next scheduled run retries
+                self.stats["failed"] += 1
+                self.stats["errors"].append(rejection)
+                self.logger.error(rejection)
+            elif result.success:
                 # データ保存
                 if not self.dry_run:
                     # 追加メタデータの準備
@@ -287,6 +295,18 @@ class DataCollector:
             jitter = random.uniform(0, 0.3)
             time.sleep(base_delay + jitter)
 
+    def _reject_invalid_response(self, result: FetchResult, data_type: str, params: FetchParams) -> str | None:
+        """Return the error message when the body breaks the response contract, else None."""
+        data = result.data or b""
+        try:
+            validate_response(data, data_type, int(params.start_year), int(params.start_sub_period))
+        except InvalidResponseError as e:
+            return (
+                f"invalid response for {data_type} {params.start_year}-{params.start_sub_period}: {e} "
+                f"(first 80 bytes: {data[:80]!r})"
+            )
+        return None
+
     def _get_fetch_method(self, data_type: str):
         """データタイプに対応するフェッチメソッドを取得"""
         return self.fetcher.fetch_methods.get(data_type)
@@ -303,11 +323,11 @@ class DataCollector:
     ) -> list[FetchParams]:
         """全期間のパラメータを生成"""
         params_list = []
-        current_date = datetime.now(UTC)
+        now = periods.now_jst()
 
         for year in range(start_year, end_year + 1):
+            max_period = periods.max_period_for_year(year, monthly=is_monthly, now=now)
             if is_monthly:
-                max_period = 12 if year < current_date.year else current_date.month
                 for month in range(1, max_period + 1):
                     # 対象月が指定されている場合はフィルタリング
                     if self.target_months and month not in self.target_months:
@@ -322,11 +342,7 @@ class DataCollector:
                     )
                     params_list.append(params)
             else:
-                max_week = self._get_weeks_in_year(year)
-                if year == current_date.year:
-                    max_week = min(max_week, current_date.isocalendar()[1])
-
-                for week in range(1, max_week + 1):
+                for week in range(1, max_period + 1):
                     # 対象週が指定されている場合はフィルタリング
                     if self.target_weeks and week not in self.target_weeks:
                         continue
@@ -359,7 +375,7 @@ class DataCollector:
 
     def _get_weeks_in_year(self, year: int) -> int:
         """年の週数を取得"""
-        return date(year, 12, 28).isocalendar()[1]
+        return periods.weeks_in_year(year)
 
     def _check_execution_time(self) -> bool:
         """実行時間制限チェック"""

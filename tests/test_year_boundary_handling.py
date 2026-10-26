@@ -10,11 +10,16 @@
 
 import tempfile
 import unittest
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
+import pytest
+
+from src.cli.fetch_data import DataCollector
+from src.fetchers import periods
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher
+from src.managers.config_manager import CollectionConfig, DataCollectionConfig, StorageConfig
 from src.managers.storage_manager import StorageManager
 
 
@@ -210,6 +215,137 @@ class TestISOWeekFormatting(unittest.TestCase):
 
         self.assertEqual(year, 2025)
         self.assertEqual(week, 1)
+
+
+def _utc(text: str) -> datetime:
+    return datetime.fromisoformat(text).replace(tzinfo=UTC)
+
+
+def _jst_at(utc_text: str) -> datetime:
+    """What now_jst() returns at the given UTC instant"""
+    return _utc(utc_text).astimezone(periods.JST)
+
+
+@pytest.mark.parametrize(
+    ("now", "monthly", "year", "expected"),
+    [
+        ("2026-09-24T08:00", False, 2026, 39),
+        ("2026-09-24T08:00", False, 2025, 52),
+        ("2026-09-24T08:00", False, 2027, 0),
+        ("2026-09-24T08:00", True, 2026, 9),
+        ("2026-09-24T08:00", True, 2025, 12),
+        ("2026-09-24T08:00", True, 2027, 0),
+        # 2025-12-30 is ISO 2026-W01: the calendar year 2025 keeps all 52 weeks
+        ("2025-12-30T08:00", False, 2025, 52),
+        ("2025-12-30T08:00", False, 2026, 1),
+        ("2025-12-30T08:00", True, 2025, 12),
+        ("2025-12-30T08:00", True, 2026, 0),
+        # 2027-01-01 is ISO 2026-W53: no week of 2027 exists yet
+        ("2027-01-01T08:00", False, 2027, 0),
+        ("2027-01-01T08:00", False, 2026, 53),
+        ("2027-01-01T08:00", True, 2027, 1),
+        ("2028-01-01T08:00", False, 2028, 0),
+        # 2026-12-31T16:00Z is already 2027-01-01 in JST
+        ("2026-12-31T16:00", False, 2027, 0),
+        ("2026-12-31T16:00", False, 2026, 53),
+        ("2026-12-31T16:00", True, 2027, 1),
+    ],
+)
+def test_max_period_for_year_table(now, monthly, year, expected):
+    """The upper bound uses the JST ISO week-year / week, and the JST year / month"""
+    assert periods.max_period_for_year(year, monthly=monthly, now=_utc(now)) == expected
+
+
+def test_now_jst_is_aware_tokyo_time():
+    """now_jst returns an aware datetime at UTC+9"""
+    assert periods.now_jst().utcoffset() == timedelta(hours=9)
+
+
+def test_weeks_in_year_counts_iso_weeks():
+    """weeks_in_year returns 53 for long ISO years and 52 otherwise"""
+    assert [periods.weeks_in_year(y) for y in (2020, 2025, 2026, 2027)] == [53, 52, 53, 52]
+
+
+def test_get_weeks_in_year_methods_delegate_to_periods(tmp_path):
+    """Both _get_weeks_in_year methods keep answering through periods.weeks_in_year"""
+    fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0))
+    collector = _collector(tmp_path)
+
+    assert [fetcher._get_weeks_in_year(y) for y in (2025, 2026)] == [52, 53]
+    assert [collector._get_weeks_in_year(y) for y in (2025, 2026)] == [52, 53]
+
+
+def _weekly_files(tmp_path: Path, year: int, last_week: int) -> list[Path]:
+    return [tmp_path / f"sentinel_weekly_gender_{year}_{week:02d}.csv" for week in range(1, last_week + 1)]
+
+
+def _periods(params) -> list[str]:
+    return [f"{p.start_year}-{p.start_sub_period}" for p in params]
+
+
+def _collector(tmp_path: Path) -> DataCollector:
+    config = DataCollectionConfig(
+        collection=CollectionConfig(start_year=2025, data_types_to_collect=["sentinel_weekly_gender"]),
+        storage=StorageConfig(base_directory=str(tmp_path / "raw")),
+    )
+    return DataCollector(config, mode="force")
+
+
+def test_get_missing_data_at_year_boundary():
+    """52 weeks of 2025 on 2025-12-30, and no week (but January) of 2027 on 2027-01-01"""
+    fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0))
+
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2025-12-30T08:00")):
+        missing_2025 = fetcher.get_missing_data("sentinel_weekly_gender", [], 2025, 2025)
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2027-01-01T08:00")):
+        missing_2027 = fetcher.get_missing_data("sentinel_weekly_gender", [], 2027, 2027)
+        monthly_2027 = fetcher.get_missing_data("sentinel_monthly_gender", [], 2027, 2027)
+
+    assert _periods(missing_2025) == [f"2025-{week}" for week in range(1, 53)]
+    assert missing_2027 == []
+    assert _periods(monthly_2027) == ["2027-1"]
+
+
+def test_get_missing_data_at_year_boundary_defaults_end_year_to_jst_year():
+    """end_year=None means the JST calendar year, already 2027 at 2026-12-31T16:00Z"""
+    fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0))
+
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2026-12-31T16:00")):
+        missing = fetcher.get_missing_data("sentinel_monthly_gender", [], 2027)
+
+    assert _periods(missing) == ["2027-1"]
+
+
+def test_generate_all_params_at_year_boundary(tmp_path):
+    """52 weeks of 2025 on 2025-12-30, and no week (but January) of 2027 on 2027-01-01"""
+    collector = _collector(tmp_path)
+
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2025-12-30T08:00")):
+        params_2025 = collector._generate_all_params("sentinel_weekly_gender", 2025, 2025, False)
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2027-01-01T08:00")):
+        params_2027 = collector._generate_all_params("sentinel_weekly_gender", 2027, 2027, False)
+        monthly_2027 = collector._generate_all_params("sentinel_monthly_gender", 2027, 2027, True)
+
+    assert _periods(params_2025) == [f"2025-{week}" for week in range(1, 53)]
+    assert params_2027 == []
+    assert _periods(monthly_2027) == ["2027-1"]
+
+
+def test_daily_window_across_new_year_keeps_previous_year_weeks(tmp_path):
+    """The daily window (target_weeks) across New Year still finds the previous year's last weeks"""
+    fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0))
+
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2025-12-29T08:00")):
+        before = fetcher.get_missing_data(
+            "sentinel_weekly_gender", _weekly_files(tmp_path, 2025, 50), 2025, 2025, target_weeks=[51, 52, 1]
+        )
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2026-01-05T08:00")):
+        after = fetcher.get_missing_data(
+            "sentinel_weekly_gender", _weekly_files(tmp_path, 2025, 51), 2025, 2026, target_weeks=[52, 1, 2]
+        )
+
+    assert _periods(before) == ["2025-51", "2025-52"]
+    assert _periods(after) == ["2025-52", "2026-1", "2026-2"]
 
 
 if __name__ == "__main__":

@@ -4,15 +4,49 @@ HTTPエラー時のリトライロジックのテスト
 
 import sys
 import unittest
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from requests.exceptions import HTTPError
+from requests.exceptions import ChunkedEncodingError, ContentDecodingError, HTTPError
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.fetchers.base_fetcher import TokyoEpidemicSurveillanceFetcher
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, RetryHandler
+
+_FROZEN_NOW = datetime(2026, 9, 24, 8, 0, tzinfo=UTC)
+
+
+class _FrozenDatetime(datetime):
+    """datetime whose now() is pinned, for Retry-After HTTP-date arithmetic."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return _FROZEN_NOW
+
+
+def _http_error(status_code: int, headers: dict[str, str] | None = None) -> HTTPError:
+    response = Mock()
+    response.status_code = status_code
+    response.headers = headers or {}
+    error = HTTPError(f"{status_code} error")
+    error.response = response
+    return error
+
+
+def _fail_then_succeed(*errors: Exception):
+    """Return an async callable raising each error once, then returning "success", and its call log."""
+    calls: list[int] = []
+
+    async def func():
+        calls.append(1)
+        if len(calls) <= len(errors):
+            raise errors[len(calls) - 1]
+        return "success"
+
+    return func, calls
 
 
 class TestBaseFetcherHTTPErrors(unittest.TestCase):
@@ -372,6 +406,117 @@ class TestRetryHandlerHTTPErrors(unittest.IsolatedAsyncioTestCase):
 
         # max_retries=3なので、3回リトライ(計4回実行)
         self.assertEqual(mock_sleep.call_count, 3)
+
+    @patch("asyncio.sleep")
+    async def test_chunked_encoding_error_is_retried(self, mock_sleep):
+        """ChunkedEncodingError (a truncated body) is retried with the normal delay"""
+        func, calls = _fail_then_succeed(ChunkedEncodingError("Connection broken: IncompleteRead"))
+
+        result = await self.handler.execute_with_retry(func)
+
+        self.assertEqual(result, "success")
+        self.assertEqual(len(calls), 2)
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("asyncio.sleep")
+    async def test_content_decoding_error_is_retried(self, mock_sleep):
+        """ContentDecodingError (a corrupt gzip body) is retried with the normal delay"""
+        func, calls = _fail_then_succeed(ContentDecodingError("Received response with content-encoding: gzip"))
+
+        result = await self.handler.execute_with_retry(func)
+
+        self.assertEqual(result, "success")
+        self.assertEqual(len(calls), 2)
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("asyncio.sleep")
+    async def test_permanent_4xx_is_not_retried(self, mock_sleep):
+        """400 / 404 / 410 are permanent: raised after one request without sleeping"""
+        for status_code in (400, 404, 410):
+            with self.subTest(status_code=status_code):
+                mock_sleep.reset_mock()
+                func, calls = _fail_then_succeed(_http_error(status_code))
+
+                with self.assertRaises(HTTPError):
+                    await self.handler.execute_with_retry(func)
+
+                self.assertEqual(len(calls), 1)
+                mock_sleep.assert_not_called()
+
+    @patch("asyncio.sleep")
+    async def test_408_and_5xx_are_retried_with_normal_delay(self, mock_sleep):
+        """408 and 5xx (503 without Retry-After included) are transient: retried with the normal delay"""
+        for status_code in (408, 500, 502, 503, 504):
+            with self.subTest(status_code=status_code):
+                mock_sleep.reset_mock()
+                func, calls = _fail_then_succeed(_http_error(status_code))
+
+                result = await self.handler.execute_with_retry(func)
+
+                self.assertEqual(result, "success")
+                self.assertEqual(len(calls), 2)
+                mock_sleep.assert_called_once_with(1.0)
+
+    @patch("asyncio.sleep")
+    async def test_429_uses_retry_after_seconds_capped_at_max_delay(self, mock_sleep):
+        """429 waits Retry-After delta-seconds, capped at max_delay (10.0 in setUp)"""
+        for retry_after, expected in (("120", 10.0), ("3", 3.0), ("0", 0.0)):
+            with self.subTest(retry_after=retry_after):
+                mock_sleep.reset_mock()
+                func, calls = _fail_then_succeed(_http_error(429, {"Retry-After": retry_after}))
+
+                result = await self.handler.execute_with_retry(func)
+
+                self.assertEqual(result, "success")
+                self.assertEqual(len(calls), 2)
+                mock_sleep.assert_called_once_with(expected)
+
+    @patch("asyncio.sleep")
+    async def test_503_uses_retry_after_http_date(self, mock_sleep):
+        """503 waits until the Retry-After HTTP-date (capped at max_delay), measured from now"""
+        cases = (
+            (format_datetime(_FROZEN_NOW + timedelta(seconds=5), usegmt=True), 5.0),
+            (format_datetime(_FROZEN_NOW + timedelta(hours=1), usegmt=True), 10.0),
+        )
+        for retry_after, expected in cases:
+            with self.subTest(retry_after=retry_after):
+                mock_sleep.reset_mock()
+                func, calls = _fail_then_succeed(_http_error(503, {"Retry-After": retry_after}))
+
+                with patch("src.fetchers.enhanced_fetcher.datetime", _FrozenDatetime):
+                    result = await self.handler.execute_with_retry(func)
+
+                self.assertEqual(result, "success")
+                self.assertEqual(len(calls), 2)
+                mock_sleep.assert_called_once_with(expected)
+
+    @patch("asyncio.sleep")
+    async def test_retry_after_http_date_without_zone_is_read_as_utc(self, mock_sleep):
+        """An HTTP-date with a "-0000" zone (parsed as naive) is taken as UTC"""
+        func, _ = _fail_then_succeed(_http_error(503, {"Retry-After": "Thu, 24 Sep 2026 08:00:07 -0000"}))
+
+        with patch("src.fetchers.enhanced_fetcher.datetime", _FrozenDatetime):
+            await self.handler.execute_with_retry(func)
+
+        mock_sleep.assert_called_once_with(7.0)
+
+    @patch("asyncio.sleep")
+    async def test_invalid_retry_after_falls_back_to_backoff(self, mock_sleep):
+        """Unparsable, negative or past Retry-After values are ignored: 429 -> 4.0, 503 -> 1.0"""
+        past = format_datetime(_FROZEN_NOW - timedelta(seconds=30), usegmt=True)
+        cases = [(429, value, 4.0) for value in ("abc", "-5", "", "1.5", "\u00b2", past)]
+        cases.append((503, "abc", 1.0))
+        for status_code, retry_after, expected in cases:
+            with self.subTest(status_code=status_code, retry_after=retry_after):
+                mock_sleep.reset_mock()
+                func, calls = _fail_then_succeed(_http_error(status_code, {"Retry-After": retry_after}))
+
+                with patch("src.fetchers.enhanced_fetcher.datetime", _FrozenDatetime):
+                    result = await self.handler.execute_with_retry(func)
+
+                self.assertEqual(result, "success")
+                self.assertEqual(len(calls), 2)
+                mock_sleep.assert_called_once_with(expected)
 
 
 if __name__ == "__main__":

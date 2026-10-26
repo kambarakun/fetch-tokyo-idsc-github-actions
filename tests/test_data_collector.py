@@ -2,17 +2,25 @@
 データ収集機能のテスト(skip_existing, force_update オプション)
 """
 
+import csv
+import io
+import json
 import os
 import subprocess
 import sys
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.cli.fetch_data import DataCollector
+from src.cli.fetch_data import DataCollector, main
 from src.fetchers.enhanced_fetcher import FetchParams, FetchResult, FileMetadata
+from src.fetchers.periods import JST
+from src.fetchers.response_contract import TITLES
 from src.managers.config_manager import CollectionConfig, DataCollectionConfig, StorageConfig
 from src.managers.storage_manager import SaveResult
 
@@ -29,6 +37,7 @@ class TestDataCollectorOptions(unittest.TestCase):
         self.mock_config.collection.batch_size = 10
         self.mock_config.collection.data_types_to_collect = ["test_data"]
         self.mock_config.collection.max_execution_time_hours = 6
+        self.mock_config.collection.end_year = None
         self.mock_config.storage = Mock()
         self.mock_config.storage.auto_commit = False
         self.mock_config.storage.base_directory = "data/raw"
@@ -205,6 +214,7 @@ class TestDataCollectorIntegration(unittest.TestCase):
         mock_config.collection.incremental_mode = True
         mock_config.collection.batch_size = 10
         mock_config.collection.max_execution_time_hours = 6
+        mock_config.collection.end_year = None
         mock_config.storage = Mock()
         mock_config.storage.auto_commit = False
         mock_config.storage.base_directory = "data/raw"
@@ -235,6 +245,12 @@ class TestDataCollectorIntegration(unittest.TestCase):
         mock_fetcher.get_missing_data.assert_not_called()
 
 
+def _csv_body(rows: list[list[str]]) -> bytes:
+    buffer = io.StringIO()
+    csv.writer(buffer, quoting=csv.QUOTE_ALL, lineterminator="\r\n").writerows(rows)
+    return buffer.getvalue().encode("shift_jis")
+
+
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout
 
@@ -257,7 +273,18 @@ def test_collect_data_leaves_saved_files_uncommitted(tmp_path, monkeypatch):
     head_before = _git(repo, "rev-parse", "HEAD").strip()
     monkeypatch.chdir(repo)
 
-    csv_bytes = "疾病名,報告数\n結核,5\nインフルエンザ,3\n".encode("shift_jis")
+    csv_bytes = _csv_body(
+        [
+            [TITLES["notifiable_weekly"]],
+            ["東京都"],
+            ["集計期間開始週", "2025年1週"],
+            ["集計期間終了週", "2025年1週"],
+            [],
+            ["疾病名", "報告数"],
+            ["結核", "5"],
+            ["インフルエンザ", "3"],
+        ]
+    )
     cfg = DataCollectionConfig(
         collection=CollectionConfig(start_year=2025, batch_size=5, data_types_to_collect=["notifiable_weekly"]),
         storage=StorageConfig(base_directory=str(repo / "data" / "raw")),
@@ -279,6 +306,197 @@ def test_collect_data_leaves_saved_files_uncommitted(tmp_path, monkeypatch):
     status = _git(repo, "status", "--porcelain", "--untracked-files=all").splitlines()
     assert "?? data/raw/notifiable_weekly_2025_01.csv" in status
     assert stats["new_files"] == 1
+
+
+# ========== 実際の DataCollector + StorageManager で HTTP 境界だけをモックする ==========
+
+FIXTURE_GENDER = Path(__file__).parent / "fixtures" / "raw" / "sentinel_weekly_gender_2025_10.csv"
+GENDER_URL = "https://survey.tmiph.metro.tokyo.lg.jp/epidinfo/dlwgender.do"
+HTML_BODY = b"<!DOCTYPE html><html><body>Service Unavailable</body></html>"
+
+
+def _jst_at(utc_text: str) -> datetime:
+    return datetime.fromisoformat(utc_text).replace(tzinfo=UTC).astimezone(JST)
+
+
+def _collector(tmp_path: Path, monkeypatch, *, mode="incremental", dry_run=False, **collection) -> DataCollector:
+    monkeypatch.setattr("src.cli.fetch_data.time.sleep", lambda _seconds: None)
+    collection.setdefault("data_types_to_collect", ["sentinel_weekly_gender"])
+    config = DataCollectionConfig(
+        collection=CollectionConfig(**collection), storage=StorageConfig(base_directory=str(tmp_path / "raw"))
+    )
+    collector = DataCollector(config, mode=mode, dry_run=dry_run)
+    collector.fetcher.rate_limiter.min_delay = 0
+    return collector
+
+
+def _server_returns(body: bytes):
+    """Patch the HTTP boundary: every POST answers 200 with `body`"""
+    return patch("src.fetchers.base_fetcher.requests.Session.post", return_value=Mock(status_code=200, content=body))
+
+
+def _week(year: int, week: int) -> FetchParams:
+    return FetchParams(str(year), str(week), str(year), str(week), "sentinel_weekly_gender", "1")
+
+
+def _saved_csvs(tmp_path: Path) -> list[str]:
+    return sorted(p.name for p in (tmp_path / "raw").glob("*.csv"))
+
+
+def test_invalid_200_body_is_counted_as_failed_and_not_saved(tmp_path, monkeypatch):
+    """An HTML page served with 200 is a failed fetch, not an all-zero skip, and nothing is saved"""
+    collector = _collector(tmp_path, monkeypatch)
+
+    with _server_returns(HTML_BODY):
+        collector._process_batch([_week(2025, 10)], "sentinel_weekly_gender", False)
+
+    stats = collector.stats
+    assert (stats["failed"], stats["skipped"], stats["successful"]) == (1, 0, 0)
+    assert stats["errors"][0].startswith("invalid response for sentinel_weekly_gender 2025-10: ")
+    assert f"(first 80 bytes: {HTML_BODY[:80]!r})" in stats["errors"][0]
+    assert _saved_csvs(tmp_path) == []
+
+
+def test_invalid_200_body_does_not_overwrite_in_force_mode(tmp_path, monkeypatch):
+    """FORCE does not replace an existing raw file with an invalid body"""
+    collector = _collector(tmp_path, monkeypatch, mode="force")
+    existing = tmp_path / "raw" / "sentinel_weekly_gender_2025_10.csv"
+    existing.write_bytes(FIXTURE_GENDER.read_bytes())
+
+    with _server_returns(HTML_BODY):
+        collector._process_batch([_week(2025, 10)], "sentinel_weekly_gender", False)
+
+    assert collector.stats["failed"] == 1
+    assert existing.read_bytes() == FIXTURE_GENDER.read_bytes()
+
+
+def test_invalid_200_body_is_counted_as_failed_in_dry_run(tmp_path, monkeypatch):
+    """--dry-run reports an invalid body as failed too"""
+    collector = _collector(tmp_path, monkeypatch, dry_run=True)
+
+    with _server_returns(b""):
+        collector._process_batch([_week(2025, 10)], "sentinel_weekly_gender", False)
+
+    assert (collector.stats["failed"], collector.stats["successful"]) == (1, 0)
+
+
+def test_main_exits_1_when_server_returns_html_200(tmp_path, monkeypatch):
+    """fetch-data exits 1 (and records failed=1) when the server answers HTML with 200"""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("FETCH_TIMESTAMP", raising=False)
+    monkeypatch.setattr("src.cli.fetch_data.time.sleep", lambda _seconds: None)
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(f"storage:\n  base_directory: {json.dumps(str(tmp_path / 'raw'))}\n", encoding="utf-8")
+    argv = ["fetch-data", "--config", str(config_file), "--mode", "incremental", "--start-year", "2026"]
+    argv += ["--end-year", "2026", "--data-types", "sentinel_weekly_gender", "--target-weeks", "36"]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with (
+        patch("src.fetchers.periods.now_jst", return_value=_jst_at("2026-09-24T08:00")),
+        _server_returns(HTML_BODY) as mock_post,
+        pytest.raises(SystemExit) as excinfo,
+    ):
+        main()
+
+    assert excinfo.value.code == 1
+    assert mock_post.call_args.kwargs["data"]["val(startSubPeriod)"] == "36"
+    [stats_file] = (tmp_path / "data" / "logs").glob("stats_*.json")
+    assert json.loads(stats_file.read_text(encoding="utf-8"))["failed"] == 1
+    assert _saved_csvs(tmp_path) == []
+
+
+def test_header_only_unpublished_body_is_still_skipped(tmp_path, monkeypatch):
+    """A published-shaped body without data rows is still an all-zero skip, not a failure"""
+    lines = FIXTURE_GENDER.read_bytes().split(b"\r\n")
+    header_only = b"\r\n".join(
+        lines[: lines.index('"疾病名","男性","女性","男女合計","定点数"'.encode("shift_jis")) + 1]
+    )
+    collector = _collector(tmp_path, monkeypatch)
+
+    with _server_returns(header_only):
+        collector._process_batch([_week(2025, 10)], "sentinel_weekly_gender", False)
+
+    assert (collector.stats["skipped"], collector.stats["failed"]) == (1, 0)
+    assert _saved_csvs(tmp_path) == []
+
+
+def test_source_url_is_recorded_in_raw_metadata(tmp_path, monkeypatch):
+    """A newly saved raw file records the endpoint it was fetched from"""
+    collector = _collector(tmp_path, monkeypatch)
+
+    with _server_returns(FIXTURE_GENDER.read_bytes()) as mock_post:
+        collector._process_batch([_week(2025, 10)], "sentinel_weekly_gender", False)
+
+    metadata_file = tmp_path / "raw" / ".metadata" / "sentinel_weekly_gender_2025_10.json"
+    metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+    assert collector.stats["new_files"] == 1
+    assert metadata["_fetch"]["source_url"] == GENDER_URL
+    assert metadata["sources"] == [{"title": "Tokyo IDSC", "path": GENDER_URL}]
+    assert mock_post.call_args.args[0] == GENDER_URL
+
+
+def _requested_years(collector: DataCollector, **collect_kwargs) -> set[str]:
+    with patch.object(collector, "_process_batch") as mock_process:
+        collector.collect_data(**collect_kwargs)
+    return {params.start_year for call in mock_process.call_args_list for params in call.args[0]}
+
+
+def test_collect_data_uses_config_end_year_when_cli_omits_it(tmp_path, monkeypatch):
+    """collection.end_year bounds the enumeration when --end-year is omitted"""
+    collector = _collector(tmp_path, monkeypatch, mode="force", start_year=2023, end_year=2024)
+
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2026-09-24T08:00")):
+        years = _requested_years(collector)
+
+    assert years == {"2023", "2024"}
+
+
+def test_collect_data_cli_end_year_overrides_config_end_year(tmp_path, monkeypatch):
+    """--end-year wins over collection.end_year"""
+    collector = _collector(tmp_path, monkeypatch, mode="force", start_year=2023, end_year=2024)
+
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2026-09-24T08:00")):
+        years = _requested_years(collector, end_year=2023)
+
+    assert years == {"2023"}
+
+
+def test_collect_data_defaults_end_year_to_jst_year(tmp_path, monkeypatch):
+    """Without --end-year or collection.end_year the JST year is used (2027 at 2026-12-31T16:00Z)"""
+    collector = _collector(
+        tmp_path, monkeypatch, mode="force", start_year=2027, data_types_to_collect=["sentinel_monthly_gender"]
+    )
+
+    with patch("src.fetchers.periods.now_jst", return_value=_jst_at("2026-12-31T16:00")):
+        years = _requested_years(collector)
+
+    assert years == {"2027"}
+
+
+def test_check_execution_time_boundaries(tmp_path, monkeypatch):
+    """The time limit trips only once elapsed exceeds max_execution_time_hours"""
+    collector = _collector(tmp_path, monkeypatch, max_execution_time_hours=1)
+    assert collector._check_execution_time() is False
+
+    collector.stats["start_time"] = datetime.now(UTC) - timedelta(seconds=3600 + 60)
+    assert collector._check_execution_time() is True
+
+    collector.stats["start_time"] = datetime.now(UTC) - timedelta(seconds=60)
+    assert collector._check_execution_time() is False
+
+
+def test_collect_data_type_processes_every_batch_under_time_limit(tmp_path, monkeypatch):
+    """25 periods with batch_size=10 run as 3 batches while under the time limit"""
+    collector = _collector(tmp_path, monkeypatch, mode="force", batch_size=10)
+    collector.stats["start_time"] = datetime.now(UTC)
+
+    with (
+        patch.object(collector, "_generate_all_params", return_value=[_week(2025, w) for w in range(1, 26)]),
+        patch.object(collector, "_process_batch") as mock_process,
+    ):
+        collector._collect_data_type("sentinel_weekly_gender", 2025, 2025)
+
+    assert [len(call.args[0]) for call in mock_process.call_args_list] == [10, 10, 5]
 
 
 if __name__ == "__main__":
