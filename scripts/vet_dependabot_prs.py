@@ -14,6 +14,8 @@ must not reach a report agents read (AGENTS.md).
 
 Exit codes: 0 no BLOCK (WARN allowed), 1 at least one BLOCK, 2 the vetting itself failed.
 A network or parse failure is always 2 -- "could not check" is never reported as OK or BLOCK.
+When several PRs are vetted, one that fails is listed as such beside the others' tables, and the
+run still exits 2.
 """
 
 from __future__ import annotations
@@ -87,6 +89,13 @@ PAGE_SIZE = 100
 USES_PATTERN = re.compile(
     r"^\s*-?\s*uses:\s*(?P<quote>[\"']?)(?P<repo>[\w.-]+/[\w.-]+)(?P<subpath>(?:/[\w./-]+)?)"
     r"@(?P<sha>[0-9a-f]{40})(?P=quote)(?:\s*#\s*(?P<version>v?\d[\w.+-]*))?",
+    re.ASCII,
+)
+# A block-style `rev:` of .pre-commit-config.yaml and the version comment on that same line
+# (`# v1.2.3`, or `# frozen: v1.2.3` as `pre-commit autoupdate --freeze` writes it).
+REV_LINE = re.compile(
+    r"^[ \t]*(?:-[ \t]*)?rev:[ \t]*(?P<quote>[\"']?)(?P<rev>[^\s\"'#]+)(?P=quote)"
+    r"(?:[ \t]*#[ \t]*(?:frozen:[ \t]*)?(?P<comment>v?\d[\w.-]*))?",
     re.ASCII,
 )
 # GitHub reads `action.yml`, else `action.yaml`, at the root of the action (metadata syntax docs).
@@ -171,6 +180,14 @@ class PullRequestVerdict:
     def verdict(self) -> str:
         verdicts = {check.verdict for check in self.checks}
         return next((level for level in ("BLOCK", "WARN") if level in verdicts), "OK")
+
+
+@dataclass(frozen=True)
+class VettingFailure:
+    """A PR the run could not check; `reason` is our own text, never a third-party error body."""
+
+    number: int
+    reason: str
 
 
 # --- network -----------------------------------------------------------------------------
@@ -561,28 +578,6 @@ def uv_lock_bumps(before: str | None, after: str | None) -> list[Bump]:
     return _pair_bumps(_lock_versions(before), _lock_versions(after), "pypi")
 
 
-def _workflow_pins(text: str | None) -> dict[str, dict[str, str]]:
-    pins: dict[str, dict[str, str]] = {}
-    for line in (text or "").splitlines():
-        if match := USES_PATTERN.match(line):
-            pins.setdefault(match["repo"], {})[match["sha"]] = match["version"] or match["sha"][:SHORT_SHA]
-    return pins
-
-
-def workflow_bumps(before: str | None, after: str | None) -> list[Bump]:
-    old_pins, new_pins = _workflow_pins(before), _workflow_pins(after)
-    bumps: list[Bump] = []
-    for name in sorted(new_pins):
-        old_by_sha = old_pins.get(name, {})
-        old = max(old_by_sha.values(), key=_version_key) if old_by_sha else None
-        bumps.extend(
-            Bump(name, old, version, "action", sha=sha)
-            for sha, version in new_pins[name].items()
-            if sha not in old_by_sha
-        )
-    return _dedupe(bumps)
-
-
 @dataclass(frozen=True)
 class ActionPinChange:
     """One `uses:` path moved to a new commit; unlike a Bump, subpaths of one repository stay apart."""
@@ -646,17 +641,48 @@ def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinC
     return changes
 
 
+def workflow_bumps(before: str | None, after: str | None) -> list[Bump]:
+    """A bump per new commit and the pin it replaced, paired like `action_pin_changes`.
+
+    One action may be pinned to several series (v4 in one job, v5 in another); the highest old
+    pin is not what a partial update replaced. Where the pairing is unknown, every candidate old
+    pin is its own bump, so a major jump from any of them still shows.
+    """
+    old_shas: set[tuple[str, str]] = set()
+    old_versions: dict[str, list[str]] = {}
+    for (repo, _), uses in _action_pins(before).items():
+        for _, sha, version in uses:
+            old_shas.add((repo, sha))
+            old_versions.setdefault(repo, []).append(version)
+    bumps: list[Bump] = []
+    for change in action_pin_changes(before, after):
+        # A pin already in the file was vetted when it arrived; only new commits are bumps.
+        if (change.repo, change.new_sha) in old_shas:
+            continue
+        # A path without an old pin of its own (a new subpath) may continue any pin of its repository.
+        olds = [change.old_version] if change.old_sha else old_versions.get(change.repo) or [None]
+        bumps += [Bump(change.repo, old, change.new_version, "action", sha=change.new_sha) for old in olds]
+    return _dedupe(bumps)
+
+
 def _pre_commit_revs(text: str | None) -> dict[str, tuple[str, str | None]]:
     if not text:
         return {}
     revs: dict[str, tuple[str, str | None]] = {}
+    entries: list[tuple[str, str]] = []
     for entry in yaml.safe_load(text).get("repos", []):
         rev = entry.get("rev")
         if rev is None:  # `local` and `meta` repositories carry no version
             continue
-        rev = str(rev)
-        comment = re.search(rf"rev:\s*['\"]?{re.escape(rev)}['\"]?\s*#\s*(?:frozen:\s*)?(v?\d[\w.-]*)", text)
-        revs[entry["repo"]] = (rev, comment[1] if comment else None)
+        entries.append((entry["repo"], str(rev)))
+    # The k-th `rev:` line is the k-th entry's: a version comment belongs to the rev on its own line,
+    # never to the same rev of another repository or to a comment on the next line. Lines that
+    # cannot be paired (flow style, a count or value mismatch) lend no comment rather than a guess.
+    lines = [match for line in text.splitlines() if (match := REV_LINE.match(line))]
+    paired = len(lines) == len(entries)
+    for index, (repo, rev) in enumerate(entries):
+        line = lines[index] if paired else None
+        revs[repo] = (rev, line["comment"] if line and line["rev"] == rev else None)
     return revs
 
 
@@ -784,9 +810,14 @@ def release_published_at(fetch_json: FetchJson, bump: Bump) -> datetime | None:
 
 
 def later_releases(fetch_json: FetchJson, bump: Bump) -> list[tuple[Version, datetime]] | None:
-    """Stable releases newer than the bump, or None when the source publishes no releases."""
-    current = _parse_version(bump.new)
-    if current is None or (bump.kind != "pypi" and _tag(bump) is None):
+    """Stable releases newer than the bump, or None when the source publishes no releases.
+
+    PyPI versions are PEP 440. GitHub tags are ordered only when purely numeric (as advisory ranges
+    are): PEP 440 would read SemVer `v1.0.0-1` as the post-release 1.0.0.post1 and `v1.0.1+build` as
+    a local version, so neither the candidate nor such a release is placed by that order.
+    """
+    current = _parse_version(bump.new) if bump.kind == "pypi" else _numeric_version(_tag(bump))
+    if current is None:
         return None
     found: list[tuple[Version, datetime]] = []
     if bump.kind == "pypi":
@@ -805,8 +836,8 @@ def later_releases(fetch_json: FetchJson, bump: Bump) -> list[tuple[Version, dat
     if not releases:
         return None
     for release in releases:
-        version = _parse_version(release["tag_name"])
-        if release.get("draft") or release.get("prerelease") or version is None or version.is_prerelease:
+        version = _numeric_version(release["tag_name"])
+        if release.get("draft") or release.get("prerelease") or version is None:
             continue
         if version > current and release.get("published_at"):
             found.append((version, _parse_time(release["published_at"])))
@@ -1238,8 +1269,10 @@ def check_cooldown(fetch_json: FetchJson, bump: Bump, proposed: tuple[datetime, 
 
 
 def check_superseded(fetch_json: FetchJson, bump: Bump) -> list[CheckResult]:
-    if bump.kind == "action" and (precision := _action_precision(bump)[0]) != "exact":
-        # `# v7` may pin 7.1.0; without the concrete release every 7.x would count as a successor.
+    precision = "exact" if bump.kind == "pypi" else _action_precision(bump)[0]
+    # `# v7` may pin 7.1.0; without the concrete release every 7.x would count as a successor. A
+    # pre-commit `rev:` names one tag, so only its unknown form (not purely numeric, no tag) is unordered.
+    if precision == "unknown" or (precision == "floating" and bump.kind == "action"):
         return [_result("superseded", bump, "OK", f"{_imprecise_label(bump, precision)} のため評価不能")]
     later = later_releases(fetch_json, bump)
     if later is None:
@@ -1586,6 +1619,27 @@ def vet_pull_request(
     return PullRequestVerdict(number, ecosystem, head_sha, bumps, checks)
 
 
+def vet_pull_requests(
+    fetchers: Fetchers, repo: str, numbers: Sequence[int]
+) -> tuple[list[PullRequestVerdict], list[VettingFailure]]:
+    """Vet each PR on its own: one PR that cannot be checked must not discard the others' verdicts.
+
+    The full error goes to stderr only; the reports name the PR and the exception type.
+    """
+    verdicts: list[PullRequestVerdict] = []
+    failures: list[VettingFailure] = []
+    for number in numbers:
+        try:
+            verdicts.append(vet_pull_request(*fetchers, repo, number))
+        except NotDependabotPullRequestError as exc:
+            print(str(exc), file=sys.stderr)
+            failures.append(VettingFailure(number, str(exc)))
+        except Exception as exc:  # exit 1 means BLOCK, so even a bug must surface as a failure
+            print(f"PR #{number} の検査自体が失敗した: {type(exc).__name__}: {exc}", file=sys.stderr)
+            failures.append(VettingFailure(number, f"検査自体が失敗した ({type(exc).__name__})"))
+    return verdicts, failures
+
+
 # --- reports -------------------------------------------------------------------------------
 
 
@@ -1638,13 +1692,33 @@ def _row(check: CheckResult) -> str:
     return f"| {' | '.join(cells)} |"
 
 
-def render_markdown(verdicts: Sequence[PullRequestVerdict]) -> str:
-    if not verdicts:
+def render_failure(failure: VettingFailure) -> str:
+    return f"## PR #{failure.number} (検査失敗)\n\n{_cell(failure.reason)}。判定なし (OK でも BLOCK でもない)\n"
+
+
+def render_markdown(verdicts: Sequence[PullRequestVerdict], failures: Sequence[VettingFailure] = ()) -> str:
+    if not verdicts and not failures:
         return "# Dependabot PR の事前検証\n\nopen な Dependabot PR はない。\n"
-    return "# Dependabot PR の事前検証\n\n" + "\n".join(render_pull_request(verdict) for verdict in verdicts)
+    sections = [render_pull_request(verdict) for verdict in verdicts] + [render_failure(item) for item in failures]
+    return "# Dependabot PR の事前検証\n\n" + "\n".join(sections)
 
 
-def render_json(verdicts: Sequence[PullRequestVerdict]) -> list[dict[str, Any]]:
+def render_json(
+    verdicts: Sequence[PullRequestVerdict], failures: Sequence[VettingFailure] = ()
+) -> list[dict[str, Any]]:
+    # A failed PR keeps the shape of a vetted one (no bumps, no checks) so `.[].checks[]` still reads it.
+    failed = [
+        {
+            "pr": item.number,
+            "ecosystem": None,
+            "head_sha": None,
+            "verdict": "ERROR",
+            "error": item.reason,
+            "bumps": [],
+            "checks": [],
+        }
+        for item in failures
+    ]
     return [
         {
             "pr": verdict.number,
@@ -1665,7 +1739,7 @@ def render_json(verdicts: Sequence[PullRequestVerdict]) -> list[dict[str, Any]]:
             ],
         }
         for verdict in verdicts
-    ]
+    ] + failed
 
 
 def resolve_repo(explicit: str | None) -> str | None:
@@ -1716,29 +1790,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             fetchers = make_fetchers(token)
         numbers = args.pr or open_dependabot_prs(fetchers[0], repo)
-        verdicts = [vet_pull_request(*fetchers, repo, number) for number in numbers]
-        markdown = render_markdown(verdicts)
+        verdicts, failures = vet_pull_requests(fetchers, repo, numbers)
+        if failures and not verdicts:
+            # Nothing was vetted: write no report, which the workflow's `[ -f report.md ]` guard expects.
+            return 2
+        markdown = render_markdown(verdicts, failures)
         print(markdown, end="")
         if args.report:
             args.report.write_text(markdown, encoding="utf-8")
         if args.json:
-            report = json.dumps(render_json(verdicts), ensure_ascii=False, indent=2) + "\n"
+            report = json.dumps(render_json(verdicts, failures), ensure_ascii=False, indent=2) + "\n"
             args.json.write_text(report, encoding="utf-8")
         if args.comment:
             post = make_poster(token)
             for verdict in verdicts:
                 url = f"{GITHUB_API}/repos/{repo}/issues/{verdict.number}/comments"
                 post(url, {"body": render_pull_request(verdict)})
-    except NotDependabotPullRequestError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
     except (requests.RequestException, ValueError, KeyError, TypeError, OSError, yaml.YAMLError) as exc:
         print(f"検査自体が失敗した: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:  # exit 1 means BLOCK, so even a bug must surface as 2
         print(f"検査自体が想定外の例外で失敗した: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
-    return 1 if any(verdict.verdict == "BLOCK" for verdict in verdicts) else 0
+    # A PR that could not be checked is neither OK nor BLOCK, whatever the others say.
+    blocked = any(verdict.verdict == "BLOCK" for verdict in verdicts)
+    return 2 if failures else 1 if blocked else 0
 
 
 if __name__ == "__main__":

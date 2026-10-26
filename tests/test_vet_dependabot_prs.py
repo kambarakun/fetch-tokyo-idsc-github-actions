@@ -320,6 +320,61 @@ def test_workflow_uses_bumps_are_parsed_with_sha_and_version_comment(action_pr: 
     assert subpath == [vet.Bump("github/codeql-action", None, "v4.1.0", "action", sha=SETUP_UV_NEW)]
 
 
+def test_workflow_bump_starts_from_the_pin_its_line_held_not_the_highest_one() -> None:
+    """Codex P2 on #764: moving only the v4 series read as v5.0.0 -> v4.2.0, a major WARN."""
+    v4, v5, new = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("actions/checkout", v4, "v4.1.0") + _workflow("actions/checkout", v5, "v5.0.0")
+    after = _workflow("actions/checkout", new, "v4.2.0") + _workflow("actions/checkout", v5, "v5.0.0")
+
+    bumps = vet.workflow_bumps(before, after)
+
+    assert bumps == [vet.Bump("actions/checkout", "v4.1.0", "v4.2.0", "action", sha=new)]
+    assert vet.check_major_bump(bumps[0])[0].verdict == "OK"
+
+
+def test_converging_workflow_pins_are_a_bump_from_every_predecessor() -> None:
+    # Both series move to v5.1.0: the v4 step crosses a major even though the v5 step does not.
+    v4, v5, new = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("actions/checkout", v4, "v4.1.0") + _workflow("actions/checkout", v5, "v5.0.0")
+    after = _workflow("actions/checkout", new, "v5.1.0") * 2
+
+    bumps = vet.workflow_bumps(before, after)
+
+    assert bumps == [
+        vet.Bump("actions/checkout", "v4.1.0", "v5.1.0", "action", sha=new),
+        vet.Bump("actions/checkout", "v5.0.0", "v5.1.0", "action", sha=new),
+    ]
+    assert [vet.check_major_bump(bump)[0].verdict for bump in bumps] == ["WARN", "OK"]
+
+
+def test_workflow_bump_after_moved_lines_starts_from_every_old_pin() -> None:
+    # A step was added, so which step the new pin replaced is unknown: no predecessor is guessed.
+    v4, v5, new = "a" * 40, "b" * 40, "c" * 40
+    before = _workflow("actions/checkout", v4, "v4.1.0") + _workflow("actions/checkout", v5, "v5.0.0")
+    after = (
+        _workflow("actions/checkout", new, "v4.2.0")
+        + "      - run: make\n"
+        + _workflow("actions/checkout", v5, "v5.0.0")
+    )
+
+    bumps = vet.workflow_bumps(before, after)
+
+    assert [(bump.old, bump.new) for bump in bumps] == [("v4.1.0", "v4.2.0"), ("v5.0.0", "v4.2.0")]
+
+
+def test_new_subpath_of_a_pinned_repository_continues_its_old_pin() -> None:
+    # The version belongs to the repository, so upload-sarif starts from init's v4.1.0, not from nothing.
+    old, new = "a" * 40, "c" * 40
+    before = _workflow("github/codeql-action/init", old, "v4.1.0")
+    after = _workflow("github/codeql-action/init", new, "v4.2.0") + _workflow(
+        "github/codeql-action/upload-sarif", new, "v4.2.0"
+    )
+
+    assert vet.workflow_bumps(before, after) == [
+        vet.Bump("github/codeql-action", "v4.1.0", "v4.2.0", "action", sha=new)
+    ]
+
+
 def test_pre_commit_rev_bumps_are_parsed_including_sha_pinned_rev() -> None:
     by_tag = vet.pre_commit_bumps(
         _pre_commit("https://github.com/rbubley/mirrors-prettier", "v3.8.5"),
@@ -332,6 +387,51 @@ def test_pre_commit_rev_bumps_are_parsed_including_sha_pinned_rev() -> None:
 
     assert by_tag == [vet.Bump("rbubley/mirrors-prettier", "v3.8.5", "v3.9.8", "pre-commit")]
     assert by_sha == [vet.Bump("rhysd/actionlint", "v1.7.11", "v1.7.12", "pre-commit", sha=ACTIONLINT_SHA)]
+
+
+def test_pre_commit_version_comment_belongs_to_its_own_repository() -> None:
+    """claude[bot] on #764: the comment was searched in the whole file, so a later repo lent its own."""
+
+    def config(rev: str) -> str:
+        return (
+            f"repos:\n  - repo: https://github.com/org/one\n    rev: {rev}\n    hooks:\n      - id: a\n"
+            "  - repo: https://github.com/org/two\n    rev: v1.0.0  # 2.0.0\n    hooks:\n      - id: b\n"
+        )
+
+    assert vet.pre_commit_bumps(config("v1.0.0"), config("v1.1.0")) == [
+        vet.Bump("org/one", "v1.0.0", "v1.1.0", "pre-commit")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("rev_line", "new"),
+    [
+        # A comment on the next line is not the rev's version: reading it as a tag would BLOCK on 404.
+        (f"rev: {ACTIONLINT_SHA}\n    # 1.7.12 is the last release built with Go 1.24", ACTIONLINT_SHA),
+        (f'rev: "{ACTIONLINT_SHA}"  # frozen: v1.7.12', "v1.7.12"),
+        (f"rev: '{ACTIONLINT_SHA}' # v1.7.12", "v1.7.12"),
+    ],
+    ids=["next-line", "double-quoted", "single-quoted"],
+)
+def test_pre_commit_version_comment_is_read_from_the_rev_line_only(rev_line: str, new: str) -> None:
+    repo_url = "https://github.com/rhysd/actionlint"
+    before = _pre_commit(repo_url, "a" * 40, "frozen: v1.7.11")
+    after = f"repos:\n  - repo: {repo_url}\n    {rev_line}\n    hooks:\n      - id: actionlint\n"
+
+    assert vet.pre_commit_bumps(before, after) == [
+        vet.Bump("rhysd/actionlint", "v1.7.11", new, "pre-commit", sha=ACTIONLINT_SHA)
+    ]
+
+
+def test_pre_commit_rev_lines_that_cannot_be_paired_lend_no_comment() -> None:
+    # In flow style no line starts with `rev:`, so no comment can be tied to an entry: none is guessed.
+    repo_url = "https://github.com/rhysd/actionlint"
+    before = _pre_commit(repo_url, "a" * 40, "frozen: v1.7.11")
+    after = f"repos:\n  - {{repo: {repo_url}, rev: {ACTIONLINT_SHA}, hooks: [{{id: actionlint}}]}}  # v1.7.12\n"
+
+    assert vet.pre_commit_bumps(before, after) == [
+        vet.Bump("rhysd/actionlint", "v1.7.11", ACTIONLINT_SHA, "pre-commit", sha=ACTIONLINT_SHA)
+    ]
 
 
 # --- per-dependency checks -----------------------------------------------------------------
@@ -1029,6 +1129,53 @@ def test_superseded_is_not_evaluated_without_an_exact_version(comment: str) -> N
 
     assert check.verdict == "OK"
     assert "評価不能" in check.detail
+
+
+@pytest.mark.parametrize("tag", ["v10.2.0-1", "v10.2.1+build", "v10.3.0-beta"])
+def test_github_release_tags_that_are_not_purely_numeric_are_not_successors(
+    action_pr: dict[str, Any], tag: str
+) -> None:
+    """Codex P2 on #764: PEP 440 reads SemVer `v10.2.0-1` as the post-release 10.2.0.post1."""
+    action_pr[f"{vet.GITHUB_API}/repos/astral-sh/setup-uv/releases?per_page=100&page=1"] = [
+        {"tag_name": "v10.2.0", "published_at": "2026-09-21T13:15:15Z", "draft": False, "prerelease": False},
+        {"tag_name": tag, "published_at": "2026-09-22T00:00:00Z", "draft": False, "prerelease": False},
+    ]
+
+    check = _checks(_vet(action_pr))[("superseded", "astral-sh/setup-uv")]
+
+    assert (check.verdict, check.detail) == ("OK", "後続 release 無し")
+
+
+def test_pre_commit_rev_that_is_not_purely_numeric_is_not_ordered() -> None:
+    # PEP 440 would put the SemVer prerelease v1.8.0-1 after v1.8.0, hiding v1.8.0 as its successor.
+    responses: dict[str, Any] = {}
+    repo_url = "https://github.com/org/hooks"
+    files = {".pre-commit-config.yaml": (_pre_commit(repo_url, "v1.7.0"), _pre_commit(repo_url, "v1.8.0-1"))}
+    _pr(responses, head_ref="dependabot/pre_commit/https-/github.com/org/hooks-1.8.0-1", files=files)
+    _tag(responses, "org/hooks", "v1.8.0-1", "a" * 40)
+    _releases(
+        responses,
+        "org/hooks",
+        {"v1.8.0-1": datetime(2026, 9, 1, tzinfo=UTC), "v1.8.0": datetime(2026, 9, 2, tzinfo=UTC)},
+    )
+
+    check = _checks(_vet(responses))[("superseded", "org/hooks")]
+
+    assert (check.verdict, check.detail) == ("OK", "数値だけでない版 v1.8.0-1 のため評価不能")
+
+
+def test_pypi_releases_keep_the_pep_440_order(uv_pr: dict[str, Any]) -> None:
+    # On PyPI `0.16.8.post1` is a final release after 0.16.8, so it still supersedes it.
+    _pypi(
+        uv_pr,
+        "ruff",
+        {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC), "0.16.8.post1": datetime(2026, 9, 18, tzinfo=UTC)},
+    )
+
+    check = _checks(_vet(uv_pr))[("superseded", "ruff")]
+
+    assert check.verdict == "WARN"
+    assert check.detail.startswith("0.16.8.post1 が")
 
 
 def test_release_dropping_the_python_floor_is_a_block(uv_pr: dict[str, Any]) -> None:
@@ -2301,6 +2448,78 @@ def test_all_open_without_prs_exits_zero(monkeypatch: pytest.MonkeyPatch, capsys
 
     assert _main(monkeypatch, responses, "--all-open") == 0
     assert "open な Dependabot PR はない" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("status", "other"), [(404, "OK"), (503, "OK"), (503, "BLOCK")])
+def test_one_pr_that_cannot_be_vetted_keeps_the_others_and_exits_two(
+    monkeypatch: pytest.MonkeyPatch,
+    uv_pr: dict[str, Any],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    status: int,
+    other: str,
+) -> None:
+    # PyPI does not answer for #750's candidate; #748 was vetted and its verdict must survive.
+    responses = dict(uv_pr)
+    if other == "BLOCK":
+        _pypi(responses, "ruff", {"0.16.8": datetime(2026, 9, 16, tzinfo=UTC)}, yanked=("0.16.8",))
+    _pr(
+        responses,
+        number=750,
+        head_sha="5" * 40,
+        head_ref="dependabot/uv/requests-2.34.3",
+        files={"uv.lock": (_uv_lock(requests="2.34.2"), _uv_lock(requests="2.34.3"))},
+    )
+    responses[f"{API}/pulls?state=open&per_page=100&page=1"] = [
+        {"number": number, "user": {"login": vet.DEPENDABOT_AUTHOR}} for number in (748, 750)
+    ]
+    fetch_json, *others = _fetchers(responses)
+
+    def failing_pypi(url: str) -> Any:
+        if url == vet.PYPI_RELEASE.format(name="requests", version="2.34.3"):
+            response = requests.Response()
+            response.status_code = status
+            raise requests.HTTPError(f"{status} for {url}", response=response)
+        return fetch_json(url)
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (failing_pypi, *others))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    report, report_json = tmp_path / "report.md", tmp_path / "report.json"
+
+    code = vet.main(["--repo", REPO, "--all-open", "--report", str(report), "--json", str(report_json)])
+    captured = capsys.readouterr()
+
+    # A PR that could not be checked is neither OK nor BLOCK, so the run as a whole failed, even
+    # beside a BLOCK: exit 1 would read as "every PR was vetted".
+    assert code == 2
+    assert "PR #750 の検査自体が失敗した: HTTPError" in captured.err
+    assert "## PR #748 (uv)" in captured.out
+    assert "## PR #750 (検査失敗)" in captured.out
+    assert report.read_text(encoding="utf-8") == captured.out
+    entries = {entry["pr"]: entry for entry in json.loads(report_json.read_text(encoding="utf-8"))}
+    assert entries[748]["verdict"] == other
+    assert (entries[750]["verdict"], entries[750]["checks"]) == ("ERROR", [])
+
+
+def test_every_pr_failing_writes_no_report_and_names_each_pr(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # #751 is not registered at all and #752 is a human's PR: nothing was vetted, as with one failing PR.
+    responses = dict(uv_pr)
+    responses[f"{API}/pulls/752"] = {**uv_pr[f"{API}/pulls/748"], "user": {"login": "kambarakun"}}
+    report, report_json = tmp_path / "report.md", tmp_path / "report.json"
+
+    code = _main(
+        monkeypatch, responses, "--pr", "751", "--pr", "752", "--report", str(report), "--json", str(report_json)
+    )
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert captured.out == ""
+    assert "PR #751 の検査自体が失敗した: HTTPError" in captured.err
+    assert "PR #752 は Dependabot の PR ではない" in captured.err
+    assert not report.exists()
+    assert not report_json.exists()
 
 
 def test_json_mirrors_the_markdown_verdicts(
