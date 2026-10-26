@@ -1046,10 +1046,15 @@ def _in_advisory_range(text: Any, version: Version) -> bool | None:
             return None
         terms.append((match["operator"], bound))
     # One field holds one range: a single term, or a lower bound followed by an upper bound. Read
-    # as AND, anything else (`= 1.0, = 1.1` listing versions) would cover nothing and pass as OK.
+    # as AND, anything else (`= 1.0, = 1.1` listing versions) would cover nothing and pass as OK;
+    # so would bounds that cross (`>= 2, < 1`) or meet with a strict side (`> 1, < 1`).
     kinds = [kind for kind, _ in terms]
     if len(terms) > 2 or (len(terms) == 2 and (kinds[0] not in {">=", ">"} or kinds[1] not in {"<=", "<"})):
         return None
+    if len(terms) == 2:
+        (lower_kind, lower), (upper_kind, upper) = terms
+        if lower > upper or (lower == upper and (lower_kind, upper_kind) != (">=", "<=")):
+            return None
     return all(ADVISORY_COMPARISONS[kind](version, bound) for kind, bound in terms)
 
 
