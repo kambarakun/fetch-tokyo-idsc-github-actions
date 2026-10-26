@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sys
+from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from src.cli import check_data_status as cds
+from src.processors.data_processor import DataProcessor
+
+RAW_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "raw"
 
 NOTIFIABLE_ROWS = ["疾病名,報告数", "病気,1"]
 SENTINEL_GENDER_ROWS = ["年齢区分,男性,女性", "0歳,1,2"]
@@ -33,27 +39,46 @@ def _write_raw(data_dir: Path, raw_name: str, rows: list[str]) -> Path:
     return raw_file
 
 
-def _write_output(data_dir: Path, output_name: str, source_hash: str | None) -> None:
-    """Write a processed CSV and, unless source_hash is None, its processor metadata."""
+def _write_output(data_dir: Path, output_name: str) -> None:
+    """Write a processed CSV without processor metadata."""
     processed_file = data_dir / "processed" / output_name
     processed_file.parent.mkdir(parents=True, exist_ok=True)
     processed_file.write_text("h1,h2\n1,2\n", encoding="utf-8")
-    if source_hash is None:
-        return
+
+
+def _write_metadata(data_dir: Path, output_name: str, source_hash: str) -> None:
+    """Write the processor metadata that records source_hash for a processed CSV."""
     metadata_file = data_dir / "processed" / ".metadata" / f"{Path(output_name).stem}.json"
     metadata_file.parent.mkdir(parents=True, exist_ok=True)
     metadata_file.write_text(json.dumps({"_process": {"source_hash": source_hash}}), encoding="utf-8")
 
 
-def _build_source(
-    data_dir: Path, raw_name: str, rows: list[str], outputs: list[str], source_hash: str | None = ""
-) -> Path:
-    """Write a raw source with its outputs; source_hash "" means the raw file's real sha256."""
+def _build_source(data_dir: Path, raw_name: str, rows: list[str], outputs: list[str], *, stale: bool = False) -> Path:
+    """Write a raw source and its outputs with metadata.
+
+    The metadata records the raw file's real sha256, or STALE_HASH when stale is True
+    (the outputs were produced from an older revision of the raw file).
+    """
     raw_file = _write_raw(data_dir, raw_name, rows)
-    recorded_hash = hashlib.sha256(raw_file.read_bytes()).hexdigest() if source_hash == "" else source_hash
+    recorded_hash = STALE_HASH if stale else hashlib.sha256(raw_file.read_bytes()).hexdigest()
     for output_name in outputs:
-        _write_output(data_dir, output_name, recorded_hash)
+        _write_output(data_dir, output_name)
+        _write_metadata(data_dir, output_name, recorded_hash)
     return raw_file
+
+
+def _count_opens_under(monkeypatch: pytest.MonkeyPatch, directory: Path) -> Counter[str]:
+    """Count Path.open calls (read_text / read_bytes go through it on Python 3.11) per file name under directory."""
+    opens: Counter[str] = Counter()
+    original_open = Path.open
+
+    def counting_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if directory in self.parents:
+            opens[self.relative_to(directory).as_posix()] += 1
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", counting_open)
+    return opens
 
 
 def _run_main(monkeypatch: pytest.MonkeyPatch, *args: str) -> int:
@@ -93,7 +118,7 @@ def test_source_hash_mismatch_is_reported_as_stale(
         "notifiable_weekly_2025_01.csv",
         NOTIFIABLE_ROWS,
         ["normalized_notifiable_weekly_2025_01.csv"],
-        STALE_HASH,
+        stale=True,
     )
 
     # Act
@@ -179,6 +204,106 @@ def test_processing_log_in_metadata_dir_does_not_break_coverage(
     assert json.loads(capsys.readouterr().out)["coverage"]["stale_sources"] == []
 
 
+def test_normal_coverage_scan_reads_each_raw_file_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange: processed, stale, missing-output and unprocessable sources, plus ones skipped by name or path
+    data_dir = tmp_path / "data"
+    _build_source(data_dir, "sentinel_weekly_age_2025_01.csv", SECTIONED_ROWS, AGE_OUTPUTS)
+    _build_source(
+        data_dir,
+        "notifiable_weekly_2025_01.csv",
+        NOTIFIABLE_ROWS,
+        ["normalized_notifiable_weekly_2025_01.csv"],
+        stale=True,
+    )
+    _write_raw(data_dir, "notifiable_weekly_2025_02.csv", NOTIFIABLE_ROWS)
+    _write_raw(data_dir, "sentinel_weekly_gender_2025_02.csv", ["h1,h2", "1,2"])
+    _write_raw(data_dir, "invalid.csv", NOTIFIABLE_ROWS)
+    _write_raw(data_dir, "a/notifiable_weekly_2025_03.csv", NOTIFIABLE_ROWS)
+    raw_opens = _count_opens_under(monkeypatch, data_dir / "raw")
+
+    # Act
+    coverage = cds.check_processing_coverage(data_dir / "raw", data_dir / "processed")
+
+    # Assert
+    assert raw_opens == {
+        "sentinel_weekly_age_2025_01.csv": 1,
+        "notifiable_weekly_2025_01.csv": 1,
+        "notifiable_weekly_2025_02.csv": 1,
+        "sentinel_weekly_gender_2025_02.csv": 1,
+    }
+    assert coverage["processed_source_count"] == 1
+    assert coverage["stale_sources"] == [
+        {"raw_file": "notifiable_weekly_2025_01.csv", "stale_outputs": ["normalized_notifiable_weekly_2025_01.csv"]}
+    ]
+    assert coverage["incomplete_source_count"] == 4
+
+
+def test_processor_source_hash_is_raw_bytes_hash_that_coverage_accepts(tmp_path: Path) -> None:
+    # Arrange: a published-shape Shift_JIS raw with CRLF line endings
+    data_dir = tmp_path / "data"
+    raw_dir = data_dir / "raw"
+    raw_dir.mkdir(parents=True)
+    raw_file = raw_dir / "sentinel_weekly_age_2025_10.csv"
+    shutil.copyfile(RAW_FIXTURES_DIR / raw_file.name, raw_file)
+    raw_bytes = raw_file.read_bytes()
+    decoded_text_bytes = raw_bytes.decode("shift_jis").replace("\r\n", "\n").encode("utf-8")
+    assert b"\r\n" in raw_bytes
+    assert decoded_text_bytes != raw_bytes
+
+    # Act
+    result = DataProcessor(data_dir).process_file(raw_file)
+    coverage = cds.check_processing_coverage(raw_dir, data_dir / "processed")
+
+    # Assert
+    assert result.success
+    recorded_hashes = {
+        json.loads((data_dir / "processed" / ".metadata" / f"{output.stem}.json").read_text(encoding="utf-8"))[
+            "_process"
+        ]["source_hash"]
+        for output in result.output_files
+    }
+    assert recorded_hashes == {hashlib.sha256(raw_bytes).hexdigest()}
+    assert coverage["processed_source_count"] == 1
+    assert coverage["stale_sources"] == []
+    assert coverage["incomplete_sources"] == []
+
+
+def test_raw_read_error_propagates_from_coverage_scan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    data_dir = tmp_path / "data"
+    _build_source(
+        data_dir, "notifiable_weekly_2025_01.csv", NOTIFIABLE_ROWS, ["normalized_notifiable_weekly_2025_01.csv"]
+    )
+    original_open = Path.open
+
+    def failing_open(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.name == "notifiable_weekly_2025_01.csv":
+            raise PermissionError("raw read denied")
+        return original_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", failing_open)
+
+    # Act / Assert
+    with pytest.raises(PermissionError, match="raw read denied"):
+        cds.check_processing_coverage(data_dir / "raw", data_dir / "processed")
+
+
+def test_standalone_helpers_read_the_raw_file_themselves(tmp_path: Path) -> None:
+    # Arrange
+    data_dir = tmp_path / "data"
+    raw_file = _build_source(data_dir, "sentinel_weekly_age_2025_01.csv", SECTIONED_ROWS, AGE_OUTPUTS)
+    metadata_dir = data_dir / "processed" / ".metadata"
+    _write_metadata(data_dir, AGE_OUTPUTS[0], STALE_HASH)
+
+    # Act
+    expected_outputs = cds.expected_processed_outputs(raw_file)
+    stale_outputs = cds.find_stale_outputs(raw_file, AGE_OUTPUTS, metadata_dir)
+
+    # Assert
+    assert expected_outputs == AGE_OUTPUTS
+    assert stale_outputs == [AGE_OUTPUTS[0]]
+
+
 def _build_mixed_data_dir(data_dir: Path) -> None:
     """One processed, one missing-output, one stale source, plus sources reprocessing cannot fix."""
     _build_source(
@@ -190,7 +315,7 @@ def _build_mixed_data_dir(data_dir: Path) -> None:
         "sentinel_weekly_gender_2025_01.csv",
         SENTINEL_GENDER_ROWS,
         ["normalized_sentinel_weekly_gender_2025_01.csv"],
-        STALE_HASH,
+        stale=True,
     )
     _write_raw(data_dir, "invalid.csv", NOTIFIABLE_ROWS)
     _write_raw(data_dir, "sentinel_weekly_gender_2025_02.csv", ["h1,h2", "1,2"])
@@ -303,7 +428,7 @@ def test_orphaned_outputs_alone_do_not_fail(
     _build_source(
         data_dir, "notifiable_weekly_2025_01.csv", NOTIFIABLE_ROWS, ["normalized_notifiable_weekly_2025_01.csv"]
     )
-    _write_output(data_dir, "normalized_notifiable_weekly_2025_99.csv", None)
+    _write_output(data_dir, "normalized_notifiable_weekly_2025_99.csv")
 
     # Act
     exit_code = _run_main(monkeypatch, "--data-dir", str(data_dir), "--list-needs-processing", "--fail-on-incomplete")

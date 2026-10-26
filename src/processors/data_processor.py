@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from src.models.metadata import METADATA_VERSION
+from src.utils.hashing import sha256_file
 from src.validators.quality_validator import QualityValidator
 
 logger = logging.getLogger(__name__)
@@ -831,7 +832,7 @@ class DataProcessor:
             gender_info: 出力ファイルごとの性別情報 {output_path: gender}
         """
         # ソースファイルのハッシュを計算
-        source_hash = self._calculate_hash(source)
+        source_hash = sha256_file(source)
         source_name = source.stem  # 拡張子なしのファイル名
 
         for output in outputs:
@@ -930,21 +931,6 @@ class DataProcessor:
                 # メタデータ書き込み失敗はデータ処理の成功に影響させない
                 logger.warning(f"メタデータ保存失敗: {output.name} - {e}")
                 logger.debug("メタデータ保存エラーの詳細:", exc_info=True)
-
-    def _calculate_hash(self, file_path: Path) -> str:
-        """ファイルのSHA256ハッシュを計算
-
-        Args:
-            file_path: ハッシュ計算対象のファイルパス
-
-        Returns:
-            SHA256ハッシュ文字列
-        """
-        sha256 = hashlib.sha256()
-        with file_path.open("rb") as f:
-            while chunk := f.read(65536):
-                sha256.update(chunk)
-        return sha256.hexdigest()
 
     def _verify_cross_dataset_consistency(self) -> None:
         """異なる集計軸 (age/health_center) のtotal値が一致するか検証

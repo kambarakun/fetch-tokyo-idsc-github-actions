@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,7 @@ from src.processors.data_processor import (
     find_data_start_line,
     section_has_data_rows,
 )
+from src.utils.hashing import sha256_file
 
 # Output expectations follow the processor's actual path for each data type.
 DATA_TYPE_OUTPUT_KINDS = {
@@ -153,16 +155,28 @@ def check_status(data_dir: Path, verbose: bool = False) -> dict[str, Any]:
 def expected_processed_outputs(raw_file: Path | str) -> list[str] | None:
     """Return the normalized artifacts the processor can emit for one raw source."""
     raw_path = Path(raw_file)
-    match = FILENAME_PATTERN.fullmatch(raw_path.name)
+    supported_name = _match_supported_raw_name(raw_path.name)
+    if supported_name is None:
+        return None
+    return _expected_outputs_from_content(*supported_name, raw_path.read_bytes())
+
+
+def _match_supported_raw_name(raw_name: str) -> tuple[re.Match[str], str] | None:
+    """Return the filename match and output kind, or None when the processor does not handle the name."""
+    match = FILENAME_PATTERN.fullmatch(raw_name)
     if match is None:
         return None
-
-    data_type = match.group("data_type")
-    output_kind = DATA_TYPE_OUTPUT_KINDS.get(data_type)
+    output_kind = DATA_TYPE_OUTPUT_KINDS.get(match.group("data_type"))
     if output_kind is None:
         return None
+    return match, output_kind
 
-    lines = raw_path.read_text(encoding="shift_jis", errors="replace").splitlines()
+
+def _expected_outputs_from_content(match: re.Match[str], output_kind: str, raw_content: bytes) -> list[str]:
+    """Return the outputs for a supported raw name given the raw file's bytes."""
+    data_type = match.group("data_type")
+    # splitlines() treats \r\n, \r and \n alike, so the lines match read_text()'s universal newlines.
+    lines = raw_content.decode("shift_jis", errors="replace").splitlines()
     suffixes: list[str | None]
     if output_kind == "single":
         suffixes = [None] if find_data_start_line(lines, NOTIFIABLE_DATA_START_MARKERS) is not None else []
@@ -212,15 +226,6 @@ def find_csv_files(dir_path: Path) -> list[Path]:
     )
 
 
-def _calculate_file_hash(file_path: Path) -> str:
-    """Return the sha256 hex digest of a file, matching the processor's ``source_hash``."""
-    sha256 = hashlib.sha256()
-    with file_path.open("rb") as f:
-        while chunk := f.read(65536):
-            sha256.update(chunk)
-    return sha256.hexdigest()
-
-
 def _recorded_source_hash(metadata_file: Path) -> object:
     """Return ``_process.source_hash`` from processed metadata, or None when it cannot be read."""
     try:
@@ -237,7 +242,10 @@ def find_stale_outputs(raw_file: Path, expected_outputs: list[str], metadata_dir
     Missing or unreadable metadata counts as stale: the output cannot be proven to reflect
     the current raw content (e.g. the raw file was revised after processing).
     """
-    raw_hash = _calculate_file_hash(raw_file)
+    return _outputs_not_recording_hash(sha256_file(raw_file), expected_outputs, metadata_dir)
+
+
+def _outputs_not_recording_hash(raw_hash: str, expected_outputs: list[str], metadata_dir: Path) -> list[str]:
     return sorted(
         output
         for output in expected_outputs
@@ -268,12 +276,15 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
             incomplete_sources.append({"raw_file": raw_path, "missing_outputs": [], "reason": "noncanonical_raw_path"})
             continue
 
-        expected_outputs = expected_processed_outputs(raw_file)
-        if expected_outputs is None:
+        supported_name = _match_supported_raw_name(raw_file.name)
+        if supported_name is None:
             incomplete_sources.append(
                 {"raw_file": raw_path, "missing_outputs": [], "reason": "unsupported_raw_filename"}
             )
             continue
+        # Read once: the same bytes decide the expected outputs and the hash compared with metadata.
+        raw_content = raw_file.read_bytes()
+        expected_outputs = _expected_outputs_from_content(*supported_name, raw_content)
         if not expected_outputs:
             incomplete_sources.append(
                 {"raw_file": raw_path, "missing_outputs": [], "reason": "unprocessable_raw_content"}
@@ -286,7 +297,8 @@ def check_processing_coverage(raw_dir: Path, processed_dir: Path) -> dict[str, A
             incomplete_sources.append({"raw_file": raw_path, "missing_outputs": missing_outputs})
             continue
 
-        stale_outputs = find_stale_outputs(raw_file, expected_outputs, metadata_dir)
+        raw_hash = hashlib.sha256(raw_content).hexdigest()
+        stale_outputs = _outputs_not_recording_hash(raw_hash, expected_outputs, metadata_dir)
         if stale_outputs:
             stale_sources.append({"raw_file": raw_path, "stale_outputs": stale_outputs})
         else:
