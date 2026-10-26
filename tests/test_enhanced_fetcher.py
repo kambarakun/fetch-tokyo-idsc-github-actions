@@ -540,6 +540,9 @@ LAYOUT_DRIFTS = {
     ),
     "sex row in another section": _drift("sentinel_weekly_age", _move_second_sex_row_into_first_section),
     "header row in another section": _drift("sentinel_monthly_age", _move_second_header_into_first_section),
+    "data row before the header": _drift(
+        "sentinel_weekly_medical_district", lambda r: r.insert(_row_index(r, "", 1), ["千代田", "1", "2"])
+    ),
     "missing section title": _drift(
         "sentinel_weekly_age", lambda r: r.pop(_row_index(r, TITLES["sentinel_weekly_age"], 2))
     ),

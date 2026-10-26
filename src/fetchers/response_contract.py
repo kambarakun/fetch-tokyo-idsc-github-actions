@@ -15,9 +15,10 @@ unpublished bodies that were once saved and later deleted:
 - age / health_center / medical_district: three sections, each running from its title row to
   the next one. In each section the period rows follow two rows after the title, the only
   `性別` row comes right after them (男性, 女性, 男女合計 for the 1st, 2nd and 3rd section),
-  and exactly one header row (empty first cell) follows. The three headers are identical;
-  disease columns may be added upstream, so their names are not fixed. Data rows after the
-  header have its width and hold digits, empty strings or `*` in all cells but the first.
+  and exactly one header row (empty first cell) follows, preceded only by blank rows and `*`
+  notes. The three headers are identical; disease columns may be added upstream, so their
+  names are not fixed. Data rows after the header have its width and hold digits, empty
+  strings or `*` in all cells but the first.
 
 Decoding is strict shift_jis, not cp932: the storage layer and validate-data assume shift_jis
 and every published file decodes strictly, so a cp932-only character fails loudly here.
@@ -124,6 +125,11 @@ def _check_matrix(rows: list[list[str]], title: str, period_rows: list[list[str]
         if len(header_offsets) != 1:
             raise InvalidResponseError(f"expected one header row per section, found {len(header_offsets)}")
         headers.append(section[header_offsets[0]])
+
+        # Between the sex row and the header only blank rows and `*` notes appear
+        for row in section[5 : header_offsets[0]]:
+            if row and not row[0].startswith("*"):
+                raise InvalidResponseError(f"unexpected row before the header {row!r}")
 
         for row in section[header_offsets[0] + 1 :]:
             if not row or row[0].startswith("*"):
