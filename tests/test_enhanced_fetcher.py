@@ -524,6 +524,13 @@ LAYOUT_DRIFTS = {
     "matrix '-' cell": _drift("sentinel_weekly_medical_district", lambda r: _set(r, "千代田", 1, "-", nth=1)),
     "matrix header differs": _drift("sentinel_monthly_age", lambda r: _set(r, "", 2, "手足口病", nth=2)),
     "missing matrix header": _drift("sentinel_weekly_age", lambda r: r.pop(_row_index(r, "", 0))),
+    "short matrix row": _drift("sentinel_weekly_health_center", lambda r: r[_row_index(r, "千代田", 2)].pop()),
+    "other period in a later section": _drift(
+        "sentinel_monthly_medical_district", lambda r: _set(r, "集計期間終了月", 1, "2026年35月", nth=1)
+    ),
+    "missing section title": _drift(
+        "sentinel_weekly_age", lambda r: r.pop(_row_index(r, TITLES["sentinel_weekly_age"], 2))
+    ),
 }
 
 

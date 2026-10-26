@@ -12,10 +12,12 @@ unpublished bodies that were once saved and later deleted:
   the aggregation period, valued `{year}年{period}{週|月}` (no zero padding) as requested.
 - gender / notifiable: exactly one row starts with `疾病名` and equals the fixed header. Every
   later non-empty row has the header's width and digits in all cells but the first.
-- age / health_center / medical_district: the `性別` rows are 男性, 女性, 男女合計 in order.
-  Exactly three header rows (empty first cell) exist and are identical; disease columns may
-  be added upstream, so their names are not fixed. Data rows from a header row up to the next
-  title or `性別` row hold digits, empty strings or `*` in all cells but the first.
+- age / health_center / medical_district: three sections, each opening with the title row
+  followed two rows later by the same period rows. The `性別` rows are 男性, 女性, 男女合計 in
+  order. Exactly three header rows (empty first cell) exist and are identical; disease columns
+  may be added upstream, so their names are not fixed. Data rows from a header row up to the
+  next title or `性別` row have the header's width and hold digits, empty strings or `*` in all
+  cells but the first.
 
 Decoding is strict shift_jis, not cp932: the storage layer and validate-data assume shift_jis
 and every published file decodes strictly, so a cp932-only character fails loudly here.
@@ -87,7 +89,7 @@ def validate_response(data: bytes, data_type: str, year: int, period: int) -> No
     elif data_type.endswith("_gender"):
         _check_table(rows, _GENDER_HEADER)
     else:
-        _check_matrix(rows, title)
+        _check_matrix(rows, title, expected_period_rows)
 
 
 def _check_table(rows: list[list[str]], header: list[str]) -> None:
@@ -104,8 +106,15 @@ def _check_table(rows: list[list[str]], header: list[str]) -> None:
             raise InvalidResponseError(f"unexpected data row {row!r}")
 
 
-def _check_matrix(rows: list[list[str]], title: str) -> None:
+def _check_matrix(rows: list[list[str]], title: str, period_rows: list[list[str]]) -> None:
     """Three matrix sections, one per sex (age / health_center / medical_district)."""
+    title_indexes = [i for i, row in enumerate(rows) if row == [title]]
+    if len(title_indexes) != _MATRIX_SECTIONS:
+        raise InvalidResponseError(f"expected {_MATRIX_SECTIONS} section title rows, found {len(title_indexes)}")
+    for i in title_indexes:
+        if rows[i + 2 : i + 4] != period_rows:
+            raise InvalidResponseError(f"section period rows {rows[i + 2 : i + 4]!r} do not match {period_rows!r}")
+
     sexes = [row for row in rows if row and row[0] == "性別"]
     if sexes != _SEXES:
         raise InvalidResponseError(f"unexpected sex rows {sexes!r}")
@@ -121,5 +130,5 @@ def _check_matrix(rows: list[list[str]], title: str) -> None:
                 break
             if not row or row[0].startswith("*"):
                 continue
-            if not all(_MATRIX_CELL.fullmatch(cell) for cell in row[1:]):
+            if len(row) != len(headers[0]) or not all(_MATRIX_CELL.fullmatch(cell) for cell in row[1:]):
                 raise InvalidResponseError(f"unexpected data row {row!r}")
