@@ -17,7 +17,7 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-asyncio>=1.4.0",
     "black==26.10.1",
-    "ruff==0.17.0",
+    "ruff==0.17.1",
     "mypy==2.4.0",
     "isort==7.0.0",
     "packaging==26.3",
