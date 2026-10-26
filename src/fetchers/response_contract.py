@@ -12,12 +12,12 @@ unpublished bodies that were once saved and later deleted:
   the aggregation period, valued `{year}年{period}{週|月}` (no zero padding) as requested.
 - gender / notifiable: exactly one row starts with `疾病名` and equals the fixed header. Every
   later non-empty row has the header's width and digits in all cells but the first.
-- age / health_center / medical_district: three sections, each opening with the title row
-  followed two rows later by the same period rows. The `性別` rows are 男性, 女性, 男女合計 in
-  order. Exactly three header rows (empty first cell) exist and are identical; disease columns
-  may be added upstream, so their names are not fixed. Data rows from a header row up to the
-  next title or `性別` row have the header's width and hold digits, empty strings or `*` in all
-  cells but the first.
+- age / health_center / medical_district: three sections, each running from its title row to
+  the next one. In each section the period rows follow two rows after the title, the only
+  `性別` row comes right after them (男性, 女性, 男女合計 for the 1st, 2nd and 3rd section),
+  and exactly one header row (empty first cell) follows. The three headers are identical;
+  disease columns may be added upstream, so their names are not fixed. Data rows after the
+  header have its width and hold digits, empty strings or `*` in all cells but the first.
 
 Decoding is strict shift_jis, not cp932: the storage layer and validate-data assume shift_jis
 and every published file decodes strictly, so a cp932-only character fails loudly here.
@@ -111,24 +111,25 @@ def _check_matrix(rows: list[list[str]], title: str, period_rows: list[list[str]
     title_indexes = [i for i, row in enumerate(rows) if row == [title]]
     if len(title_indexes) != _MATRIX_SECTIONS:
         raise InvalidResponseError(f"expected {_MATRIX_SECTIONS} section title rows, found {len(title_indexes)}")
-    for i in title_indexes:
-        if rows[i + 2 : i + 4] != period_rows:
-            raise InvalidResponseError(f"section period rows {rows[i + 2 : i + 4]!r} do not match {period_rows!r}")
 
-    sexes = [row for row in rows if row and row[0] == "性別"]
-    if sexes != _SEXES:
-        raise InvalidResponseError(f"unexpected sex rows {sexes!r}")
+    sections = [rows[start:end] for start, end in zip(title_indexes, [*title_indexes[1:], len(rows)], strict=True)]
+    headers = []
+    for section, sex in zip(sections, _SEXES, strict=True):
+        if section[2:4] != period_rows:
+            raise InvalidResponseError(f"section period rows {section[2:4]!r} do not match {period_rows!r}")
+        sex_rows = [row for row in section if row and row[0] == "性別"]
+        if section[4:5] != [sex] or sex_rows != [sex]:
+            raise InvalidResponseError(f"expected the sex row {sex!r} at the top of its section, found {sex_rows!r}")
+        header_offsets = [j for j, row in enumerate(section) if len(row) >= 2 and row[0] == ""]
+        if len(header_offsets) != 1:
+            raise InvalidResponseError(f"expected one header row per section, found {len(header_offsets)}")
+        headers.append(section[header_offsets[0]])
 
-    header_indexes = [i for i, row in enumerate(rows) if len(row) >= 2 and row[0] == ""]
-    headers = [rows[i] for i in header_indexes]
-    if len(headers) != _MATRIX_SECTIONS or any(header != headers[0] for header in headers):
-        raise InvalidResponseError(f"expected {_MATRIX_SECTIONS} identical header rows, found {headers!r}")
-
-    for start in header_indexes:
-        for row in rows[start + 1 :]:
-            if row == [title] or (row and row[0] == "性別"):
-                break
+        for row in section[header_offsets[0] + 1 :]:
             if not row or row[0].startswith("*"):
                 continue
             if len(row) != len(headers[0]) or not all(_MATRIX_CELL.fullmatch(cell) for cell in row[1:]):
                 raise InvalidResponseError(f"unexpected data row {row!r}")
+
+    if any(header != headers[0] for header in headers):
+        raise InvalidResponseError(f"section header rows differ: {headers!r}")

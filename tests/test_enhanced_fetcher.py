@@ -506,6 +506,16 @@ def _insert_gender_column(rows):
         rows[_row_index(rows, first_cell)].insert(3, "0")
 
 
+def _move_second_sex_row_into_first_section(rows):
+    second_title = _row_index(rows, rows[0][0], 1)
+    rows.insert(second_title, rows.pop(_row_index(rows, "性別", 1)))
+
+
+def _move_second_header_into_first_section(rows):
+    second_title = _row_index(rows, rows[0][0], 1)
+    rows.insert(second_title, rows.pop(_row_index(rows, "", 1)))
+
+
 def _swap_notifiable_columns(rows):
     for first_cell in ("疾病名", "結核", "ペスト"):
         row = rows[_row_index(rows, first_cell)]
@@ -528,6 +538,8 @@ LAYOUT_DRIFTS = {
     "other period in a later section": _drift(
         "sentinel_monthly_medical_district", lambda r: _set(r, "集計期間終了月", 1, "2026年35月", nth=1)
     ),
+    "sex row in another section": _drift("sentinel_weekly_age", _move_second_sex_row_into_first_section),
+    "header row in another section": _drift("sentinel_monthly_age", _move_second_header_into_first_section),
     "missing section title": _drift(
         "sentinel_weekly_age", lambda r: r.pop(_row_index(r, TITLES["sentinel_weekly_age"], 2))
     ),
