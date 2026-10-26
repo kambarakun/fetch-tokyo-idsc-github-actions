@@ -961,10 +961,13 @@ def test_every_repository_in_project_urls_is_queried_once(uv_pr: dict[str, Any])
 
 
 def test_bumps_sharing_a_repository_list_its_advisories_once(uv_pr: dict[str, Any]) -> None:
-    """Stub packages such as `types-*` share python/typeshed; one group PR may bump several."""
+    """Stub packages such as `types-*` share python/typeshed; one group PR may bump several.
+
+    CodeRabbit on #825: each package may spell the repository with its own casing.
+    """
     lock = (_uv_lock(ruff="0.16.7", **{"ruff-lsp": "0.0.1"}), _uv_lock(ruff="0.16.8", **{"ruff-lsp": "0.0.2"}))
     uv_pr[f"{API}/contents/uv.lock?ref={MERGE_BASE}"], uv_pr[f"{API}/contents/uv.lock?ref={HEAD_SHA}"] = lock
-    project_urls = {"Source": "https://github.com/astral-sh/ruff"}
+    project_urls = {"Source": "https://github.com/Astral-sh/Ruff"}
     _pypi(uv_pr, "ruff-lsp", {"0.0.2": datetime(2026, 9, 1, tzinfo=UTC)}, project_urls=project_urls)
     fetch_json, fetch_text, post_json, fetch_list = _fetchers(uv_pr)
     listed: list[str] = []

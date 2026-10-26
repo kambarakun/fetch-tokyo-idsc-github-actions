@@ -1020,11 +1020,9 @@ def _repository_urls(info: dict[str, Any]) -> dict[str, str]:
 
 
 def _project_repositories(release: dict[str, Any]) -> list[str]:
-    repositories: dict[str, str] = {}
-    for repo in _repository_urls(release["info"]).values():
-        # GitHub names are case-insensitive: `Astral-sh/Ruff.git` is the same repository.
-        repositories.setdefault(repo.lower(), repo)
-    return list(repositories.values())
+    # GitHub names are case-insensitive: `Astral-sh/Ruff.git` is the same repository, and one
+    # spelling keeps its advisory listing a single cached URL across packages.
+    return list(dict.fromkeys(repo.lower() for repo in _repository_urls(release["info"]).values()))
 
 
 ADVISORY_COMPARISONS: dict[str, Callable[[Version, Version], bool]] = {
