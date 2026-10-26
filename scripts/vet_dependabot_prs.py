@@ -1038,14 +1038,19 @@ def _in_advisory_range(text: Any, version: Version) -> bool | None:
     """Whether a `vulnerable_version_range` covers the version; None when it is not GitHub's syntax."""
     if not isinstance(text, str) or not text.strip():
         return None
-    inside = True
+    terms: list[tuple[str, Version]] = []
     for term in text.split(","):
         match = ADVISORY_BOUND.fullmatch(term.strip())
         bound = _parse_version(match["version"]) if match else None
         if match is None or bound is None:
             return None
-        inside = inside and ADVISORY_COMPARISONS[match["operator"]](version, bound)
-    return inside
+        terms.append((match["operator"], bound))
+    # One field holds one range: a single term, or a lower bound followed by an upper bound. Read
+    # as AND, anything else (`= 1.0, = 1.1` listing versions) would cover nothing and pass as OK.
+    kinds = [kind for kind, _ in terms]
+    if len(terms) > 2 or (len(terms) == 2 and (kinds[0] not in {">=", ">"} or kinds[1] not in {"<=", "<"})):
+        return None
+    return all(ADVISORY_COMPARISONS[kind](version, bound) for kind, bound in terms)
 
 
 def _pypi_name(name: Any) -> str | None:
