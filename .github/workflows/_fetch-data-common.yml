@@ -96,6 +96,10 @@ jobs:
   fetch-data:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout_minutes }}
+    # run: blocks read inputs only through env, never through ${{ }} expansion (issue #733)
+    env:
+      WORKFLOW_TYPE: ${{ inputs.workflow_type }}
+      WORKFLOW_DISPLAY_NAME: ${{ inputs.workflow_display_name }}
 
     steps:
       - name: Checkout repository
@@ -146,16 +150,81 @@ jobs:
 
       - name: Prepare fetch parameters
         id: params
+        # Unvalidated inputs live only here as RAW_*; GITHUB_ENV receives the validated values (issue #733)
+        env:
+          RAW_MODE: ${{ inputs.mode }}
+          RAW_START_YEAR: ${{ inputs.start_year }}
+          RAW_END_YEAR: ${{ inputs.end_year }}
+          RAW_DATA_TYPES: ${{ inputs.data_types }}
+          RAW_TARGET_WEEKS: ${{ inputs.target_weeks }}
+          RAW_TARGET_MONTHS: ${{ inputs.target_months }}
+          RAW_CHECK_PREVIOUS_YEAR: ${{ inputs.check_previous_year }}
+          RAW_DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          # 入力パラメータの処理
-          MODE="${{ inputs.mode }}"
-          START_YEAR="${{ inputs.start_year }}"
-          END_YEAR="${{ inputs.end_year }}"
-          CHECK_PREVIOUS_YEAR="${{ inputs.check_previous_year }}"
-          DRY_RUN="${{ inputs.dry_run }}"
+          # 入力の形式検証 (fail-closed)。メッセージには値そのものを出さない (ワークフローコマンド注入対策)
+          invalid_input() {
+            echo "::error title=Invalid workflow input::$1"
+            exit 1
+          }
+          # Each listed number must be in [min, max]; 10# keeps 08/09 decimal.
+          check_number_list() {
+            local name="$1" value="$2" min="$3" max="$4" item
+            local list_re='^[0-9]{1,2}(,[0-9]{1,2})*$'
+            [ -z "$value" ] && return 0
+            [[ $value =~ $list_re ]] || invalid_input "${name} must be comma-separated numbers ${min}-${max}"
+            for item in ${value//,/ }; do
+              if [ $((10#$item)) -lt "$min" ] || [ $((10#$item)) -gt "$max" ]; then
+                invalid_input "${name} must be comma-separated numbers ${min}-${max}"
+              fi
+            done
+          }
+          year_re='^[0-9]{4}$'
+          data_types_re='^[a-z_]+(,[a-z_]+)*$'
+
+          case "$WORKFLOW_TYPE" in
+            manual | weekly | daily) ;;
+            *) invalid_input "workflow_type must be manual, weekly or daily" ;;
+          esac
+          case "$RAW_MODE" in
+            incremental | full | force) ;;
+            *) invalid_input "mode must be incremental, full or force" ;;
+          esac
+          for pair in "check_previous_year:$RAW_CHECK_PREVIOUS_YEAR" "dry_run:$RAW_DRY_RUN"; do
+            case "${pair#*:}" in
+              true | false) ;;
+              *) invalid_input "${pair%%:*} must be true or false" ;;
+            esac
+          done
+          if [ -n "$RAW_START_YEAR" ] && ! [[ $RAW_START_YEAR =~ $year_re ]]; then
+            invalid_input "start_year must be empty or a 4-digit year"
+          fi
+          if [ -n "$RAW_END_YEAR" ] && ! [[ $RAW_END_YEAR =~ $year_re ]]; then
+            invalid_input "end_year must be empty or a 4-digit year"
+          fi
+          if [ -n "$RAW_DATA_TYPES" ] && ! [[ $RAW_DATA_TYPES =~ $data_types_re ]]; then
+            invalid_input "data_types must be empty or comma-separated lowercase data type names"
+          fi
+          check_number_list target_weeks "$RAW_TARGET_WEEKS" 1 53
+          check_number_list target_months "$RAW_TARGET_MONTHS" 1 12
+          # full/incremental skip existing files, and target_weeks does not narrow monthly types,
+          # so a manual single-period repair needs force mode and explicit data types.
+          if [ "$WORKFLOW_TYPE" = "manual" ] && [ -n "$RAW_TARGET_WEEKS$RAW_TARGET_MONTHS" ]; then
+            if [ "$RAW_MODE" != "force" ] || [ -z "$RAW_DATA_TYPES" ]; then
+              invalid_input "target_weeks/target_months require mode=force and data_types"
+            fi
+          fi
+
+          MODE="$RAW_MODE"
+          START_YEAR="$RAW_START_YEAR"
+          END_YEAR="$RAW_END_YEAR"
+          DATA_TYPES="$RAW_DATA_TYPES"
+          TARGET_WEEKS="$RAW_TARGET_WEEKS"
+          TARGET_MONTHS="$RAW_TARGET_MONTHS"
+          CHECK_PREVIOUS_YEAR="$RAW_CHECK_PREVIOUS_YEAR"
+          DRY_RUN="$RAW_DRY_RUN"
 
           # workflow_type別のデフォルト値設定
-          case "${{ inputs.workflow_type }}" in
+          case "$WORKFLOW_TYPE" in
             manual)
               # 手動実行: 入力値をそのまま使用
               if [ -z "$START_YEAR" ]; then
@@ -189,15 +258,21 @@ jobs:
             echo "START_YEAR=$START_YEAR"
             echo "END_YEAR=$END_YEAR"
             echo "MODE=$MODE"
+            echo "DATA_TYPES=$DATA_TYPES"
+            echo "TARGET_WEEKS=$TARGET_WEEKS"
+            echo "TARGET_MONTHS=$TARGET_MONTHS"
             echo "CHECK_PREVIOUS_YEAR=$CHECK_PREVIOUS_YEAR"
             echo "DRY_RUN=$DRY_RUN"
           } >> "$GITHUB_ENV"
 
-          echo "${{ inputs.workflow_display_name }} parameters:"
+          echo "${WORKFLOW_DISPLAY_NAME} parameters:"
           echo "  Start year: $START_YEAR"
           echo "  End year: $END_YEAR"
           echo "  Current week: $CURRENT_WEEK"
           echo "  Collection mode: $MODE"
+          echo "  Data types: ${DATA_TYPES:-all}"
+          echo "  Target weeks: ${TARGET_WEEKS:-all}"
+          echo "  Target months: ${TARGET_MONTHS:-all}"
           echo "  Check previous year: $CHECK_PREVIOUS_YEAR"
           echo "  Dry run: $DRY_RUN"
 
@@ -243,20 +318,18 @@ jobs:
       - name: Fetch epidemic data
         id: fetch
         shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # パイプラインの終了コードを正しく伝播 (pipefailオプション)
           set -o pipefail
 
           # ログファイル名の決定 (workflow_typeベース)
-          case "${{ inputs.workflow_type }}" in
+          case "$WORKFLOW_TYPE" in
             manual) LOG_PREFIX="fetch" ;;
             weekly) LOG_PREFIX="weekly" ;;
             daily)  LOG_PREFIX="daily" ;;
           esac
 
-          echo "Starting ${{ inputs.workflow_display_name }} at $FETCH_TIMESTAMP"
+          echo "Starting ${WORKFLOW_DISPLAY_NAME} at $FETCH_TIMESTAMP"
 
           # コマンドの構築
           FETCH_CMD=(uv run --locked fetch-data)
@@ -268,19 +341,15 @@ jobs:
           # モードを指定
           FETCH_CMD+=(--mode "$MODE")
 
-          # データ種別の指定 (指定された場合のみ)
-          if [ -n "${{ inputs.data_types }}" ]; then
-            FETCH_CMD+=(--data-types "${{ inputs.data_types }}")
+          # データ種別・対象週・対象月の指定 (Prepare fetch parameters で検証済み。指定された場合のみ)
+          if [ -n "${DATA_TYPES:-}" ]; then
+            FETCH_CMD+=(--data-types "$DATA_TYPES")
           fi
-
-          # 対象週の指定 (指定された場合のみ)
-          if [ -n "${{ inputs.target_weeks }}" ]; then
-            FETCH_CMD+=(--target-weeks "${{ inputs.target_weeks }}")
+          if [ -n "${TARGET_WEEKS:-}" ]; then
+            FETCH_CMD+=(--target-weeks "$TARGET_WEEKS")
           fi
-
-          # 対象月の指定 (指定された場合のみ)
-          if [ -n "${{ inputs.target_months }}" ]; then
-            FETCH_CMD+=(--target-months "${{ inputs.target_months }}")
+          if [ -n "${TARGET_MONTHS:-}" ]; then
+            FETCH_CMD+=(--target-months "$TARGET_MONTHS")
           fi
 
           # DRY_RUNがtrueの場合
@@ -322,6 +391,9 @@ jobs:
         id: fetch-gate
         if: env.FETCH_STATUS == 'failed'
         shell: bash
+        env:
+          CONTINUE_ON_FAILURE: ${{ inputs.continue_on_failure }}
+          FORCE_MERGE_ON_FAILURE: ${{ inputs.force_merge_on_failure }}
         run: |
           echo "⚠️ データ取得に失敗しました (exit code: ${FETCH_RESULT})"
           echo "::error title=Data fetch failed::fetch-data exited with code ${FETCH_RESULT}; automatic merge will be blocked unless explicitly overridden"
@@ -333,12 +405,12 @@ jobs:
           # true               | (any)                | 継続
           # false              | true                 | 継続（警告）
           # false              | false                | 終了（exit 1）
-          if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
+          if [ "$CONTINUE_ON_FAILURE" = "true" ]; then
             REASON="continue_on_failure=true により継続"
             echo "⚠️ 警告: ${REASON}"
             echo "FETCH_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
           else
-            if [ "${{ inputs.force_merge_on_failure }}" = "true" ]; then
+            if [ "$FORCE_MERGE_ON_FAILURE" = "true" ]; then
               REASON="force_merge_on_failure=true により継続"
               echo "⚠️ 警告: ${REASON}"
               echo "FETCH_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
@@ -353,6 +425,9 @@ jobs:
         id: process
         if: inputs.dry_run != true
         shell: bash
+        env:
+          CONTINUE_ON_FAILURE: ${{ inputs.continue_on_failure }}
+          FORCE_MERGE_ON_FAILURE: ${{ inputs.force_merge_on_failure }}
         run: |
           # パイプラインの終了コードを正しく伝播 (pipefailオプション)
           set -o pipefail
@@ -368,18 +443,20 @@ jobs:
           # false              | false                | 終了（exit 1）
           handle_process_failure() {
             echo "❌ データ処理: 失敗"
+            # 継続する場合も run に注記を残す (通知 issue は Notify pipeline anomaly が作る)
+            echo "::error title=Data processing failed::process-data failed; automatic merge will be blocked unless explicitly overridden"
             {
               echo "PROCESS_RESULT=failed"
               echo "PROCESS_CONTINUED_REASON=none"
             } >> "$GITHUB_ENV"
 
-            if [ "${{ inputs.continue_on_failure }}" = "true" ]; then
+            if [ "$CONTINUE_ON_FAILURE" = "true" ]; then
               REASON="continue_on_failure=true により継続"
               echo "⚠️ 警告: データ処理に失敗しましたが、${REASON}します。"
               echo "PROCESS_CONTINUED_REASON=${REASON}" >> "$GITHUB_ENV"
             else
               # force_merge_on_failureがfalseの場合は終了
-              if [ "${{ inputs.force_merge_on_failure }}" = "false" ]; then
+              if [ "$FORCE_MERGE_ON_FAILURE" != "true" ]; then
                 exit 1
               else
                 REASON="force_merge_on_failure=true により継続"
@@ -395,7 +472,10 @@ jobs:
           CHANGED_RAW_LIST="$RUNNER_TEMP/changed_raw_files_${FETCH_TIMESTAMP}.txt"
           CHANGED_RAW_FILES=()
           if bash scripts/list_changed_raw_files.sh "${PRE_FETCH_SHA:-}" > "$CHANGED_RAW_LIST"; then
-            mapfile -t CHANGED_RAW_FILES < "$CHANGED_RAW_LIST"
+            # while-read instead of mapfile so tests can run this step with macOS bash 3.2
+            while IFS= read -r changed_raw_file || [ -n "$changed_raw_file" ]; do
+              CHANGED_RAW_FILES+=("$changed_raw_file")
+            done < "$CHANGED_RAW_LIST"
             RAW_CHANGED_COUNT=${#CHANGED_RAW_FILES[@]}
           else
             RAW_CHANGED_COUNT="unknown"
@@ -466,39 +546,6 @@ jobs:
               handle_process_failure
             fi
           fi
-
-      - name: Create issue on processing failure
-        id: create_issue
-        if: env.PROCESS_RESULT == 'failed'
-        shell: bash
-        run: |
-          echo "📝 処理失敗のGitHub Issueを作成します..."
-
-          # セキュリティ: 環境変数をサニタイズ (インジェクション対策)
-          # 英数字、ハイフン、アンダースコア、スラッシュのみを許可
-          SAFE_ACTOR=$(echo "${GITHUB_ACTOR}" | tr -cd '[:alnum:]-_')
-          SAFE_REF=$(echo "${GITHUB_REF}" | tr -cd '[:alnum:]-_/')
-          SAFE_SHA=$(echo "${GITHUB_SHA:0:7}" | tr -cd '[:alnum:]')
-
-          ISSUE_TITLE="[自動/${{ inputs.workflow_type }}] データ処理失敗: $(date +'%Y-%m-%d %H:%M')"
-          ISSUE_BODY="データ処理ステップが失敗しました (${{ inputs.workflow_display_name }})。
-
-          発生日時: $(date +'%Y-%m-%d %H:%M:%S %Z')
-          ワークフロー実行: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          コミット: ${SAFE_SHA}
-          Branch: ${SAFE_REF}
-          Actor: ${SAFE_ACTOR}
-
-          対応方法:
-          1. ワークフローログで具体的なエラーメッセージを確認
-          2. 処理ログファイル: data/logs/process_${FETCH_TIMESTAMP}.log
-          3. 問題を修正後、手動で再実行してください"
-
-          gh issue create \
-            --title "${ISSUE_TITLE}" \
-            --body "${ISSUE_BODY}" \
-            --label "bug,automated,data-processing,${{ inputs.workflow_type }}" \
-            --assignee "${SAFE_ACTOR}" || echo "⚠️ Issue作成に失敗しましたが、処理を継続します"
 
       # raw に対して processed が欠落・改訂後未再処理なら自動マージを止める (issue #725)
       # ステップ自体は失敗させない。判定は Evaluate auto-merge gate の blocker "coverage" が行う
@@ -717,7 +764,7 @@ jobs:
           VALIDATION_SUCCESS: ${{ env.VALIDATION_SUCCESS }}
           SCHEMA_VALID: ${{ env.SCHEMA_VALID }}
         run: |
-          case "${{ inputs.workflow_type }}" in
+          case "$WORKFLOW_TYPE" in
             manual) WORKFLOW_NAME="fetch-data" ;;
             weekly) WORKFLOW_NAME="fetch-data-weekly" ;;
             daily)  WORKFLOW_NAME="fetch-data-daily" ;;
@@ -767,7 +814,7 @@ jobs:
           # workflow_type を create_pr.sh が認識する workflow_name 識別子へ変換する。
           # create_pr.sh はこの識別子でブランチ名・コミットメッセージ・自動マージ検証ゲートを分岐するため、
           # 旧来の "data-update-*" を渡すと全て default 分岐に落ち、ブランチ名二重化・検証ゲート無効化を招く。
-          case "${{ inputs.workflow_type }}" in
+          case "$WORKFLOW_TYPE" in
             manual) WORKFLOW_NAME="fetch-data" ;;
             weekly) WORKFLOW_NAME="fetch-data-weekly" ;;
             daily)  WORKFLOW_NAME="fetch-data-daily" ;;
@@ -775,7 +822,7 @@ jobs:
           esac
 
           # 共通スクリプトを呼び出し
-          bash scripts/create_pr.sh "$WORKFLOW_NAME" "${{ inputs.workflow_display_name }}"
+          bash scripts/create_pr.sh "$WORKFLOW_NAME" "$WORKFLOW_DISPLAY_NAME"
 
       # No PR is created without data/raw changes, so a blocked gate would otherwise go unnoticed (issue #731)
       - name: Fail when gate is blocked without PR
@@ -785,63 +832,40 @@ jobs:
           echo "::error title=Auto-merge gate blocked without PR::data/raw に変更が無いため PR は作成しないが、ゲートがブロックしている (ブロック理由: ${AUTO_MERGE_BLOCKERS:-unset})"
           exit 1
 
-      - name: Create issue on error
-        if: failure() && inputs.dry_run != true
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const date = new Date().toISOString().split('T')[0];
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+      # One deduplicated issue per anomaly kind; placed after the PR so it never blocks the PR (issue #733)
+      - name: Notify pipeline anomaly
+        if: always() && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+          PIPELINE_NAME: ${{ inputs.workflow_type }}
+        run: bash scripts/notify_pipeline_issue.sh
 
-            const issueBody = `## ${{ inputs.workflow_display_name }}エラー
-
-            ${{ inputs.workflow_display_name }}処理でエラーが発生しました。
-
-            ### エラー情報
-            - **日時**: ${date}
-            - **ワークフロー実行**: ${runUrl}
-            - **開始年**: ${process.env.START_YEAR || 'N/A'}
-            - **終了年**: ${process.env.END_YEAR || 'N/A'}
-            - **モード**: ${process.env.MODE || 'N/A'}
-
-            ### 対応方法
-            1. 上記のワークフロー実行リンクからログを確認
-            2. エラー内容を特定
-            3. 必要に応じて手動で再実行
-
-            ### 自動ラベル
-            - ${{ inputs.workflow_type }}
-            - data-collection
-            - error
-            - automated`;
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `[${{ inputs.workflow_type }}] データ取得エラー - ${date}`,
-              body: issueBody,
-              labels: ['${{ inputs.workflow_type }}', 'data-collection', 'error', 'automated']
-            });
-
+      # Only this run's files: data/logs also holds every committed log (issue #733)
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ inputs.workflow_type }}-logs-${{ env.FETCH_TIMESTAMP }}
-          path: data/logs/
+          path: data/logs/*_${{ env.FETCH_TIMESTAMP }}.*
+          if-no-files-found: warn
           retention-days: ${{ inputs.log_retention_days }}
 
       - name: Generate summary
         if: always()
+        env:
+          FORCE_MERGE_ON_FAILURE: ${{ inputs.force_merge_on_failure }}
         run: |
           {
-            echo "## 📊 ${{ inputs.workflow_display_name }}サマリー"
+            echo "## 📊 ${WORKFLOW_DISPLAY_NAME}サマリー"
             echo ""
-            echo "- **実行日時**: $CURRENT_DATE ${{ env.FETCH_TIMESTAMP }}"
-            echo "- **対象期間**: $START_YEAR - $END_YEAR"
-            echo "- **現在の週**: 第${CURRENT_WEEK}週"
-            echo "- **収集モード**: ${MODE}"
+            echo "- **実行日時**: ${CURRENT_DATE:-} ${FETCH_TIMESTAMP:-}"
+            echo "- **対象期間**: ${START_YEAR:-} - ${END_YEAR:-}"
+            echo "- **対象週**: ${TARGET_WEEKS:-指定なし}"
+            echo "- **対象月**: ${TARGET_MONTHS:-指定なし}"
+            echo "- **データタイプ**: ${DATA_TYPES:-全タイプ}"
+            echo "- **現在の週**: 第${CURRENT_WEEK:-}週"
+            echo "- **収集モード**: ${MODE:-}"
             echo "- **ドライラン**: ${DRY_RUN:-false}"
             echo ""
             echo "### 🔄 データ取得結果"
@@ -857,9 +881,14 @@ jobs:
             echo "- **検証**: ${VALIDATION_GATE_STATUS:-not_evaluated}"
             echo "- **連続性**: ${CONTINUITY_GATE_STATUS:-not_evaluated}"
             echo "- **schema**: ${SCHEMA_GATE_STATUS:-not_evaluated}"
+            echo "- **処理カバレッジ**: ${PROCESSING_COVERAGE_STATUS:-not_evaluated}"
+            echo "- **raw 変更件数**: ${RAW_CHANGED_COUNT:-not_evaluated}"
             echo "- **ブロック理由**: ${AUTO_MERGE_BLOCKERS:-not_evaluated}"
             echo "- **判定**: ${AUTO_MERGE_GATE_STATUS:-not_evaluated}"
-            echo "- **強制上書き要求**: ${{ inputs.force_merge_on_failure }}"
+            if [ "${AUTO_MERGE_SETUP_FAILED:-}" = "true" ]; then
+              echo "- **auto-merge 設定**: ⚠️ 失敗 (手動マージが必要)"
+            fi
+            echo "- **強制上書き要求**: ${FORCE_MERGE_ON_FAILURE}"
             echo "- **強制上書き適用**: ${AUTO_MERGE_OVERRIDE_USED:-false}"
             echo "- **取得失敗後の継続理由**: ${FETCH_CONTINUED_REASON:-none}"
             echo "- **処理失敗後の継続理由**: ${PROCESS_CONTINUED_REASON:-none}"

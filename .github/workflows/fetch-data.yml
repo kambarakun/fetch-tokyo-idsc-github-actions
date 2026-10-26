@@ -15,6 +15,14 @@ on:
         description: "📅 終了年 (デフォルト: 現在年)"
         required: false
         default: ""
+      target_weeks:
+        description: "🗓️ 対象週 (カンマ区切り、例: 10。空欄=全週)。指定時は mode=force と data_types が必須。start_year=end_year で 1 年に絞る"
+        required: false
+        default: ""
+      target_months:
+        description: "🗓️ 対象月 (カンマ区切り、例: 3。空欄=全月)。指定時は mode=force と data_types が必須。start_year=end_year で 1 年に絞る"
+        required: false
+        default: ""
       dry_run:
         description: "🧪 テスト実行モード (データ取得のみ、コミット/PR作成なし)"
         required: false
@@ -68,6 +76,8 @@ jobs:
       start_year: ${{ inputs.start_year || '' }}
       end_year: ${{ inputs.end_year || '' }}
       data_types: ${{ inputs.data_types || '' }}
+      target_weeks: ${{ inputs.target_weeks || '' }}
+      target_months: ${{ inputs.target_months || '' }}
 
       # 動作モード
       mode: ${{ inputs.mode || 'full' }}

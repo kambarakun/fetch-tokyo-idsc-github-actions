@@ -28,17 +28,13 @@ set -e
 #     - FETCH_STATUS (success|failed) - データ取得結果
 #     - PROCESS_RESULT (success|failed|skipped) - データ処理結果
 #     - FETCH_CONTINUED_REASON, PROCESS_CONTINUED_REASON - 失敗後の継続理由
-#   fetch-data-daily:
-#     - CURRENT_YEAR, CURRENT_WEEK, CURRENT_MONTH
-#     - PREVIOUS_WEEK, PREVIOUS_MONTH
-#   fetch-data-weekly:
-#     - START_YEAR, END_YEAR, CURRENT_WEEK
-#     - CHECK_PREVIOUS_YEAR, PREVIOUS_YEAR
-#     - VALIDATION_SUCCESS (true|false)
-#   fetch-data:
-#     - START_YEAR, END_YEAR
-#     - DATA_TYPES, MODE
-#     - VERIFY_CONTINUITY, CONTINUITY_VALID
+#     - AUTO_MERGE_GATE_EVALUATED と各ゲート値 - 未評価なら scripts/auto_merge_gate.sh でここで評価する
+#   fetch-data-daily / fetch-data-weekly / fetch-data (Prepare fetch parameters が検証して GITHUB_ENV に書いた値):
+#     - START_YEAR, END_YEAR, MODE
+#     - DATA_TYPES, TARGET_WEEKS, TARGET_MONTHS (空 = 指定なし)
+#     - CURRENT_WEEK
+#     - RAW_CHANGED_COUNT, PROCESSING_COVERAGE_STATUS, SCHEMA_VALID - ゲート入力 (本文にも表示)
+#     - VALIDATION_BEFORE_SUCCESS, VALIDATION_SUCCESS, VERIFY_CONTINUITY, CONTINUITY_VALID
 #     - NEW_FILES, MODIFIED_FILES, CHANGED_FILES (CSVカウント用)
 #   process-data:
 #     - TARGET_FILES (処理対象ファイル)
@@ -56,6 +52,7 @@ set -e
 # 出力:
 #   - PR_URL    : 作成されたPRのURL (GITHUB_ENVに設定)
 #   - PR_NUMBER : PR番号 (GITHUB_ENVに設定、自動マージに使用)
+#   - AUTO_MERGE_SETUP_FAILED=true : 自動マージの設定に失敗した場合のみ (GITHUB_ENVに設定、通知 issue の対象)
 #
 # 動作:
 #   1. 新規ブランチを作成してチェックアウト
@@ -299,7 +296,15 @@ fi
 PR_TITLE="$COMMIT_MSG"
 
 # PR本文をファイルで作成（統一フォーマット）
-PR_BODY_FILE="/tmp/pr_body.md"
+# 共有の固定パスではなく実行ごとの一時ファイルに書く
+PR_BODY_FILE=$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pr_body.XXXXXX")
+trap 'rm -f "$PR_BODY_FILE"' EXIT
+
+# チェック範囲の値は検証済みだが、本文 (Markdown) に出す前に文字種を絞る
+DISPLAY_TARGET_WEEKS=$(printf '%s' "${TARGET_WEEKS:-}" | tr -cd '0-9,')
+DISPLAY_TARGET_MONTHS=$(printf '%s' "${TARGET_MONTHS:-}" | tr -cd '0-9,')
+DISPLAY_DATA_TYPES=$(printf '%s' "${DATA_TYPES:-}" | tr -cd 'a-z_,')
+DISPLAY_MODE=$(printf '%s' "${MODE:-}" | tr -cd 'a-z')
 {
   echo "## 🤖 自動データ更新"
   echo ""
@@ -326,6 +331,14 @@ PR_BODY_FILE="/tmp/pr_body.md"
   echo "- **処理**: $PROCESS_GATE_STATUS"
   echo "- **検証**: $VALIDATION_GATE_STATUS"
   echo "- **連続性**: $CONTINUITY_GATE_STATUS"
+  case "$WORKFLOW_NAME" in
+    fetch-data-daily | fetch-data-weekly | fetch-data)
+      # coverage / process ブロックの理由を PR から追えるよう、ゲート入力も出す
+      echo "- **schema**: $SCHEMA_GATE_STATUS"
+      echo "- **処理カバレッジ**: ${PROCESSING_COVERAGE_STATUS:-not_evaluated}"
+      echo "- **raw 変更件数**: ${RAW_CHANGED_COUNT:-not_evaluated}"
+      ;;
+  esac
   echo "- **ブロック理由**: $AUTO_MERGE_BLOCKERS"
   echo "- **判定**: $AUTO_MERGE_GATE_STATUS"
   echo "- **強制上書き要求**: $FORCE_MERGE"
@@ -338,37 +351,23 @@ PR_BODY_FILE="/tmp/pr_body.md"
 
   # ワークフロー固有のチェック範囲
   case "$WORKFLOW_NAME" in
-    fetch-data-daily)
-      [ -n "${CURRENT_YEAR:-}" ] && echo "- **対象年**: ${CURRENT_YEAR}年"
-      if [ -n "${TWO_WEEKS_AGO:-}" ] && [ -n "${PREVIOUS_WEEK:-}" ] && [ -n "${CURRENT_WEEK:-}" ]; then
-        echo "- **対象週**: 第${TWO_WEEKS_AGO}週, 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週（木曜更新考慮）"
-      elif [ -n "${PREVIOUS_WEEK:-}" ] && [ -n "${CURRENT_WEEK:-}" ]; then
-        echo "- **対象週**: 第${PREVIOUS_WEEK}週, 第${CURRENT_WEEK}週"
-      fi
-      if [ -n "${PREVIOUS_MONTH:-}" ] && [ -n "${CURRENT_MONTH:-}" ]; then
-        echo "- **対象月**: ${PREVIOUS_MONTH}月, ${CURRENT_MONTH}月"
-      fi
-      echo "- **チェック方式**: 2週前＋前週＋最新週の週次データ、当月＋前月の月次データ（木曜更新考慮）"
-      ;;
-    fetch-data-weekly)
+    fetch-data-daily | fetch-data-weekly | fetch-data)
+      # 実際に fetch-data へ渡した値だけを出す
       if [ -n "${START_YEAR:-}" ] && [ -n "${END_YEAR:-}" ]; then
         echo "- **対象期間**: ${START_YEAR}年 - ${END_YEAR}年"
       fi
-      echo "- **チェック方式**: 全ファイルの最新状態確認（既存ファイル更新チェック含む）"
-      if [ "${CHECK_PREVIOUS_YEAR:-false}" = "true" ] && [ -n "${PREVIOUS_YEAR:-}" ]; then
-        echo "- **前年データ**: ${PREVIOUS_YEAR}年のデータも確認済み"
+      if [ -n "$DISPLAY_TARGET_WEEKS" ]; then
+        echo "- **対象週**: ${DISPLAY_TARGET_WEEKS}"
       fi
-      ;;
-    fetch-data)
-      if [ -n "${START_YEAR:-}" ] && [ -n "${END_YEAR:-}" ]; then
-        echo "- **対象期間**: ${START_YEAR}年 - ${END_YEAR}年"
+      if [ -n "$DISPLAY_TARGET_MONTHS" ]; then
+        echo "- **対象月**: ${DISPLAY_TARGET_MONTHS}"
       fi
-      echo "- **データタイプ**: ${DATA_TYPES:-ALL}"
-      if [ "${SKIP_EXISTING:-false}" = "true" ]; then
-        echo "- **チェック方式**: 既存ファイルスキップ"
+      if [ -n "$DISPLAY_DATA_TYPES" ]; then
+        echo "- **データタイプ**: \`${DISPLAY_DATA_TYPES}\`"
       else
-        echo "- **チェック方式**: 全ファイル取得"
+        echo "- **データタイプ**: 全タイプ"
       fi
+      echo "- **収集モード**: \`${DISPLAY_MODE:-unknown}\`"
       ;;
     process-data)
       echo "- **対象**: ${TARGET_FILES:-ALL raw/*.csv}"
@@ -433,32 +432,6 @@ PR_BODY_FILE="/tmp/pr_body.md"
   echo "### ✅ チェック項目"
 
   case "$WORKFLOW_NAME" in
-    fetch-data-weekly)
-      echo "- [x] 既存ファイルの更新確認"
-      echo "- [x] 新規ファイルの取得"
-      if [ "$VALIDATION_SUCCESS" = "true" ]; then
-        echo "- [x] データ整合性の検証"
-      else
-        echo "- [ ] データ整合性の検証 ⚠️ **要確認**"
-      fi
-      if [ "$CHECK_PREVIOUS_YEAR" = "true" ]; then
-        echo "- [x] 前年データの確認"
-      fi
-      ;;
-    fetch-data)
-      echo "- [x] データ取得完了"
-      echo "- [x] ファイル検証済み"
-      if [ "$SKIP_EXISTING" = "true" ]; then
-        echo "- [x] 既存ファイルをスキップ"
-      fi
-      if [ "$VERIFY_CONTINUITY" = "true" ]; then
-        if [ "$CONTINUITY_VALID" = "true" ]; then
-          echo "- [x] データ連続性検証"
-        else
-          echo "- [ ] データ連続性検証 ⚠️ **欠損あり（詳細はログを確認）**"
-        fi
-      fi
-      ;;
     process-data)
       echo "- [x] raw→processed変換完了"
       echo "- [x] エンコーディング変換（Shift_JIS→UTF-8）"
@@ -477,13 +450,28 @@ PR_BODY_FILE="/tmp/pr_body.md"
       echo "- [x] バージョン更新完了"
       ;;
     *)
-      echo "- [x] データ取得完了"
-      echo "- [x] ファイル検証済み"
+      # fetch 系: 固定文ではなくゲートの判定をそのまま出す
+      if [ "${FETCH_STATUS:-}" = "success" ]; then
+        echo "- [x] データ取得"
+      else
+        echo "- [ ] データ取得 ⚠️ **失敗**"
+      fi
+      case "$VALIDATION_GATE_STATUS" in
+        passed) echo "- [x] データ検証 (validate-data)" ;;
+        failed) echo "- [ ] データ検証 (validate-data) ⚠️ **失敗・要確認**" ;;
+        not_requested) echo "- [ ] データ検証 (未実施)" ;;
+        *) echo "- [ ] データ検証 ⚠️ **判定不能 (${VALIDATION_GATE_STATUS})**" ;;
+      esac
+      case "$CONTINUITY_GATE_STATUS" in
+        passed) echo "- [x] データ連続性検証" ;;
+        not_requested | not_applicable) ;;
+        *) echo "- [ ] データ連続性検証 ⚠️ **欠損あり (詳細はログを確認)**" ;;
+      esac
       ;;
   esac
 
   # 検証エラーがある場合の警告
-  if [ "$VALIDATION_SUCCESS" = "false" ]; then
+  if [ "$VALIDATION_GATE_STATUS" = "failed" ]; then
     echo ""
     echo "### ⚠️ 警告"
     echo "データ検証でエラーが検出されました。マージ前に検証レポートを確認してください。"
@@ -504,9 +492,6 @@ PR_BODY_FILE="/tmp/pr_body.md"
       ;;
     fetch-data)
       echo "- このワークフローは手動実行またはスケジュール実行により起動されました"
-      if [ -n "$DATA_TYPES" ]; then
-        echo "- データタイプが指定されています: $DATA_TYPES"
-      fi
       ;;
     process-data)
       echo "- このワークフローは手動実行により起動されました"
@@ -585,6 +570,10 @@ echo "PR_URL=$PR_URL" >> "$GITHUB_ENV"
 PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$' || true)
 if [ -z "$PR_NUMBER" ]; then
   echo "⚠️ Warning: Failed to extract PR number from: $PR_URL" >&2
+  if [ "$AUTO_MERGE_EFFECTIVE" = "true" ]; then
+    echo "AUTO_MERGE_SETUP_FAILED=true" >> "$GITHUB_ENV"
+    echo "::warning title=Auto-merge setup failed::PR number could not be read from gh pr create output; manual merge is required"
+  fi
 else
   echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
 
@@ -604,6 +593,9 @@ else
         echo "⚠️ Warning: Force merge enabled despite gate failures: $AUTO_MERGE_BLOCKERS" >&2
       fi
     else
+      # Notify pipeline anomaly opens an issue for this (auto_merge_setup_failed)
+      echo "AUTO_MERGE_SETUP_FAILED=true" >> "$GITHUB_ENV"
+      echo "::warning title=Auto-merge setup failed::gh pr merge --auto failed for PR #${PR_NUMBER} (exit ${MERGE_EXIT_CODE}); manual merge is required"
       echo "⚠️ Note: Auto-merge setup failed. Check branch protection rules." >&2
       echo "   Manual merge may be required." >&2
       echo "   Error code: $MERGE_EXIT_CODE" >&2
@@ -614,6 +606,9 @@ else
       fi
     fi
   else
+    if [ "$AUTO_MERGE_REQUESTED" = "true" ] && [ "$AUTO_MERGE_GATE_STATUS" = "blocked" ]; then
+      echo "::warning title=Auto-merge blocked::PR #${PR_NUMBER} is waiting for manual review (blockers: ${AUTO_MERGE_BLOCKERS})"
+    fi
     echo "ℹ️ Auto-merge disabled (REQUESTED=$AUTO_MERGE_REQUESTED, GATE=$AUTO_MERGE_GATE_STATUS, BLOCKERS=$AUTO_MERGE_BLOCKERS, FORCE=$FORCE_MERGE)"
     echo "   Manual merge is required."
   fi

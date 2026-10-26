@@ -38,6 +38,8 @@ jobs:
   # 日付計算用 (workflow_call内でdate実行不可のため)
   prepare:
     runs-on: ubuntu-latest
+    # date only: no checkout, no API call
+    permissions: {}
     outputs:
       start_year: ${{ steps.calc.outputs.start_year }}
       target_weeks: ${{ steps.calc.outputs.target_weeks }}
