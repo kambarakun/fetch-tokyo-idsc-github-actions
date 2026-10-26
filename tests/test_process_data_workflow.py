@@ -28,6 +28,7 @@ from src.cli import process_data
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "process-data.yml"
 GATE_SCRIPT = PROJECT_ROOT / "scripts" / "auto_merge_gate.sh"
+NOTIFY_SCRIPT = PROJECT_ROOT / "scripts" / "notify_pipeline_issue.sh"
 EXPRESSION = re.compile(r"\$\{\{\s*(.+?)\s*\}\}")
 CONDITION_TERM = re.compile(r"^env\.([A-Z_]+)\s*(==|!=)\s*'([^']*)'$")
 OLD_STATS = {"total": 987, "succeeded": 987, "failed": 0, "errors": []}
@@ -115,6 +116,8 @@ WORKFLOW_NAME="$1"
 # shellcheck disable=SC1090
 source "$FAKE_GATE_SCRIPT"
 evaluate_auto_merge_gate
+# Like the real script: later steps (the notification) read the gate result from GITHUB_ENV.
+write_auto_merge_gate_env
 {
   echo "WORKFLOW_NAME=$WORKFLOW_NAME"
   echo "PROCESS_RESULT=${PROCESS_RESULT:-}"
@@ -157,6 +160,11 @@ class JobRun:
         return report
 
     @property
+    def gh_calls(self) -> list[str]:
+        log = self.root / "gh-calls.log"
+        return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+    @property
     def pr_record(self) -> dict[str, str] | None:
         record = self.root / "pr-record.env"
         if not record.exists():
@@ -164,7 +172,11 @@ class JobRun:
         return dict(line.split("=", 1) for line in record.read_text(encoding="utf-8").splitlines())
 
 
-def _evaluate_expression(expression: str, env: dict[str, str], inputs: dict[str, str]) -> str:
+def _evaluate_expression(expression: str, env: dict[str, str], inputs: dict[str, str], job_failed: bool) -> str:
+    if expression == "job.status":
+        return "failure" if job_failed else "success"
+    if expression == "github.token":
+        return "fake-token"
     if expression.startswith("env."):
         return env.get(expression[4:], "")
     if expression.startswith("github.event.inputs."):
@@ -181,8 +193,8 @@ def _evaluate_expression(expression: str, env: dict[str, str], inputs: dict[str,
     raise AssertionError(f"unsupported expression in workflow: {expression}")
 
 
-def _substitute(text: str, env: dict[str, str], inputs: dict[str, str]) -> str:
-    return EXPRESSION.sub(lambda match: _evaluate_expression(match.group(1), env, inputs), text)
+def _substitute(text: str, env: dict[str, str], inputs: dict[str, str], job_failed: bool) -> str:
+    return EXPRESSION.sub(lambda match: _evaluate_expression(match.group(1), env, inputs, job_failed), text)
 
 
 def _condition_holds(condition: str | None, env: dict[str, str], job_failed: bool) -> bool:
@@ -229,6 +241,7 @@ def _prepare_repository(root: Path, old_stats: dict[str, Any] | None) -> None:
     scripts = root / "scripts"
     scripts.mkdir()
     (scripts / "create_pr.sh").write_text(FAKE_CREATE_PR, encoding="utf-8")
+    shutil.copy(NOTIFY_SCRIPT, scripts / NOTIFY_SCRIPT.name)
     _git(root, "init", "-q")
     _git(root, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", ".")
     _git(root, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "fixture")
@@ -297,8 +310,10 @@ def run_workflow(
         if "run" not in step:
             run.outcomes[name] = "would_run"
             continue
-        step_env = {key: _substitute(str(value), run.env, inputs) for key, value in step.get("env", {}).items()}
-        script = _substitute(step["run"], run.env, inputs)
+        step_env = {
+            key: _substitute(str(value), run.env, inputs, run.failed) for key, value in step.get("env", {}).items()
+        }
+        script = _substitute(step["run"], run.env, inputs, run.failed)
         result = subprocess.run(
             ["bash", "--noprofile", "--norc", "-e", "-c", script],
             cwd=root,
@@ -313,7 +328,8 @@ def run_workflow(
             run.outcomes[name] = "success"
         else:
             run.outcomes[name] = "failure"
-            run.failed = True
+            # continue-on-error keeps job.status (and later if: checks) at success
+            run.failed = run.failed or step.get("continue-on-error") is not True
     return run
 
 
@@ -407,6 +423,8 @@ def test_processing_failure_stops_before_validation_and_pr(tmp_path: Path) -> No
     assert run.outcomes["Verify processed data"] == "skipped"
     assert run.outcomes["Create Pull Request"] == "skipped"
     assert "処理: ❌ 失敗" in run.summary
+    assert run.outcomes["Notify pipeline anomaly"] == "success"
+    assert any(call.startswith("gh issue create ") and "process_failed" in call for call in run.gh_calls)
 
 
 def test_validation_not_requested_succeeds_but_reports_quality_as_unverified(tmp_path: Path) -> None:
@@ -437,6 +455,8 @@ def test_validation_pass_sets_validation_passed_and_allows_requested_auto_merge(
     assert run.pr_record["VALIDATION_PASSED"] == "true"
     assert run.pr_record["AUTO_MERGE_GATE_STATUS"] == "passed"
     assert "品質検証: ✅ 合格" in run.summary
+    assert run.outcomes["Notify pipeline anomaly"] == "success"
+    assert run.gh_calls == []
     # Only the summary and invalid files are committed; the full per-file report stays out of the data PR.
     report = run.committed_validation_report
     assert report["validation_status"] == "passed"
@@ -480,8 +500,13 @@ def test_unpassed_validation_keeps_investigation_pr_then_fails_job(
     assert run.pr_record["VALIDATION_PASSED"] == "false"
     assert run.pr_record["AUTO_MERGE_EFFECTIVE"] == "false"
     assert run.pr_record["AUTO_MERGE_GATE_STATUS"] == "blocked"
-    # The processing-error notification must not fire for a quality verdict.
-    assert run.outcomes["Create issue on error"] == "skipped"
+    # The processing-error notification must not fire for a quality verdict; the blocked
+    # auto-merge of the investigation PR is notified instead.
+    assert run.outcomes["Notify pipeline anomaly"] == "success"
+    created = [call for call in run.gh_calls if call.startswith("gh issue create ")]
+    assert len(created) == 1
+    assert "データパイプライン異常: auto_merge_blocked" in created[0]
+    assert not any("process_failed" in call for call in run.gh_calls)
     assert run.outcomes["Generate summary"] == "success"
     assert run.outcomes["Enforce validation result"] == "failure"
     assert run.failed
