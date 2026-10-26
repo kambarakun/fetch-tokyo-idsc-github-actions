@@ -960,6 +960,25 @@ def test_every_repository_in_project_urls_is_queried_once(uv_pr: dict[str, Any])
     assert listed == [_advisories_url("astral-sh/ruff"), _advisories_url("other/ruff")]
 
 
+def test_bumps_sharing_a_repository_list_its_advisories_once(uv_pr: dict[str, Any]) -> None:
+    """Stub packages such as `types-*` share python/typeshed; one group PR may bump several."""
+    lock = (_uv_lock(ruff="0.16.7", **{"ruff-lsp": "0.0.1"}), _uv_lock(ruff="0.16.8", **{"ruff-lsp": "0.0.2"}))
+    uv_pr[f"{API}/contents/uv.lock?ref={MERGE_BASE}"], uv_pr[f"{API}/contents/uv.lock?ref={HEAD_SHA}"] = lock
+    project_urls = {"Source": "https://github.com/astral-sh/ruff"}
+    _pypi(uv_pr, "ruff-lsp", {"0.0.2": datetime(2026, 9, 1, tzinfo=UTC)}, project_urls=project_urls)
+    fetch_json, fetch_text, post_json, fetch_list = _fetchers(uv_pr)
+    listed: list[str] = []
+
+    def counting_list(url: str) -> Any:
+        listed.append(url)
+        return fetch_list(url)
+
+    verdict = vet.vet_pull_request(fetch_json, fetch_text, post_json, counting_list, REPO, 748)
+
+    assert [check.verdict for check in verdict.checks if check.check_id == "repo_advisory"] == ["OK", "OK"]
+    assert listed == [_advisories_url("astral-sh/ruff")]
+
+
 def test_repository_advisory_server_error_exits_two(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:
     fetch_json, fetch_text, post_json, _ = _fetchers(uv_pr)
 

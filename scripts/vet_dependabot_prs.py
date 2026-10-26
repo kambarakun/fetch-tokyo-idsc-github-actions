@@ -1531,6 +1531,8 @@ def vet_pull_request(
     fetch_json = _memoize(fetch_json)
     # Workflow files are parsed twice (bumps per repository, metadata per action path).
     fetch_text = _memoize(fetch_text)
+    # Packages of one repository (`types-*` stubs in python/typeshed) share its advisories.
+    fetch_list = _memoize(fetch_list)
     pr = load_pull_request(fetch_json, repo, number)
     if pr["user"]["login"] != DEPENDABOT_AUTHOR:
         raise NotDependabotPullRequestError(
