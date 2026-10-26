@@ -1131,7 +1131,7 @@ def test_superseded_is_not_evaluated_without_an_exact_version(comment: str) -> N
     assert "評価不能" in check.detail
 
 
-@pytest.mark.parametrize("tag", ["v10.2.0-1", "v10.2.1+build", "v10.3.0-beta"])
+@pytest.mark.parametrize("tag", ["v10.2.0-1", "v10.2.1+build", "v10.3.0-beta", "v\u0661\u0660.\u0663.\u0660"])
 def test_github_release_tags_that_are_not_purely_numeric_are_not_successors(
     action_pr: dict[str, Any], tag: str
 ) -> None:

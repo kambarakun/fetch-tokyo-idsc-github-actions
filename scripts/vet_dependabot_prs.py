@@ -59,7 +59,8 @@ OSV_MAX_PAGES = 20
 OSV_ZERO = Version("0.dev0")
 # Action versions follow SemVer, whose prerelease / build order PEP 440 does not share (`1.0.0-1` is a
 # post-release there), so only purely numeric versions are ordered; anything else is unevaluable.
-NUMERIC_VERSION = re.compile(r"v?\d+(?:\.\d+)*")
+# ASCII only: Version() rejects other Unicode digits, which would fail the whole PR, not read as unknown.
+NUMERIC_VERSION = re.compile(r"v?\d+(?:\.\d+)*", re.ASCII)
 DEPENDABOT_AUTHOR = "dependabot[bot]"
 ECOSYSTEM_BY_PREFIX = {
     "dependabot/github_actions/": "github-actions",
