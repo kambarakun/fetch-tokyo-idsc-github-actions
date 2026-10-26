@@ -9,6 +9,7 @@
  "GET https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/contents/pyproject.toml?ref=47086fe60b6a9ac12cd6861ba7f7a14df516aa35": "007-pyproject-toml-ref-47086fe60b6a9ac12cd6861ba7f7a14df516aa35.txt",
  "GET https://pypi.org/pypi/ruff/0.16.8/json": "008-https-pypi-org-pypi-ruff-0-16-8-json.json",
  "POST https://api.osv.dev/v1/query PyPI/ruff@0.16.8": "009-https-api-osv-dev-v1-query-PyPI-ruff-0-16-8.json",
- "GET https://pypi.org/pypi/ruff/json": "010-https-pypi-org-pypi-ruff-json.json",
- "GET https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/commits/47086fe60b6a9ac12cd6861ba7f7a14df516aa35/check-runs?per_page=100&page=1": "011-a9ac12cd6861ba7f7a14df516aa35-check-runs-per-page-100-page-1.json"
+ "GET https://api.github.com/repos/astral-sh/ruff/security-advisories?state=published&per_page=100": "010-ral-sh-ruff-security-advisories-state-published-per-page-100.json",
+ "GET https://pypi.org/pypi/ruff/json": "011-https-pypi-org-pypi-ruff-json.json",
+ "GET https://api.github.com/repos/kambarakun/fetch-tokyo-idsc-github-actions/commits/47086fe60b6a9ac12cd6861ba7f7a14df516aa35/check-runs?per_page=100&page=1": "012-a9ac12cd6861ba7f7a14df516aa35-check-runs-per-page-100-page-1.json"
 }

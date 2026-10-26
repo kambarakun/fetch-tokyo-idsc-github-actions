@@ -1,0 +1,47 @@
+{
+ "info": {
+  "yanked": false,
+  "requires_python": ">=3.7",
+  "project_urls": {
+   "0": "https://github.com/astral-sh/ruff"
+  }
+ },
+ "urls": [
+  {
+   "upload_time_iso_8601": "2026-10-22T18:37:14.956985Z",
+   "yanked": false
+  }
+ ],
+ "releases": {
+  "0.16.10": [
+   {
+    "upload_time_iso_8601": "2026-10-01T18:02:36.072842Z",
+    "yanked": false
+   }
+  ],
+  "0.16.9": [
+   {
+    "upload_time_iso_8601": "2026-09-24T20:37:13.045587Z",
+    "yanked": false
+   }
+  ],
+  "0.17.0": [
+   {
+    "upload_time_iso_8601": "2026-10-09T19:46:38.695158Z",
+    "yanked": false
+   }
+  ],
+  "0.17.1": [
+   {
+    "upload_time_iso_8601": "2026-10-15T15:22:33.667796Z",
+    "yanked": false
+   }
+  ],
+  "0.17.2": [
+   {
+    "upload_time_iso_8601": "2026-10-22T18:37:14.956985Z",
+    "yanked": false
+   }
+  ]
+ }
+}

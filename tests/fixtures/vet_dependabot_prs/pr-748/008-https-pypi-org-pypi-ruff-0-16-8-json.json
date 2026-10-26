@@ -1,7 +1,10 @@
 {
  "info": {
   "yanked": false,
-  "requires_python": ">=3.7"
+  "requires_python": ">=3.7",
+  "project_urls": {
+   "0": "https://github.com/astral-sh/ruff"
+  }
  },
  "urls": [
   {
