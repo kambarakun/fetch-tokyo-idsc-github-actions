@@ -28,6 +28,8 @@ jobs:
         with:
           # Compare base/head commits to detect workflow self-modifications safely.
           fetch-depth: 0
+          # This job never pushes; comments go through gh with the App token.
+          persist-credentials: false
 
       - name: Guard against workflow self-modification
         id: workflow_guard
