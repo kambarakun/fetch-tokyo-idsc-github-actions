@@ -203,9 +203,12 @@ def test_enhanced_fetcher_get_missing_data_invalid_targets_raise() -> None:
 def test_enhanced_fetcher_get_missing_data_uses_current_year_when_end_year_none() -> None:
     """Test that get_missing_data defaults to current year when end_year is None."""
     fetcher = EnhancedEpidemicDataFetcher(DataFetcherConfig(rate_limit_delay=0.0, enable_jitter=False))
-    current_year = datetime.now(UTC).year
+    current_year = 2026
 
-    with patch.object(fetcher, "_get_weeks_in_year", return_value=1):
+    with (
+        patch("src.fetchers.periods.now_jst", return_value=datetime(2026, 9, 24, 8, 0, tzinfo=UTC)),
+        patch.object(fetcher, "_get_weeks_in_year", return_value=1),
+    ):
         missing = fetcher.get_missing_data(
             "sentinel_weekly_gender",
             [],

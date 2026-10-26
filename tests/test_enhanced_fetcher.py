@@ -2,13 +2,17 @@
 拡張フェッチャーのユニットテスト
 """
 
+import csv
 import hashlib
+import io
 import sys
 import unittest
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from requests.exceptions import ConnectionError, Timeout
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -22,6 +26,7 @@ from src.fetchers.enhanced_fetcher import (
     RateLimiter,
     RetryHandler,
 )
+from src.fetchers.response_contract import TITLES, InvalidResponseError, validate_response
 
 
 class TestRetryHandler(unittest.IsolatedAsyncioTestCase):
@@ -387,6 +392,186 @@ class TestFileMetadata(unittest.TestCase):
         self.assertEqual(metadata.filename, "test.csv")
         self.assertEqual(metadata.encoding, "shift_jis")  # デフォルト値
         self.assertEqual(metadata.file_size, 1024)
+
+
+# ========== 取得本文の契約 (src/fetchers/response_contract.py) ==========
+
+FIXTURE_RAW_DIR = Path(__file__).parent / "fixtures" / "raw"
+GENDER_HEADER = ["疾病名", "男性", "女性", "男女合計", "定点数"]
+NOTIFIABLE_HEADER = ["疾病名", "報告数"]
+MATRIX_HEADER = ["", "インフルエンザ", "水痘"]
+
+
+def _csv_body(rows: list[list[str]], quoting: Literal[0, 1, 2, 3] = csv.QUOTE_ALL) -> bytes:
+    buffer = io.StringIO()
+    csv.writer(buffer, quoting=quoting, lineterminator="\r\n").writerows(rows)
+    return buffer.getvalue().encode("shift_jis")
+
+
+def _preamble(data_type: str, year: int, period: int) -> list[list[str]]:
+    unit = "月" if "monthly" in data_type else "週"
+    label = f"{year}年{period}{unit}"
+    return [[TITLES[data_type]], ["東京都"], [f"集計期間開始{unit}", label], [f"集計期間終了{unit}", label]]
+
+
+def _valid_rows(data_type: str, year: int = 2026, period: int = 36) -> list[list[str]]:
+    """A minimal published-shaped body: gender / notifiable tables, or 3 matrix sections"""
+    if data_type.endswith("_gender"):
+        rows = [GENDER_HEADER, ["インフルエンザ", "1940", "1899", "3839", "419"], ["水痘", "0", "0", "0", "264"]]
+        return [*_preamble(data_type, year, period), [], *rows]
+    if data_type == "notifiable_weekly":
+        return [*_preamble(data_type, year, period), [], NOTIFIABLE_HEADER, ["結核", "5"], ["ペスト", "0"]]
+    sections = []
+    for sex in ("男性", "女性", "男女合計"):
+        notes = [[], ["*注記の行は検査しない"], []]
+        data = [MATRIX_HEADER, ["千代田", "15", "*"], ["合計", "20", ""], [], []]
+        sections += [*_preamble(data_type, year, period), ["性別", sex], *notes, *data]
+    return sections
+
+
+def _row_index(rows: list[list[str]], first_cell: str, nth: int = 0) -> int:
+    return [i for i, row in enumerate(rows) if row and row[0] == first_cell][nth]
+
+
+def test_contract_accepts_valid_body_for_every_data_type():
+    """Published-shaped bodies of all 9 data types pass, quoted or not"""
+    for data_type in TITLES:
+        for quoting in (csv.QUOTE_ALL, csv.QUOTE_MINIMAL):
+            validate_response(_csv_body(_valid_rows(data_type), quoting), data_type, 2026, 36)
+
+
+def test_contract_accepts_real_fixture_bodies():
+    """The real raw bodies under tests/fixtures/raw pass for the period in their file names"""
+    files = sorted(FIXTURE_RAW_DIR.glob("*.csv"))
+    assert files
+    for path in files:
+        data_type, year, period = path.stem.rsplit("_", 2)
+        validate_response(path.read_bytes(), data_type, int(year), int(period))
+
+
+def test_contract_accepts_header_only_unpublished_body():
+    """An unpublished period answered with title, period rows and only the table header passes"""
+    for data_type, header in (
+        ("sentinel_weekly_gender", GENDER_HEADER),
+        ("sentinel_monthly_gender", GENDER_HEADER),
+        ("notifiable_weekly", NOTIFIABLE_HEADER),
+    ):
+        body = _csv_body([*_preamble(data_type, 2026, 36), [], header])
+        validate_response(body, data_type, 2026, 36)
+
+
+NON_CSV_BODIES = {
+    "empty": b"",
+    "ascii html": b"<!DOCTYPE html><html><body>Service Unavailable</body></html>",
+    "shift_jis html": "<html><body>ただいまメンテナンス中です</body></html>".encode("shift_jis"),
+    "utf-8 csv": "\r\n".join(",".join(row) for row in _valid_rows("sentinel_weekly_gender")).encode("utf-8"),
+    "oversized csv field": b'"' + b"a" * 200_000,
+}
+
+
+@pytest.mark.parametrize("body", NON_CSV_BODIES.values(), ids=NON_CSV_BODIES.keys())
+def test_contract_rejects_non_csv_bodies(body):
+    """Empty, HTML (ASCII / Shift_JIS), UTF-8 and unparsable bodies are rejected"""
+    with pytest.raises(InvalidResponseError):
+        validate_response(body, "sentinel_weekly_gender", 2026, 36)
+
+
+def test_contract_rejects_other_period_or_data_type():
+    """A body for another week, year, unit or data type is rejected"""
+    weekly_body = _csv_body(_valid_rows("sentinel_weekly_gender"))
+    cases = [
+        (weekly_body, "sentinel_weekly_gender", 2026, 35),
+        (weekly_body, "sentinel_weekly_gender", 2025, 36),
+        (weekly_body, "sentinel_monthly_gender", 2026, 36),
+        (_csv_body(_valid_rows("sentinel_weekly_age")), "sentinel_weekly_health_center", 2026, 36),
+        (_csv_body(_valid_rows("sentinel_weekly_age", period=6)), "sentinel_weekly_age", 2026, 36),
+    ]
+    for body, data_type, year, period in cases:
+        with pytest.raises(InvalidResponseError):
+            validate_response(body, data_type, year, period)
+
+
+def _drift(data_type: str, mutate) -> tuple[str, bytes]:
+    rows = [list(row) for row in _valid_rows(data_type)]
+    mutate(rows)
+    return data_type, _csv_body(rows)
+
+
+def _set(rows, first_cell, column, value, nth=0):
+    rows[_row_index(rows, first_cell, nth)][column] = value
+
+
+def _insert_gender_column(rows):
+    for first_cell in ("疾病名", "インフルエンザ", "水痘"):
+        rows[_row_index(rows, first_cell)].insert(3, "0")
+
+
+def _move_second_sex_row_into_first_section(rows):
+    second_title = _row_index(rows, rows[0][0], 1)
+    rows.insert(second_title, rows.pop(_row_index(rows, "性別", 1)))
+
+
+def _move_second_header_into_first_section(rows):
+    second_title = _row_index(rows, rows[0][0], 1)
+    rows.insert(second_title, rows.pop(_row_index(rows, "", 1)))
+
+
+def _swap_notifiable_columns(rows):
+    for first_cell in ("疾病名", "結核", "ペスト"):
+        row = rows[_row_index(rows, first_cell)]
+        row.reverse()
+
+
+LAYOUT_DRIFTS = {
+    "zero shown as '-'": _drift("sentinel_weekly_gender", lambda r: _set(r, "水痘", 1, "-")),
+    "thousands separator": _drift("sentinel_weekly_gender", lambda r: _set(r, "インフルエンザ", 4, "20,691")),
+    "inserted gender column": _drift("sentinel_weekly_gender", _insert_gender_column),
+    "short gender row": _drift("sentinel_monthly_gender", lambda r: r[_row_index(r, "水痘")].pop()),
+    "duplicated gender header": _drift("sentinel_weekly_gender", lambda r: r.append(list(GENDER_HEADER))),
+    "renamed sex": _drift("sentinel_weekly_age", lambda r: _set(r, "性別", 1, "合計", nth=2)),
+    "swapped notifiable columns": _drift("notifiable_weekly", _swap_notifiable_columns),
+    "missing sex row": _drift("sentinel_monthly_health_center", lambda r: r.pop(_row_index(r, "性別", 1))),
+    "matrix '-' cell": _drift("sentinel_weekly_medical_district", lambda r: _set(r, "千代田", 1, "-", nth=1)),
+    "matrix header differs": _drift("sentinel_monthly_age", lambda r: _set(r, "", 2, "手足口病", nth=2)),
+    "missing matrix header": _drift("sentinel_weekly_age", lambda r: r.pop(_row_index(r, "", 0))),
+    "short matrix row": _drift("sentinel_weekly_health_center", lambda r: r[_row_index(r, "千代田", 2)].pop()),
+    "other period in a later section": _drift(
+        "sentinel_monthly_medical_district", lambda r: _set(r, "集計期間終了月", 1, "2026年35月", nth=1)
+    ),
+    "sex row in another section": _drift("sentinel_weekly_age", _move_second_sex_row_into_first_section),
+    "header row in another section": _drift("sentinel_monthly_age", _move_second_header_into_first_section),
+    "data row before the header": _drift(
+        "sentinel_weekly_medical_district", lambda r: r.insert(_row_index(r, "", 1), ["千代田", "1", "2"])
+    ),
+    "missing section title": _drift(
+        "sentinel_weekly_age", lambda r: r.pop(_row_index(r, TITLES["sentinel_weekly_age"], 2))
+    ),
+}
+
+
+@pytest.mark.parametrize(("data_type", "body"), LAYOUT_DRIFTS.values(), ids=LAYOUT_DRIFTS.keys())
+def test_contract_rejects_layout_drift(data_type, body):
+    """Layout changes fail loudly instead of being saved as verified data"""
+    with pytest.raises(InvalidResponseError):
+        validate_response(body, data_type, 2026, 36)
+
+
+def test_contract_skips_unknown_data_type():
+    """Data types outside TITLES are not checked"""
+    assert validate_response(b"h,v\n1,2\n", "dt", 2026, 1) is None
+    assert validate_response(b"", "dt", 2026, 1) is None
+
+
+def test_contract_covers_every_fetch_method():
+    """Every data type the fetcher can request has a contract"""
+    assert set(TITLES) == set(EnhancedEpidemicDataFetcher().fetch_methods)
+
+
+def test_notifiable_title_keeps_fullwidth_parentheses():
+    """The notifiable title keeps U+FF08 / U+FF09 (pre-commit rewrites literal fullwidth parentheses)"""
+    assert "\uff08集計\uff09" in TITLES["notifiable_weekly"]
+    assert "(" not in TITLES["notifiable_weekly"]
+    assert issubclass(InvalidResponseError, ValueError)
 
 
 if __name__ == "__main__":

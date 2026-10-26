@@ -6,15 +6,18 @@ import asyncio
 import hashlib
 import logging
 import random
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
-from requests.exceptions import ConnectionError, HTTPError, Timeout
+from requests.exceptions import ChunkedEncodingError, ConnectionError, ContentDecodingError, HTTPError, Timeout
 
+from . import periods
 from .base_fetcher import RequestTimeout, TokyoEpidemicSurveillanceFetcher, validate_request_timeout
 
 # ロガー設定
@@ -61,7 +64,7 @@ class FetchResult:
     error: Exception | None = None
     retry_count: int = 0
     fetch_time: float | None = None
-    source_url: str | None = None  # データ取得元URL(リダイレクト後の最終URL)
+    source_url: str | None = None  # data_type から構成した取得エンドポイント URL (POST パラメータは含まない)
 
 
 @dataclass
@@ -131,21 +134,49 @@ class RetryHandler:
 
         return False
 
+    def _retry_after_seconds(self, response: Any) -> float | None:
+        """Seconds to wait according to the Retry-After header (delta-seconds or HTTP-date).
+
+        Returns:
+            float | None: None when the header is missing, unparsable or negative (a past date).
+        """
+        value = response.headers.get("Retry-After")
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        if re.fullmatch(r"[0-9]+", value):
+            return float(value)
+        try:
+            retry_at = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if retry_at.tzinfo is None:
+            # A "-0000" zone parses as naive; HTTP-dates are always UTC (RFC 9110)
+            retry_at = retry_at.replace(tzinfo=UTC)
+        seconds = (retry_at - datetime.now(UTC)).total_seconds()
+        return seconds if seconds >= 0 else None
+
     async def execute_with_retry(self, func: Callable, *args, **kwargs) -> Any:
         """リトライ機能付き実行"""
         for attempt in range(self.config.max_retries + 1):
             try:
                 return await func(*args, **kwargs)
 
-            except (Timeout, ConnectionError, HTTPError) as e:
+            # ChunkedEncodingError / ContentDecodingError (truncated / corrupt bodies) do not derive from ConnectionError
+            except (Timeout, ConnectionError, ChunkedEncodingError, ContentDecodingError, HTTPError) as e:
                 if isinstance(e, HTTPError):
                     # HTTPErrorのresponse属性を安全に取得
                     response = getattr(e, "response", None)
 
                     # レート制限エラーの判定
                     if response is not None and self._is_rate_limit_error(e):
-                        # レート制限の場合は長めの遅延(2倍)
-                        delay = self.calculate_delay(attempt + 1) * 2
+                        # 429 honours Retry-After, capped at max_delay. Otherwise (429 without it, rate-limited
+                        # 403) use the extended (doubled) backoff
+                        retry_after = self._retry_after_seconds(response) if response.status_code == 429 else None
+                        if retry_after is not None:
+                            delay = min(retry_after, self.config.max_delay)
+                        else:
+                            delay = self.calculate_delay(attempt + 1) * 2
                         logger.warning(
                             f"{response.status_code} rate limit detected "
                             f"(headers: {dict(response.headers)}). "
@@ -164,11 +195,21 @@ class RetryHandler:
                         logger.warning(
                             "403 Forbidden without rate limit headers. " "Retrying once in case of temporary issue..."
                         )
+                    elif response is not None and 400 <= response.status_code < 500 and response.status_code != 408:
+                        # A 4xx other than 408 (400 / 404 / 410, ...) will not change on retry
+                        logger.error(f"{response.status_code} is a permanent client error. Not retrying: {e}")
+                        raise
+                    elif (
+                        response is not None
+                        and response.status_code == 503
+                        and (retry_after := self._retry_after_seconds(response)) is not None
+                    ):
+                        delay = min(retry_after, self.config.max_delay)
                     else:
-                        # その他のHTTPエラー(responseがNoneの場合も含む)は通常の遅延
+                        # 408、5xx、responseがNoneのHTTPErrorは通常の遅延
                         delay = self.calculate_delay(attempt)
                 else:
-                    # タイムアウト、接続エラーは通常の遅延
+                    # タイムアウト、接続エラー、本文の途中切断・破損は通常の遅延
                     delay = self.calculate_delay(attempt)
 
                 if attempt < self.config.max_retries:
@@ -347,7 +388,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
             data_type: データタイプ
             existing_files: 既存ファイルのリスト
             start_year: 開始年
-            end_year: 終了年(Noneの場合は現在年)
+            end_year: 終了年(Noneの場合はJSTの現在年)
             target_weeks: 対象週のリスト(Noneの場合は全週)
             target_months: 対象月のリスト(Noneの場合は全月)
 
@@ -372,15 +413,16 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                     f"無効な月番号が指定されました: {invalid_months}。月番号は1-12の範囲である必要があります。"
                 )
 
+        now = periods.now_jst()
         if end_year is None:
-            end_year = datetime.now(UTC).year
+            end_year = now.year
 
         existing_params = self._parse_existing_files(existing_files, data_type)
         missing_params = []
 
         for year in range(start_year, end_year + 1):
+            max_period = periods.max_period_for_year(year, monthly="monthly" in data_type, now=now)
             if "monthly" in data_type:
-                max_period = 12 if year < datetime.now(UTC).year else datetime.now(UTC).month
                 for month in range(1, max_period + 1):
                     # 対象月が指定されている場合はフィルタリング
                     if target_months is not None and month not in target_months:
@@ -396,10 +438,6 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                     if not self._is_params_in_existing(params, existing_params):
                         missing_params.append(params)
             else:  # weekly
-                max_period = self._get_weeks_in_year(year)
-                if year == datetime.now(UTC).year:
-                    max_period = min(max_period, datetime.now(UTC).isocalendar()[1])
-
                 for week in range(1, max_period + 1):
                     # 対象週が指定されている場合はフィルタリング
                     if target_weeks is not None and week not in target_weeks:
@@ -450,7 +488,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
     def _get_weeks_in_year(self, year: int) -> int:
         """指定年の週数を取得"""
-        return date(year, 12, 28).isocalendar()[1]
+        return periods.weeks_in_year(year)
 
     def _get_report_type(self, data_type: str) -> str:
         """データタイプからレポートタイプを取得"""

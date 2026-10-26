@@ -22,7 +22,7 @@ collection:
   #   (優先順位: CLI --mode > collection.mode > incremental_mode > デフォルト incremental)
   batch_size: 50 # 一度に処理するファイル数
   start_year: 2024 # デフォルトの開始年（初回は2000年から実行推奨）
-  end_year: null # null の場合は現在年
+  end_year: null # 終了年。CLI の --end-year が優先し、両方とも無い (null) 場合は JST の現在年
   data_types:
     - sentinel_weekly_gender
     - sentinel_weekly_age
@@ -33,85 +33,9 @@ collection:
     - sentinel_monthly_health_center
     - sentinel_monthly_medical_district
     - notifiable_weekly
-  retry_failed: true
   max_execution_time_hours: 5.5 # GitHub Actions の6時間制限対策
 
 # ストレージ設定
+# 注: ファイルサイズの検証範囲は src/managers/storage_manager.py の VALIDATION_* 定数 (100B - 50MB) が唯一の定義。
 storage:
   base_directory: "data/raw"
-  processed_directory: "data/processed"
-  log_directory: "data/logs"
-  directory_structure: "{year}/{month}/week_{week}" # (現状未使用) config_manager は読み込むが StorageManager はフラット構造を採用しており参照しない
-  keep_shift_jis: true # Shift_JIS エンコーディングを維持
-
-# 品質管理設定
-# 注: file_size_limits 以外のキー (anomaly_detection_enabled / anomaly_threshold /
-#     quarantine_enabled / quarantine_directory) は config_manager が読み込むのみで、
-#     現状 src 側に対応する実処理がない (将来用 / 未実装)。
-quality:
-  file_size_limits:
-    csv: [100, 10485760] # 100B - 10MB
-  anomaly_detection_enabled: true # (未実装) 将来用
-  anomaly_threshold: 0.3 # (未実装) 将来用
-  quarantine_enabled: true # (未実装) 将来用
-  quarantine_directory: "data/quarantine" # (未実装) 将来用
-
-# 通知設定
-# 注: notifications 配下のキーは config_manager が読み込むのみで、現状 src 側に
-#     対応する実処理がない (将来用 / 未実装)。実際のエラー通知/PR 作成は
-#     GitHub Actions ワークフロー側 (scripts/create_pr.sh 等) が担当する。
-notifications:
-  github_issues_enabled: true # (未実装) 将来用
-  create_issue_on_error: true # (未実装) 将来用
-  create_issue_on_anomaly: false # (未実装) 将来用 (異常検出時のIssue作成)
-  issue_labels: # (未実装) 将来用
-    - data-collection
-    - automated
-  max_issues_per_day: 10 # (未実装) 将来用
-
-# データタイプ詳細設定
-data_types:
-  - name: sentinel_weekly_gender
-    enabled: true
-    fetch_method: fetch_csv_sentinel_weekly_gender
-    epid_code: "00"
-
-  - name: sentinel_weekly_age
-    enabled: true
-    fetch_method: fetch_csv_sentinel_weekly_age
-    epid_code: "00"
-
-  - name: sentinel_weekly_health_center
-    enabled: true
-    fetch_method: fetch_csv_sentinel_weekly_health_center
-    epid_code: ""
-
-  - name: sentinel_weekly_medical_district
-    enabled: true
-    fetch_method: fetch_csv_sentinel_weekly_medical_district
-    epid_code: ""
-
-  - name: sentinel_monthly_gender
-    enabled: true
-    fetch_method: fetch_csv_sentinel_monthly_gender
-    epid_code: "00"
-
-  - name: sentinel_monthly_age
-    enabled: true
-    fetch_method: fetch_csv_sentinel_monthly_age
-    epid_code: "00"
-
-  - name: sentinel_monthly_health_center
-    enabled: true
-    fetch_method: fetch_csv_sentinel_monthly_health_center
-    epid_code: ""
-
-  - name: sentinel_monthly_medical_district
-    enabled: true
-    fetch_method: fetch_csv_sentinel_monthly_medical_district
-    epid_code: ""
-
-  - name: notifiable_weekly
-    enabled: true
-    fetch_method: fetch_csv_notifiable_weekly
-    epid_code: ""
