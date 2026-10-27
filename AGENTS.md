@@ -101,6 +101,9 @@ uv run process-data --all --dry-run                          # checks arguments 
   in `schemas/`. Change it with the procedure in `docs/development.md`.
 - Time-series charts must keep zero values (`scripts/generate_charts.py`); dropping them breaks
   line continuity.
+- Charts show only published values and aggregates computable from them: never fill missing
+  values, absent weeks, zero-baseline rates or blank sentinel counts with numbers. Details:
+  `docs/charts.md`.
 - Never store personal information.
 
 ## Tests
