@@ -1,5 +1,7 @@
 # Design Document
 
+> **注記 (2026-10-27)**: この文書は当初設計の歴史的資料で、現行実装とは同期していない。現行の仕様・運用は README.md / AGENTS.md / docs/ / schemas/ を正とする。既知の乖離: 定期実行は `fetch-data-daily.yml` / `fetch-data-weekly.yml` (共通処理は `_fetch-data-common.yml`) で、`fetch-data.yml` は手動実行専用。未チェックのタスクは将来案で、着手には人間の指示が必要。本文中のファイル・スクリプト・クラス・環境変数には削除・改名済みのもの、実装されなかったものを含む。
+
 ## Overview
 
 東京都感染症発生動向情報の自動データ収集システムは、既存のTokyoEpidemicSurveillanceFetcherクラスを中核として、GitHub Actionsによるスケジュール実行、エラーハンドリング、データ品質管理、自動Git管理を統合したシステムです。
@@ -34,7 +36,7 @@
 
 ### System Architecture
 
-````mermaid
+```mermaid
 graph TB
     subgraph "GitHub Actions Environment"
         A[Scheduler] --> B[Configuration Manager]
@@ -62,6 +64,7 @@ graph TB
     E --> J
     E --> K
     E --> L
+```
 
 ### GitHub Actions Workflow Design
 
@@ -95,9 +98,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub Secrets管理 (Requirement 8.2)
         # 実行時間制限を考慮した分割実行戦略 (Requirement 7.4)
         # HTTPS接続のみ使用 (Requirement 8.3)
-````
-
-````
+```
 
 ### Component Interaction Flow
 
@@ -122,7 +123,7 @@ sequenceDiagram
         QC->>NS: Send error notification
         NS->>NS: Create GitHub Issue
     end
-````
+```
 
 ## Components and Interfaces
 
@@ -211,13 +212,12 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 - 🔄 HTTPS接続の強制確認 (Requirement 8.3)
 - 🔄 動的レート制限調整 (Requirement 5.5)
 
-````
-
 ### 2. Configuration Manager - ✅ 実装済み
 
 YAML設定ファイルによる柔軟な設定管理、要件に基づく設定機能:
 
 **実装済み機能**:
+
 - ✅ config/config.yml: 包括的な設定ファイル (Requirements 4.1, 4.2, 4.5)
 - ✅ ConfigurationManager クラス (src/managers/config_manager.py): YAML 読み込み・設定検証 (Requirement 4.6)
 - ✅ 設定データクラス: DataCollectionConfig, CollectionConfig, ScheduleConfig, StorageConfig, QualityConfig, NotificationConfig, DataTypeConfig
@@ -228,6 +228,7 @@ YAML設定ファイルによる柔軟な設定管理、要件に基づく設定�
 - ✅ 通知設定: GitHub Issues連携設定
 
 **現在の設定構造**:
+
 ```yaml
 schedule:
   cron: "0 10 * * 1"  # 毎週月曜日実行 (Requirement 4.2)
@@ -249,14 +250,14 @@ quality:
 
 notifications:
   github_issues_enabled: true  # (Requirement 2.2)
-````
+```
 
 **追加実装予定**:
 
 - 🔄 セキュリティ設定セクション (Requirements 8.1, 8.2)
 - 🔄 ログ設定セクション (Requirement 4.4)
 
-# config/config.yml の例 (実際の構造に準拠 - ソース・オブ・トゥルースは config/config.yml)
+config/config.yml の例 (実際の構造に準拠 - ソース・オブ・トゥルースは config/config.yml):
 
 ```yaml
 schedule:
@@ -468,7 +469,7 @@ class QualityController:
 
 GitHub Issues APIを使用した通知システム、要件に基づく通知機能:
 
-````python
+```python
 class NotificationSystem:
     def __init__(self, github_token: str, repo_name: str):
         self.github = Github(github_token)
@@ -491,6 +492,7 @@ class NotificationSystem:
 
     def mask_sensitive_info(self, message: str) -> str:
         """通知メッセージの機密情報マスキング (Requirement 8.4)"""
+```
 
 ### 6. Security Validator
 
@@ -521,6 +523,7 @@ class SecurityValidator:
 
     def stop_on_vulnerability(self, vulnerability: SecurityVulnerability) -> None:
         """脆弱性検出時の実行停止と管理者通知 (Requirement 8.5)"""
+```
 
 ### 7. Monitoring System
 
@@ -556,9 +559,7 @@ class SystemMetrics:
     total_data_size: int = 0
     last_successful_run: Optional[datetime] = None
     error_counts: Dict[str, int] = field(default_factory=dict)
-````
-
-````
+```
 
 ## Data Models
 
@@ -790,7 +791,6 @@ class SecurityReport:
     vulnerabilities: List[str]
     recommendations: List[str]
 ```
-````
 
 ### Configuration Models
 
@@ -1059,7 +1059,7 @@ class StreamingProcessor:
 
 ### Caching Strategy
 
-````python
+```python
 class DataCache:
     def __init__(self, cache_dir: Path, ttl_hours: int = 24):
         self.cache_dir = cache_dir
@@ -1070,6 +1070,7 @@ class DataCache:
 
     def cache_data(self, cache_key: str, data: bytes) -> None:
         """データのキャッシュ保存"""
+```
 
 ## Deployment Strategy
 
@@ -1205,4 +1206,3 @@ jobs:
       - run: uv run isort --check-only --diff src/ scripts/ tests/
       - run: uv run mypy src/ scripts/ --ignore-missing-imports --no-strict-optional
 ```
-````

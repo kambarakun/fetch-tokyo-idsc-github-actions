@@ -242,16 +242,16 @@ sentinel_weekly_medical_district_2025_45.csv (不整合: 13件)
 ## 📋 主な機能
 
 - 🔄 **自動収集**: GitHub Actionsによる2種類の自動実行
-  - **📅 毎日データ簡易チェック**: 毎日17:00 JST - 最新週＋前週の週次データ、当月＋前月の月次データを確認・取得
-  - **📆 毎週データ徹底チェック**: 毎週木曜17:30 JST - 現在年の全データ(週次・月次)を包括的チェック(1月は前年分も含む)
-- 🔍 **重複検出**: SHA256ハッシュによるデータ整合性検証
+  - **📅 毎日データ簡易チェック**: 毎日17:00 JST - 2週前・前週・当週の週次データと、前月・当月の月次データのうち、未取得の期間を取得 (incremental)
+  - **📆 毎週データ徹底チェック**: 毎週木曜17:30 JST - 当年の全データ(週次・月次)を強制再取得 (force) して改訂を反映(1月は前年分も含む)
+- 🔍 **内容不変の判定**: 同じパスの既存ファイルと SHA256 が一致する再取得は書き直さず、変更として数えない
 - 🔁 **リトライ機能**: エラー時の自動リトライ(最大3回)
 - 📝 **メタデータ管理**: 各データファイルの収集情報を記録
 - 🚨 **エラー通知**: GitHub Issuesによる自動通知
-- 📊 **増分更新**: 既存データをスキップして新規データのみ取得
+- 📊 **増分更新**: 既存データをスキップして未取得の期間のみ取得 (incremental モード)
 - 🎯 **未発表データ自動除外**: 全て0の未発表データを自動検出してスキップ(可視化・分析の品質確保)
-- 🔀 **自動PR作成**: データ更新時に自動でPull Request作成
-- ✨ **自動マージ**: データ検証成功時にPRを自動的にマージ
+- 🔀 **自動PR作成**: `data/raw/` に変更があるときだけ Pull Request を作成 (変更が無ければ PR は作らない)
+- ✨ **自動マージ**: 取得・処理・処理カバレッジ・連続性・メタデータスキーマ・データ検証のゲートをすべて通過したときだけ自動マージ (条件は [GitHub Actionsワークフロー](#-github-actionsワークフロー) を参照)
 
 ## 📊 データ構造とダウンロード内容
 
@@ -282,7 +282,7 @@ sentinel_weekly_medical_district_2025_45.csv (不整合: 13件)
 data/
 ├── raw/                                                                 # 生データ (Shift_JIS エンコーディング)
 │   ├── .metadata/                                                       # メタデータファイル保存用
-│   │   ├── hash_index.json                                              # 重複チェック用ハッシュインデックス
+│   │   ├── hash_index.json                                              # 旧ハッシュインデックス (残存ファイル。現行コードは読み書きしない)
 │   │   └── *.json                                                       # 各データファイルのメタデータ
 │   ├── sentinel_weekly_gender_2025_01.csv                               # 2025年第1週の性別データ
 │   ├── sentinel_weekly_age_2025_01.csv                                  # 2025年第1週の年齢群データ
@@ -295,8 +295,9 @@ data/
 │   ├── normalized_sentinel_weekly_age_male_2000_01.csv                  # 定点・年齢群・男性 (UTF-8)
 │   ├── normalized_sentinel_weekly_age_female_2000_01.csv                # 定点・年齢群・女性 (UTF-8)
 │   ├── normalized_sentinel_weekly_age_total_2000_01.csv                 # 定点・年齢群・合計 (UTF-8、元データの値を検証済み)
-│   ├── normalized_sentinel_weekly_medical_district_male_2000_01.csv     # 定点・医療圏・男性 (UTF-8)
-│   ├── normalized_sentinel_weekly_medical_district_female_2000_01.csv   # 定点・医療圏・女性 (UTF-8)
+│   ├── normalized_sentinel_weekly_medical_district_male_2000_14.csv     # 定点・医療圏・男性 (UTF-8)
+│   ├── normalized_sentinel_weekly_medical_district_female_2000_14.csv   # 定点・医療圏・女性 (UTF-8)
+│   ├── normalized_sentinel_weekly_medical_district_total_2007_01.csv    # 定点・医療圏・合計 (男女合計にデータ行がある期間のみ)
 │   └── normalized_sentinel_weekly_gender_2000_01.csv                    # 定点・性別 (UTF-8、性別列形式のため分割なし)
 └── logs/                                                                # ログファイル
 ```
@@ -316,14 +317,16 @@ data/
   - 例: `normalized_notifiable_weekly_2000_01.csv`
 - **定点監視(性別分割あり)**: `normalized_{data_type}_{gender}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_age_male_2000_01.csv`
-  - **gender パラメータ**: `male` (男性)、`female` (女性)、`total` (男女合計。ただし `medical_district` は出力されない)
+  - **gender パラメータ**: `male` (男性)、`female` (女性)、`total` (男女合計。`medical_district` は男女合計セクションにデータ行がある期間だけ出力し、セクションがヘッダーのみの 2000年第14週〜2006年第52週の週報では出力しない)
 - **定点監視(分割なし)**: `normalized_{data_type}_{year}_{period}.csv`
   - 例: `normalized_sentinel_weekly_gender_2000_01.csv`
 
 #### 📝 メタデータ管理 (v1.3.0)
 
 本システムは各データファイルに対して詳細なメタデータを自動生成・管理しています。
-メタデータは `data/raw/.metadata/` ディレクトリ (メタデータファイル保存用) に保存されます。
+メタデータは `data/raw/.metadata/` (生データ用) と `data/processed/.metadata/` (処理済みデータ用) にファイルごとの JSON として保存されます。
+現行のスキーマ版は `src/models/metadata.py` の `METADATA_VERSION` (`1.3.0`)、スキーマ本体は CI が検証に使う [`schemas/metadata-v1.3.schema.json`](schemas/metadata-v1.3.schema.json) です。
+既存の processed メタデータには v1.1.0 のまま `quality` を持たないファイルが残っています (2026-10-27 時点で 18,181 件中 13,665 件。再生成は issue #738)。
 
 **v1.3.0の主な変更点:**
 
@@ -342,7 +345,6 @@ data/
 
 **代表的なメタデータファイル:**
 
-- `data/raw/.metadata/hash_index.json`: 重複検出用のSHA256ハッシュインデックス
 - `data/raw/.metadata/sentinel_weekly_age_2025_01.json`: 各データファイルの個別メタデータ
 - `data/processed/.metadata/normalized_notifiable_weekly_2000_01.json`: 処理済みファイルの個別メタデータ
 
@@ -357,7 +359,7 @@ data/
 **データ特性:**
 
 - `data_type`: データタイプ (例: `sentinel_weekly_gender`)
-- `temporal`: 対象期間 (`year` / `week` or `month` / `period_type`)
+- `temporal`: 対象期間 (`year` / `period` (週番号または月) / `period_type`)
 
 **ファイル属性:**
 
@@ -373,7 +375,7 @@ data/
 
 **ソース・処理履歴:**
 
-- `sources`: データソース情報
+- `sources`: データソース情報 (raw は取得元 URL。2026-10-27 時点の既存 raw メタデータ 8,245 件はすべて空で、既存分の補完は issue #738)
 - `_fetch`: データ取得情報 (raw用: `source_url`、`fetch_time_seconds`、`force_overwrite`、`save_all_zero`)
 - `_process`: データ処理情報 (processed用: `source_name`、`source_hash`、`processing_time_seconds`、`gender`)
 
@@ -420,7 +422,10 @@ flowchart TD
     Step3 -->|Yes| Split[性別セクション分割<br/>male/female/total]
     Step3 -->|No| NoSplit[分割なし]
 
-    Split --> Validate[4. 品質検証<br/>male + female = total]
+    Split --> TotalRows{男女合計セクションに<br/>データ行がある?}
+    TotalRows -->|Yes| Validate[4. 品質検証<br/>male + female = total]
+    TotalRows -->|No: medical_district の<br/>2000〜2006年の週報| NoTotal[total を出力しない<br/>male / female のみ]
+    NoTotal --> Output
     NoSplit --> Output
 
     Validate --> CheckResult{検証結果}
@@ -433,6 +438,7 @@ flowchart TD
     style Step1 fill:#ddf,stroke:#333,stroke-width:2px
     style Step2 fill:#ddf,stroke:#333,stroke-width:2px
     style Split fill:#ddf,stroke:#333,stroke-width:2px
+    style TotalRows fill:#ffd,stroke:#333,stroke-width:2px
     style Validate fill:#bbf,stroke:#333,stroke-width:2px
     style CheckResult fill:#ffd,stroke:#333,stroke-width:2px
     style RecordIssue fill:#ffb,stroke:#333,stroke-width:2px
@@ -458,9 +464,9 @@ flowchart TD
      - `normalized_sentinel_weekly_age_male_2000_01.csv`
      - `normalized_sentinel_weekly_age_female_2000_01.csv`
      - `normalized_sentinel_weekly_age_total_2000_01.csv`
-   - **例外**: `medical_district`の場合、元データにtotalセクションが含まれないため、male と female のみ出力
+   - **例外**: `medical_district` の男女合計セクションは 2000年第14週〜2006年第52週の週報ではヘッダーのみのため、その期間は male と female のみ出力 (2007年以降の週報と全期間の月報は total も出力)
 4. **データ品質検証**:
-   - 元データにtotalセクションがある場合: male + female = total の一致を検証
+   - total を出力した場合: male + female = total の一致を検証
    - 不整合がある場合、メタデータの `quality` フィールドに記録
    - **生データ至上主義**: totalの推定計算は行わず、元データをそのまま保存
 
@@ -470,12 +476,13 @@ flowchart TD
 - CSV形式(ヘッダー行 + データ行)
 - メタデータ・注釈なし(純粋なデータのみ)
 - 性別ごとに分割されたファイル(該当する場合)
+- 入力・出力・品質検証結果が変わらない再処理では、processed のメタデータを書き直さない
 
 #### 重要な注意事項
 
 - **生データ至上主義**: 元データに存在しないデータは推定計算で生成しません
 - **検証の範囲**: 定点数の列など加算が意味をなさない列は検証対象外です
-- **medical_districtの特殊性**: 元データにtotalセクションが含まれていないため、**totalファイルは出力されません**(male, female のみ)
+- **medical_districtの特殊性**: 2000年第14週〜2006年第52週の週報は男女合計セクションがヘッダーのみのため、その期間の **totalファイルは出力されません**(male, female のみ)
 
 **年齢別データの注釈(2000年~現在、全期間共通):**
 
@@ -508,14 +515,19 @@ flowchart TD
 
 ### 🤖 自動実行ワークフロー
 
-本システムは2種類の自動実行ワークフローを備えています:
+本システムは2種類の自動実行ワークフローを備えています。どちらも共通処理 `_fetch-data-common.yml` (reusable workflow) を呼び出し、取得 → 変更された raw だけを `process-data --files` で処理 → 検証 → PR 作成 → 自動マージ判定の順に進みます。
 
-| ワークフロー                  | 実行タイミング       | 内容                                                                                                  | 自動マージ        |
-| ----------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------- | ----------------- |
-| **📅 毎日データ簡易チェック** | 毎日 17:00 JST       | 最新週＋前週の週次データ、当月＋前月の月次データをチェック・取得<br>データの定期更新を迅速に検出      | ✅ 有効           |
-| **📆 毎週データ徹底チェック** | 毎週木曜日 17:30 JST | 現在年の全データ(週次・月次)を包括的にチェック<br>(1月は前年分も含む)<br>欠落データの補完と整合性確認 | ✅ 検証成功時のみ |
+| ワークフロー                  | 実行タイミング       | 内容                                                                                                                          | 自動マージ       |
+| ----------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| **📅 毎日データ簡易チェック** | 毎日 17:00 JST       | 2週前・前週・当週の週次データと、前月・当月の月次データのうち未取得の期間を取得 (incremental)<br>データの定期更新を迅速に検出 | ゲート通過時のみ |
+| **📆 毎週データ徹底チェック** | 毎週木曜日 17:30 JST | 当年の全データ(週次・月次)を強制再取得 (force)<br>(1月は前年分も含む)<br>上流の改訂を反映し、欠落データを補完                 | ゲート通過時のみ |
 
-> 💡 **自動マージ機能**: データ更新PRは自動的にマージされます(週次はデータ検証成功時のみ)
+- **PR の作成**: `data/raw/` に変更があるときだけ `scripts/create_pr.sh` がブランチを push して PR を作ります。タイトルは `データ更新: YYYY-MM-DD - N件 (新規X件/更新Y件)`、ラベルは `data-update` / `automated` と種別ラベル (`daily-update` / `weekly-update` / `data-processing` / `metadata-migration`、手動の `fetch-data.yml` には種別ラベルなし) です。本文の書式は `scripts/create_pr.sh` を参照してください。
+- **自動マージの条件**: `scripts/auto_merge_gate.sh` が次のゲートをすべて通過したと判定したときだけ、`gh pr merge --auto --squash` を設定します。main のルールセットにはマージ前の必須ステータスチェックが無いため (2026-10-27 時点)、設定すると CI を待たずにマージされます。
+  - 取得ワークフロー共通 (`fetch-data.yml` を `auto_merge=true` で手動実行した場合も同じ): 取得の成功、処理の成功 (raw の変更が 0 件のときだけ skipped も可)、処理カバレッジ (`check-data-status --fail-on-incomplete`)、メタデータの JSON Schema 適合、連続性検証 (`check-missing`、猶予 1 期間。日次・週次は常に、手動は `verify_continuity=true` のとき)
+  - 日次: 取得前のデータ検証 (`validate-data`) の成功
+  - 週次: 取得前と取得後の両方のデータ検証の成功
+- ゲートが不合格のときは PR を作っても自動マージせず、レビューと手動マージを待ちます (手動実行で `force_merge_on_failure=true` を指定したときだけ、不合格を上書きして自動マージします。データ品質は保証されません)。raw の変更が無いのにゲートが不合格のときは、PR を作らずに run を失敗させます。
 
 ### 📊 手動実行
 
@@ -523,32 +535,45 @@ flowchart TD
 
 1. GitHub リポジトリの **Actions** タブを開く
 2. 実行したいワークフローを選択:
-   - **📊 東京都感染症データ取得(手動実行)** - 汎用データ取得
-   - **📅 毎日データ簡易チェック** - 最新週＋前週、当月＋前月
-   - **📆 毎週データ徹底チェック** - 現在年の全データ(週次・月次、1月は前年分も含む)
+   - **📊 東京都感染症データ取得(手動実行)** (`fetch-data.yml`) - 期間・データタイプ・対象週/月・モードを指定して取得 (既定は当年・full モード、自動マージなし)
+   - **📅 毎日データ簡易チェック** - 2週前・前週・当週、前月・当月
+   - **📆 毎週データ徹底チェック** - 当年の全データ(週次・月次、1月は前年分も含む)
+   - **⚙️ データ処理(raw→processed変換・手動実行)** (`process-data.yml`) - 指定した raw を processed に変換して PR を作る
+   - **🔀 メタデータマイグレーション** (`migrate-metadata.yml`) - メタデータを目標バージョンへ移行して PR を作る (自動マージなし)
 3. **"Run workflow"** をクリック
 4. 必要に応じてパラメータを設定して実行
+
+> ⚠️ データ取得系のワークフローはすべてデータ提供元 (`survey.tmiph.metro.tokyo.lg.jp`) に HTTP リクエストを送ります。`process-data.yml` の `target_files` を空欄にすると全 raw を処理する (`--all`) ため、通常は対象ファイルを指定してください。単一期間の修復・processed の差分 backfill・データ PR の revert の手順は [docs/runbook-data-repair.md](docs/runbook-data-repair.md) を参照してください。
 
 <details>
 <summary>📋 ワークフロー一覧 (データ収集 / 開発・CI/CD) (クリックして展開)</summary>
 
 ### ワークフロー一覧
 
+トリガーの時刻は JST です (cron は UTC で記述)。正確な値は各ワークフローファイルを参照してください。
+
 #### データ収集ワークフロー
 
-| ワークフロー名                          | ファイル                | 用途                                   | トリガー                          |
-| --------------------------------------- | ----------------------- | -------------------------------------- | --------------------------------- |
-| **📊 東京都感染症データ取得(手動実行)** | `fetch-data.yml`        | 汎用的なデータ取得(全期間対応)         | 手動実行のみ                      |
-| **📅 毎日データ簡易チェック**           | `fetch-data-daily.yml`  | 最新2週間・2ヶ月分の更新確認(毎日実行) | 毎日17:00 JST または 手動実行     |
-| **📆 毎週データ徹底チェック**           | `fetch-data-weekly.yml` | 全データ(週次・月次)の包括的チェック   | 毎週木曜17:30 JST または 手動実行 |
+| ワークフロー名                                 | ファイル                | 用途                                           | トリガー                                                         |
+| ---------------------------------------------- | ----------------------- | ---------------------------------------------- | ---------------------------------------------------------------- |
+| **📊 東京都感染症データ取得(手動実行)**        | `fetch-data.yml`        | 期間・対象を指定したデータ取得、単一期間の修復 | 手動実行のみ                                                     |
+| **📅 毎日データ簡易チェック**                  | `fetch-data-daily.yml`  | 直近3週・2か月の未取得分を取得                 | 毎日17:00 JST または 手動実行                                    |
+| **📆 毎週データ徹底チェック**                  | `fetch-data-weekly.yml` | 当年 (1月は前年も) の全データを強制再取得      | 毎週木曜17:30 JST または 手動実行                                |
+| **⚙️ データ処理(raw→processed変換・手動実行)** | `process-data.yml`      | 指定した raw の processed への変換             | 手動実行のみ                                                     |
+| **🔀 メタデータマイグレーション**              | `migrate-metadata.yml`  | メタデータのバージョン移行                     | `src/models/metadata.py` を変える main への push または 手動実行 |
+
+共通処理 `_fetch-data-common.yml` は上の3つの取得ワークフローから呼ばれる reusable workflow で、単独では実行されません。
 
 #### 開発・CI/CDワークフロー
 
-| ワークフロー名               | ファイル                 | 用途                   | トリガー                           |
-| ---------------------------- | ------------------------ | ---------------------- | ---------------------------------- |
-| **🧪 テストスイート実行**    | `test.yml`               | 自動テスト実行         | プッシュ または PR または 手動実行 |
-| **🔍 Claude コードレビュー** | `claude-code-review.yml` | AIによるコードレビュー | PR作成・更新時                     |
-| **🤖 Claude Code 統合**      | `claude.yml`             | Claude AIとの統合      | Issue/PRコメント                   |
+| ワークフロー名                           | ファイル                           | 用途                                          | トリガー                                                                                        |
+| ---------------------------------------- | ---------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| **🧪 テストスイート実行**                | `test.yml`                         | 自動テスト実行                                | push (main / develop / feature/\*) または main への PR または 毎週火曜09:17 JST または 手動実行 |
+| **🔍 ワークフロー静的検証 (actionlint)** | `actionlint.yml`                   | ワークフローの静的検証                        | `.github/workflows/` を変える PR・main への push または 手動実行                                |
+| **🔍 Claude コードレビュー**             | `claude-code-review.yml`           | AIによるコードレビュー (Dependabot PR は除く) | PR作成・更新時                                                                                  |
+| **🤖 Claude Code 統合**                  | `claude.yml`                       | Claude AIとの統合                             | `@claude` を含む Issue/PR のコメント・レビュー・Issue 作成                                      |
+| **🔎 Dependabot PR の事前検証**          | `dependabot-pr-vetting.yml`        | Dependabot PR の事前検証                      | Dependabot の PR の作成・更新時                                                                 |
+| **🔍 依存更新パイプラインの生存確認**    | `dependency-pipeline-watchdog.yml` | 依存更新パイプラインの停止検知                | 毎週水曜09:23 JST または 手動実行                                                               |
 
 </details>
 
@@ -583,8 +608,8 @@ cd fetch-tokyo-idsc-github-actions
 
 #### 前提条件
 
-- Python 3.11以上
-- [uv](https://github.com/astral-sh/uv) パッケージマネージャー
+- Python 3.11 (`pyproject.toml` の `requires-python` は `>=3.11,<3.12`)
+- [uv](https://github.com/astral-sh/uv) パッケージマネージャー (版は `.tool-versions` で固定)
 
 #### インストール
 
@@ -592,26 +617,35 @@ cd fetch-tokyo-idsc-github-actions
 # uvのインストール(未インストールの場合)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 依存関係のインストール
-uv sync
+# 依存関係のインストール (uv.lock どおり)
+uv sync --locked
 
 # 開発用依存関係も含める場合
-uv sync --all-extras
+uv sync --all-extras --locked
 ```
 
 #### ローカルでのデータ取得
 
+> ⚠️ `uv run fetch-data` はデータ提供元 (`survey.tmiph.metro.tokyo.lg.jp`) に HTTP リクエストを送ります。`--dry-run` を付けても取得は行い、保存だけを省きます。期間とデータタイプは必ず明示し、取得した raw はブランチを切って PR で反映してください (`fetch-data` はコミットしません)。
+
+ドライラン (保存しない。データ提供元への HTTP リクエストは発生する):
+
 ```bash
-# 最新データのみ取得
-uv run fetch-data
+# データ提供元に接続する (保存はしない)
+uv run fetch-data --data-types sentinel_weekly_gender --start-year 2026 --end-year 2026 --dry-run
+```
 
-# 指定期間のデータ取得(例: 2000年~2025年)
-uv run fetch-data --start-year 2000 --end-year 2025
+本実行 (データ提供元に接続し、指定した期間・データタイプのうち未取得の期間だけを `data/raw/` に保存する。既定の incremental モード):
 
-# ドライラン(テスト実行、実際のダウンロードは行わない)
-uv run fetch-data --dry-run
+```bash
+# データ提供元に接続し、data/raw/ に保存する
+uv run fetch-data --data-types sentinel_weekly_gender --start-year 2026 --end-year 2026
+```
 
-# 欠番チェック
+引数なしの `uv run fetch-data` は、`config/config.yml` の `collection.start_year` (現在 `2024`) から当年 (JST) までの全データタイプについて、`collection.mode` (現在 `incremental`) に従い未取得の期間をすべて要求します。全て0の未公開データは保存されないため、未公開の期間は実行のたびに要求し直されます。単一期間の修復と processed の更新は [docs/runbook-data-repair.md](docs/runbook-data-repair.md) の手順に従ってください。
+
+```bash
+# 欠番チェック (data/raw のファイルだけを読む。データ提供元には接続しない)
 uv run check-missing data/raw
 ```
 
@@ -642,60 +676,29 @@ uv run pytest tests/test_enhanced_fetcher.py
 
 ### 🛠️ 設定ファイル
 
-`config/config.yml` で詳細設定が可能です。
+`config/config.yml` は `uv run fetch-data` が読む取得設定です。CLI 引数 (`--mode` / `--start-year` / `--end-year` / `--data-types`) を渡すとそちらが優先されます。
 
 <details>
-<summary>⚙️ 設定項目の詳細 (収集 / ストレージ / 品質管理 / 通知 / Pull Request) (クリックして展開)</summary>
+<summary>⚙️ 設定項目の詳細 (収集 / ストレージ / Pull Request) (クリックして展開)</summary>
 
-#### 収集設定
+#### 収集設定 (`collection`)
 
-- **batch_size**: 一度に処理するファイル数(デフォルト: 50)
-- **start_year/end_year**: データ収集期間
+- **mode**: 収集モード `incremental` (未取得の期間のみ) / `full` (全期間、既存も更新チェック) / `force` (全データを強制再取得)。現在値は `incremental`。旧キー `incremental_mode` は非推奨で、`mode` が未設定のときだけ後方互換として読まれます
+- **start_year / end_year**: 収集期間。`end_year` が `null` なら JST の当年
 - **data_types**: 収集対象のデータタイプリスト
-- **incremental_mode**: 増分収集モード(既存データをスキップ)
+- **batch_size**: 一度に処理するリクエスト数 (現在値: 50)
+- **max_execution_time_hours**: 実行時間の上限 (GitHub Actions の6時間制限対策、現在値: 5.5)
 
-#### ストレージ設定
+#### ストレージ設定 (`storage`)
 
-- **base_directory**: 生データ保存先(デフォルト: `data/raw`)
-- **keep_shift_jis**: Shift_JISエンコーディングの維持(デフォルト: true)
-- **commit_message_template**: コミットメッセージのテンプレート
+- **base_directory**: 生データ保存先 (現在値: `data/raw`)
+- ファイルサイズの検証範囲 (100B - 50MB) は config ではなく `src/managers/storage_manager.py` の `VALIDATION_*` 定数が定義します
 
-#### 品質管理
-
-- **file_size_limits**: CSVファイルのサイズ制限(100B - 10MB)
-- **anomaly_detection_enabled**: 異常検出の有効化
-- **quarantine_directory**: 隔離ディレクトリ
-
-#### 通知設定
-
-- **github_issues_enabled**: エラー時のIssue自動作成
-- **issue_labels**: 自動作成されるIssueのラベル
-- **max_issues_per_day**: 1日あたりの最大Issue作成数
+> 定期実行の時刻は config ではなく `.github/workflows/fetch-data-daily.yml` / `fetch-data-weekly.yml` の cron が決めます。
 
 #### Pull Request設定
 
-自動PR作成は `.github/workflows/fetch-data.yml` で制御されます。config.ymlでの直接設定はサポートしていませんが、ワークフロー内で以下の形式が使用されます:
-
-```yaml
-# PRタイトル形式(ワークフロー内で自動生成)
-PR_TITLE: "データ更新: YYYY-MM-DD (N CSV files)"
-
-# PR本文テンプレート(ワークフロー内で定義)
-PR_BODY: |
-  ## 🤖 自動データ更新
-  ### 📊 更新内容
-  - 実行日時: YYYY-MM-DD
-  - 対象期間: START_YEAR - END_YEAR
-  - データタイプ: [対象データ種別]
-  - 変更CSVファイル数: N
-
-# 自動付与されるラベル
-PR_LABELS:
-  - data-update # データ更新PR用
-  - automated # 自動生成PR用
-```
-
-カスタマイズが必要な場合は、`.github/workflows/fetch-data.yml` の該当箇所を直接編集してください。
+PR の作成・タイトル・ラベル・本文は config では設定できず、`scripts/create_pr.sh` が決めます (タイトル `データ更新: YYYY-MM-DD - N件 (新規X件/更新Y件)`、ラベル `data-update` / `automated` + 種別ラベル)。自動マージの条件は `scripts/auto_merge_gate.sh` が判定します。概要は [GitHub Actionsワークフロー](#-github-actionsワークフロー) を参照してください。
 
 </details>
 
@@ -746,7 +749,9 @@ PR_LABELS:
 ## 🔗 関連情報
 
 - **データソース**: [東京都感染症発生動向情報](https://survey.tmiph.metro.tokyo.lg.jp/epidinfo/epimenu.do)
-- **プロジェクト設計書**: `.kiro/specs/tokyo-epidemic-data-automation/`
+- **データ修復・backfill・ロールバック手順**: [docs/runbook-data-repair.md](docs/runbook-data-repair.md)
+- **data/ の構造設計**: [docs/data_structure_design.md](docs/data_structure_design.md)
+- **当初設計の歴史的資料**: `.kiro/specs/tokyo-epidemic-data-automation/` (現行実装とは同期していない。現行の仕様は README.md / AGENTS.md / docs/ / schemas/ を参照)
 - **GitHub リポジトリ**: [fetch-tokyo-idsc-github-actions](https://github.com/kambarakun/fetch-tokyo-idsc-github-actions)
 
 ## 🤝 貢献

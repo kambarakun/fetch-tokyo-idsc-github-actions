@@ -11,21 +11,23 @@
 
 ```text
 data/
-├── raw/                                                   # 生データ (Shift_JIS、GitHub管理対象)
-│   ├── .metadata/                                         # メタデータ (ハッシュインデックス等)
-│   │   ├── hash_index.json                                # 重複チェック用ハッシュインデックス
-│   │   └── *.json                                         # 各生データファイルの個別メタデータ
-│   └── *.csv                                              # 元データ (複雑な構造のまま)
-├── processed/                                             # 処理済み (UTF-8、フラット配置、GitHub管理対象)
-│   ├── .metadata/                                         # 処理済みファイルのメタデータ
-│   │   └── normalized_*.json                              # 各出力ファイルの個別メタデータ
-│   ├── stats.json                                         # 直近の処理統計 (process-data が出力)
-│   ├── normalized_notifiable_weekly_2000_01.csv           # 全数報告 (UTF-8、メタデータ除去)
-│   ├── normalized_sentinel_weekly_age_male_2000_01.csv    # 定点・年齢群・男性 (UTF-8)
-│   ├── normalized_sentinel_weekly_age_female_2000_01.csv  # 定点・年齢群・女性 (UTF-8)
-│   ├── normalized_sentinel_weekly_age_total_2000_01.csv   # 定点・年齢群・合計 (UTF-8、元データの値を検証済み)
-│   └── normalized_sentinel_weekly_gender_2000_01.csv      # 定点・性別 (UTF-8、性別列形式のため分割なし)
-└── logs/                                                  # 処理ログ
+├── raw/                                                               # 生データ (Shift_JIS、GitHub管理対象)
+│   ├── .metadata/                                                     # 生データの個別メタデータ
+│   │   ├── hash_index.json                                            # 旧ハッシュインデックス (残存ファイル。現行コードは読み書きしない)
+│   │   └── *.json                                                     # 各生データファイルの個別メタデータ
+│   └── *.csv                                                          # 元データ (複雑な構造のまま)
+├── processed/                                                         # 処理済み (UTF-8、フラット配置、GitHub管理対象)
+│   ├── .metadata/                                                     # 処理済みファイルのメタデータ
+│   │   ├── processing_log.json                                        # 旧処理ログ (残存ファイル。現行コードは書かない)
+│   │   └── normalized_*.json                                          # 各出力ファイルの個別メタデータ
+│   ├── stats.json                                                     # 直近の処理統計 (process-data が出力)
+│   ├── normalized_notifiable_weekly_2000_01.csv                       # 全数報告 (UTF-8、メタデータ除去)
+│   ├── normalized_sentinel_weekly_age_male_2000_01.csv                # 定点・年齢群・男性 (UTF-8)
+│   ├── normalized_sentinel_weekly_age_female_2000_01.csv              # 定点・年齢群・女性 (UTF-8)
+│   ├── normalized_sentinel_weekly_age_total_2000_01.csv               # 定点・年齢群・合計 (UTF-8、元データの値を検証済み)
+│   ├── normalized_sentinel_weekly_medical_district_total_2007_01.csv  # 定点・医療圏・合計 (男女合計にデータ行がある期間のみ)
+│   └── normalized_sentinel_weekly_gender_2000_01.csv                  # 定点・性別 (UTF-8、性別列形式のため分割なし)
+└── logs/                                                              # 処理ログ
 ```
 
 **設計方針:**
@@ -61,7 +63,7 @@ flowchart TD
 ### raw/ (生データ)
 
 ```text
-{data_type}_{frequency}_{year}_{period:02d}.csv
+{data_type}_{year}_{period:02d}.csv
 
 例:
 - sentinel_weekly_gender_2025_01.csv
@@ -94,22 +96,15 @@ normalized_{category}_{frequency}_{aggregation}_{year}_{period}.csv
 ```
 
 **gender パラメータ:** `male` (男性)、`female` (女性)、`total` (男女合計)。
-ただし `medical_district` は元データに男女合計セクションが含まれないため `total` を出力しません。
+`medical_district` の `total` は、男女合計セクションにデータ行がある期間だけ出力します。2000年第14週〜2006年第52週の週報は男女合計セクションがヘッダーのみのため `total` を出力しません (実装: `src/processors/data_processor.py::section_has_data_rows`。`check-data-status` も同じ判定で出力の有無を期待します)。
 
 ## メタデータ構造
 
-メタデータは「ログファイル1本」ではなく、**ファイルごとの個別JSON** として `.metadata/` 配下に保存されます。スキーマの完全な定義は [`schemas/metadata-v1.3.schema.json`](../schemas/metadata-v1.3.schema.json) を参照してください (実装: `src/models/metadata.py`、`METADATA_VERSION = "1.3.0"`)。
+メタデータは「ログファイル1本」ではなく、**ファイルごとの個別JSON** として `.metadata/` 配下に保存されます。スキーマの完全な定義は CI が検証に使う [`schemas/metadata-v1.3.schema.json`](../schemas/metadata-v1.3.schema.json) を参照してください (版の定数: `src/models/metadata.py::METADATA_VERSION`、現在 `1.3.0`)。検証コマンドは `uv run python scripts/validate_metadata_schema.py` です。
 
-### raw/.metadata/hash_index.json
+### raw/.metadata/hash_index.json (残存ファイル)
 
-重複検出用のSHA256ハッシュとファイルパスのマッピング (実装: `src/managers/storage_manager.py`)。
-同一ハッシュに複数パスが対応する場合はリストになります。
-
-```json
-{
-  "<sha256_hash>": "data/raw/sentinel_weekly_gender_2025_01.csv"
-}
-```
+以前の重複検出で使っていた SHA256 → パスの索引です。現行コードは読み書きせず (再保存の判定は、同じパスの既存 CSV との SHA256 比較で行います: `src/managers/storage_manager.py`)、`verify-metadata` / `migrate-metadata` のメタデータ走査と README 統計の集計 (`scripts/update_readme_stats.py`) は対象から除外します。ファイル自体はリポジトリに残っており、整理は issue #738 が扱います。内容が実データと一致している保証はないので、参照しないでください。
 
 ### raw/.metadata/{filename}.json (生データの個別メタデータ)
 
@@ -143,6 +138,8 @@ normalized_{category}_{frequency}_{aggregation}_{year}_{period}.csv
 }
 ```
 
+> 既存ファイルとの差 (2026-10-27 時点): raw メタデータ 8,245 件はすべて `metadata_version` が 1.3.0 ですが、`sources` が空で `_fetch.source_url` が `null` です。取得元 URL の記録は現行コードで直っており、既存分の補完は issue #738 が扱います。
+
 ### processed/.metadata/{output_stem}.json (処理済みファイルの個別メタデータ)
 
 正規化後の出力ファイルごとに、`{出力ファイル名(拡張子なし)}.json` のメタデータが保存されます。
@@ -174,9 +171,25 @@ normalized_{category}_{frequency}_{aggregation}_{year}_{period}.csv
 }
 ```
 
+> 既存ファイルとの差 (2026-10-27 時点): processed メタデータ 18,181 件のうち 13,665 件は `metadata_version` 1.1.0 のままで `quality` を持ちません (残り 4,516 件は 1.3.0 で `quality` あり)。再生成は issue #738 が扱います。
+
 ### processed/stats.json (処理統計)
 
-`process-data` 実行のたびに、直近の処理結果サマリーが上書き保存されます (実装: `src/cli/process_data.py`)。
+`process-data` の本実行 (`--dry-run` なし) のたびに、直近の処理結果サマリーが上書き保存されます (実装: `src/cli/process_data.py`)。`--files` では `data/raw/` 配下にないためスキップしたファイル数 `skipped` も書きます。`--all` は `skipped` を書きません。
+
+`--files` の場合:
+
+```json
+{
+  "total": 3,
+  "succeeded": 3,
+  "failed": 0,
+  "skipped": 0,
+  "errors": []
+}
+```
+
+`--all` の場合:
 
 ```json
 {
@@ -205,21 +218,27 @@ data/output/
 UTF-8変換と正規化は専用スクリプトに分かれておらず、`process-data` コマンドが両方を一度に実行します。
 (エントリポイント定義: `pyproject.toml` の `[project.scripts]`、実装: `src/cli/process_data.py`)
 
-```bash
-# raw/配下の全CSVを処理 (UTF-8変換 + 正規化・分割)
-uv run process-data --all
+通常は変更した raw だけを `--files` で処理します (定期ワークフローも、そのジョブで追加・変更された raw だけを `process-data --files` に渡します)。`--files` のパスは現在のディレクトリからの相対パスで、`<data-dir>/raw/` 配下にないファイルはスキップされます。
 
-# 特定ファイルのみ処理 (1個以上、スペース区切り。data/raw/配下のみ対象)
+```bash
+# 特定ファイルのみ処理 (1個以上、スペース区切り)
 uv run process-data --files data/raw/sentinel_weekly_gender_2025_01.csv
 
-# 複数ファイルを処理
-uv run process-data --files file1.csv file2.csv file3.csv
+# 詳細ログ付き
+uv run process-data --verbose --files data/raw/sentinel_weekly_gender_2025_01.csv data/raw/sentinel_weekly_age_2025_01.csv
+```
 
-# ドライラン (実際の処理は行わない)
-uv run process-data --all --dry-run
+ドライランは引数と data ディレクトリの存在だけを確認し、対象ファイルの存在確認・変換・品質検証・`stats.json` の更新はしません:
 
-# 詳細ログ
-uv run process-data --all --verbose
+```bash
+uv run process-data --dry-run --files data/raw/sentinel_weekly_gender_2025_01.csv
+```
+
+`--all` は `data/raw/` の全 CSV を処理します。入力・出力・品質検証結果が変わらない processed メタデータは書き直しませんが、v1.1.0 のまま残っている既存メタデータ (2026-10-27 時点で 13,665 件) は 1.3.0 の形に書き換わり、`modified` なども更新されます。全件の再生成 (issue #738) のように意図して全件を扱う場合以外は使わないでください。
+
+```bash
+# 全件の再処理。通常の運用では使わない (既存の v1.1.0 メタデータを全件書き換える)
+uv run process-data --all
 ```
 
 ## データ容量の見積もり
@@ -234,19 +253,37 @@ uv run process-data --all --verbose
 
 ### 定期データ取得時 (GitHub Actions)
 
+日次・週次・手動の取得ワークフローは、共通処理 `.github/workflows/_fetch-data-common.yml` を呼び出します。図は主なステップの順序です (グラフ・README 統計の更新と通知・ログ保存は省略)。`dry_run` のときは取得だけを行い、処理以降のステップは実行しません。main へ直接 push することはなく、変更は必ず PR を経由します。
+
 ```mermaid
 flowchart TD
-    Schedule[スケジュール実行<br/>毎週月曜 19:00 JST] --> Fetch[データ取得<br/>uv run fetch-data]
-    Fetch --> SaveRaw[data/raw/に保存<br/>Shift_JIS]
-    SaveRaw --> Process[データ処理<br/>uv run process-data --all]
-    Process --> SaveProcessed[data/processed/に保存<br/>UTF-8、性別分割済み]
-    SaveProcessed --> GitAdd[git add data/]
-    GitAdd --> GitCommit[git commit]
-    GitCommit --> GitPush[git push]
+    Daily["fetch-data-daily.yml<br/>毎日 17:00 JST<br/>incremental"] --> Params
+    Weekly["fetch-data-weekly.yml<br/>毎週木曜 17:30 JST<br/>force"] --> Params
+    Manual["fetch-data.yml<br/>手動実行"] --> Params
+    Params["Prepare fetch parameters<br/>入力検証・対象年の決定"] --> ValBefore["Validate existing data before fetch<br/>uv run validate-data (日次・週次)"]
+    ValBefore --> Fetch["Fetch epidemic data<br/>uv run fetch-data"]
+    Fetch --> SaveRaw["data/raw/ に保存<br/>Shift_JIS"]
+    SaveRaw --> Process["Process epidemic data<br/>uv run process-data --files 変更された raw"]
+    Process --> Coverage["Check processing coverage<br/>uv run check-data-status --fail-on-incomplete"]
+    Coverage --> ValAfter["Validate fetched data<br/>uv run validate-data (週次のみ)"]
+    ValAfter --> Continuity["Verify data continuity<br/>uv run check-missing (日次・週次、手動は指定時)"]
+    Continuity --> Changes["Check for changes<br/>data/raw の差分を判定"]
+    Changes --> Schema["Validate metadata against JSON Schema"]
+    Schema --> Gate["Evaluate auto-merge gate<br/>scripts/auto_merge_gate.sh"]
+    Gate --> HasChanges{"data/raw に変更あり?"}
+    HasChanges -->|Yes| CreatePR["Create Pull Request<br/>scripts/create_pr.sh<br/>ブランチ push・PR 作成"]
+    HasChanges -->|No| Blocked{"ゲート不合格?"}
+    Blocked -->|Yes| FailRun["run を失敗させる"]
+    Blocked -->|No| NoPR["PR を作らずに終了"]
+    CreatePR --> Merge{"自動マージ要求あり<br/>かつゲート通過?"}
+    Merge -->|Yes| AutoMerge["gh pr merge --auto --squash"]
+    Merge -->|No| Review["レビュー・手動マージ"]
 
     style SaveRaw fill:#f9f,stroke:#333,stroke-width:2px
-    style SaveProcessed fill:#bfb,stroke:#333,stroke-width:2px
+    style AutoMerge fill:#bfb,stroke:#333,stroke-width:2px
 ```
+
+自動マージは日次・週次で要求され、手動の `fetch-data.yml` では `auto_merge` 入力 (既定 `false`) で要求します。ゲートの条件は README の「GitHub Actionsワークフロー」と `scripts/auto_merge_gate.sh` を参照してください。
 
 ### ローカル開発時
 
@@ -258,16 +295,18 @@ flowchart TD
     ProcessLocal --> Analysis
 
     Analysis --> UpdateRaw{data/raw/<br/>を更新?}
-    UpdateRaw -->|Yes| Reprocess[再処理<br/>uv run process-data --all]
+    UpdateRaw -->|Yes| Reprocess[再処理<br/>uv run process-data --files 変更した raw]
     UpdateRaw -->|No| Continue[開発継続]
     Reprocess --> Continue
 ```
+
+`data/processed/` はリポジトリにコミット済みなので、通常のクローンでは `ProcessLocal` の経路は通りません。
 
 ### データ更新時
 
 ```mermaid
 flowchart TD
-    Update[data/raw/が更新] --> Reprocess[データ処理<br/>uv run process-data --all]
+    Update[data/raw/が更新] --> Reprocess[データ処理<br/>uv run process-data --files 変更した raw]
     Reprocess --> Convert[UTF-8変換<br/>メモリ上]
     Convert --> Norm[正規化・性別分割<br/>_process_notifiable / _process_sentinel]
     Norm --> Save[data/processed/に保存<br/>normalized_*.csv]
@@ -275,6 +314,8 @@ flowchart TD
     style Update fill:#f9f,stroke:#333,stroke-width:2px
     style Save fill:#bfb,stroke:#333,stroke-width:2px
 ```
+
+修復・backfill の手順は [runbook-data-repair.md](runbook-data-repair.md) を参照してください。
 
 ## 利点
 
