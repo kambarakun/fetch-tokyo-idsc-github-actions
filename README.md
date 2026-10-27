@@ -538,7 +538,7 @@ flowchart TD
    - **📊 東京都感染症データ取得(手動実行)** (`fetch-data.yml`) - 期間・データタイプ・対象週/月・モードを指定して取得 (既定は当年・full モード、自動マージなし)
    - **📅 毎日データ簡易チェック** - 2週前・前週・当週、前月・当月
    - **📆 毎週データ徹底チェック** - 当年の全データ(週次・月次、1月は前年分も含む)
-   - **⚙️ データ処理(raw→processed変換・手動実行)** (`process-data.yml`) - 指定した raw を processed に変換して PR を作る
+   - **⚙️ データ処理(raw→processed変換・手動実行)** (`process-data.yml`) - 指定した raw を processed に変換して PR を作る (入力と結果の読み方は [docs/manual-data-processing.md](docs/manual-data-processing.md))
    - **🔀 メタデータマイグレーション** (`migrate-metadata.yml`) - メタデータを目標バージョンへ移行して PR を作る (自動マージなし)
 3. **"Run workflow"** をクリック
 4. 必要に応じてパラメータを設定して実行

@@ -105,19 +105,14 @@ uv run check-data-status --list-needs-processing > /tmp/needs-processing.txt
 wc -l < /tmp/needs-processing.txt
 ```
 
-- 0 件なら backfill は不要です。`--all` に切り替えないでください。
-- 再処理では直せない raw (名前が想定外・処理できない内容など) は一覧に出ません。`uv run check-data-status --verbose` で理由を確かめ、raw 側を直してください (2 の手順)。
-- PR の大きさの目安は、1 PR あたり raw 100 件 (processed はその最大 3 倍) 程度までです。超える場合はデータタイプ × 年で区切って PR を分けます。全件規模の再生成は issue #738 の扱いで、この手順の対象外です。
+- 0 件なら backfill は不要です。`--all` に切り替えないでください。一覧が空でも、再処理では直せない raw (名前が想定外・処理できない内容など) は一覧に出ないので、`uv run check-data-status --fail-on-incomplete; echo "rc=$?"` が `rc=0` で終わることも確かめます。`rc=1` なら `uv run check-data-status --verbose` で理由を確かめ、raw 側を直してください (2 の手順)。
+- 全件規模の再生成は issue #738 の扱いで、この手順の対象外です。
 
 ### 3.2 処理する
 
-**GitHub Actions (推奨)**: **⚙️ データ処理(raw→processed変換・手動実行)** (`process-data.yml`) の `target_files` に、一覧をカンマ区切りにした値を入れて実行します。`target_files` は `data/raw/<name>.csv` をカンマでつないだ形式だけを受け付けます。空欄にすると全 raw を処理する (`--all`) ので、空欄では実行しないでください。`verify_output=true` を推奨します。
+**GitHub Actions (推奨)**: **⚙️ データ処理(raw→processed変換・手動実行)** (`process-data.yml`) を使います。入力の意味 (`target_files` は `data/raw/<name>.csv` のカンマ区切りで、空欄は全 raw の `--all` になる)、`dry_run=false` / `verify_output=true` / `auto_merge=false` を明示すること、1 回に渡す件数と入力サイズの上限、前のバッチの PR をマージしてから次を dispatch すること、結果と PR 差分の確認は、[docs/manual-data-processing.md](manual-data-processing.md) の「4. backfill の通常手順」〜「6. マージ後の完全性確認」に従ってください。同書の dispatch 関数は一覧が空なら dispatch せずに止まります。
 
-```bash
-paste -sd, /tmp/needs-processing.txt
-```
-
-**ローカル (代替)**: まず引数だけを確認するドライランを実行します (対象ファイルの存在確認・変換・`stats.json` の更新はしません)。
+**ローカル (代替)**: 件数が少なく、ローカルで処理して PR にする場合の手順です。まず引数だけを確認するドライランを実行します (対象ファイルの存在確認・変換・`stats.json` の更新はしません)。
 
 ```bash
 uv run process-data --dry-run --files data/raw/sentinel_weekly_age_2026_37.csv
@@ -136,7 +131,7 @@ else
 fi
 ```
 
-処理後に `git status --short data/processed` で、一覧の raw に対応する processed の CSV とメタデータだけが変わったことを確かめます。`data/processed/stats.json` も書き換わります。
+処理後に `git status --short data/processed` で、一覧の raw に対応する processed の CSV とメタデータだけが変わったことを確かめます。`data/processed/stats.json` も書き換わります。処理前に試すときは、manual-data-processing.md の 1 章のとおり `--data-dir` に隔離コピーを指定します。
 
 ## 4. データ PR の revert
 
