@@ -79,6 +79,7 @@ check_secrets: 1 candidate secret(s) in 1 file(s); values are not shown. ...
 
 - git の履歴 (過去の commit) は検査しない。全履歴の再監査は行っていない
 - untracked / gitignored のファイル、binary file は検査しない
+- gitleaks 既定設定の global allowlist に当たるファイル (`.gitleaks.toml` 自身、画像、`go.mod` など) は gitleaks 側で検査しない。`uv.lock` は対象
 - `.secrets.baseline` は #5 (f37b42165) で追加された空ファイルで、どの hook も読まない (detect-secrets が `.pre-commit-config.yaml` に入っていた履歴もない)。保持しており、削除は別途判断する
 - GitHub 側の secret scanning / push protection の設定は所有者の作業で、この仕組みとは別に確認する
 - `tests/test_secret_scan.py` は初回に hook 環境をインストールするため、GitHub と Go の配布元・module proxy への通信が必要 (データ源には接続しない)

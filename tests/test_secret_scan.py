@@ -209,6 +209,46 @@ def test_missing_gitleaks_fails_instead_of_passing(tmp_path: Path) -> None:
     assert "gitleaks is not on PATH" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("fake_gitleaks", "message"),
+    [
+        pytest.param("exit 0\n", "gitleaks wrote no readable report", id="clean-exit-without-report"),
+        pytest.param(
+            'while [ "$1" != "--report-path" ]; do shift; done\necho \'[{"File": "app.py"}]\' > "$2"\nexit 0\n',
+            "gitleaks exit code 0 does not match its report",
+            id="clean-exit-with-findings",
+        ),
+        pytest.param(
+            'while [ "$1" != "--report-path" ]; do shift; done\necho "[]" > "$2"\nexit 3\n',
+            "gitleaks exit code 3 does not match its report",
+            id="leaks-exit-without-findings",
+        ),
+    ],
+)
+def test_untrustworthy_gitleaks_result_fails(tmp_path: Path, fake_gitleaks: str, message: str) -> None:
+    """A gitleaks whose exit code and report disagree (e.g. changed CLI semantics) is never read as clean."""
+    # Arrange
+    _write(tmp_path, "app.py", "x = 1\n")
+    bin_dir = tmp_path / "bin"
+    _write(bin_dir, "gitleaks", "#!/bin/sh\n" + fake_gitleaks)
+    (bin_dir / "gitleaks").chmod(0o755)
+
+    # Act
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "app.py"],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": str(bin_dir)},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    # Assert
+    assert result.returncode == 2
+    assert f"check_secrets: {message}" in result.stderr
+    assert "no secrets found" not in result.stdout
+
+
 def test_no_files_is_a_clean_no_op(tmp_path: Path) -> None:
     # Act
     result = subprocess.run([sys.executable, str(SCRIPT)], cwd=tmp_path, check=False, capture_output=True, text=True)
@@ -229,4 +269,6 @@ def test_only_gitleaks_reads_data_fixtures_and_lock_files() -> None:
     assert hooks["gitleaks"]["entry"] == "python3 scripts/check_secrets.py"
     for hook_id, hook in hooks.items():
         if hook_id != "gitleaks":
-            assert all(re.search(hook["exclude"], path) for path in generated), hook_id
+            assert all(
+                re.search(hook.get("exclude", "^$"), path) for path in generated
+            ), f"hook {hook_id!r} needs `exclude: *repo_exclude` in .pre-commit-config.yaml"
