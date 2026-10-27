@@ -291,3 +291,25 @@ def test_uv_updates_cover_transitive_dependencies_without_absorbing_direct_ones(
     # Major bumps stay manual everywhere, transitive ones included (pandas 3, virtualenv 21, ...).
     major = {"dependency-name": "*", "update-types": ["version-update:semver-major"]}
     assert all(major in update["ignore"] for update in config["updates"])
+
+
+def test_github_actions_updates_cover_every_local_composite_action() -> None:
+    """Issue #763: with `directory: "/"` Dependabot reads the workflows and a root action.yml only.
+
+    A pin inside `.github/actions/<name>/action.yml` therefore got no update PR. Every such
+    directory is listed explicitly, so a composite action added later fails here until it is,
+    and the vetting script expects action metadata exactly one level below `.github/actions/`.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    config = yaml.safe_load((project_root / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    actions = next(update for update in config["updates"] if update["package-ecosystem"] == "github-actions")
+    metadata = [
+        path.relative_to(project_root)
+        for name in ("action.yml", "action.yaml")
+        for path in (project_root / ".github" / "actions").rglob(name)
+    ]
+
+    assert "directory" not in actions
+    assert sorted(actions["directories"]) == sorted(["/", *(f"/{path.parent.as_posix()}" for path in metadata)])
+    assert "/.github/actions/data-pr-token" in actions["directories"]
+    assert all(len(path.parts) == 4 for path in metadata)

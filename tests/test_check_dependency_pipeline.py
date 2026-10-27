@@ -86,14 +86,19 @@ def _pr_payload(created_at: datetime | None) -> list[dict[str, Any]]:
 
 
 def _update_run(
-    ecosystem: str, created_at: datetime, conclusion: str = "success", *, refresh_for: str | None = None
+    ecosystem: str,
+    created_at: datetime,
+    conclusion: str = "success",
+    *,
+    refresh_for: str | None = None,
+    directories: str = "/.",
 ) -> dict[str, Any]:
     """A Dependabot Updates run, named the way the real `dynamic/dependabot/dependabot-updates` names it.
 
     A full run is `uv in /. - Update #N`; a refresh of one open PR is `uv in / for ruff - Update #N`.
     Like the real API (2026-10-03), `name` and `display_title` both carry that title.
     """
-    target = f"/ for {refresh_for}" if refresh_for else "/."
+    target = f"/ for {refresh_for}" if refresh_for else directories
     title = f"{ecosystem} in {target} - Update #1"
     return {
         "name": title,
@@ -425,6 +430,54 @@ def test_refresh_runs_prove_a_live_updater_but_not_a_healthy_full_run(
     result = _run(repo, responses)["1r:uv"]
     assert not result.ok
     assert result.facts["conclusion"] == "failure"
+
+
+# Real titles of the github-actions updater of pyca/cryptography, whose dependabot.yml lists
+# `directories: ["/", "/.github/actions/*/"]` (runs 1657669507 and 1631328400, 2026-10).
+MULTI_DIRECTORY_FULL_RUN = "github_actions in /., /.github/actions/* - Update #1657669507"
+NON_ROOT_REFRESH_RUN = "github_actions in /.github/actions/windows-tests for astral-sh/setup-uv - Update #1631328400"
+
+
+@pytest.mark.parametrize(
+    ("title", "full", "refresh"),
+    [
+        ("github_actions in /. - Update #1", True, False),
+        (MULTI_DIRECTORY_FULL_RUN, True, False),
+        ("github_actions in /., /.github/actions/data-pr-token - Update #1", True, False),
+        ("github_actions in / for actions/checkout - Update #1", False, True),
+        (NON_ROOT_REFRESH_RUN, False, True),
+    ],
+)
+def test_update_run_titles_are_told_apart_with_several_directories(title: str, full: bool, refresh: bool) -> None:
+    """Issue #763: a `directories` list joins every directory with ", " in the one full-run title."""
+    assert bool(watchdog.FULL_UPDATE_RUN.match(title)) is full
+    assert bool(watchdog.REFRESH_UPDATE_RUN.match(title)) is refresh
+
+
+def test_full_run_over_several_directories_decides_the_updater_check(
+    repo: Path, healthy_responses: dict[str, Any]
+) -> None:
+    directories = "/., /.github/actions/data-pr-token"
+    responses = dict(healthy_responses)
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=3), "failure", directories=directories),
+        _update_run("github_actions", NOW - timedelta(days=2), refresh_for="actions/create-github-app-token"),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=2)),
+    )
+
+    result = _run(repo, responses)["1r:github-actions"]
+
+    assert not result.ok
+    assert result.facts["conclusion"] == "failure"
+
+    responses["dependabot-runs"] = _runs(
+        _update_run("github_actions", NOW - timedelta(days=2), directories=directories),
+        _update_run("pre_commit", NOW - timedelta(days=2)),
+        _update_run("uv", NOW - timedelta(days=2)),
+    )
+
+    assert _run(repo, responses)["1r:github-actions"].ok
 
 
 def test_unlabelled_ecosystem_is_still_checked_through_its_runs(repo: Path, healthy_responses: dict[str, Any]) -> None:

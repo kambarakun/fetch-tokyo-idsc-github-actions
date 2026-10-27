@@ -2,7 +2,14 @@ version: 2
 updates:
   # 🔄 GitHub Actionsの依存関係を更新
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # "/" reads only .github/workflows/ and a root action.yml, so pins inside a local composite
+    # action were never updated (issue #763). Each .github/actions/<name>/ is listed explicitly;
+    # tests/test_dependabot_config.py checks the list against the action.yml files that exist.
+    # Several directories run as one updater run (`github_actions in /., /.github/... - Update #N`)
+    # and open separate PRs per directory.
+    directories:
+      - "/"
+      - "/.github/actions/data-pr-token"
     schedule:
       interval: "weekly"
       day: "monday"
