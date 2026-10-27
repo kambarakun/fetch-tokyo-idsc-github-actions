@@ -54,9 +54,15 @@ line_length = 120
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-no_strict_optional = true
 explicit_package_bases = true
 namespace_packages = true
+
+[[tool.mypy.overrides]]
+# The chart series are list[float | None] on purpose: matplotlib draws None as a gap, which keeps
+# missing periods visible, while the latest-value lookup skips None. matplotlib's stubs do not accept
+# None, so this module alone keeps the old setting rather than changing how the charts are drawn.
+module = ["scripts.generate_charts"]
+strict_optional = false
 
 # pytest configuration is intentionally centralized here.
 [tool.pytest.ini_options]
@@ -65,10 +71,9 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
-filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::PendingDeprecationWarning",
-]
+# Every warning fails the run. Exempt a dependency warning only with a narrow
+# "ignore:<message>:<Category>:<module>" entry and a comment giving its origin and reason.
+filterwarnings = ["error"]
 
 [tool.coverage.run]
 source = ["src"]
@@ -131,11 +136,6 @@ exclude = [
 # Preserve the current public API ceiling while still rejecting new signatures
 # with more positional parameters than the existing codebase.
 max-positional-args = 10
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
 
 [tool.ruff.lint.isort]
 known-first-party = ["src", "scripts", "tests"]

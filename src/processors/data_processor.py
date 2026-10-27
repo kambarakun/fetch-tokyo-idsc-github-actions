@@ -335,7 +335,7 @@ class DataProcessor:
             output_file = self._save_gender_section(lines, section, metadata)
             if output_file:
                 output_files.append(output_file)
-                gender = section.get("gender")
+                gender = section["gender"]
                 gender_suffix = self._get_gender_suffix(gender)
                 gender_info[output_file] = gender_suffix
                 if gender == self.GENDER_MALE:
@@ -963,7 +963,7 @@ class DataProcessor:
                 age_total_row = self._extract_total_row(files["age"])
                 hc_total_row = self._extract_total_row(files["health_center"])
 
-                if not all((age_total_row, hc_total_row)):
+                if not age_total_row or not hc_total_row:
                     logger.debug(f"合計行が見つかりません: {period_key}")
                     continue
 

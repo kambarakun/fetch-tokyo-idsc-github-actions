@@ -107,6 +107,58 @@ def test_requests_uses_bundled_type_information(tmp_path: Path) -> None:
     assert 'Argument 1 to "get" has incompatible type "int"' in result.stdout
 
 
+def test_tool_settings_live_only_in_pyproject() -> None:
+    """A hook argument or CI flag overrides pyproject.toml, so a duplicate silently masks a config change.
+
+    Until issue #736 the mypy hook passed `--no-strict-optional`, which kept strict optional off in CI
+    whatever pyproject said, and CI ran pytest with `-p no:warnings`, which disables `filterwarnings`.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    pre_commit = yaml.safe_load((project_root / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    test_workflow = (project_root / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    hooks = {hook["id"]: hook for repo in pre_commit["repos"] for hook in repo["hooks"]}
+
+    assert {tool: hooks[tool].get("args") for tool in ("black", "isort", "mypy")} == dict.fromkeys(
+        ("black", "isort", "mypy")
+    )
+    assert "no_strict_optional" not in pyproject["tool"]["mypy"]
+    assert pyproject["tool"]["mypy"].get("strict_optional", True) is True
+    # Black is the only formatter; a `[tool.ruff.format]` table would configure a formatter nobody runs.
+    assert "format" not in pyproject["tool"]["ruff"]
+    assert pyproject["tool"]["pytest"]["ini_options"]["filterwarnings"] == ["error"]
+    assert "no:warnings" not in test_workflow
+
+
+def test_mypy_rejects_optional_misuse_under_project_config(tmp_path: Path) -> None:
+    """The mypy hook passes no arguments, so plain mypy from the project root sees what the hook sees."""
+    project_root = Path(__file__).resolve().parent.parent
+    optional_misuse = tmp_path / "optional_misuse.py"
+    optional_misuse.write_text("def next_week(week: int | None) -> int:\n    return week + 1\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "mypy", "--no-error-summary", str(optional_misuse)],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert 'Unsupported operand types for + ("None" and "int")' in result.stdout
+
+
+def test_upstream_hook_revs_are_pinned_to_commit_shas() -> None:
+    """Every upstream hook is pinned like the workflow actions: a full SHA with its version on the same line."""
+    text = (Path(__file__).resolve().parent.parent / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    upstream = [repo for repo in yaml.safe_load(text)["repos"] if repo["repo"] not in {"local", "meta"}]
+    rev_lines = re.findall(r"^\s*rev:\s*([0-9a-f]{40})\s+#\s*v\d+(?:\.\d+)*\s*$", text, re.MULTILINE)
+
+    assert upstream
+    # YAML reads an all-digit SHA as an int, hence str().
+    assert [str(repo["rev"]) for repo in upstream] == rev_lines
+
+
 def _setup_uv_steps(workflows_dir: Path) -> dict[str, dict]:
     """Every setup-uv step in every workflow, under both extensions GitHub accepts.
 

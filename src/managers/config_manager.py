@@ -387,7 +387,6 @@ class ConfigurationManager:
 
     def get_enabled_data_types(self) -> list[DataTypeConfig]:
         """有効なデータタイプのみを取得"""
-        if not self.config:
-            self.load_config()
+        config = self.config or self.load_config()
 
-        return [dt for dt in self.config.data_types if dt.enabled]
+        return [dt for dt in config.data_types if dt.enabled]

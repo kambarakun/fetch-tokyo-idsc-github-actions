@@ -301,7 +301,7 @@ class GenderSumValidator:
                     total_start = i
 
         # None 判定: 0 は有効な開始行のため、is None で判定する
-        if any(x is None for x in (male_start, female_start, total_start)):
+        if male_start is None or female_start is None or total_start is None:
             return {"male": [], "female": [], "total": []}
 
         # 各セクションのデータ行を個別に抽出

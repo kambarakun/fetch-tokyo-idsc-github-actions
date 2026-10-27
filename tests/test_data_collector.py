@@ -353,6 +353,22 @@ def test_invalid_200_body_is_counted_as_failed_and_not_saved(tmp_path, monkeypat
     assert _saved_csvs(tmp_path) == []
 
 
+def test_successful_fetch_without_body_is_counted_as_failed_and_not_saved(tmp_path, monkeypatch):
+    """A success that carries no body is failed even for a data type without a response contract"""
+    collector = _collector(tmp_path, monkeypatch)
+    assert "test_data" not in TITLES
+    collector.fetcher.fetch_methods = {"test_data": Mock()}
+    monkeypatch.setattr(collector.fetcher, "fetch_with_retry", Mock(return_value=FetchResult(success=True)))
+    monkeypatch.setattr(collector, "storage", Mock())
+
+    collector._process_batch([_week(2025, 10)], "test_data", False)
+
+    stats = collector.stats
+    assert (stats["failed"], stats["successful"]) == (1, 0)
+    assert stats["errors"] == ["invalid response for test_data 2025-10: success without a body"]
+    collector.storage.save_with_metadata.assert_not_called()
+
+
 def test_invalid_200_body_does_not_overwrite_in_force_mode(tmp_path, monkeypatch):
     """FORCE does not replace an existing raw file with an invalid body"""
     collector = _collector(tmp_path, monkeypatch, mode="force")

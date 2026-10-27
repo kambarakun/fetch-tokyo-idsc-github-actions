@@ -79,12 +79,56 @@ def _save_result(
     )
 
 
-def test_fetch_setup_logging_and_save_stats_to_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    logger = fd.setup_logging(str(tmp_path / "logs" / "app.log"), "DEBUG")
-    assert isinstance(logger, logging.Logger)
-    assert (tmp_path / "logs").exists()
-    assert isinstance(fd.setup_logging(None, "INFO"), logging.Logger)
+@pytest.mark.parametrize(
+    ("log_file_name", "log_level", "expected_level", "expected_handlers", "expected_log_files"),
+    [
+        ("app.log", "DEBUG", logging.DEBUG, [logging.StreamHandler, logging.FileHandler], ["app.log"]),
+        (None, "INFO", logging.INFO, [logging.StreamHandler], []),
+    ],
+)
+def test_fetch_setup_logging_configures_root_logger(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    log_file_name: str | None,
+    log_level: str,
+    expected_level: int,
+    expected_handlers: list[type[logging.Handler]],
+    expected_log_files: list[str],
+) -> None:
+    # pytest has already attached handlers to the root logger, which turns basicConfig into a
+    # no-op and leaks the unattached FileHandler. Detach them for this test only, then close
+    # just the handlers setup_logging added and give pytest back its handlers and level.
+    root = logging.getLogger()
+    saved_handlers = root.handlers[:]
+    saved_level = root.level
+    for handler in saved_handlers:
+        root.removeHandler(handler)
+    log_file = str(tmp_path / "logs" / log_file_name) if log_file_name else None
+    try:
+        logger = fd.setup_logging(log_file, log_level)
+        logger.log(expected_level, "setup_logging probe")
+        added_handlers = root.handlers[:]
+        for handler in added_handlers:
+            handler.flush()
+        log_files = sorted(tmp_path.rglob("*.log"))
 
+        assert logger.name == fd.__name__
+        assert root.level == expected_level
+        assert [type(handler) for handler in added_handlers] == expected_handlers
+        assert "setup_logging probe" in capsys.readouterr().err
+        assert [path.name for path in log_files] == expected_log_files
+        assert all("setup_logging probe" in path.read_text(encoding="utf-8") for path in log_files)
+    finally:
+        for handler in root.handlers[:]:
+            if handler not in saved_handlers:
+                root.removeHandler(handler)
+                handler.close()
+        for handler in saved_handlers:
+            root.addHandler(handler)
+        root.setLevel(saved_level)
+
+
+def test_fetch_save_stats_to_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     mock_logger = Mock()
 
