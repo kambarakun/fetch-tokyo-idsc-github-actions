@@ -1,0 +1,83 @@
+name: Data PR token
+description: >-
+  Select the token that pushes the data branch and opens the automated data PR (issue #763).
+  GITHUB_TOKEN by default; a GitHub App installation token when DATA_PR_USE_APP is "true", because
+  a PR opened with GITHUB_TOKEN leaves its pull_request CI runs waiting for approval.
+  Setup and rollback: docs/data-pr-authentication.md.
+
+inputs:
+  use-app:
+    description: 'vars.DATA_PR_USE_APP: "true" selects the App, unset or "false" keeps github-token, anything else fails'
+    required: false
+    default: ""
+  client-id:
+    description: "vars.DATA_PR_APP_CLIENT_ID: the App's client ID"
+    required: false
+    default: ""
+  private-key:
+    description: "secrets.DATA_PR_APP_PRIVATE_KEY: the App's private key"
+    required: false
+    default: ""
+  github-token:
+    description: "secrets.GITHUB_TOKEN, used when the App is not selected"
+    required: true
+
+outputs:
+  token:
+    description: The selected token
+    value: ${{ steps.mode.outputs.use-app == 'true' && steps.app-token.outputs.token || inputs.github-token }}
+
+runs:
+  using: composite
+  steps:
+    # Once the App is selected a configuration error fails the job before the PR; it never falls
+    # back to GITHUB_TOKEN, which would silently bring back the approval wait.
+    - id: mode
+      shell: bash
+      env:
+        USE_APP: ${{ inputs.use-app }}
+        CLIENT_ID: ${{ inputs.client-id }}
+        HAS_PRIVATE_KEY: ${{ inputs.private-key != '' }}
+      run: |
+        case "$USE_APP" in
+          "" | false)
+            echo "Data PR token: GITHUB_TOKEN (DATA_PR_USE_APP is not true)"
+            echo "use-app=false" >> "$GITHUB_OUTPUT"
+            ;;
+          true)
+            missing=""
+            [ -n "$CLIENT_ID" ] || missing="$missing DATA_PR_APP_CLIENT_ID (variable)"
+            [ "$HAS_PRIVATE_KEY" = true ] || missing="$missing DATA_PR_APP_PRIVATE_KEY (secret)"
+            if [ -n "$missing" ]; then
+              echo "::error title=Data PR App not configured::DATA_PR_USE_APP is true but these are empty:${missing}. Set them or set DATA_PR_USE_APP to false (docs/data-pr-authentication.md)"
+              exit 1
+            fi
+            echo "Data PR token: GitHub App installation token"
+            echo "use-app=true" >> "$GITHUB_OUTPUT"
+            ;;
+          *)
+            # The value is not echoed: it is free text and could carry a workflow command.
+            echo "::error title=Invalid DATA_PR_USE_APP::DATA_PR_USE_APP must be true, false or unset (docs/data-pr-authentication.md)"
+            exit 1
+            ;;
+        esac
+
+    # Scoped to this repository: `owner` without `repositories` would cover every repository of the
+    # installation. Pull requests write also covers creating labels and labelling the PR. The
+    # action's post step revokes the token at the end of the job (skip-token-revoke stays false).
+    - id: app-token
+      if: steps.mode.outputs.use-app == 'true'
+      uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      with:
+        client-id: ${{ inputs.client-id }}
+        private-key: ${{ inputs.private-key }}
+        repositories: ${{ github.repository }}
+        permission-contents: write
+        permission-pull-requests: write
+
+    - id: guard
+      if: steps.mode.outputs.use-app == 'true' && steps.app-token.outputs.token == ''
+      shell: bash
+      run: |
+        echo "::error title=Data PR App token missing::the App token step returned no token; not falling back to GITHUB_TOKEN"
+        exit 1

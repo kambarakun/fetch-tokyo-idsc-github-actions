@@ -99,13 +99,14 @@ def test_migration_covers_processed_and_is_schema_checked_before_the_pr(workflow
     assert "--metadata-dir data/processed/.metadata --data-dir data/processed" in migrate["run"]
 
     schema_index, schema_step = _step(workflow, "migrate", "Validate metadata schema")
-    pr_index, pr_step = _step(workflow, "migrate", "Create Pull Request")
+    stage_index, stage_step = _step(workflow, "migrate", "Stage migrated metadata")
+    pr_index, _ = _step(workflow, "migrate", "Create Pull Request")
     assert "scripts/validate_metadata_schema.py" in schema_step["run"]
     assert "--version-profiles tokyo-idsc-raw,tokyo-idsc-processed" in schema_step["run"]
     # 移行対象が 0 件でも本実行なら検査する (「既に目標バージョン」の緑が schema 未検査にならないように)
     assert schema_step["if"] == "steps.params.outputs.dry_run == 'false'"
-    assert schema_index < pr_index
-    assert "git add -- data/raw/.metadata data/processed/.metadata" in pr_step["run"]
+    assert schema_index < stage_index < pr_index
+    assert "git add -- data/raw/.metadata data/processed/.metadata" in stage_step["run"]
 
 
 def test_install_dependencies_includes_dev_extras(workflow: dict[str, Any]) -> None:

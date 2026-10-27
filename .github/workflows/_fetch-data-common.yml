@@ -106,6 +106,8 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
+          # create_pr.sh pushes with the token chosen by .github/actions/data-pr-token, never a persisted one (issue #763)
+          persist-credentials: false
 
       - name: Setup uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -775,10 +777,21 @@ jobs:
           evaluate_auto_merge_gate
           write_auto_merge_gate_env
 
+      # Minted only when a PR is needed and right before it: an App token expires after an hour (issue #763)
+      - name: Create data PR token
+        id: data-pr-token
+        if: env.HAS_DATA_CHANGES == 'true' && inputs.dry_run != true
+        uses: ./.github/actions/data-pr-token
+        with:
+          use-app: ${{ vars.DATA_PR_USE_APP }}
+          client-id: ${{ vars.DATA_PR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DATA_PR_APP_PRIVATE_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create Pull Request
         if: env.HAS_DATA_CHANGES == 'true' && inputs.dry_run != true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.data-pr-token.outputs.token }}
           # 共通スクリプトで使用する環境変数
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
