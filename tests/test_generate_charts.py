@@ -34,11 +34,13 @@ from scripts.generate_charts import (
     FONT_URL,
     DiseaseStyle,
     _format_period_label,
+    _ranking_eligibility_for,
     _setup_x_axis_ticks,
     build_consistent_style_map,
     build_ranking_eligibility,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
+    estimated_baseline_periods,
     filter_rates_for_ranking,
     format_legend_label,
     get_all_weeks_data,
@@ -190,6 +192,96 @@ class TestCalculateSeasonalBaseline:
         assert "インフルエンザ" in baselines
         assert 202501 in baselines["インフルエンザ"]
         assert abs(baselines["インフルエンザ"][202501] - 13.0) < 0.01
+
+
+def _year_end_weeks(years, w52: float, w01: float) -> dict[int, float]:
+    """W52 of each year and W01 of the following year."""
+    data: dict[int, float] = {}
+    for year in years:
+        data[year * 100 + 52] = w52
+        data[(year + 1) * 100 + 1] = w01
+    return data
+
+
+class TestWeek53Baseline:
+    """ISO week 53 baseline: real W53 where the past year has one, else the W52 / next-W01 mean."""
+
+    def test_week53_is_estimated_from_adjacent_weeks_in_52_week_years(self):
+        # 2021-2025 have 52 ISO weeks; 2020-W53 is outside the 5-year window
+        all_data = {"A": {**_year_end_weeks(range(2021, 2026), 10.0, 20.0), 202053: 99.0}}
+
+        assert calculate_seasonal_baseline(all_data, [202653], years=5) == {"A": {202653: 15.0}}
+        assert estimated_baseline_periods(all_data, [202653], years=5) == {"A": {202653}}
+
+    def test_target_and_later_values_are_not_used(self):
+        all_data = {"A": {**_year_end_weeks(range(2021, 2027), 10.0, 20.0), 202653: 500.0, 202701: 500.0}}
+        all_data["A"][202652] = 500.0
+
+        assert calculate_seasonal_baseline(all_data, [202653], years=5) == {"A": {202653: 15.0}}
+
+    def test_real_week53_is_preferred_over_estimate(self):
+        # Window of 2037-W53 is 2032-2036; 2032 has a real W53
+        all_data = {"A": {**_year_end_weeks(range(2032, 2037), 10.0, 20.0), 203253: 40.0}}
+
+        assert calculate_seasonal_baseline(all_data, [203753], years=5) == {"A": {203753: (40.0 + 15.0 * 4) / 5}}
+
+    def test_missing_real_week53_is_not_estimated(self):
+        all_data = {"A": _year_end_weeks(range(2033, 2037), 10.0, 20.0)}
+        all_data["A"].update({203252: 100.0, 203301: 100.0})
+
+        assert calculate_seasonal_baseline(all_data, [203753], years=5) == {"A": {203753: 15.0}}
+
+    def test_only_real_week53_is_not_reported_as_estimated(self):
+        all_data = {"A": {203253: 40.0}}
+
+        assert calculate_seasonal_baseline(all_data, [203753], years=5) == {"A": {203753: 40.0}}
+        assert estimated_baseline_periods(all_data, [203753], years=5) == {}
+
+    def test_year_with_one_adjacent_week_missing_is_excluded(self):
+        # 2021 has only W52 for A and only the following W01 for B
+        all_data = {
+            "A": {**_year_end_weeks(range(2022, 2026), 10.0, 20.0), 202152: 1000.0},
+            "B": {**_year_end_weeks(range(2022, 2026), 10.0, 20.0), 202201: 1000.0},
+        }
+
+        assert calculate_seasonal_baseline(all_data, [202653], years=5) == {"A": {202653: 15.0}, "B": {202653: 15.0}}
+
+    def test_no_adjacent_pair_leaves_week53_missing(self):
+        all_data = {"A": {202552: 10.0, 202401: 20.0}}
+
+        assert calculate_seasonal_baseline(all_data, [202653], years=5) == {"A": {}}
+        assert estimated_baseline_periods(all_data, [202653], years=5) == {}
+
+    def test_zero_values_are_valid(self):
+        all_data = {"A": _year_end_weeks(range(2021, 2026), 0.0, 0.0)}
+
+        assert calculate_seasonal_baseline(all_data, [202653], years=5) == {"A": {202653: 0.0}}
+
+    def test_week53_of_year_without_iso_week53_has_no_baseline(self):
+        all_data = {"A": {**_year_end_weeks(range(2020, 2025), 10.0, 20.0), 202053: 99.0}}
+
+        assert calculate_seasonal_baseline(all_data, [202553], years=5) == {"A": {}}
+
+    def test_other_weeks_keep_same_week_average(self):
+        all_data = {"A": {**_year_end_weeks(range(2021, 2027), 10.0, 20.0), 202653: 300.0}}
+
+        baselines = calculate_seasonal_baseline(all_data, [202652, 202701], years=5)
+
+        assert baselines == {"A": {202652: 10.0, 202701: 20.0}}
+        assert estimated_baseline_periods(all_data, [202652, 202701], years=5) == {}
+
+    def test_monthly_baseline_keeps_same_month_average(self):
+        all_data = {"A": {202112: 1.0, 202212: 2.0, 202312: 3.0, 202412: 4.0, 202512: 5.0, 202612: 50.0}}
+
+        assert calculate_seasonal_baseline(all_data, [202612], years=5, period_type="month") == {"A": {202612: 3.0}}
+        assert estimated_baseline_periods(all_data, [202612], years=5, period_type="month") == {}
+
+    def test_ranking_count_baseline_uses_the_same_estimate(self):
+        counts = {"A": {**_year_end_weeks(range(2021, 2026), 10.0, 20.0), 202653: 30.0}}
+
+        eligible = _ranking_eligibility_for(counts, {"A": {202653: 30.0}}, period_type="week")
+
+        assert eligible == {"A": {202653}}
 
 
 class TestCalculateDeviationRate:
@@ -1056,6 +1148,88 @@ class TestChartRendering:
         assert self._series(ax) == {"A (最新: +200%)": [[(0.0, 100.0), (1.0, 0.0)], [(3.0, 200.0)]]}
         assert [text.get_text() for text in ax.get_legend().get_texts()] == ["A (最新: +200%)"]
         assert self._annotations(ax) == [("+200%", (3, 200.0))]
+
+    WEEK53_PERIODS = (202652, 202653, 202701)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_draws_week53_and_notes_its_estimated_baseline(self, render):
+        data = {"A": dict(zip(self.WEEK53_PERIODS, (10.0, 30.0, 20.0), strict=True))}
+        baseline = {"A": dict(zip(self.WEEK53_PERIODS, (10.0, 15.0, 20.0), strict=True))}
+
+        ax = render(generate_charts.generate_deviation_chart, data, baseline, estimated_periods={"A": {202653}})
+
+        assert self._series(ax) == {"A (最新: +0%)": [[(0.0, 0.0), (1.0, 100.0), (2.0, 0.0)]]}
+        (footer,) = ax.figure.texts
+        assert "第53週のベースラインは推定値を含む" in footer.get_text()
+        assert "第52週と翌年第1週の平均" in footer.get_text()
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_omits_week53_note_when_no_estimate_is_drawn(self, render):
+        data = {"A": dict(zip(self.WEEK53_PERIODS, (10.0, 30.0, 20.0), strict=True))}
+        baseline = {"A": dict(zip(self.WEEK53_PERIODS, (10.0, 15.0, 20.0), strict=True))}
+
+        # An estimate outside the window, or for a disease that is not drawn, is not shown
+        estimated = {"A": {202053}, "Undrawn": {202653}}
+
+        ax = render(generate_charts.generate_deviation_chart, data, baseline, estimated_periods=estimated)
+
+        (footer,) = ax.figure.texts
+        assert "第53週" not in footer.get_text()
+
+
+class TestMainWeek53:
+    """main() wires the week-53 estimate into the drawn rates, the count floors and the footer."""
+
+    @staticmethod
+    def _write_dataset(raw_dir: Path) -> None:
+        def write(year: int, week: int, year_end: int, steady: int) -> None:
+            _write_shift_jis(
+                raw_dir / f"sentinel_weekly_gender_{year}_{week:02d}.csv",
+                [SENTINEL_HEADER, f"年末病,0,0,{year_end},1", f"安定病,0,0,{steady},1"],
+            )
+            _write_shift_jis(
+                raw_dir / f"notifiable_weekly_{year}_{week:02d}.csv",
+                [NOTIFIABLE_HEADER, f"年末病N,{year_end}", f"安定病N,{steady}"],
+            )
+
+        for year in range(2021, 2026):
+            write(year, 52, year_end=10, steady=10)
+            write(year + 1, 1, year_end=20, steady=10)
+        # 2026-W52 is +100% for the steady disease; 2026-W53 is ranked only through the estimate (300 vs 15)
+        write(2026, 52, year_end=10, steady=20)
+        write(2026, 53, year_end=300, steady=10)
+        for year in (2025, 2026):
+            _write_shift_jis(raw_dir / f"sentinel_monthly_gender_{year}_12.csv", [SENTINEL_HEADER, "月病,0,0,10,1"])
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_week53_estimate_ranks_and_annotates_weekly_charts_only(self, tmp_path, monkeypatch, capsys):
+        # Arrange
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        self._write_dataset(raw_dir)
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+        footers: dict[str, str] = {}
+        original_savefig = plt.savefig
+
+        def capture_savefig(path, *args, **kwargs):
+            footers[Path(path).stem] = "\n".join(text.get_text() for text in plt.gcf().texts)
+            original_savefig(path, *args, **kwargs)
+
+        monkeypatch.setattr(plt, "savefig", capture_savefig)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert
+        assert exit_code == 0
+        chart_lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[chart] ")]
+        assert "[chart] sentinel_weekly_deviation: 年末病 | 安定病" in chart_lines
+        assert "[chart] notifiable_weekly_deviation: 年末病N | 安定病N" in chart_lines
+        assert "第53週のベースラインは推定値を含む" in footers["sentinel_weekly_deviation"]
+        assert "第53週のベースラインは推定値を含む" in footers["notifiable_weekly_deviation"]
+        assert "第53週" not in footers["sentinel_monthly_deviation"]
+        assert "第53週" not in footers["sentinel_weekly_absolute"]
 
 
 class TestWeekTicks:

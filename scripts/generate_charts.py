@@ -11,6 +11,7 @@
 6. 月次定点・季節性乖離率トップ5
 
 季節性ベースライン: 同週/同月の過去5年平均を使用 (CDC推奨)
+  第53週だけは、第53週の無い過去年を第52週と翌年第1週の平均で近似する (この表示の慣習。docs/charts.md)
 乖離率: (実測値 - ベースライン) / ベースライン x 100
 """
 
@@ -21,6 +22,7 @@ import sys
 import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
@@ -572,17 +574,52 @@ def get_all_months_data(
     return dict(all_data)
 
 
+def has_iso_week53(year: int) -> bool:
+    """ISO 8601 の年が第53週を持つか (12月28日は常にその年の最終週に入る)"""
+    return date(year, 12, 28).isocalendar().week == 53
+
+
+def _historical_values(
+    periods_data: Mapping[int, float], period: int, years: int, period_type: str
+) -> list[tuple[float, bool]]:
+    """period のベースラインに使う過去years年分の (値, 推定値か) を返す
+
+    第53週は過去年の多くに同じ週番号が無いため、この表示では次の近似を採る
+    (外部の標準手法ではない。docs/charts.md):
+    - 対象年が ISO 暦で第53週を持たなければ値を返さない (ベースライン無し)
+    - 第53週を持つ過去年は実測の第53週だけを使い、欠測なら推定で埋めずその年を除く
+    - 52週の過去年は、その年の第52週と翌年第1週が両方あるときだけ平均を推定値とする
+    過去年は対象年より前に限るので、翌年第1週も対象週より前の値になる
+    """
+    year, period_num = divmod(period, 100)
+    week53 = period_type == "week" and period_num == 53
+    if week53 and not has_iso_week53(year):
+        return []
+
+    values: list[tuple[float, bool]] = []
+    for past_year in range(year - years, year):
+        if week53 and not has_iso_week53(past_year):
+            week52 = periods_data.get(past_year * 100 + 52)
+            next_week1 = periods_data.get((past_year + 1) * 100 + 1)
+            if week52 is not None and next_week1 is not None:
+                values.append(((week52 + next_week1) / 2, True))
+        elif past_year * 100 + period_num in periods_data:
+            values.append((periods_data[past_year * 100 + period_num], False))
+    return values
+
+
 def calculate_seasonal_baseline(
-    all_data: dict[str, dict[int, float]], recent_periods: list[int], years: int = 5
+    all_data: dict[str, dict[int, float]], recent_periods: list[int], years: int = 5, period_type: str = "week"
 ) -> dict[str, dict[int, float]]:
     """季節性ベースラインを計算 (CDCベストプラクティス)
 
-    同週/同月の過去N年平均を計算
+    同週/同月の過去N年平均を計算。週次の第53週だけは _historical_values の近似を使う
 
     Args:
         all_data: 全期間のデータ (疾患名 -> {期間番号: 値})
         recent_periods: 直近の期間リスト (例: [202549, 202550])
         years: 過去何年分を使うか (デフォルト: 5年)
+        period_type: 期間タイプ ('week' or 'month')。月次には第53週の近似を適用しない
 
     Returns:
         疾患名 -> {期間番号: ベースライン値}
@@ -593,16 +630,7 @@ def calculate_seasonal_baseline(
         baseline_data = {}
 
         for period in recent_periods:
-            # 期間を年と週/月に分解
-            year = period // 100
-            period_num = period % 100
-
-            # 同じ週/月の過去years年分のデータを取得
-            historical_values = []
-            for past_year in range(year - years, year):
-                past_period = past_year * 100 + period_num
-                if past_period in periods_data:
-                    historical_values.append(periods_data[past_period])
+            historical_values = [value for value, _ in _historical_values(periods_data, period, years, period_type)]
 
             # 平均を計算 (時系列グラフの連続性のため、データが1つでもあれば計算)
             # CDCベストプラクティスでは3年以上推奨だが、連続性を優先
@@ -614,6 +642,26 @@ def calculate_seasonal_baseline(
         baselines[disease] = baseline_data
 
     return baselines
+
+
+def estimated_baseline_periods(
+    all_data: dict[str, dict[int, float]], recent_periods: list[int], years: int = 5, period_type: str = "week"
+) -> dict[str, set[int]]:
+    """calculate_seasonal_baseline が推定値 (第53週の近似) を含めた期間を疾患ごとに返す
+
+    Returns:
+        疾患名 -> 推定値を含む期間番号の集合 (該当期間が無い疾患は含まない)
+    """
+    estimated: dict[str, set[int]] = {}
+    for disease, periods_data in all_data.items():
+        periods = {
+            period
+            for period in recent_periods
+            if any(is_estimate for _, is_estimate in _historical_values(periods_data, period, years, period_type))
+        }
+        if periods:
+            estimated[disease] = periods
+    return estimated
 
 
 def calculate_deviation_rate(
@@ -1024,6 +1072,9 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, japanese_
 # 全数週次の最新週は初回公表 (速報) 値で、後日の追加報告で修正される
 _PROVISIONAL_NOTE = "※ 最新週は速報値 (後日の追加報告で修正され、多くは上方修正される)"
 
+# 第53週の無い過去年の値は年末年始の近似 (同じ週の実測ではない) なので、描画に使ったら明示する
+_WEEK53_BASELINE_NOTE = "※ 第53週のベースラインは推定値を含む (第53週の無い過去年は第52週と翌年第1週の平均で近似)"
+
 
 def _draw_footer(fig, footer_lines: list[str], japanese_font) -> None:
     """フッター (注釈とデータソース) を図の下端に描画する"""
@@ -1174,6 +1225,8 @@ def generate_deviation_chart(
     style_map: dict[str, DiseaseStyle] | None = None,
     eligible_periods: dict[str, set[int]] | None = None,
     provisional_latest: bool = False,
+    *,
+    estimated_periods: Mapping[str, set[int]] | None = None,
 ) -> None:
     """ベースライン乖離率グラフを生成 (CDCスタイル)
 
@@ -1189,6 +1242,8 @@ def generate_deviation_chart(
         eligible_periods: build_ranking_eligibility の戻り値 (順位付けに使える期間)。
             None なら最新期間フィルタだけを適用する
         provisional_latest: 最終期間の値が速報値なら True (凡例とフッターに明示する)
+        estimated_periods: estimated_baseline_periods の戻り値。描画した乖離率が推定ベースラインを
+            使っていればフッターに注記する
     """
     if not data or not baseline:
         print("警告: データが空のため、グラフを生成できません")
@@ -1233,6 +1288,7 @@ def generate_deviation_chart(
     # 期間の最小・最大を取得
     min_period = min(all_periods)
     max_period = max(all_periods)
+    drew_estimate = False
 
     for disease, _ in top_diseases:
         if disease not in deviation_rates:
@@ -1240,6 +1296,9 @@ def generate_deviation_chart(
 
         # 全期間に対してデータをマッピング(欠損値はNone)
         values = [deviation_rates[disease].get(p) for p in all_periods]
+        drew_estimate = drew_estimate or any(
+            p in deviation_rates[disease] for p in (estimated_periods or {}).get(disease, set())
+        )
 
         # 最新値を取得(Noneでない最後の値)とその期間
         last_idx = next((i for i in range(len(values) - 1, -1, -1) if values[i] is not None), len(values) - 1)
@@ -1295,7 +1354,13 @@ def generate_deviation_chart(
             f"。実測{DEVIATION_MIN_OBSERVED_CASES}例未満または"
             f"ベースライン{DEVIATION_MIN_BASELINE_CASES:g}例未満の期間は使わない"
         )
-    footer_lines = [note_text, ranking_note, *([_PROVISIONAL_NOTE] if provisional_latest else []), data_source]
+    footer_lines = [
+        note_text,
+        ranking_note,
+        *([_WEEK53_BASELINE_NOTE] if drew_estimate else []),
+        *([_PROVISIONAL_NOTE] if provisional_latest else []),
+        data_source,
+    ]
 
     # レイアウト調整 (上2%=タイトル用、下端はフッター行数に応じて確保)
     plt.tight_layout(rect=(0, _footer_bottom(footer_lines), 1, 0.98))
@@ -1308,11 +1373,11 @@ def generate_deviation_chart(
 
 
 def _ranking_eligibility_for(
-    counts_all: dict[str, dict[int, float]], window_data: dict[str, dict[int, float]]
+    counts_all: dict[str, dict[int, float]], window_data: dict[str, dict[int, float]], period_type: str
 ) -> dict[str, set[int]]:
     """実数の全期間データから、チャートの窓の各期間が順位付けに使えるかを判定する"""
     window_periods = sorted({p for periods in window_data.values() for p in periods})
-    count_baseline = calculate_seasonal_baseline(counts_all, window_periods, years=5)
+    count_baseline = calculate_seasonal_baseline(counts_all, window_periods, years=5, period_type=period_type)
     return build_ranking_eligibility(counts_all, count_baseline, window_periods)
 
 
@@ -1376,10 +1441,12 @@ def main() -> int:
         sw_abs_top = select_top_absolute_diseases(sentinel_weekly_data, top_n=5)
         sw_dev_diseases: list[str] = []
         seasonal_baseline: dict[str, dict[int, float]] = {}
-        sw_eligible = _ranking_eligibility_for(sentinel_week_counts, sentinel_weekly_data)
+        sw_estimated: dict[str, set[int]] = {}
+        sw_eligible = _ranking_eligibility_for(sentinel_week_counts, sentinel_weekly_data, period_type="week")
         if all_sentinel_weeks:
             recent_week_periods = sorted({p for periods in sentinel_weekly_data.values() for p in periods})
             seasonal_baseline = calculate_seasonal_baseline(all_sentinel_weeks, recent_week_periods, years=5)
+            sw_estimated = estimated_baseline_periods(all_sentinel_weeks, recent_week_periods, years=5)
             sw_dev_rates = calculate_deviation_rate(sentinel_weekly_data, seasonal_baseline)
             sw_dev_top, _ = select_top_deviation_diseases(
                 filter_rates_for_ranking(sentinel_weekly_data, sw_dev_rates, sw_eligible), top_n=5
@@ -1409,6 +1476,7 @@ def main() -> int:
                 top_n=5,
                 style_map=sw_style_map,
                 eligible_periods=sw_eligible,
+                estimated_periods=sw_estimated,
             )
 
     # 3+4. 週次全数 (最新週は速報値)
@@ -1417,11 +1485,13 @@ def main() -> int:
         nw_dev_diseases: list[str] = []
         notifiable_seasonal_baseline: dict[str, dict[int, float]] = {}
         nw_eligible: dict[str, set[int]] = {}
+        nw_estimated: dict[str, set[int]] = {}
         if all_notifiable_weeks:
             recent_notifiable_periods = sorted({p for periods in notifiable_weekly_data.values() for p in periods})
             notifiable_seasonal_baseline = calculate_seasonal_baseline(
                 all_notifiable_weeks, recent_notifiable_periods, years=5
             )
+            nw_estimated = estimated_baseline_periods(all_notifiable_weeks, recent_notifiable_periods, years=5)
             # 報告数はそのまま実数なので、ベースラインもそのまま件数下限の判定に使える
             nw_eligible = build_ranking_eligibility(
                 all_notifiable_weeks, notifiable_seasonal_baseline, recent_notifiable_periods
@@ -1457,6 +1527,7 @@ def main() -> int:
                 style_map=nw_style_map,
                 eligible_periods=nw_eligible,
                 provisional_latest=True,
+                estimated_periods=nw_estimated,
             )
 
     # 5+6. 月次定点
@@ -1464,10 +1535,12 @@ def main() -> int:
         mo_abs_top = select_top_absolute_diseases(monthly_data, top_n=5)
         mo_dev_diseases: list[str] = []
         monthly_seasonal_baseline: dict[str, dict[int, float]] = {}
-        mo_eligible = _ranking_eligibility_for(sentinel_month_counts, monthly_data)
+        mo_eligible = _ranking_eligibility_for(sentinel_month_counts, monthly_data, period_type="month")
         if all_months:
             recent_month_periods = sorted({p for periods in monthly_data.values() for p in periods})
-            monthly_seasonal_baseline = calculate_seasonal_baseline(all_months, recent_month_periods, years=5)
+            monthly_seasonal_baseline = calculate_seasonal_baseline(
+                all_months, recent_month_periods, years=5, period_type="month"
+            )
             mo_dev_rates = calculate_deviation_rate(monthly_data, monthly_seasonal_baseline)
             mo_dev_top, _ = select_top_deviation_diseases(
                 filter_rates_for_ranking(monthly_data, mo_dev_rates, mo_eligible), top_n=5
