@@ -93,7 +93,6 @@ jobs:
       - name: Check script syntax
         run: |
           uv run --locked python -m py_compile src/cli/fetch_data.py
-          uv run --locked python -m py_compile scripts/check_missing.py
           uv run --locked python -m py_compile src/fetchers/base_fetcher.py
           uv run --locked python -m py_compile src/fetchers/enhanced_fetcher.py
           uv run --locked python -m py_compile src/managers/config_manager.py

@@ -39,7 +39,7 @@ def _strict_violations(metadata_dir: Path) -> list[tuple[Path, str]]:
 
 def _save_raw(tmp_path: Path, data: bytes) -> tuple[Path, Path]:
     raw_dir = tmp_path / "raw"
-    result = StorageManager(raw_dir, {"auto_commit": False}).save_with_metadata(
+    result = StorageManager(raw_dir, {}).save_with_metadata(
         data=data, data_type="notifiable_weekly", year=2025, period=1
     )
     assert result.success

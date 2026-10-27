@@ -817,7 +817,7 @@ class TestMetadataEnhancements(unittest.TestCase):
         """テストの前処理"""
         self.test_dir = tempfile.mkdtemp()
         self.base_path = Path(self.test_dir) / "data" / "raw"
-        self.config = {"auto_commit": False}
+        self.config = {}
         self.storage = StorageManager(self.base_path, self.config)
 
     def tearDown(self):
@@ -1341,7 +1341,7 @@ class TestErrorHandling(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.base_path = Path(self.test_dir) / "data" / "raw"
         self.base_path.mkdir(parents=True, exist_ok=True)
-        self.config = {"auto_commit": False}
+        self.config = {}
         self.storage = StorageManager(self.base_path, self.config)
 
     def tearDown(self):

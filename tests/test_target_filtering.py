@@ -39,8 +39,6 @@ class TestTargetFiltering(unittest.TestCase):
         # storageサブ設定
         self.mock_config.storage = MagicMock()
         self.mock_config.storage.base_directory = "data/raw"
-        self.mock_config.storage.auto_commit = False
-        self.mock_config.storage.commit_message_template = "test commit"
         self.mock_config.storage.keep_shift_jis = True
 
     @patch("src.fetchers.periods.now_jst", return_value=NOW_2025_W52)

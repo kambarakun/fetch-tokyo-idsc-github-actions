@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 from datetime import date
 from pathlib import Path
 from typing import Any, cast
@@ -12,8 +10,6 @@ from typing import Any, cast
 import pytest
 
 from src.cli.check_missing import DATA_TYPES, ContinuityValidator, main, weeks_in_year
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def write_periods(data_dir: Path, data_type: str, periods: list[tuple[int, int]]) -> None:
@@ -403,19 +399,6 @@ def test_markdown_invalid_format_and_output_file_paths(tmp_path: Path, capsys: p
     assert result == 0
     assert json.loads(output_path.read_text(encoding="utf-8"))["summary"]["is_valid"] is True
     assert "レポートを保存しました" in capsys.readouterr().out
-
-
-def test_legacy_validator_shim_runs_without_an_installed_project() -> None:
-    result = subprocess.run(
-        [sys.executable, "-I", "-S", str(PROJECT_ROOT / "scripts" / "validate_continuity.py"), "--help"],
-        cwd=PROJECT_ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "週次・月次データの連続性を検証" in result.stdout
 
 
 @pytest.mark.parametrize(("start_year", "expected_missing"), [(2026, [(2026, 12)]), (2027, [])])

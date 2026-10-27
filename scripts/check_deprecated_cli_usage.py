@@ -40,7 +40,6 @@ EXCLUDED_PATHS = {
 
 ALLOWLIST = {
     Path("scripts/generate_charts.py"),
-    Path("scripts/check_missing.py"),
 }
 
 
