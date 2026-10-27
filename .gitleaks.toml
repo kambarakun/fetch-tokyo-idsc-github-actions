@@ -1,0 +1,14 @@
+# gitleaks configuration for the pre-commit secret scan (scripts/check_secrets.py, issue #736).
+# Keep exceptions narrow: one reviewed false positive per entry, matched by path AND line content,
+# never a whole directory or a disabled rule. Procedure: docs/secret-scanning.md.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public commit SHA of actions/create-github-app-token v3.3.0 used as test data; the variable name contains TOKEN"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^tests/test_vet_dependabot_prs\.py$''']
+regexTarget = "line"
+regexes = ['''(?m)^APP_TOKEN_OLD = "[0-9a-f]{40}"$''']

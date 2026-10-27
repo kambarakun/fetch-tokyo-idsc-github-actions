@@ -115,7 +115,7 @@ updates:
           - "patch"
 
   # 🪝 pre-commit フックを更新 (2026-03-10 から Dependabot ネイティブサポート)
-  # 対象は上流 `rev:` を参照する hook のみ (pre-commit-hooks / mirrors-prettier / actionlint)。
+  # 対象は上流 `rev:` を参照する hook のみ (pre-commit-hooks / gitleaks / mirrors-prettier / actionlint)。
   # isort / black / ruff / mypy は local hook (uv 管理 venv を実行) のため対象外で、
   # uv エコシステムの build-tools グループで更新する (issue #680)
   - package-ecosystem: "pre-commit"
