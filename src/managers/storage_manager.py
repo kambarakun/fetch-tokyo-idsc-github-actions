@@ -1,7 +1,8 @@
 """ストレージ管理システム
 
 東京都感染症データのファイル保存、メタデータ管理を担当するモジュール。
-フラットなディレクトリ構造でデータファイルを管理し、重複チェック機能を提供。
+フラットなディレクトリ構造でデータファイルを管理する。
+A save is skipped when the same path already holds byte-identical content.
 """
 
 import csv
@@ -13,7 +14,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,10 +51,11 @@ class SaveResult:
 
     Attributes:
         success: 保存操作が成功したかどうか
-        file_path: 保存されたファイルのパス(成功時のみ)
-        metadata_path: 保存されたメタデータファイルのパス(成功時のみ)
+        file_path: Path of the data file (on success only; also set when unchanged)
+        metadata_path: Path of the metadata file (on success only; also set when unchanged)
         error: エラーメッセージ(失敗時のみ)
-        is_duplicate: 重複ファイルとして検出されたかどうか
+        is_duplicate: True when unchanged: the same path already held a CSV with the same sha256,
+            so the CSV was not rewritten. Also True when only the metadata was rebuilt
         is_new: 新規ファイルとして保存されたかどうか
         is_skipped: 全て0のデータとしてスキップされたかどうか
     """
@@ -70,15 +72,13 @@ class SaveResult:
 class StorageManager:
     """データファイルとメタデータのストレージを管理するクラス。
 
-    東京都感染症データの保存、重複チェック、メタデータ管理などの
-    ストレージ関連機能を統合的に提供。
+    Saves Tokyo infectious-disease data files, detects re-saves of identical content
+    and manages their metadata.
 
     Attributes:
         base_path: データ保存のベースディレクトリ
         config: ストレージ設定を含む辞書
         metadata_dir: メタデータファイルを保存するディレクトリ
-        hash_index_file: ファイルハッシュインデックスのパス
-        hash_index: ファイルハッシュとパスのマッピング
     """
 
     def __init__(self, base_path: Path, config: dict[str, Any]):
@@ -98,10 +98,6 @@ class StorageManager:
         # メタデータ保存用ディレクトリ
         self.metadata_dir = self.base_path / ".metadata"
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
-
-        # ハッシュインデックスファイル
-        self.hash_index_file = self.metadata_dir / "hash_index.json"
-        self.hash_index = self._load_hash_index()
 
         # 品質検証器を初期化
         self.quality_validator = QualityValidator(self.base_path)
@@ -147,15 +143,24 @@ class StorageManager:
             period: 期間(週番号または月番号)
             is_monthly: 月次データの場合True、週次データの場合False
             additional_metadata: 追加のメタデータ(オプション)
-            force_overwrite: 既存ファイルを強制的に上書きする場合True
+            force_overwrite: Whether this is a FORCE run. Only recorded in the metadata's
+                _fetch.force_overwrite, never used to decide saving (FULL and FORCE behave the same here)
             save_all_zero: 全て0のデータも保存する場合True(デフォルト: False)
 
         Returns:
             保存操作の結果を含むSaveResultオブジェクト
 
         Note:
-            - SHA256ハッシュで重複チェックを行う
-            - 重複データは保存をスキップする(force_overwriteがFalseの場合)
+            - The data's SHA256 is compared with the current CSV at the same path. When they match
+              and the metadata is current (hash.value matches, metadata_version is the current one),
+              neither the CSV nor the metadata is rewritten and the result is unchanged (is_duplicate=True)
+            - When the CSV matches but the metadata is missing, broken, mismatched or outdated,
+              only the metadata is rebuilt; the result is still unchanged
+            - Identical content at another path (another period) is saved, and so is a revert (A→B→A)
+            - When an existing file's content is replaced, created is kept from the existing metadata
+              in every mode
+            - verification/quality are not recomputed for unchanged files; changes to the validation
+              logic reach them through verify-metadata / migrate-metadata or a data rebuild
             - 全て0のデータは保存をスキップする(save_all_zeroがFalseの場合)
             - パス安全性チェックは保存前に実行され、失敗時は保存を中断
               (パストラバーサル攻撃等のセキュリティリスクを事前に防止)
@@ -175,19 +180,13 @@ class StorageManager:
             data_hash = hashlib.sha256(data).hexdigest()
 
             # 全て0のデータかチェック(save_all_zeroがFalseの場合のみ)
-            # 優先度: 全て0チェック > 重複チェック
-            # 理由: データ品質の問題は効率性の問題より優先される
+            # Runs before the existing file is read, so all-zero data never overwrites a non-zero file
             if not save_all_zero and self._is_all_zero_data(data):
                 logger.info(
                     f"Skipping all-zero unpublished data: {data_type}_{year}_{period:02d} "
                     "(use --save-all-zero to save)"
                 )
                 return SaveResult(success=True, is_skipped=True)
-
-            # 重複チェック(force_overwriteがFalseの場合のみ)
-            if not force_overwrite and self.check_duplicates(data_hash):
-                logger.info(f"Duplicate file detected (hash: {data_hash[:16]}...)")
-                return SaveResult(success=True, is_duplicate=True)
 
             # ファイルパス生成
             dir_path = self.organize_file_path(data_type, year, period, is_monthly)
@@ -203,36 +202,44 @@ class StorageManager:
             if path_safety_error:
                 return SaveResult(success=False, error=path_safety_error)
 
+            metadata_filename = f"{filename.replace('.csv', '.json')}"
+            metadata_path = self.metadata_dir / metadata_filename
+
             # 新規ファイルかどうかを判定
             is_new_file = not file_path.exists()
 
-            # 既存ファイルのチェック (force_overwriteの場合、古いハッシュを削除)
-            if file_path.exists() and force_overwrite:
-                self._handle_existing_file_overwrite(file_path)
+            # Compare with the current content at the same path; read the existing metadata in every mode to keep created
+            csv_unchanged = False
+            existing_metadata = None
+            if not is_new_file:
+                csv_unchanged = hashlib.sha256(file_path.read_bytes()).hexdigest() == data_hash
+                existing_metadata = self.get_metadata(file_path)
 
-            # CSVファイル保存(Shift_JISのまま) - 原子的書き込みで安全性を確保
-            # 一時ファイルを作成して書き込み
-            temp_fd, temp_path = tempfile.mkstemp(dir=file_path.parent, prefix=f".{file_path.stem}_", suffix=".tmp")
-            try:
-                os.write(temp_fd, data)
-                os.close(temp_fd)
+            if csv_unchanged and self._is_metadata_current(existing_metadata, data_hash):
+                logger.info(f"Unchanged file (same content): {file_path}")
+                return SaveResult(success=True, file_path=file_path, metadata_path=metadata_path, is_duplicate=True)
 
-                # 原子的にファイルを置き換え(POSIX準拠)
-                # これにより、書き込み中のエラーでもデータロスを防げる
-                Path(temp_path).replace(file_path)
-            except Exception:
-                # エラー時は一時ファイルをクリーンアップ
-                temp_file = Path(temp_path)
-                if temp_file.exists():
-                    temp_file.unlink()
-                raise
+            if not csv_unchanged:
+                # CSVファイル保存(Shift_JISのまま) - 原子的書き込みで安全性を確保
+                # 一時ファイルを作成して書き込み
+                temp_fd, temp_path = tempfile.mkstemp(dir=file_path.parent, prefix=f".{file_path.stem}_", suffix=".tmp")
+                try:
+                    os.write(temp_fd, data)
+                    os.close(temp_fd)
+
+                    # 原子的にファイルを置き換え(POSIX準拠)
+                    # これにより、書き込み中のエラーでもデータロスを防げる
+                    Path(temp_path).replace(file_path)
+                except Exception:
+                    # エラー時は一時ファイルをクリーンアップ
+                    temp_file = Path(temp_path)
+                    if temp_file.exists():
+                        temp_file.unlink()
+                    raise
 
             # メタデータ生成
             period_type = "monthly" if is_monthly else "weekly"
             now = datetime.now(UTC).isoformat()
-
-            # 既存メタデータの取得 (force_overwrite時のcreated_at保持用)
-            existing_metadata = self.get_metadata(file_path) if force_overwrite else None
 
             # created_at/updated_atの設定
             created_at, updated_at = self._determine_timestamps(existing_metadata, now)
@@ -276,170 +283,44 @@ class StorageManager:
             metadata["quality"] = quality
 
             # メタデータは別ディレクトリに保存(.metadataディレクトリ)
-            metadata_filename = f"{filename.replace('.csv', '.json')}"
-            metadata_path = self.metadata_dir / metadata_filename
-
             with metadata_path.open("w", encoding="utf-8") as f:
                 json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-            # ハッシュインデックス更新
-            self._update_hash_index(data_hash, str(file_path))
+            if csv_unchanged:
+                logger.info(f"Rebuilt metadata for unchanged file: {file_path}")
+            else:
+                logger.info(f"Saved file: {file_path} (new={is_new_file})")
 
-            logger.info(f"Saved file: {file_path} (new={is_new_file})")
-
-            return SaveResult(success=True, file_path=file_path, metadata_path=metadata_path, is_new=is_new_file)
+            return SaveResult(
+                success=True,
+                file_path=file_path,
+                metadata_path=metadata_path,
+                is_new=is_new_file,
+                is_duplicate=csv_unchanged,
+            )
 
         except Exception as e:
             logger.exception("Failed to save file")
             return SaveResult(success=False, error=str(e))
 
-    def check_duplicates(self, file_hash: str) -> bool:
-        """ファイルハッシュで重複をチェックする。
+    def _is_metadata_current(self, metadata: dict[str, Any] | None, data_hash: str) -> bool:
+        """Return whether the existing metadata can be kept as is for an unchanged file.
 
         Args:
-            file_hash: チェックするファイルのSHA256ハッシュ
+            metadata: Existing metadata read by get_metadata() (None when absent or unreadable)
+            data_hash: SHA256 of the data being saved
 
         Returns:
-            既に同じハッシュのファイルが存在する場合True、それ以外False
+            True when hash.value equals data_hash and metadata_version is the current one
         """
-        return file_hash in self.hash_index
-
-    def _load_hash_index(self) -> dict[str, str | list[str]]:
-        """ハッシュインデックスをファイルから読み込む。
-
-        Returns:
-            ファイルハッシュとファイルパス(単一または複数)のマッピング辞書
-
-        Note:
-            ファイルが存在しない場合や読み込みエラーの場合は空の辞書を返す
-            後方互換性のため、古い形式(string)と新形式(list)の両方をサポート
-        """
-        if self.hash_index_file.exists():
-            try:
-                with self.hash_index_file.open() as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Failed to load hash index: {e}")
-        return {}
-
-    def _remove_from_hash_index(self, file_hash: str, file_path: str) -> None:
-        """ハッシュインデックスから特定のファイルパスを削除する(ヘルパーメソッド)
-
-        Args:
-            file_hash: 削除対象のファイルハッシュ
-            file_path: 削除対象のファイルパス
-        """
-        if file_hash not in self.hash_index:
-            return
-
-        current_entry = self.hash_index[file_hash]
-
-        if isinstance(current_entry, str):
-            # 単一ファイルの場合、パスが一致すれば削除
-            if current_entry == file_path:
-                del self.hash_index[file_hash]
-        elif isinstance(current_entry, list) and file_path in current_entry:
-            # 複数ファイルの場合、該当パスのみ削除
-            current_entry.remove(file_path)
-            # リストが空になったら、エントリ自体を削除
-            if not current_entry:
-                del self.hash_index[file_hash]
-            # 1つだけ残ったら文字列に戻す(サイズ節約)
-            elif len(current_entry) == 1:
-                self.hash_index[file_hash] = current_entry[0]
-
-        # ハッシュインデックスファイルを更新
-        try:
-            with self.hash_index_file.open("w") as f:
-                json.dump(self.hash_index, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to update hash index after removal: {e}")
-            # ハッシュインデックス更新失敗は重要なエラーとして扱う
-            raise
-
-    def _add_to_hash_index(self, file_hash: str, file_path: str) -> None:
-        """ハッシュインデックスに新しいファイルを追加する。
-
-        Args:
-            file_hash: ファイルのSHA256ハッシュ
-            file_path: ファイルのパス(文字列)
-
-        Note:
-            同じハッシュの複数ファイルをサポート(リスト形式で管理)
-        """
-        if file_hash not in self.hash_index:
-            # 新規エントリは単一の文字列として保存(互換性とサイズ節約)
-            self.hash_index[file_hash] = file_path
-            return
-
-        current = self.hash_index[file_hash]
-        # 文字列の場合はリストに変換(後方互換性)
-        if isinstance(current, str):
-            if current != file_path:
-                self.hash_index[file_hash] = [current, file_path]
-        # リストの場合は追加
-        elif isinstance(current, list) and file_path not in current:
-            current.append(file_path)
-
-    def _sort_hash_index_by_filename(self) -> dict[str, str | list[str]]:
-        """ハッシュインデックスをファイル名順にソートする。
-
-        Returns:
-            ファイル名順にソートされたハッシュインデックス辞書
-        """
-        # ファイル名でソートするため、(ハッシュ, ファイルパス)のリストを作成
-        items_to_sort = []
-        for hash_key, file_paths in self.hash_index.items():
-            paths_list = file_paths if isinstance(file_paths, list) else [file_paths]
-            for path in paths_list:
-                items_to_sort.append((hash_key, path))
-
-        # ファイルパス(値)でソート
-        items_to_sort.sort(key=lambda x: x[1])
-
-        # ソート済みの順序で辞書を再構築
-        sorted_index: dict[str, str | list[str]] = {}
-        for hash_key, path in items_to_sort:
-            if hash_key not in sorted_index:
-                sorted_index[hash_key] = path
-            else:
-                current = sorted_index[hash_key]
-                if isinstance(current, str):
-                    sorted_index[hash_key] = [current, path]
-                elif isinstance(current, list) and path not in current:
-                    current.append(path)
-
-        return sorted_index
-
-    def _update_hash_index(self, file_hash: str, file_path: str) -> None:
-        """ハッシュインデックスを更新してファイルに保存する。
-
-        Args:
-            file_hash: ファイルのSHA256ハッシュ
-            file_path: ファイルのパス(文字列)
-
-        Note:
-            保存に失敗した場合は警告ログを出力するが、処理は継続される
-            同じハッシュの複数ファイルをサポート(リスト形式で管理)
-        """
-        # インデックスに追加
-        self._add_to_hash_index(file_hash, file_path)
-
-        try:
-            # ファイル名順にソート
-            sorted_index = self._sort_hash_index_by_filename()
-
-            with self.hash_index_file.open("w") as f:
-                # sort_keys=Falseにして、挿入順序を保持(Python 3.7+では辞書は挿入順序を保持)
-                json.dump(sorted_index, f, indent=2, ensure_ascii=False, sort_keys=False)
-
-            # メモリ上のインデックスも更新 (ソート済みのものに置き換え)
-            # これにより、同一セッション内での重複チェックなどが正しく動作する
-            self.hash_index = sorted_index
-        except Exception as e:
-            logger.error(f"Failed to update hash index: {e}")
-            # ハッシュインデックスの更新失敗は重要なエラーとして扱う
-            raise
+        if metadata is None:
+            return False
+        hash_info = metadata.get("hash")
+        return (
+            isinstance(hash_info, dict)
+            and hash_info.get("value") == data_hash
+            and metadata.get("metadata_version") == METADATA_VERSION
+        )
 
     def _validate_data_type(self, data_type: str) -> bool:
         """data_typeパラメータの妥当性を検証する。
@@ -609,7 +490,7 @@ class StorageManager:
         """created_atとupdated_atを決定する。
 
         Args:
-            existing_metadata: 既存のメタデータ (force_overwrite時に取得)
+            existing_metadata: Existing metadata (read in every mode when the file already exists)
             now: 現在時刻のISO文字列
 
         Returns:
@@ -1020,17 +901,6 @@ class StorageManager:
             return error_msg
         return None
 
-    def _handle_existing_file_overwrite(self, file_path: Path) -> None:
-        """既存ファイルの上書き処理 (ハッシュインデックス更新)。
-
-        Args:
-            file_path: 上書きするファイルパス
-        """
-        old_data = file_path.read_bytes()
-        old_hash = hashlib.sha256(old_data).hexdigest()
-        self._remove_from_hash_index(old_hash, str(file_path))
-        logger.info(f"Overwriting existing file: {file_path}")
-
     def _truncate_messages(self, messages: list[str], max_count: int) -> list[str]:
         """メッセージリストを制限する。
 
@@ -1050,32 +920,6 @@ class StorageManager:
             truncated.append(f"... 他{len(messages) - max_count}件のメッセージ")
 
         return truncated
-
-    def _get_month_from_week(self, year: int, week: int) -> int:
-        """ISO週番号から対応する月を計算する。
-
-        Args:
-            year: ISO週暦年(例: 2025年第1週の年は2025)
-            week: ISO週番号(1-53)
-
-        Returns:
-            その週が属する月(1-12)
-
-        Note:
-            ISO 8601規格に基づいて計算を行う。
-            週の始まりは月曜日として扱われる。
-            年境界を正しく処理するため、date.fromisocalendar()を使用。
-
-        Examples:
-            >>> _get_month_from_week(2025, 1)  # 2025年第1週(2024/12/30-2025/1/5)→ 1月
-            1
-            >>> _get_month_from_week(2024, 52)  # 2024年第52週(2024/12/23-29)→ 12月
-            12
-        """
-        # ISO週番号から日付を正確に計算(年境界考慮)
-        # 月曜日(weekday=1)を週の始まりとする
-        week_start = date.fromisocalendar(year, week, 1)
-        return week_start.month
 
     def get_existing_files(self, data_type: str | None = None, year: int | None = None) -> list[Path]:
         """既存のCSVファイルを検索して取得する。
@@ -1220,103 +1064,3 @@ class StorageManager:
         metadata.setdefault("verification", None)
 
         return metadata
-
-    def cleanup_old_files(self, days_to_keep: int = 365) -> int:
-        """指定日数より古いファイルを削除する。
-
-        Args:
-            days_to_keep: 保持する日数(デフォルト: 365日)
-
-        Returns:
-            削除されたファイル数
-
-        Note:
-            メタデータのタイムスタンプを基準に判定を行う。
-            対応するメタデータファイルも一緒に削除される。
-        """
-        cutoff_date = datetime.now(UTC) - timedelta(days=days_to_keep)
-        deleted_count = 0
-
-        for file_path in self.base_path.glob("*.csv"):
-            metadata = self.get_metadata(file_path)
-
-            if metadata:
-                try:
-                    # 正規化済みメタデータから created_at を取得
-                    created_at = metadata.get("created_at")
-                    if not created_at:
-                        logger.error(
-                            f"Invalid metadata for {file_path}: missing created_at field. " "Skipping cleanup."
-                        )
-                        continue
-
-                    file_date = datetime.fromisoformat(created_at)
-                    if file_date < cutoff_date:
-                        file_path.unlink()
-
-                        # メタデータファイルも削除
-                        metadata_filename = f"{file_path.stem}.json"
-                        metadata_path = self.metadata_dir / metadata_filename
-                        if metadata_path.exists():
-                            metadata_path.unlink()
-
-                        deleted_count += 1
-                        logger.info(f"Deleted old file: {file_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to process file {file_path}: {e}")
-
-        logger.info(f"Cleanup completed. Deleted {deleted_count} files.")
-        return deleted_count
-
-    def get_storage_stats(self) -> dict[str, Any]:
-        """ストレージの統計情報を取得する。
-
-        Returns:
-            以下のキーを含む統計情報辞書:
-                - total_files: 総ファイル数
-                - total_size_bytes: 総ファイルサイズ(バイト)
-                - total_size_mb: 総ファイルサイズ(MB)
-                - file_types: データタイプ別の統計
-                - year_stats: 年別の統計
-                - hash_index_size: ハッシュインデックスのエントリ数
-
-        Note:
-            フラット構造でも年別統計はファイル名から抽出して計算する
-        """
-        total_files = 0
-        total_size = 0
-        file_types = {}
-        year_stats = {}
-
-        for file_path in self.base_path.glob("*.csv"):
-            total_files += 1
-            file_size = file_path.stat().st_size
-            total_size += file_size
-
-            # ファイルタイプ別統計
-            for data_type in ["sentinel_weekly", "sentinel_monthly", "notifiable"]:
-                if data_type in file_path.name:
-                    if data_type not in file_types:
-                        file_types[data_type] = {"count": 0, "size": 0}
-                    file_types[data_type]["count"] += 1
-                    file_types[data_type]["size"] += file_size
-                    break
-
-            # 年別統計(ファイル名から年を抽出)
-            # 例: sentinel_weekly_2025_01.csv から 2025 を抽出
-            year_match = re.search(r"_(\d{4})_\d{2}\.csv$", file_path.name)
-            if year_match:
-                year = int(year_match.group(1))
-                if year not in year_stats:
-                    year_stats[year] = {"count": 0, "size": 0}
-                year_stats[year]["count"] += 1
-                year_stats[year]["size"] += file_size
-
-        return {
-            "total_files": total_files,
-            "total_size_bytes": total_size,
-            "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "file_types": file_types,
-            "year_stats": year_stats,
-            "hash_index_size": len(self.hash_index),
-        }

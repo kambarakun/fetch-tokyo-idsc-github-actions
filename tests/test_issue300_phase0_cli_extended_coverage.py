@@ -172,7 +172,7 @@ def test_fetch_datacollector_branches(tmp_path: Path, monkeypatch: pytest.Monkey
     fetcher_mock.fetch_with_retry.return_value = _fetch_result(success=True, source_url="https://example.com")
     storage_mock.save_with_metadata.return_value = _save_result(is_duplicate=True)
     collector6._process_batch([params[0]], "dt", is_monthly=False)
-    assert collector6.stats["duplicates"] == 1
+    assert collector6.stats["unchanged_files"] == 1
 
     storage_mock.save_with_metadata.return_value = _save_result(is_skipped=True)
     collector6._process_batch([params[0]], "dt", is_monthly=False)
@@ -208,6 +208,37 @@ def test_fetch_datacollector_branches(tmp_path: Path, monkeypatch: pytest.Monkey
     collector6.stats["end_time"] = datetime.now(UTC)
     collector6.stats["errors"] = ["e1", "e2"]
     collector6._print_statistics()
+
+
+def test_force_mode_identical_refetch_counts_unchanged_not_updated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fetcher_mock = Mock()
+    fetcher_mock.fetch_methods = {"dt": Mock()}
+    monkeypatch.setattr(fd, "EnhancedEpidemicDataFetcher", lambda *_args, **_kwargs: fetcher_mock)
+    monkeypatch.setattr(fd.time, "sleep", lambda *_args, **_kwargs: None)
+    collector = fd.DataCollector(_config(tmp_path / "raw", mode="force"), dry_run=False)
+    params = FetchParams(
+        start_year="2025",
+        start_sub_period="1",
+        end_year="2025",
+        end_sub_period="1",
+        data_type="dt",
+        report_type="1",
+    )
+
+    fetcher_mock.fetch_with_retry.return_value = _fetch_result(success=True, data=b"h,v\n1,2\n")
+    collector._process_batch([params], "dt", is_monthly=False)
+    collector._process_batch([params], "dt", is_monthly=False)
+
+    assert collector.stats["new_files"] == 1
+    assert collector.stats["updated_files"] == 0
+    assert collector.stats["unchanged_files"] == 1
+
+    fetcher_mock.fetch_with_retry.return_value = _fetch_result(success=True, data=b"h,v\n1,3\n")
+    collector._process_batch([params], "dt", is_monthly=False)
+
+    assert collector.stats["updated_files"] == 1
 
 
 def test_fetch_main_branches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

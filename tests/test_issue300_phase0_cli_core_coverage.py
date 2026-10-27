@@ -552,6 +552,30 @@ def test_cleanup_find_delete_and_main_paths(
     assert cleanup.main() == 0
 
 
+@pytest.mark.parametrize(("answer", "should_delete"), [("no", False), ("", False), ("y", True), ("yes", True)])
+def test_cleanup_main_respects_confirmation_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answer: str, should_delete: bool
+) -> None:
+    target = tmp_path / "zero.csv"
+    delete_mock = Mock(return_value=1)
+    monkeypatch.setattr(cleanup, "find_all_zero_files", lambda *_args, **_kwargs: [target])
+    monkeypatch.setattr(cleanup, "delete_files", delete_mock)
+    monkeypatch.setattr("builtins.input", lambda *_args: answer)
+    monkeypatch.setattr(sys, "argv", ["cleanup", "--data-dir", str(tmp_path)])
+
+    assert cleanup.main() == 0
+    assert delete_mock.called is should_delete
+
+
+def test_cleanup_main_returns_1_when_deletion_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = tmp_path / "zero.csv"
+    monkeypatch.setattr(cleanup, "find_all_zero_files", lambda *_args, **_kwargs: [target])
+    monkeypatch.setattr(cleanup, "delete_files", Mock(return_value=0))
+    monkeypatch.setattr(sys, "argv", ["cleanup", "--data-dir", str(tmp_path), "--yes"])
+
+    assert cleanup.main() == 1
+
+
 def test_process_data_save_stats_print_result_and_main_branches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

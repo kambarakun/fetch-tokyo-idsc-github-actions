@@ -8,7 +8,6 @@
 - 2週前のデータ取得が年をまたぐ場合(例: 2025年第1週の2週前は2024年第51週)
 """
 
-import tempfile
 import unittest
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -20,7 +19,6 @@ from src.cli.fetch_data import DataCollector
 from src.fetchers import periods
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher
 from src.managers.config_manager import CollectionConfig, DataCollectionConfig, StorageConfig
-from src.managers.storage_manager import StorageManager
 
 
 class TestYearBoundaryWeekCalculation(unittest.TestCase):
@@ -65,26 +63,6 @@ class TestYearBoundaryWeekCalculation(unittest.TestCase):
         _, iso_week, _ = last_day_2020.isocalendar()
 
         self.assertEqual(iso_week, 53, "2020年には第53週が存在する")
-
-    def test_storage_manager_month_from_week_year_boundary(self):
-        """StorageManagerの週番号→月変換が年境界で正確"""
-        config = {"storage": {"auto_commit": False}}
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = StorageManager(base_path=Path(tmpdir), config=config)
-
-            # 2025年第1週(2024年12月30日-2025年1月5日)の開始日は12月
-            # ISO週は月曜日始まりなので、週の開始日の月を返す
-            month_week1 = manager._get_month_from_week(2025, 1)
-            self.assertEqual(month_week1, 12, "2025年第1週の開始日(月曜日)は12月")
-
-            # 2024年第52週(2024年12月23日-29日)は12月
-            month_week52 = manager._get_month_from_week(2024, 52)
-            self.assertEqual(month_week52, 12, "2024年第52週は12月")
-
-            # 通常の週(年境界をまたがない)
-            # 2025年第2週(2025年1月6日-12日)は1月
-            month_week2 = manager._get_month_from_week(2025, 2)
-            self.assertEqual(month_week2, 1, "2025年第2週は1月")
 
 
 class TestYearBoundaryDataFetching(unittest.TestCase):
