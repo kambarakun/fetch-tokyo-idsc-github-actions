@@ -1169,6 +1169,28 @@ class TestMainEndToEnd:
         assert ax.get_xlim() == (-0.5, 3.5)
 
     @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_succeeds_with_explained_charts_when_every_input_value_is_unusable(self, tmp_path, monkeypatch):
+        # Arrange: input files exist, but no sentinel count is usable and there is no notifiable input
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        _write_shift_jis(raw_dir / "sentinel_weekly_gender_2026_01.csv", [SENTINEL_HEADER, "A,0,0,10,"])
+        _write_shift_jis(raw_dir / "sentinel_monthly_gender_2026_01.csv", [SENTINEL_HEADER, "B,0,0,10,0"])
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert
+        assert exit_code == 0
+        assert [p.name for p in _png_files(tmp_path)] == [
+            "sentinel_monthly_absolute.png",
+            "sentinel_monthly_deviation.png",
+            "sentinel_weekly_absolute.png",
+            "sentinel_weekly_deviation.png",
+        ]
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
     def test_main_writes_explained_charts_when_no_per_sentinel_value_is_calculable(self, tmp_path, monkeypatch):
         # Arrange: every sentinel weekly row lacks the sentinel count, so no per-sentinel value exists
         monkeypatch.chdir(tmp_path)

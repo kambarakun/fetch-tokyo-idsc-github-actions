@@ -1511,7 +1511,12 @@ def main() -> int:
     sentinel_week_counts = get_all_weeks_data(data_dir, parser=parse_sentinel_gender_counts)
     sentinel_month_counts = get_all_months_data(data_dir, parser=parse_sentinel_gender_counts)
 
-    if not sentinel_weekly_data and not notifiable_weekly_data and not monthly_data:
+    # チャートの期間軸 (入力ファイルの期間)。値を 1 つも使えなくても入力ファイルがあれば説明付きの図を書く
+    recent_week_periods = _window_periods(data_dir, "sentinel_weekly_gender_*.csv", 52, "week")
+    recent_notifiable_periods = _window_periods(data_dir, "notifiable_weekly_*.csv", 52, "week")
+    recent_month_periods = _window_periods(data_dir, "sentinel_monthly_gender_*.csv", 12, "month")
+
+    if not recent_week_periods and not recent_notifiable_periods and not recent_month_periods:
         print("::error title=Chart input error::no chart input files under data/raw")
         return 2
 
@@ -1527,7 +1532,6 @@ def main() -> int:
     # 比較元が無い・比較元0の期間は率を算出しないので、乖離率の図も常に生成する
 
     # 1+2. 週次定点
-    recent_week_periods = _window_periods(data_dir, "sentinel_weekly_gender_*.csv", 52, "week")
     if recent_week_periods:
         seasonal_baseline = calculate_seasonal_baseline(all_sentinel_weeks, recent_week_periods)
         sw_eligible = _ranking_eligibility_for(sentinel_week_counts, recent_week_periods)
@@ -1565,7 +1569,6 @@ def main() -> int:
         )
 
     # 3+4. 週次全数 (最新週は速報値)
-    recent_notifiable_periods = _window_periods(data_dir, "notifiable_weekly_*.csv", 52, "week")
     if recent_notifiable_periods:
         notifiable_seasonal_baseline = calculate_seasonal_baseline(all_notifiable_weeks, recent_notifiable_periods)
         # 報告数はそのまま実数なので、ベースラインもそのまま件数下限の判定に使える
@@ -1609,7 +1612,6 @@ def main() -> int:
         )
 
     # 5+6. 月次定点
-    recent_month_periods = _window_periods(data_dir, "sentinel_monthly_gender_*.csv", 12, "month")
     if recent_month_periods:
         monthly_seasonal_baseline = calculate_seasonal_baseline(all_months, recent_month_periods)
         mo_eligible = _ranking_eligibility_for(sentinel_month_counts, recent_month_periods)
