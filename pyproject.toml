@@ -57,13 +57,6 @@ ignore_missing_imports = true
 explicit_package_bases = true
 namespace_packages = true
 
-[[tool.mypy.overrides]]
-# The chart series are list[float | None] on purpose: matplotlib draws None as a gap, which keeps
-# missing periods visible, while the latest-value lookup skips None. matplotlib's stubs do not accept
-# None, so this module alone keeps the old setting rather than changing how the charts are drawn.
-module = ["scripts.generate_charts"]
-strict_optional = false
-
 # pytest configuration is intentionally centralized here.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
