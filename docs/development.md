@@ -88,6 +88,14 @@ uv run pre-commit run actionlint --all-files
 - shellcheck 統合も有効。reviewdog は shellcheck の style / info も error として扱うため、新しい shellcheck 違反を入れると CI が落ちる
 - shellcheck の過剰検知で止まる場合の暫定回避は、shellcheck 統合を無効にすること。CI は `.github/workflows/actionlint.yml` の `actionlint_flags: -shellcheck=`、ローカルは `.pre-commit-config.yaml` の actionlint フックに `args: ["-shellcheck="]` を足す
 
+## 秘密情報の検出 (gitleaks)
+
+commit 時は staged のファイル、CI の `pre-commit run --all-files` では tracked の text file 全部 (`data/` を含む) を gitleaks で検査する (issue #736)。検出値はログに出さない。構成、検出時の対応、誤検出の例外の付け方、版の更新は [`docs/secret-scanning.md`](secret-scanning.md) を参照する。
+
+```bash
+uv run pre-commit run gitleaks --all-files --verbose
+```
+
 ## ログ
 
 - `fetch-data` は `--log-file <path>` を指定したときだけファイルにログを書く。指定しなければ標準出力だけに出る

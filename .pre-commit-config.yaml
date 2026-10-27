@@ -11,30 +11,73 @@ repos:
     hooks:
       - id: trailing-whitespace
         name: 末尾の空白を削除
+        # Generated data, fixtures and lock files are not linted or formatted. This used to be the
+        # top-level `exclude`, which pre-commit applies to every hook and no hook can override; it
+        # moved onto each hook so that gitleaks alone also scans these paths (issue #736).
+        # tests/test_secret_scan.py checks that every other hook keeps it.
+        exclude: &repo_exclude |
+          (?x)(
+            ^tests/fixtures/|
+            ^data/|
+            \.csv$|
+            \.lock$|
+            ^\.venv/|
+            ^venv/|
+            ^__pycache__/
+          )
       - id: end-of-file-fixer
         name: ファイル末尾に改行を追加
+        exclude: *repo_exclude
       - id: check-yaml
         name: YAMLファイルの構文チェック
+        exclude: *repo_exclude
       - id: check-added-large-files
         name: 大きなファイルの追加を防ぐ
+        exclude: *repo_exclude
         args: ["--maxkb=1000"]
       - id: check-merge-conflict
         name: マージコンフリクトマーカーのチェック
+        exclude: *repo_exclude
       - id: check-json
         name: JSONファイルの構文チェック
+        exclude: *repo_exclude
       - id: check-toml
         name: TOMLファイルの構文チェック
+        exclude: *repo_exclude
       - id: debug-statements
         name: デバッグステートメントのチェック
+        exclude: *repo_exclude
       - id: mixed-line-ending
         name: 改行コードの統一
+        exclude: *repo_exclude
         args: ["--fix=lf"]
+
+  # 秘密情報の検出 (issue #736、docs/secret-scanning.md)
+  # The upstream entry (`gitleaks git --pre-commit --staged`) reads only the index, so CI's
+  # `pre-commit run --all-files` would pass without scanning anything. The entry is replaced by a
+  # wrapper that scans the file names pre-commit passes: the staged files on commit, every tracked
+  # text file (data/ and tests/fixtures/ included, hence no `exclude: *repo_exclude`) under
+  # --all-files. The hook environment still builds the pinned gitleaks and puts it on PATH.
+  # `language_version` pins the Go toolchain pre-commit downloads, so the hook does not depend on
+  # whatever `go` is on PATH; it must stay at or above the `go` line of gitleaks' go.mod
+  # (pre-commit sets GOTOOLCHAIN=local).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e # v8.30.1
+    hooks:
+      - id: gitleaks
+        name: 秘密情報の検出 (gitleaks)
+        entry: python3 scripts/check_secrets.py
+        language_version: 1.27.3
+        pass_filenames: true
+        types: [text]
+        require_serial: true
 
   # プロジェクト固有のチェック (フォーマット前に実行)
   - repo: local
     hooks:
       - id: fix-fullwidth-symbols
         name: 全角記号を半角に自動修正
+        exclude: *repo_exclude
         entry: python3 scripts/fix_fullwidth_symbols.py
         language: system
         types_or: [python, markdown]
@@ -56,6 +99,7 @@ repos:
       # Pythonコードフォーマット (isort)
       - id: isort
         name: import文の整理
+        exclude: *repo_exclude
         entry: uv run --locked --extra dev isort
         language: system
         types_or: [cython, pyi, python]
@@ -64,6 +108,7 @@ repos:
       # Pythonコードフォーマット (black)
       - id: black
         name: Pythonコードのフォーマット
+        exclude: *repo_exclude
         entry: uv run --locked --extra dev black
         language: system
         types_or: [python, pyi]
@@ -75,6 +120,7 @@ repos:
       # CI (test.yml) も全 pre-commit hook 経由で black を実行しており、black 一本化が整合的。
       - id: ruff
         name: Ruff リンター
+        exclude: *repo_exclude
         entry: uv run --locked --extra dev ruff check --force-exclude
         language: system
         types_or: [python, pyi, jupyter]
@@ -86,6 +132,7 @@ repos:
       # additional_dependencies で別途 pin すると uv.lock と二重管理になるため持たない。
       - id: mypy
         name: Python型チェック
+        exclude: *repo_exclude
         entry: uv run --locked --extra dev mypy
         language: system
         types_or: [python, pyi]
@@ -98,6 +145,7 @@ repos:
     hooks:
       - id: prettier
         name: Markdown/YAML/JSONのフォーマット
+        exclude: *repo_exclude
         types_or: [markdown, yaml, json]
         # Prettier 3.9+ reformats the body of ```markdown fences, rewriting `[*]` in escaped Mermaid
         # examples to `[_]` (tests/formatter_regressions/prettier-markdown.md). Keep fenced code verbatim.
@@ -108,12 +156,14 @@ repos:
     hooks:
       - id: check-tree-comment-alignment
         name: tree形式コメント位置統一チェック
+        exclude: *repo_exclude
         entry: python3 scripts/check_tree_comment_alignment.py
         language: system
         types: [markdown]
         pass_filenames: true
       - id: check-deprecated-cli-usage
         name: issue312 旧CLI導線チェック
+        exclude: *repo_exclude
         entry: python3 scripts/check_deprecated_cli_usage.py
         language: system
         pass_filenames: false
@@ -124,6 +174,7 @@ repos:
     hooks:
       - id: actionlint
         name: GitHub Actions ワークフロー検証 (actionlint)
+        exclude: *repo_exclude
         # shellcheck 統合も有効化済 (info/style 違反は chore/shellcheck-cleanup
         # で全件解消)。万一 shellcheck の過剰検知でローカル開発が止まる場合は
         # 一時的に `args: ["-shellcheck="]` を追加して回避可能。
@@ -134,15 +185,3 @@ default_language_version:
 
 # コミット時に自動実行
 default_stages: [pre-commit]
-
-# ファイル除外設定
-exclude: |
-  (?x)(
-    ^tests/fixtures/|
-    ^data/|
-    \.csv$|
-    \.lock$|
-    ^\.venv/|
-    ^venv/|
-    ^__pycache__/
-  )
