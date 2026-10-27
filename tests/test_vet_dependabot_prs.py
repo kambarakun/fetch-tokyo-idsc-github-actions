@@ -1412,6 +1412,158 @@ def test_yaml_extension_workflows_are_parsed() -> None:
     assert _checks(verdict)[("pr_hygiene", "-")].verdict == "OK"
 
 
+APP_TOKEN = "actions/create-github-app-token"
+APP_TOKEN_OLD = "64ab729a6294000f5aa4a4bc0b73d1f32bc45510"
+APP_TOKEN_NEW = "2" * 40
+# The head ref shape Dependabot gives a PR for a non-root `directories` entry (pyca/cryptography #15839).
+COMPOSITE_HEAD_REF = f"dependabot/github_actions/dot-github/actions/data-pr-token/{APP_TOKEN}-3.4.0"
+
+
+def _composite(sha: str, tag: str, local: str = "") -> str:
+    """A composite action like .github/actions/data-pr-token, optionally calling a local action too."""
+    text = "name: Data PR token\nruns:\n  using: composite\n  steps:\n    - id: mode\n      shell: bash\n      run: 'true'\n"
+    if local:
+        text += f"    - uses: {local}\n"
+    return text + f"    - id: app-token\n      uses: {APP_TOKEN}@{sha} # {tag}\n"
+
+
+def _composite_pr(
+    files: Mapping[str, tuple[str | None, str | None]] | None = None, head_ref: str = COMPOSITE_HEAD_REF
+) -> dict[str, Any]:
+    """Issue #763: a PR from the `/.github/actions/data-pr-token` directory, v3.3.0 -> v3.4.0."""
+    responses: dict[str, Any] = {}
+    if files is None:
+        path = ".github/actions/data-pr-token/action.yml"
+        files = {path: (_composite(APP_TOKEN_OLD, "v3.3.0"), _composite(APP_TOKEN_NEW, "v3.4.0"))}
+    _pr(responses, head_ref=head_ref, files=files)
+    _tag(responses, APP_TOKEN, "v3.4.0", APP_TOKEN_NEW)
+    _releases(
+        responses,
+        APP_TOKEN,
+        {"v3.3.0": datetime(2026, 9, 1, tzinfo=UTC), "v3.4.0": datetime(2026, 9, 14, tzinfo=UTC)},
+    )
+    return responses
+
+
+@pytest.mark.parametrize("filename", ["action.yml", "action.yaml"])
+def test_composite_action_only_pr_is_vetted_like_a_workflow_pr(filename: str) -> None:
+    """Issue #763: a bump inside a local composite action used to yield no bump and a WARN only."""
+    path = f".github/actions/data-pr-token/{filename}"
+    responses = _composite_pr({path: (_composite(APP_TOKEN_OLD, "v3.3.0"), _composite(APP_TOKEN_NEW, "v3.4.0"))})
+
+    verdict = _vet(responses)
+    checks = _checks(verdict)
+
+    assert verdict.ecosystem == "github-actions"
+    assert verdict.bumps == [vet.Bump(APP_TOKEN, "v3.3.0", "v3.4.0", "action", sha=APP_TOKEN_NEW)]
+    assert checks[("tag_sha", APP_TOKEN)].verdict == "OK"
+    assert checks[("cooldown", APP_TOKEN)].verdict == "OK"
+    assert checks[("advisory", APP_TOKEN)].verdict == "OK"
+    assert _metadata_check(verdict, APP_TOKEN).change == "v3.3.0 → v3.4.0"
+    assert checks[("pr_hygiene", "-")].verdict == "OK"
+    assert verdict.verdict == "OK"
+
+
+def test_composite_action_bump_to_an_advised_version_is_a_block() -> None:
+    responses = _composite_pr()
+    _action_advisory(responses, APP_TOKEN, {"versions": ["3.4.0"]}, vuln_id="GHSA-composite")
+
+    verdict = _vet(responses)
+
+    assert _checks(verdict)[("advisory", APP_TOKEN)].verdict == "BLOCK"
+    assert verdict.verdict == "BLOCK"
+
+
+def test_composite_action_bump_to_a_sha_its_tag_does_not_name_is_a_block() -> None:
+    responses = _composite_pr()
+    _tag(responses, APP_TOKEN, "v3.4.0", "9" * 40)
+
+    assert _checks(_vet(responses))[("tag_sha", APP_TOKEN)].verdict == "BLOCK"
+
+
+def test_pin_shared_by_a_workflow_and_a_composite_action_is_vetted_once() -> None:
+    old, new = _composite(APP_TOKEN_OLD, "v3.3.0"), _composite(APP_TOKEN_NEW, "v3.4.0")
+    files = {
+        ".github/actions/data-pr-token/action.yml": (old, new),
+        ".github/workflows/ci.yml": (
+            _workflow(APP_TOKEN, APP_TOKEN_OLD, "v3.3.0"),
+            _workflow(APP_TOKEN, APP_TOKEN_NEW, "v3.4.0"),
+        ),
+    }
+
+    verdict = _vet(_composite_pr(files, head_ref=f"dependabot/github_actions/{APP_TOKEN}-3.4.0"))
+
+    assert verdict.bumps == [vet.Bump(APP_TOKEN, "v3.3.0", "v3.4.0", "action", sha=APP_TOKEN_NEW)]
+    assert [check.check_id for check in verdict.checks].count("action_metadata") == 1
+    assert _checks(verdict)[("pr_hygiene", "-")].verdict == "OK"
+
+
+def test_local_uses_in_a_composite_action_are_not_external_pins() -> None:
+    local = "./.github/actions/other"
+    path = ".github/actions/data-pr-token/action.yml"
+    responses = _composite_pr(
+        {path: (_composite(APP_TOKEN_OLD, "v3.3.0", local), _composite(APP_TOKEN_NEW, "v3.4.0", local))}
+    )
+
+    verdict = _vet(responses)
+
+    assert verdict.bumps == [vet.Bump(APP_TOKEN, "v3.3.0", "v3.4.0", "action", sha=APP_TOKEN_NEW)]
+    assert [change.action for change in vet.action_pin_changes(None, _composite(APP_TOKEN_NEW, "v3.4.0", local))] == [
+        APP_TOKEN
+    ]
+
+
+def test_other_yaml_beside_a_composite_action_is_not_a_manifest() -> None:
+    """Dependabot reads every YAML of a non-root directory; only action.yml / action.yaml is expected here."""
+    old, new = _composite(APP_TOKEN_OLD, "v3.3.0"), _composite(APP_TOKEN_NEW, "v3.4.0")
+    responses = _composite_pr({".github/actions/data-pr-token/helper.yml": (old, new)})
+
+    verdict = _vet(responses)
+    check = _checks(verdict)[("pr_hygiene", "-")]
+
+    assert verdict.bumps == []
+    assert check.verdict == "WARN"
+    assert "期待外のファイル: .github/actions/data-pr-token/helper.yml" in check.detail
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (".github/workflows/ci.yml", True),
+        (".github/workflows/ci.yaml", True),
+        (".github/actions/data-pr-token/action.yml", True),
+        (".github/actions/data-pr-token/action.yaml", True),
+        (".github/actions/data-pr-token/helper.yml", False),
+        (".github/actions/action.yml", False),
+        (".github/actions/data-pr-token/nested/action.yml", False),
+        (".github/workflows/nested/ci.yml", False),
+        ("vendor/.github/actions/data-pr-token/action.yml", False),
+        ("vendor/.github/workflows/ci.yml", False),
+        ("action.yml", False),
+        ("src/config.yml", False),
+    ],
+)
+def test_github_actions_manifests_are_matched_on_the_whole_path(path: str, expected: bool) -> None:
+    assert vet._expected(path, "github-actions") is expected
+
+
+def test_composite_action_that_cannot_be_read_exits_two(monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = _composite_pr()
+    fetch_json, fetch_text, post_json, fetch_list = _fetchers(responses)
+
+    def failing_text(url: str) -> str:
+        if "/contents/.github/actions/data-pr-token/action.yml" in url:
+            response = requests.Response()
+            response.status_code = 502
+            raise requests.HTTPError(response=response)
+        return fetch_text(url)
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (fetch_json, failing_text, post_json, fetch_list))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    assert vet.main(["--repo", REPO, "--pr", "748"]) == 2
+
+
 def _quoted_workflow(action: str, sha: str, tag: str, quote_mark: str) -> str:
     return f"jobs:\n  test:\n    steps:\n      - uses: {quote_mark}{action}@{sha}{quote_mark} # {tag}\n"
 

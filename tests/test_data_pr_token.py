@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -27,7 +28,11 @@ ACTION_PATH = PROJECT_ROOT / ".github" / "actions" / "data-pr-token" / "action.y
 WORKFLOW_DIRECTORY = PROJECT_ROOT / ".github" / "workflows"
 CREATE_PR_SCRIPT = PROJECT_ROOT / "scripts" / "create_pr.sh"
 
-APP_TOKEN_ACTION = "actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510"
+# The official action at a full commit SHA, its release in a `# vX.Y.Z` comment on the same line. Which
+# SHA and release are right is not fixed here: Dependabot proposes them and the vetting script checks
+# that the tag resolves to the SHA and that no advisory covers it (issue #763).
+APP_TOKEN_ACTION = re.compile(r"actions/create-github-app-token@[0-9a-f]{40}")
+APP_TOKEN_RELEASE_COMMENT = r" # v\d+\.\d+\.\d+"
 TOKEN_STEP = "Create data PR token"
 PR_STEP = "Create Pull Request"
 TOKEN_STEP_WITH = {
@@ -63,6 +68,13 @@ def action_step(step_id: str) -> dict[str, Any]:
     return step
 
 
+def pinned_app_token(uses: str, action_text: str) -> bool:
+    if not APP_TOKEN_ACTION.fullmatch(uses):
+        return False
+    line = re.compile(rf"^\s*uses: {re.escape(uses)}{APP_TOKEN_RELEASE_COMMENT}$", re.MULTILINE)
+    return line.search(action_text) is not None
+
+
 def job_steps(workflow_name: str, job: str) -> list[dict[str, Any]]:
     workflow = yaml.safe_load((WORKFLOW_DIRECTORY / workflow_name).read_text(encoding="utf-8"))
     steps = workflow["jobs"][job]["steps"]
@@ -83,9 +95,41 @@ def step_named(steps: list[dict[str, Any]], name: str) -> tuple[int, dict[str, A
 def test_app_token_comes_from_the_pinned_official_action_only_when_selected() -> None:
     step = action_step("app-token")
 
-    assert step["uses"] == APP_TOKEN_ACTION
-    assert f"uses: {APP_TOKEN_ACTION} # v3.3.0" in ACTION_PATH.read_text(encoding="utf-8")
+    assert pinned_app_token(step["uses"], ACTION_PATH.read_text(encoding="utf-8"))
     assert step["if"] == "steps.mode.outputs.use-app == 'true'"
+
+
+NEXT_SHA = "a1" * 20
+
+
+@pytest.mark.parametrize(
+    ("uses", "comment", "pinned"),
+    [
+        pytest.param(f"actions/create-github-app-token@{NEXT_SHA}", " # v3.4.0", True, id="later-release"),
+        pytest.param("actions/create-github-app-token@v3.4.0", " # v3.4.0", False, id="tag-ref"),
+        pytest.param(f"actions/create-github-app-token@{NEXT_SHA[:39]}", " # v3.4.0", False, id="short-sha"),
+        pytest.param(f"actions/create-github-app-token@{NEXT_SHA.upper()}", " # v3.4.0", False, id="upper-sha"),
+        pytest.param(f"someone/create-github-app-token@{NEXT_SHA}", " # v3.4.0", False, id="other-owner"),
+        pytest.param(f"actions/create-github-app-token-fork@{NEXT_SHA}", " # v3.4.0", False, id="other-repo"),
+        pytest.param(f"actions/create-github-app-token/sub@{NEXT_SHA}", " # v3.4.0", False, id="subpath"),
+        pytest.param(f"actions/create-github-app-token@{NEXT_SHA}", "", False, id="no-comment"),
+        pytest.param(f"actions/create-github-app-token@{NEXT_SHA}", " # v3", False, id="floating-comment"),
+    ],
+)
+def test_app_token_pin_check_accepts_a_new_release_only_as_a_full_sha_of_the_official_action(
+    uses: str, comment: str, pinned: bool
+) -> None:
+    """Issue #763: Dependabot now proposes this pin, so the test must not hard-code one SHA."""
+    action_text = f"  steps:\n    - id: app-token\n      uses: {uses}{comment}\n"
+
+    assert pinned_app_token(uses, action_text) is pinned
+
+
+def test_app_token_pin_check_reads_the_comment_from_the_same_uses_line() -> None:
+    uses = f"actions/create-github-app-token@{NEXT_SHA}"
+    action_text = f"    - id: app-token\n      # v3.4.0\n      uses: {uses}\n"
+
+    assert not pinned_app_token(uses, action_text)
 
 
 def test_app_token_is_scoped_to_this_repository_with_write_on_contents_and_pull_requests_only() -> None:

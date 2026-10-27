@@ -100,7 +100,9 @@ ACTIONS_WORKFLOW_RUNS = GITHUB_API + "/repos/{repo}/actions/workflows/{workflow_
 # the ecosystem with `_` where dependabot.yml uses `-` (`github_actions`, `pre_commit`).
 # The title is read from `display_title`, the field the API documents for it; `name` carries
 # the same text today but is documented as the workflow's name.
-FULL_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in (?P<directory>\S+) - Update #\d+$")
+# A `directories` list runs as one full run titled with every directory joined by ", "
+# (`github_actions in /., /.github/actions/* - Update #N`, pyca/cryptography 2026-10; issue #763).
+FULL_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in (?P<directory>\S+(?:, \S+)*) - Update #\d+$")
 REFRESH_UPDATE_RUN = re.compile(r"^(?P<eco>[a-z_]+) in \S+ for .+ - Update #\d+$")
 
 # The ecosystem that proposes the Python dependencies check 2 looks at.

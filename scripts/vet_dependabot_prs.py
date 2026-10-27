@@ -8,9 +8,9 @@ the Python floor, or pinned to a SHA its tag does not resolve to. This script as
 questions of public APIs and prints one table per PR with a verdict of OK / WARN / BLOCK.
 
 Versions are read by comparing whole files at the merge base and the head (uv.lock,
-workflows, .pre-commit-config.yaml), never from the PR title or body: #749 was titled
-"from v3.8.5 to 3.9.8" while its `rev:` said v3.9.8, and PR text is untrusted input that
-must not reach a report agents read (AGENTS.md).
+workflows, local composite actions, .pre-commit-config.yaml), never from the PR title or
+body: #749 was titled "from v3.8.5 to 3.9.8" while its `rev:` said v3.9.8, and PR text is
+untrusted input that must not reach a report agents read (AGENTS.md).
 
 Exit codes: 0 no BLOCK (WARN allowed), 1 at least one BLOCK, 2 the vetting itself failed.
 A network or parse failure is always 2 -- "could not check" is never reported as OK or BLOCK.
@@ -69,8 +69,15 @@ ECOSYSTEM_BY_PREFIX = {
 }
 EXPECTED_FILES = {
     "uv": ("pyproject.toml", "uv.lock"),
-    # GitHub accepts both extensions for workflow files.
-    "github-actions": (".github/workflows/*.yml", ".github/workflows/*.yaml"),
+    # GitHub accepts both extensions for workflow files. A local composite action is updated from its
+    # own `directories` entry (issue #763); Dependabot reads every YAML there, but only the action's
+    # metadata file is one GitHub runs, so any other file stays unexpected.
+    "github-actions": (
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml",
+        ".github/actions/*/action.yml",
+        ".github/actions/*/action.yaml",
+    ),
     "pre-commit": (".pre-commit-config.yaml",),
 }
 # The dependabot.yml ecosystem whose cooldown applies to each kind of bump.
@@ -1495,7 +1502,12 @@ def check_action_metadata(fetch_text: FetchText, change: ActionPinChange) -> lis
 
 def _expected(path: str, ecosystem: str | None) -> bool:
     patterns = EXPECTED_FILES[ecosystem] if ecosystem else [p for group in EXPECTED_FILES.values() for p in group]
-    return any(PurePosixPath(path).match(pattern) if "*" in pattern else path == pattern for pattern in patterns)
+    # PurePosixPath.match anchors a relative pattern at the right only (`vendor/.github/workflows/x.yml`
+    # would match), so the part count pins it to the whole path.
+    parts = PurePosixPath(path).parts
+    return any(
+        len(parts) == len(PurePosixPath(pattern).parts) and PurePosixPath(path).match(pattern) for pattern in patterns
+    )
 
 
 def check_pr_hygiene(
