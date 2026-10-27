@@ -5,6 +5,7 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
 import requests
 import yaml
 from packaging.requirements import Requirement
@@ -148,15 +149,36 @@ def test_mypy_rejects_optional_misuse_under_project_config(tmp_path: Path) -> No
     assert 'Unsupported operand types for + ("None" and "int")' in result.stdout
 
 
-def test_upstream_hook_revs_are_pinned_to_commit_shas() -> None:
+def _upstream_revs_are_pinned(pre_commit_text: str) -> bool:
     """Every upstream hook is pinned like the workflow actions: a full SHA with its version on the same line."""
-    text = (Path(__file__).resolve().parent.parent / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    upstream = [repo for repo in yaml.safe_load(text)["repos"] if repo["repo"] not in {"local", "meta"}]
-    rev_lines = re.findall(r"^\s*rev:\s*([0-9a-f]{40})\s+#\s*v\d+(?:\.\d+)*\s*$", text, re.MULTILINE)
-
-    assert upstream
+    upstream = [repo for repo in yaml.safe_load(pre_commit_text)["repos"] if repo["repo"] not in {"local", "meta"}]
+    # `pre-commit autoupdate --freeze` writes `# frozen: vX`; Dependabot keeps either comment form.
+    rev_lines = re.findall(
+        r"^\s*rev:\s*([0-9a-f]{40})\s+#\s*(?:frozen:\s*)?v\d+(?:\.\d+)*\s*$", pre_commit_text, re.MULTILINE
+    )
     # YAML reads an all-digit SHA as an int, hence str().
-    assert [str(repo["rev"]) for repo in upstream] == rev_lines
+    return bool(upstream) and [str(repo["rev"]) for repo in upstream] == rev_lines
+
+
+def test_upstream_hook_revs_are_pinned_to_commit_shas() -> None:
+    text = (Path(__file__).resolve().parent.parent / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+    assert _upstream_revs_are_pinned(text)
+
+
+@pytest.mark.parametrize(
+    ("rev_line", "pinned"),
+    [
+        pytest.param(f"rev: {'a' * 40} # v6.0.0", True, id="version-comment"),
+        pytest.param(f"rev: {'a' * 40}  # frozen: v6.0.0", True, id="autoupdate-freeze-comment"),
+        pytest.param("rev: v6.0.0", False, id="tag"),
+        pytest.param(f"rev: {'a' * 40}", False, id="sha-without-version"),
+    ],
+)
+def test_upstream_rev_pin_check_accepts_both_version_comment_forms(rev_line: str, pinned: bool) -> None:
+    text = f"repos:\n  - repo: https://github.com/owner/hooks\n    {rev_line}\n    hooks:\n      - id: hook\n"
+
+    assert _upstream_revs_are_pinned(text) is pinned
 
 
 def _setup_uv_steps(workflows_dir: Path) -> dict[str, dict]:
