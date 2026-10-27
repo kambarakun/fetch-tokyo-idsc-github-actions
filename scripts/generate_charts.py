@@ -24,7 +24,7 @@ import math
 import sys
 import time
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
@@ -676,6 +676,26 @@ def _iso_year_has_week53(year: int) -> bool:
     return datetime.date(year, 12, 28).isocalendar().week == 53
 
 
+def calendar_periods(first: int, last: int, period_type: str) -> list[int]:
+    """first から last までの暦どおりに連続した期間番号 (ISO 週、または月)
+
+    チャートの期間軸に使う。ファイルや値が無い期間も軸に残し、空白として描く (軸を詰めない)。
+    """
+    periods = [first]
+    while periods[-1] < last:
+        year, number = divmod(periods[-1], 100)
+        last_number = (53 if _iso_year_has_week53(year) else 52) if period_type == "week" else 12
+        periods.append(periods[-1] + 1 if number < last_number else (year + 1) * 100 + 1)
+    return periods
+
+
+def _derive_periods(data: Mapping[str, Mapping[int, float]], periods: Sequence[int] | None) -> list[int]:
+    """チャートの期間軸。明示されなければ値のある期間から求める"""
+    if periods is not None:
+        return sorted(periods)
+    return sorted({p for disease_periods in data.values() for p in disease_periods})
+
+
 def _format_value(value: float) -> str:
     """凡例・注記用の値の表記 (定点当たりの小数にも対応)"""
     return f"{value:.1f}" if abs(value) >= 10 else f"{value:.2f}"
@@ -820,10 +840,11 @@ def filter_rates_for_ranking(
     data: Mapping[str, Mapping[int, float]],
     deviation_rates: Mapping[str, Mapping[int, float]],
     eligible_periods: Mapping[str, set[int]] | None,
+    periods: Sequence[int] | None = None,
 ) -> dict[str, dict[int, float]]:
     """乖離率ランキング (select_top_deviation_diseases) に渡す乖離率を絞り込む
 
-    - 最新期間 (data の全期間の最大) に実測データが無い疾患は除外する
+    - 最新期間 (periods の最大。省略時は data の全期間の最大) に実測データが無い疾患は除外する
       (報告されなくなった疾患が過去の値で順位を占有しないため。乖離率の有無ではなく
       実測データの有無で判定するので、ベースラインが無い期間でも全疾患が消えることはない)
     - eligible_periods が与えられれば、適格な期間の乖離率だけを残す (fallback 経路も同じ)
@@ -832,14 +853,15 @@ def filter_rates_for_ranking(
         data: チャートの実測値 (疾患名 -> {期間番号: 値})
         deviation_rates: calculate_deviation_rate の戻り値
         eligible_periods: build_ranking_eligibility の戻り値。None なら期間の絞り込みはしない
+        periods: チャートの期間軸 (最新期間の値が全疾患で使えなくても、その期間を最新として扱う)
 
     Returns:
         疾患名 -> {期間番号: 乖離率} のdict
     """
-    all_periods = {p for periods in data.values() for p in periods}
+    all_periods = _derive_periods(data, periods)
     if not all_periods:
         return {}
-    latest_period = max(all_periods)
+    latest_period = all_periods[-1]
 
     filtered: dict[str, dict[int, float]] = {}
     for disease, rates in deviation_rates.items():
@@ -853,12 +875,15 @@ def filter_rates_for_ranking(
     return filtered
 
 
-def select_top_absolute_diseases(data: Mapping[str, Mapping[int, float]], top_n: int = 5) -> list[tuple[str, float]]:
+def select_top_absolute_diseases(
+    data: Mapping[str, Mapping[int, float]], top_n: int = 5, periods: Sequence[int] | None = None
+) -> list[tuple[str, float]]:
     """絶対数グラフ用のトップN疾患を選定 (最新期間の値が大きい順)
 
     generate_absolute_chart() 内の選定ロジックと同一仕様。色マップ構築のために
     事前選定が必要なケースで使用する。最新期間に公表値が無い疾患は 0 とみなさず
-    順位から除く (最新期の公表0は対象)。
+    順位から除く (最新期の公表0は対象)。最新期間は periods (チャートの期間軸) の最大で、
+    省略時は data の全期間の最大。
 
     Raises:
         ValueError: top_n が負数の場合 (Python の負スライス挙動によって意図しない
@@ -867,10 +892,10 @@ def select_top_absolute_diseases(data: Mapping[str, Mapping[int, float]], top_n:
     if top_n < 0:
         raise ValueError(f"top_n must be non-negative, got {top_n}")
 
-    all_periods = sorted({p for periods in data.values() for p in periods})
+    all_periods = _derive_periods(data, periods)
     if not all_periods:
         return []
-    latest_period = max(all_periods)
+    latest_period = all_periods[-1]
     latest_values = {disease: periods[latest_period] for disease, periods in data.items() if latest_period in periods}
     return sorted(latest_values.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
@@ -982,9 +1007,12 @@ def format_legend_label(
     if last_period == final_period:
         prefix = "最新・速報" if provisional else "最新"
         return f"{disease} ({prefix}: {value_text})"
-    year, number = divmod(last_period, 100)
-    period_text = f"{year}年第{number}週" if period_type == "week" else f"{year}年{number}月"
-    return f"{disease} (最終 {period_text}: {value_text})"
+    return f"{disease} (最終 {_period_text(last_period, period_type)}: {value_text})"
+
+
+def _period_text(period: int, period_type: str) -> str:
+    year, number = divmod(period, 100)
+    return f"{year}年第{number}週" if period_type == "week" else f"{year}年{number}月"
 
 
 def _apply_cdc_styling(ax, fig) -> None:
@@ -1159,6 +1187,7 @@ def generate_absolute_chart(
     top_n: int = 5,
     style_map: dict[str, DiseaseStyle] | None = None,
     provisional_latest: bool = False,
+    periods: Sequence[int] | None = None,
 ) -> None:
     """絶対数推移グラフを生成 (CDCスタイル)
 
@@ -1172,17 +1201,18 @@ def generate_absolute_chart(
         top_n: トップN疾患を表示
         style_map: 疾患名 -> DiseaseStyle(color, marker) のマップ (省略時はseabornデフォルトcycler+'o')
         provisional_latest: 最終期間の値が速報値なら True (凡例とフッターに明示する)
+        periods: 期間軸 (calendar_periods)。省略時は値のある期間
 
     公表値が 1 つも無い場合も、理由を書いた図を出力する (古い図を最新図として残さないため)。
     """
     # 全期間の期間番号を取得
-    all_periods = sorted({p for periods in data.values() for p in periods})
+    all_periods = _derive_periods(data, periods)
 
     # 日本語フォントを初期化 (遅延評価)
     JAPANESE_FONT = get_japanese_font()
 
     # 最新期間に公表値がある疾患のトップNを選択
-    top_diseases = select_top_absolute_diseases(data, top_n=top_n)
+    top_diseases = select_top_absolute_diseases(data, top_n=top_n, periods=all_periods)
     _print_selection(output_path, top_diseases)
 
     # グラフ作成 (800x500px固定サイズ)
@@ -1219,8 +1249,16 @@ def generate_absolute_chart(
         # 最新データポイントにアノテーションを追加 (共通関数を使用)
         _add_annotation(ax, values, value_format, line[0].get_color(), JAPANESE_FONT, check_non_zero=True)
 
-    if not top_diseases:
+    unit = "週" if period_type == "week" else "月"
+    if not any(data.values()):
         _draw_message(ax, "表示できる公表値がありません\n(公表値、または算出できる定点当たり値が無い)", JAPANESE_FONT)
+    elif not top_diseases:
+        _draw_message(
+            ax,
+            f"最新{unit} ({_period_text(max_period, period_type)}) に値のある疾患がありません\n"
+            "(公表値が無い、または定点当たり値を算出できない)",
+            JAPANESE_FONT,
+        )
 
     # X軸 (期間を明示)
     xlabel_text = _setup_period_axis(ax, all_periods, period_type, JAPANESE_FONT)
@@ -1232,7 +1270,6 @@ def generate_absolute_chart(
     _apply_cdc_styling(ax, fig)
 
     # データソースと注釈 (下側の確保したスペースに配置)
-    unit = "週" if period_type == "week" else "月"
     footer_lines = [
         f"※ 最新{unit}に公表値がある疾患 (公表0を含む) の上位{top_n}つを表示",
         "※ 空白は公表値が無い、または値を算出できない期間 (前後を線で結ばない)",
@@ -1263,6 +1300,7 @@ def generate_deviation_chart(
     eligible_periods: dict[str, set[int]] | None = None,
     provisional_latest: bool = False,
     baseline_years: Mapping[str, Mapping[int, int]] | None = None,
+    periods: Sequence[int] | None = None,
 ) -> None:
     """ベースライン乖離率グラフを生成 (CDCスタイル)
 
@@ -1283,12 +1321,13 @@ def generate_deviation_chart(
             None なら最新期間フィルタだけを適用する
         provisional_latest: 最終期間の値が速報値なら True (凡例とフッターに明示する)
         baseline_years: count_baseline_years の戻り値。与えれば凡例に比較元の使用年数を示す
+        periods: 期間軸 (calendar_periods)。省略時は値のある期間
     """
     # 乖離率を計算 (比較元が正の期間だけ)
     deviation_rates = calculate_deviation_rate(data, baseline)
 
     # 全期間の期間番号を取得
-    all_periods = sorted({p for periods in data.values() for p in periods})
+    all_periods = _derive_periods(data, periods)
 
     # 日本語フォントを初期化 (遅延評価)
     JAPANESE_FONT = get_japanese_font()
@@ -1299,7 +1338,7 @@ def generate_deviation_chart(
     # 順位付けには最新期間に報告のある疾患の、件数下限を満たす期間だけを使う
     # (main() の style map 用の選定と同じ入力にして、両チャートの色の一貫性を保つ)
     top_diseases, fallback_used = select_top_deviation_diseases(
-        filter_rates_for_ranking(data, deviation_rates, eligible_periods), top_n=top_n
+        filter_rates_for_ranking(data, deviation_rates, eligible_periods, all_periods), top_n=top_n
     )
     _print_selection(output_path, top_diseases)
 
@@ -1409,13 +1448,24 @@ def generate_deviation_chart(
     print(f"✅ {title}グラフを生成: {output_path} (800x500px)")
 
 
-def _ranking_eligibility_for(
-    counts_all: dict[str, dict[int, float]], window_data: dict[str, dict[int, float]]
-) -> dict[str, set[int]]:
+def _ranking_eligibility_for(counts_all: dict[str, dict[int, float]], window_periods: list[int]) -> dict[str, set[int]]:
     """実数の全期間データから、チャートの窓の各期間が順位付けに使えるかを判定する"""
-    window_periods = sorted({p for periods in window_data.values() for p in periods})
     count_baseline = calculate_seasonal_baseline(counts_all, window_periods)
     return build_ranking_eligibility(counts_all, count_baseline, window_periods)
+
+
+def _window_periods(data_dir: Path, pattern: str, count: int, period_type: str) -> list[int]:
+    """直近 count 個の入力ファイルが覆う期間を、暦どおり連続した期間軸にする
+
+    値の有無ではなくファイル名から求めるので、最新ファイルの値が全疾患で使えなくても
+    最新期間は軸に残り、前の期間を「最新」と表示しない。ファイルの無い期間は空白になる。
+    """
+    keys = [
+        info[2]
+        for file_path in sorted(data_dir.glob(pattern), reverse=True)[:count]
+        if (info := parse_period_from_filename(file_path)) is not None
+    ]
+    return calendar_periods(min(keys), max(keys), period_type) if keys else []
 
 
 def main() -> int:
@@ -1477,14 +1527,14 @@ def main() -> int:
     # 比較元が無い・比較元0の期間は率を算出しないので、乖離率の図も常に生成する
 
     # 1+2. 週次定点
-    if any(data_dir.glob("sentinel_weekly_gender_*.csv")):
-        recent_week_periods = sorted({p for periods in sentinel_weekly_data.values() for p in periods})
+    recent_week_periods = _window_periods(data_dir, "sentinel_weekly_gender_*.csv", 52, "week")
+    if recent_week_periods:
         seasonal_baseline = calculate_seasonal_baseline(all_sentinel_weeks, recent_week_periods)
-        sw_eligible = _ranking_eligibility_for(sentinel_week_counts, sentinel_weekly_data)
-        sw_abs_top = select_top_absolute_diseases(sentinel_weekly_data, top_n=5)
+        sw_eligible = _ranking_eligibility_for(sentinel_week_counts, recent_week_periods)
+        sw_abs_top = select_top_absolute_diseases(sentinel_weekly_data, top_n=5, periods=recent_week_periods)
         sw_dev_rates = calculate_deviation_rate(sentinel_weekly_data, seasonal_baseline)
         sw_dev_top, _ = select_top_deviation_diseases(
-            filter_rates_for_ranking(sentinel_weekly_data, sw_dev_rates, sw_eligible), top_n=5
+            filter_rates_for_ranking(sentinel_weekly_data, sw_dev_rates, sw_eligible, recent_week_periods), top_n=5
         )
         sw_style_map = build_consistent_style_map([d for d, _ in sw_abs_top], [d for d, _ in sw_dev_top])
 
@@ -1497,6 +1547,7 @@ def main() -> int:
             period_type="week",
             top_n=5,
             style_map=sw_style_map,
+            periods=recent_week_periods,
         )
 
         generate_deviation_chart(
@@ -1508,22 +1559,24 @@ def main() -> int:
             period_type="week",
             top_n=5,
             style_map=sw_style_map,
+            periods=recent_week_periods,
             eligible_periods=sw_eligible,
             baseline_years=count_baseline_years(all_sentinel_weeks, recent_week_periods),
         )
 
     # 3+4. 週次全数 (最新週は速報値)
-    if any(data_dir.glob("notifiable_weekly_*.csv")):
-        recent_notifiable_periods = sorted({p for periods in notifiable_weekly_data.values() for p in periods})
+    recent_notifiable_periods = _window_periods(data_dir, "notifiable_weekly_*.csv", 52, "week")
+    if recent_notifiable_periods:
         notifiable_seasonal_baseline = calculate_seasonal_baseline(all_notifiable_weeks, recent_notifiable_periods)
         # 報告数はそのまま実数なので、ベースラインもそのまま件数下限の判定に使える
         nw_eligible = build_ranking_eligibility(
             all_notifiable_weeks, notifiable_seasonal_baseline, recent_notifiable_periods
         )
-        nw_abs_top = select_top_absolute_diseases(notifiable_weekly_data, top_n=5)
+        nw_abs_top = select_top_absolute_diseases(notifiable_weekly_data, top_n=5, periods=recent_notifiable_periods)
         nw_dev_rates = calculate_deviation_rate(notifiable_weekly_data, notifiable_seasonal_baseline)
         nw_dev_top, _ = select_top_deviation_diseases(
-            filter_rates_for_ranking(notifiable_weekly_data, nw_dev_rates, nw_eligible), top_n=5
+            filter_rates_for_ranking(notifiable_weekly_data, nw_dev_rates, nw_eligible, recent_notifiable_periods),
+            top_n=5,
         )
         nw_style_map = build_consistent_style_map([d for d, _ in nw_abs_top], [d for d, _ in nw_dev_top])
 
@@ -1536,6 +1589,7 @@ def main() -> int:
             period_type="week",
             top_n=5,
             style_map=nw_style_map,
+            periods=recent_notifiable_periods,
             provisional_latest=True,
         )
 
@@ -1548,20 +1602,21 @@ def main() -> int:
             period_type="week",
             top_n=5,
             style_map=nw_style_map,
+            periods=recent_notifiable_periods,
             eligible_periods=nw_eligible,
             provisional_latest=True,
             baseline_years=count_baseline_years(all_notifiable_weeks, recent_notifiable_periods),
         )
 
     # 5+6. 月次定点
-    if any(data_dir.glob("sentinel_monthly_gender_*.csv")):
-        recent_month_periods = sorted({p for periods in monthly_data.values() for p in periods})
+    recent_month_periods = _window_periods(data_dir, "sentinel_monthly_gender_*.csv", 12, "month")
+    if recent_month_periods:
         monthly_seasonal_baseline = calculate_seasonal_baseline(all_months, recent_month_periods)
-        mo_eligible = _ranking_eligibility_for(sentinel_month_counts, monthly_data)
-        mo_abs_top = select_top_absolute_diseases(monthly_data, top_n=5)
+        mo_eligible = _ranking_eligibility_for(sentinel_month_counts, recent_month_periods)
+        mo_abs_top = select_top_absolute_diseases(monthly_data, top_n=5, periods=recent_month_periods)
         mo_dev_rates = calculate_deviation_rate(monthly_data, monthly_seasonal_baseline)
         mo_dev_top, _ = select_top_deviation_diseases(
-            filter_rates_for_ranking(monthly_data, mo_dev_rates, mo_eligible), top_n=5
+            filter_rates_for_ranking(monthly_data, mo_dev_rates, mo_eligible, recent_month_periods), top_n=5
         )
         mo_style_map = build_consistent_style_map([d for d, _ in mo_abs_top], [d for d, _ in mo_dev_top])
 
@@ -1574,6 +1629,7 @@ def main() -> int:
             period_type="month",
             top_n=5,
             style_map=mo_style_map,
+            periods=recent_month_periods,
         )
 
         generate_deviation_chart(
@@ -1585,6 +1641,7 @@ def main() -> int:
             period_type="month",
             top_n=5,
             style_map=mo_style_map,
+            periods=recent_month_periods,
             eligible_periods=mo_eligible,
             baseline_years=count_baseline_years(all_months, recent_month_periods),
         )

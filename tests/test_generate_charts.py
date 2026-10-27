@@ -40,6 +40,7 @@ from scripts.generate_charts import (
     build_ranking_eligibility,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
+    calendar_periods,
     count_baseline_years,
     describe_unavailable_rate,
     filter_rates_for_ranking,
@@ -858,6 +859,18 @@ class TestBaselineYearsAndWeek53:
         assert count_baseline_years(all_data, [202601]) == {"A": {202601: 2}}
 
     @pytest.mark.parametrize(
+        ("first", "last", "period_type", "expected"),
+        [
+            (202051, 202102, "week", [202051, 202052, 202053, 202101, 202102]),
+            (202551, 202602, "week", [202551, 202552, 202601, 202602]),
+            (202511, 202602, "month", [202511, 202512, 202601, 202602]),
+            (202604, 202604, "week", [202604]),
+        ],
+    )
+    def test_calendar_periods_follow_iso_weeks_and_months(self, first, last, period_type, expected):
+        assert calendar_periods(first, last, period_type) == expected
+
+    @pytest.mark.parametrize(
         ("value", "baseline_value", "period", "period_type", "expected"),
         [
             (5.0, 0.0, 202601, "week", "比較元 0.00 のため率は算出しない (当期 5.00、差 +5.00)"),
@@ -1092,6 +1105,68 @@ class TestMainEndToEnd:
             assert path.read_bytes().startswith(b"\x89PNG")
         out = capsys.readouterr().out
         assert "[chart] sentinel_weekly_deviation: (表示できる系列なし)" in out
+
+    @staticmethod
+    def _capture_axes(monkeypatch) -> dict:
+        """Record the axes of every saved chart, keyed by the output file name."""
+        axes: dict = {}
+        original_savefig = plt.savefig
+
+        def capture_savefig(path, *args, **kwargs):
+            axes[Path(path).name] = plt.gcf().axes[0]
+            original_savefig(path, *args, **kwargs)
+
+        monkeypatch.setattr(plt, "savefig", capture_savefig)
+        return axes
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_keeps_the_latest_period_when_every_value_in_it_is_unusable(self, tmp_path, monkeypatch, capsys):
+        # Arrange: 2026 W1 is published but every sentinel count is blank, so no per-sentinel value exists for it
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        for year in (2025, 2026):
+            for week in range(50, 53) if year == 2025 else (1,):
+                sentinels = "" if year == 2026 else "10"
+                _write_shift_jis(
+                    raw_dir / f"sentinel_weekly_gender_{year}_{week:02d}.csv",
+                    [SENTINEL_HEADER, f"A,0,0,40,{sentinels}"],
+                )
+        axes = self._capture_axes(monkeypatch)
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert: the axis still ends at 2026 W1 and nothing from 2025 W52 is called the latest
+        assert exit_code == 0
+        for name in ("sentinel_weekly_absolute.png", "sentinel_weekly_deviation.png"):
+            ax = axes[name]
+            assert ax.get_xlabel().endswith("2026年第1週"), name
+            assert ax.get_legend() is None, name
+        absolute_texts = [text.get_text() for text in axes["sentinel_weekly_absolute.png"].texts]
+        assert any("最新週 (2026年第1週) に値のある疾患がありません" in text for text in absolute_texts)
+        assert "[chart] sentinel_weekly_absolute: (表示できる系列なし)" in capsys.readouterr().out
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_leaves_a_gap_for_a_missing_period_file(self, tmp_path, monkeypatch):
+        # Arrange: the 2026 W3 file does not exist (e.g. an unpublished all-zero week)
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        for week, count in ((1, 10), (2, 20), (4, 40)):
+            _write_shift_jis(raw_dir / f"notifiable_weekly_2026_{week:02d}.csv", [NOTIFIABLE_HEADER, f"A,{count}"])
+        axes = self._capture_axes(monkeypatch)
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        generate_charts.main()
+
+        # Assert
+        ax = axes["notifiable_weekly_absolute.png"]
+        (line,) = [line for line in ax.get_lines() if not line.get_label().startswith("_")]
+        assert TestChartRendering._segments(line) == [[(0.0, 10.0), (1.0, 20.0)], [(3.0, 40.0)]]
+        assert ax.get_xlim() == (-0.5, 3.5)
 
     @pytest.mark.filterwarnings("ignore:Glyph")
     def test_main_writes_explained_charts_when_no_per_sentinel_value_is_calculable(self, tmp_path, monkeypatch):
