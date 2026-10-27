@@ -175,7 +175,8 @@ class FetchPlanner:
         """Build the machine-readable plan printed by `fetch-data --plan-only`.
 
         Raises:
-            ValueError: A data type is unknown, or a target week / month is out of range.
+            ValueError: A data type is unknown, or in incremental mode a target week / month is out of
+                range. Full and force modes skip such targets without an error, as a real run does.
         """
         data_types, start_year, end_year = self.resolve_targets(data_types, start_year, end_year)
         unknown = [data_type for data_type in data_types if data_type not in EnhancedEpidemicDataFetcher.REPORT_TYPES]
@@ -260,19 +261,8 @@ class FetchPlanner:
         return params_list
 
     def _get_report_type(self, data_type: str) -> str:
-        """レポートタイプを取得"""
-        report_types = {
-            "sentinel_weekly_gender": "1",
-            "sentinel_weekly_age": "0",
-            "sentinel_weekly_health_center": "2",
-            "sentinel_weekly_medical_district": "5",
-            "sentinel_monthly_gender": "15",
-            "sentinel_monthly_age": "10",
-            "sentinel_monthly_health_center": "11",
-            "sentinel_monthly_medical_district": "12",
-            "notifiable_weekly": "20",
-        }
-        return report_types.get(data_type, "0")
+        """レポートタイプを取得 (フェッチャーと同じ対応表)"""
+        return EnhancedEpidemicDataFetcher.REPORT_TYPES.get(data_type, "0")
 
 
 class DataCollector(FetchPlanner):

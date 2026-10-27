@@ -636,7 +636,7 @@ uv sync --all-extras --locked
 uv run fetch-data --data-types sentinel_weekly_gender --start-year 2026 --end-year 2026 --plan-only
 ```
 
-計画は本実行と同じ規則 (mode・期間・対象週/月・JST の今日までの ISO 週と月・`data/raw/` の既存ファイル) で候補を選び、`candidates` に `data_type`・`year`・`week` または `month`・保存先のファイル名 (`file`)・ローカルに既にあるか (`exists_locally`) を、`counts` / `candidate_count` に件数を出します。データ提供元が公開済みか、内容が全て0か、接続や応答検証が成功するかは確かめられないため、その範囲を `not_verified` に列挙します (取得結果の統計とは別物で、統計ファイルも作りません)。`--dry-run` と `--log-file` は併用できません。
+計画は本実行と同じ規則 (mode・期間・対象週/月・JST の今日までの ISO 週と月・`data/raw/` の既存ファイル) で候補を選び、`candidates` に `data_type`・`year`・`week` または `month`・保存先のファイル名 (`file`)・ローカルに既にあるか (`exists_locally`) を、`counts` / `candidate_count` に件数を出します。データ提供元が公開済みか、内容が全て0か、接続や応答検証が成功するかは確かめられないため、その範囲を `not_verified` に列挙します (取得結果の統計とは別物で、統計ファイルも作りません)。`--plan-only` は `--dry-run` とも `--log-file` とも併用できません。
 
 ドライラン (保存しない。データ提供元への HTTP リクエストは発生する):
 

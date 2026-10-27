@@ -281,3 +281,39 @@ def test_plan_known_data_types_are_the_fetchable_ones() -> None:
     fetcher = EnhancedEpidemicDataFetcher()
 
     assert set(EnhancedEpidemicDataFetcher.REPORT_TYPES) == set(fetcher.fetch_methods)
+
+
+def test_planned_report_type_comes_from_the_fetcher_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(EnhancedEpidemicDataFetcher.REPORT_TYPES, "sentinel_weekly_gender", "99")
+    planner = fd.FetchPlanner(fd.DataCollectionConfig(), mode="full", target_weeks=[1])
+
+    params = planner.select_params("sentinel_weekly_gender", 2025, 2025)
+
+    assert [p.report_type for p in params] == ["99"]
+    assert planner._get_report_type("unknown_type") == "0"
+
+
+@pytest.mark.usefixtures("offline")
+def test_plan_with_a_missing_config_file_uses_defaults_and_writes_nothing(
+    scratch: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before = _snapshot(scratch)
+    args = [
+        "--config",
+        "missing.yml",
+        "--data-types",
+        "sentinel_weekly_age",
+        "--start-year",
+        "2026",
+        "--target-weeks",
+        "1",
+    ]
+    monkeypatch.setattr(sys, "argv", ["fetch-data", "--plan-only", *args])
+
+    with pytest.raises(SystemExit) as exc:
+        fd.main()
+
+    assert exc.value.code == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert (plan["raw_dir"], _periods(plan)) == ("data/raw", [("sentinel_weekly_age", 2026, 1)])
+    assert _snapshot(scratch) == before
