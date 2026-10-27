@@ -226,7 +226,8 @@ fi
    ```
 
 5. PR の差分が、操作ごとに想定したファイルだけであること。想定する差分は操作によって違います。
-   - raw の取り直し: 2.1 のレビュー項目
+   - Actions での raw の取り直し: 2.1 のレビュー項目
+   - ローカルでの raw の取り直し: 2.2 の 4 と 5 で変わるファイルだけ (指定した期間の raw とメタデータ、`data/logs/stats_<timestamp>.json`、対応する processed の CSV・メタデータと `data/processed/stats.json`)。ローカルでは `README.md` と `docs/images/` は再生成されないので、これらの差分は想定外
    - Actions での backfill: [docs/manual-data-processing.md](manual-data-processing.md) の「5. PR の差分確認」 (`verify_output=true` の検証レポート `data/logs/validation_report_<timestamp>.json` も入る)
    - ローカルでの backfill: 3.2 の最後の段落
    - revert: 4.2 の 3 と 4.3
