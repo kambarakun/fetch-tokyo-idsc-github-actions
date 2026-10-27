@@ -30,6 +30,7 @@ from scripts import generate_charts
 from scripts.generate_charts import (
     _EXTRA_MARKERS,
     _PRIMARY_MARKERS,
+    BASELINE_YEARS,
     FONT_SHA256,
     FONT_URL,
     DiseaseStyle,
@@ -39,9 +40,14 @@ from scripts.generate_charts import (
     build_ranking_eligibility,
     calculate_deviation_rate,
     calculate_seasonal_baseline,
+    calendar_periods,
+    count_baseline_years,
+    describe_unavailable_rate,
     filter_rates_for_ranking,
     format_legend_label,
+    get_all_months_data,
     get_all_weeks_data,
+    get_recent_months_data,
     parse_notifiable_weekly,
     parse_period_from_filename,
     parse_sentinel_gender_counts,
@@ -219,31 +225,24 @@ class TestCalculateDeviationRate:
         assert 202501 in rates["インフルエンザ"]
         assert abs(rates["インフルエンザ"][202501] - (-50.0)) < 0.01
 
-    def test_zero_baseline_with_positive_value(self):
-        """ベースラインが0で実測値が正の場合 - 新規発生として固定値100%"""
-        data = {"インフルエンザ": {202501: 10.0}}
-        baseline = {"インフルエンザ": {202501: 0.0}}
+    def test_zero_baseline_yields_no_rate_for_any_current_value(self):
+        """比較元0なら当期 5 / 50 / 0 のどれも率を算出しない (固定 100% や 0% で埋めない)"""
+        data = {"A": {202501: 5.0}, "B": {202501: 50.0}, "C": {202501: 0.0}}
+        baseline = {disease: {202501: 0.0} for disease in data}
 
         rates = calculate_deviation_rate(data, baseline)
 
-        # 「新規発生」として固定値100%を設定
-        # これにより、トップN選択で除外されず、グラフの連続性も保たれる
-        # CDCでは計算スキップだが、可視化目的では適度な警告レベルとして表示
-        assert "インフルエンザ" in rates
-        assert 202501 in rates["インフルエンザ"]
-        assert rates["インフルエンザ"][202501] == 100.0
+        assert rates == {"A": {}, "B": {}, "C": {}}
 
-    def test_zero_baseline_with_zero_value(self):
-        """ベースラインと実測値の両方が0の場合 - グラフ連続性のため0%を設定"""
+    def test_positive_baseline_with_published_zero_is_minus_100_percent(self):
+        """比較元10・当期の公表0は有効な -100%"""
         data = {"インフルエンザ": {202501: 0.0}}
-        baseline = {"インフルエンザ": {202501: 0.0}}
+        baseline = {"インフルエンザ": {202501: 10.0}}
 
         rates = calculate_deviation_rate(data, baseline)
 
-        # 時系列グラフの連続性のため、0%を明示的に設定
-        assert "インフルエンザ" in rates
-        assert 202501 in rates["インフルエンザ"]
-        assert rates["インフルエンザ"][202501] == 0.0
+        assert rates == {"インフルエンザ": {202501: -100.0}}
+        assert data == {"インフルエンザ": {202501: 0.0}}
 
     def test_missing_baseline(self):
         """ベースラインが存在しない場合 (データ不足)"""
@@ -424,15 +423,15 @@ class TestSelectTopAbsoluteDiseases:
         assert top[0][0] == "疾患B"
         assert top[1][0] == "疾患A"
 
-    def test_missing_latest_period_value_treated_as_zero(self):
-        """最新期間にデータがない疾患は0扱いで末尾に並ぶ"""
+    def test_disease_missing_latest_period_is_not_ranked(self):
+        """最新期間に公表値がない疾患は 0 とみなさず順位から除き、最新期の公表0は順位に残す"""
         data = {
             "疾患A": {202501: 10, 202502: 20},
             "疾患B": {202501: 100},
+            "公表0": {202501: 7, 202502: 0},
         }
-        top = select_top_absolute_diseases(data, top_n=2)
-        assert top[0][0] == "疾患A"
-        assert top[1] == ("疾患B", 0)
+        top = select_top_absolute_diseases(data, top_n=5)
+        assert top == [("疾患A", 20), ("公表0", 0)]
 
     def test_empty_data_returns_empty_list(self):
         """データが空の場合は空リストを返す"""
@@ -788,6 +787,108 @@ class TestParseSentinelGenderCounts:
         assert parse_sentinel_gender_counts(csv_path) == {}
 
 
+# Synthetic rows: only "定点2" and "公表0" carry a published total and a valid positive sentinel count
+_SENTINEL_DENOMINATOR_ROWS = [
+    SENTINEL_HEADER,
+    "空欄,0,0,10,",
+    "定点2,0,0,10,2",
+    "公表0,0,0,0,2",
+    "定点0,0,0,10,0",
+    "負,0,0,10,-2",
+    "伏字,0,0,10,*",
+    "横線,0,0,10,-",
+    "非数値,0,0,10,abc",
+    "無限,0,0,10,inf",
+    "列なし,0,0,10",
+]
+
+
+class TestPerSentinelDenominator:
+    """定点当たり値は公表総数と有効な正の定点数がそろうときだけ計算する"""
+
+    def test_weekly_per_sentinel_requires_positive_sentinel_count(self, tmp_path):
+        csv_path = tmp_path / "sentinel_weekly_gender_2026_01.csv"
+        _write_shift_jis(csv_path, _SENTINEL_DENOMINATOR_ROWS)
+
+        assert parse_sentinel_weekly_gender(csv_path) == {"定点2": 5.0, "公表0": 0.0}
+
+    def test_total_counts_are_still_read_when_the_denominator_is_unusable(self, tmp_path):
+        csv_path = tmp_path / "sentinel_weekly_gender_2026_01.csv"
+        _write_shift_jis(csv_path, _SENTINEL_DENOMINATOR_ROWS)
+
+        counts = parse_sentinel_gender_counts(csv_path)
+
+        assert counts["空欄"] == 10.0
+        assert counts["列なし"] == 10.0
+        assert counts["公表0"] == 0.0
+
+    def test_monthly_per_sentinel_uses_the_same_rule(self, tmp_path):
+        _write_shift_jis(tmp_path / "sentinel_monthly_gender_2026_01.csv", _SENTINEL_DENOMINATOR_ROWS)
+
+        expected = {"定点2": {202601: 5.0}, "公表0": {202601: 0.0}}
+        assert get_all_months_data(tmp_path) == expected
+        assert get_recent_months_data(tmp_path, num_months=12) == expected
+
+
+class TestBaselineYearsAndWeek53:
+    """比較元 (過去同期の公表値の平均) と使用年数、第53週の扱い"""
+
+    def test_week53_baseline_uses_only_published_past_week53(self):
+        # 2015 は ISO 第53週がある年。2016-2019 には第53週がなく、第52週や翌年第1週で代用しない
+        all_data = {"A": {201553: 4.0, 201952: 100.0, 202001: 100.0, 202052: 50.0, 202053: 10.0}}
+
+        baseline = calculate_seasonal_baseline(all_data, [202052, 202053], years=BASELINE_YEARS)
+        years_used = count_baseline_years(all_data, [202052, 202053], years=BASELINE_YEARS)
+
+        assert baseline == {"A": {202052: 100.0, 202053: 4.0}}
+        assert years_used == {"A": {202052: 1, 202053: 1}}
+
+    def test_week53_without_past_week53_has_no_baseline(self):
+        all_data = {"A": {202552: 10.0, 202601: 10.0, 202652: 20.0, 202653: 30.0}}
+
+        baseline = calculate_seasonal_baseline(all_data, [202652, 202653], years=BASELINE_YEARS)
+
+        assert baseline == {"A": {202652: 10.0}}
+        assert calculate_deviation_rate({"A": {202652: 20.0, 202653: 30.0}}, baseline) == {"A": {202652: 100.0}}
+        assert all_data["A"][202653] == 30.0
+
+    def test_missing_past_years_are_not_counted_as_zero(self):
+        all_data = {"A": {202101: 10.0, 202301: 20.0, 202601: 30.0}}
+
+        assert calculate_seasonal_baseline(all_data, [202601]) == {"A": {202601: 15.0}}
+        assert count_baseline_years(all_data, [202601]) == {"A": {202601: 2}}
+
+    @pytest.mark.parametrize(
+        ("first", "last", "period_type", "expected"),
+        [
+            (202051, 202102, "week", [202051, 202052, 202053, 202101, 202102]),
+            (202551, 202602, "week", [202551, 202552, 202601, 202602]),
+            (202511, 202602, "month", [202511, 202512, 202601, 202602]),
+            (202604, 202604, "week", [202604]),
+        ],
+    )
+    def test_calendar_periods_follow_iso_weeks_and_months(self, first, last, period_type, expected):
+        assert calendar_periods(first, last, period_type) == expected
+
+    @pytest.mark.parametrize(
+        ("value", "baseline_value", "period", "period_type", "expected"),
+        [
+            (5.0, 0.0, 202601, "week", "比較元 0.00 のため率は算出しない (当期 5.00、差 +5.00)"),
+            (50.0, 0.0, 202601, "week", "比較元 0.00 のため率は算出しない (当期 50.0、差 +50.0)"),
+            (0.0, 0.0, 202601, "week", "比較元 0.00 のため率は算出しない (当期 0.00、差 +0.00)"),
+            (30.0, None, 202653, "week", "過去5年に第53週がないため比較対象なし"),
+            (30.0, None, 202053, "week", "過去5年の同週に公表値がないため比較対象なし"),
+            (30.0, None, 202601, "week", "過去5年の同週に公表値がないため比較対象なし"),
+            (30.0, None, 202601, "month", "過去5年の同月に公表値がないため比較対象なし"),
+            (None, 10.0, 202601, "week", "公表値なし (欠測)"),
+            (20.0, 10.0, 202601, "week", None),
+            (0.0, 10.0, 202601, "week", None),
+        ],
+    )
+    def test_describe_unavailable_rate(self, value, baseline_value, period, period_type, expected):
+        assert describe_unavailable_rate(value, baseline_value, period, period_type) == expected
+
+
 class _FakeResponse:
     def __init__(self, content: bytes):
         self.content = content
@@ -975,6 +1076,142 @@ class TestMainEndToEnd:
         assert "[chart] notifiable_weekly_deviation: 流行病N" in chart_lines
         assert "[chart] sentinel_monthly_deviation: 月流行病" in chart_lines
 
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_replaces_stale_deviation_charts_when_no_rate_is_calculable(self, tmp_path, monkeypatch, capsys):
+        # Arrange: one year of data only, so no period has a past comparison
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        for week in (1, 2):
+            _write_shift_jis(raw_dir / f"sentinel_weekly_gender_2026_{week:02d}.csv", [SENTINEL_HEADER, "A,0,0,10,2"])
+            _write_shift_jis(raw_dir / f"notifiable_weekly_2026_{week:02d}.csv", [NOTIFIABLE_HEADER, "B,3"])
+            _write_shift_jis(raw_dir / f"sentinel_monthly_gender_2026_{week:02d}.csv", [SENTINEL_HEADER, "C,0,0,4,2"])
+        images = tmp_path / "docs" / "images"
+        images.mkdir(parents=True)
+        stale = [
+            images / f"{kind}_deviation.png" for kind in ("sentinel_weekly", "notifiable_weekly", "sentinel_monthly")
+        ]
+        for path in stale:
+            path.write_bytes(b"stale chart from an earlier run")
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert
+        assert exit_code == 0
+        assert len(_png_files(tmp_path)) == 6
+        for path in stale:
+            assert path.read_bytes().startswith(b"\x89PNG")
+        out = capsys.readouterr().out
+        assert "[chart] sentinel_weekly_deviation: (表示できる系列なし)" in out
+
+    @staticmethod
+    def _capture_axes(monkeypatch) -> dict:
+        """Record the axes of every saved chart, keyed by the output file name."""
+        axes: dict = {}
+        original_savefig = plt.savefig
+
+        def capture_savefig(path, *args, **kwargs):
+            axes[Path(path).name] = plt.gcf().axes[0]
+            original_savefig(path, *args, **kwargs)
+
+        monkeypatch.setattr(plt, "savefig", capture_savefig)
+        return axes
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_keeps_the_latest_period_when_every_value_in_it_is_unusable(self, tmp_path, monkeypatch, capsys):
+        # Arrange: 2026 W1 is published but every sentinel count is blank, so no per-sentinel value exists for it
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        for year in (2025, 2026):
+            for week in range(50, 53) if year == 2025 else (1,):
+                sentinels = "" if year == 2026 else "10"
+                _write_shift_jis(
+                    raw_dir / f"sentinel_weekly_gender_{year}_{week:02d}.csv",
+                    [SENTINEL_HEADER, f"A,0,0,40,{sentinels}"],
+                )
+        axes = self._capture_axes(monkeypatch)
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert: the axis still ends at 2026 W1 and nothing from 2025 W52 is called the latest
+        assert exit_code == 0
+        for name in ("sentinel_weekly_absolute.png", "sentinel_weekly_deviation.png"):
+            ax = axes[name]
+            assert ax.get_xlabel().endswith("2026年第1週"), name
+            assert ax.get_legend() is None, name
+        absolute_texts = [text.get_text() for text in axes["sentinel_weekly_absolute.png"].texts]
+        assert any("最新週 (2026年第1週) に値のある疾患がありません" in text for text in absolute_texts)
+        assert "[chart] sentinel_weekly_absolute: (表示できる系列なし)" in capsys.readouterr().out
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_leaves_a_gap_for_a_missing_period_file(self, tmp_path, monkeypatch):
+        # Arrange: the 2026 W3 file does not exist (e.g. an unpublished all-zero week)
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        for week, count in ((1, 10), (2, 20), (4, 40)):
+            _write_shift_jis(raw_dir / f"notifiable_weekly_2026_{week:02d}.csv", [NOTIFIABLE_HEADER, f"A,{count}"])
+        axes = self._capture_axes(monkeypatch)
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        generate_charts.main()
+
+        # Assert
+        ax = axes["notifiable_weekly_absolute.png"]
+        (line,) = [line for line in ax.get_lines() if not line.get_label().startswith("_")]
+        assert TestChartRendering._segments(line) == [[(0.0, 10.0), (1.0, 20.0)], [(3.0, 40.0)]]
+        assert ax.get_xlim() == (-0.5, 3.5)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_succeeds_with_explained_charts_when_every_input_value_is_unusable(self, tmp_path, monkeypatch):
+        # Arrange: input files exist, but no sentinel count is usable and there is no notifiable input
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        _write_shift_jis(raw_dir / "sentinel_weekly_gender_2026_01.csv", [SENTINEL_HEADER, "A,0,0,10,"])
+        _write_shift_jis(raw_dir / "sentinel_monthly_gender_2026_01.csv", [SENTINEL_HEADER, "B,0,0,10,0"])
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert
+        assert exit_code == 0
+        assert [p.name for p in _png_files(tmp_path)] == [
+            "sentinel_monthly_absolute.png",
+            "sentinel_monthly_deviation.png",
+            "sentinel_weekly_absolute.png",
+            "sentinel_weekly_deviation.png",
+        ]
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_main_writes_explained_charts_when_no_per_sentinel_value_is_calculable(self, tmp_path, monkeypatch):
+        # Arrange: every sentinel weekly row lacks the sentinel count, so no per-sentinel value exists
+        monkeypatch.chdir(tmp_path)
+        raw_dir = tmp_path / "data" / "raw"
+        raw_dir.mkdir(parents=True)
+        _write_shift_jis(raw_dir / "sentinel_weekly_gender_2026_01.csv", [SENTINEL_HEADER, "A,0,0,10,"])
+        _write_shift_jis(raw_dir / "notifiable_weekly_2026_01.csv", [NOTIFIABLE_HEADER, "B,3"])
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+
+        # Act
+        exit_code = generate_charts.main()
+
+        # Assert
+        assert exit_code == 0
+        assert [p.name for p in _png_files(tmp_path)] == [
+            "notifiable_weekly_absolute.png",
+            "notifiable_weekly_deviation.png",
+            "sentinel_weekly_absolute.png",
+            "sentinel_weekly_deviation.png",
+        ]
+
 
 class TestChartRendering:
     """Render the charts with Agg and check the drawn lines, legend and annotations."""
@@ -1036,13 +1273,13 @@ class TestChartRendering:
 
         ax = render(generate_charts.generate_absolute_chart, data, ylabel="Y")
 
+        # B has no published value in the latest period, so it is not ranked as 0 or drawn
         assert self._series(ax) == {
             "A (最新: 5.00)": [[(0.0, 3.0), (1.0, 0.0)], [(3.0, 5.0)]],
-            "B (最終 2026年第3週: 4.00)": [[(0.0, 1.0), (1.0, 2.0), (2.0, 4.0)]],
             "C (最新: 0.00)": [[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)]],
         }
         assert [text.get_text() for text in ax.get_legend().get_texts()] == list(self._series(ax))
-        assert self._annotations(ax) == [("5.00", (3, 5.0)), ("4.00", (2, 4.0))]
+        assert self._annotations(ax) == [("5.00", (3, 5.0))]
 
     @pytest.mark.filterwarnings("ignore:Glyph")
     def test_deviation_chart_keeps_zero_rates_and_breaks_lines_at_missing_periods(self, render):
@@ -1056,6 +1293,101 @@ class TestChartRendering:
         assert self._series(ax) == {"A (最新: +200%)": [[(0.0, 100.0), (1.0, 0.0)], [(3.0, 200.0)]]}
         assert [text.get_text() for text in ax.get_legend().get_texts()] == ["A (最新: +200%)"]
         assert self._annotations(ax) == [("+200%", (3, 200.0))]
+
+    @staticmethod
+    def _footer(ax) -> str:
+        return "\n".join(text.get_text() for text in ax.figure.texts)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_leaves_zero_baseline_points_blank_for_series_selected_elsewhere(self, render):
+        # A is ranked by its eligible +200% at p1; its zero-baseline period p2 must not be drawn
+        p1, p2, p3, p4 = self.PERIODS
+        data = {"A": {p1: 30.0, p2: 5.0, p3: 7.0, p4: 20.0}}
+        baseline = {"A": {p1: 10.0, p2: 0.0, p3: 10.0, p4: 10.0}}
+        years_used = {"A": {p1: 5, p2: 5, p3: 4, p4: 3}}
+        eligible = {"A": {p1}}
+
+        ax = render(
+            generate_charts.generate_deviation_chart,
+            data,
+            baseline,
+            eligible_periods=eligible,
+            baseline_years=years_used,
+        )
+
+        assert self._series(ax) == {"A (最新: +100%、比較元3年)": [[(0.0, 200.0)], [(2.0, -30.0), (3.0, 100.0)]]}
+        assert ax.get_xlim() == (-0.5, 3.5)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_does_not_show_an_older_rate_as_the_latest(self, render):
+        p1, p2, p3, p4 = self.PERIODS
+        data = {"A": {p1: 30.0, p2: 10.0, p3: 10.0, p4: 5.0}}
+        baseline = {"A": {p1: 10.0, p2: 10.0, p3: 10.0, p4: 0.0}}
+
+        ax = render(generate_charts.generate_deviation_chart, data, baseline, baseline_years={"A": {p3: 2}})
+
+        assert self._series(ax) == {"A (最終 2026年第3週: +0%、比較元2年)": [[(0.0, 200.0), (1.0, 0.0), (2.0, 0.0)]]}
+        assert "A の最新週: 比較元 0.00 のため率は算出しない (当期 5.00、差 +5.00)" in self._footer(ax)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_week53_without_comparison_keeps_the_period_axis(self, render):
+        data = {"A": {202652: 20.0, 202653: 30.0}}
+        baseline = {"A": {202652: 10.0}}
+
+        ax = render(generate_charts.generate_deviation_chart, data, baseline, baseline_years={"A": {202652: 5}})
+
+        assert self._series(ax) == {"A (最終 2026年第52週: +100%、比較元5年)": [[(0.0, 100.0)]]}
+        assert ax.get_xlim() == (-0.5, 1.5)
+        assert "A の最新週: 過去5年に第53週がないため比較対象なし" in self._footer(ax)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_week53_legend_shows_the_years_actually_averaged(self, render):
+        all_data = {"A": {201553: 4.0, 202052: 50.0, 202053: 10.0}}
+        periods = [202052, 202053]
+        data = {"A": {202052: 50.0, 202053: 10.0}}
+
+        ax = render(
+            generate_charts.generate_deviation_chart,
+            data,
+            calculate_seasonal_baseline(all_data, periods),
+            baseline_years=count_baseline_years(all_data, periods),
+        )
+
+        assert list(self._series(ax)) == ["A (最新: +150%、比較元1年)"]
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    @pytest.mark.parametrize(
+        ("baseline", "message"),
+        [
+            ({"A": {202601: 0.0}, "B": {202601: 0.0}}, "乖離率を算出できる系列がありません"),
+            ({}, "乖離率を算出できる系列がありません"),
+        ],
+    )
+    def test_deviation_chart_without_any_rate_writes_an_explained_empty_chart(self, render, baseline, message):
+        data = {"A": {202601: 5.0}, "B": {202601: 0.0}}
+
+        ax = render(generate_charts.generate_deviation_chart, data, baseline)
+
+        assert self._series(ax) == {}
+        assert ax.get_legend() is None
+        assert any(message in text.get_text() for text in ax.texts)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_with_rates_but_none_rankable_writes_an_explained_empty_chart(self, render):
+        data = {"A": {202601: 5.0}}
+        baseline = {"A": {202601: 1.0}}
+
+        ax = render(generate_charts.generate_deviation_chart, data, baseline, eligible_periods={})
+
+        assert self._series(ax) == {}
+        assert any("順位付けの条件を満たす乖離率がありません" in text.get_text() for text in ax.texts)
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_absolute_chart_without_published_values_writes_an_explained_empty_chart(self, render):
+        ax = render(generate_charts.generate_absolute_chart, {}, ylabel="Y")
+
+        assert self._series(ax) == {}
+        assert any("表示できる公表値がありません" in text.get_text() for text in ax.texts)
 
 
 class TestWeekTicks:
@@ -1129,11 +1461,11 @@ class TestDeviationRanking:
         assert eligible == {"実測5": {p}, "基準1.0": {p}}
 
     def test_zero_baseline_is_not_ranked(self):
-        # 麻しん 202616 型: 46 例 vs 基準 0 は描画上 100% だが順位付けには使わない
+        # 麻しん 202616 型: 46 例 vs 基準 0 は率を算出せず、順位付けにも使わない
         counts = {"麻しん": {202616: 46.0}}
         count_baseline = {"麻しん": {202616: 0.0}}
 
-        assert calculate_deviation_rate(counts, count_baseline) == {"麻しん": {202616: 100.0}}
+        assert calculate_deviation_rate(counts, count_baseline) == {"麻しん": {}}
         assert self._rank(counts, count_baseline, [202616]) == ([], True)
 
     def test_disease_missing_latest_period_is_not_ranked(self):

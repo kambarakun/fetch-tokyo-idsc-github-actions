@@ -509,6 +509,45 @@ Old stats
         )
         assert expected in readme_path.read_text(encoding="utf-8")
 
+    def test_chart_note_describes_observed_only_baseline_and_matches_committed_readme(self, tmp_path):
+        """グラフ注記が比較元の年数・算出不可の扱い・詳細文書を示し、コミット済み README と同じ文言である"""
+        from scripts.generate_charts import BASELINE_YEARS
+
+        readme_path = tmp_path / "README.md"
+        readme_path.write_text("<!-- start data-statistics -->\n<!-- end data-statistics -->\n", encoding="utf-8")
+        stats = {
+            "total_files": 1,
+            "week_range": "-",
+            "month_range": "-",
+            "latest_fetch": "-",
+            "last_stats_update": "-",
+            "data_types": {},
+            "data_type_periods": {},
+            "latest_week": "-",
+            "latest_month": "-",
+            "week_count": 1,
+            "month_count": 1,
+            "anomalies": {"errors": {}, "warnings": {}, "quality_issues": {}},
+        }
+
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(tmp_path)
+            update_readme(stats)
+        finally:
+            os.chdir(original_cwd)
+
+        def chart_note(text: str) -> str:
+            (line,) = [line for line in text.splitlines() if line.startswith("> 💡 季節性ベースライン")]
+            return line
+
+        note = chart_note(readme_path.read_text(encoding="utf-8"))
+        assert f"同週/同月の過去{BASELINE_YEARS}年のうち公表値がある年の平均" in note
+        assert "率を算出せず空白" in note
+        assert "[docs/charts.md](docs/charts.md)" in note
+        committed_readme = Path(__file__).resolve().parent.parent / "README.md"
+        assert chart_note(committed_readme.read_text(encoding="utf-8")) == note
+
 
 class TestGetMetadataStatsWithLogs:
     """get_metadata_stats()のログファイル読み込み機能のテスト"""
