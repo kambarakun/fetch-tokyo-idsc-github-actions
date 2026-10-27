@@ -1,5 +1,7 @@
 # Requirements Document
 
+> **注記 (2026-10-27)**: この文書は当初設計の歴史的資料で、現行実装とは同期していない。現行の仕様・運用は README.md / AGENTS.md / docs/ / schemas/ を正とする。既知の乖離: 定期実行は `fetch-data-daily.yml` / `fetch-data-weekly.yml` (共通処理は `_fetch-data-common.yml`) で、`fetch-data.yml` は手動実行専用。未チェックのタスクは将来案で、着手には人間の指示が必要。本文中のファイル・スクリプト・クラス・環境変数には削除・改名済みのもの、実装されなかったものを含む。
+
 ## Introduction
 
 東京都感染症発生動向情報システムから定期的にデータを取得し、GitHub Actionsを使用して自動化されたデータ収集・保存・管理を行うシステムです。既存のTokyoEpidemicSurveillanceFetcherクラスを活用し、スケジュール実行、エラーハンドリング、データ品質管理、通知機能を含む包括的な自動化システムを構築します。
@@ -103,6 +105,7 @@
 #### Acceptance Criteria
 
 1. WHEN 大量の履歴データを取得する時、THE EnhancedEpidemicDataFetcher SHALL 並列処理でダウンロード時間を短縮する
+   - **実施しない (この受け入れ条件は適用しない)**: 5.1 (連続リクエスト間に最低 1 秒) と衝突し、データ提供元への同時リクエストを増やすため。取得は逐次のまま行う (tasks.md の 15.1 も同じ)
 2. WHEN ストレージ容量が制限に近づく時、THE Storage_Manager SHALL 古いデータのアーカイブまたは削除を提案する
 3. WHEN 同一データの重複チェックを行う時、THE Storage_Manager SHALL ハッシュベースの高速比較を使用する
 4. WHEN GitHub_Actionsの実行時間制限に近づく時、THE Automation_System SHALL 処理を分割して継続実行する
