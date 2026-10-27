@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-感染症データの可視化グラフ生成スクリプト (CDCベストプラクティス準拠)
+感染症データの可視化グラフ生成スクリプト (図表の体裁は CDC のスタイルを参考にする)
 
 以下の6種類のグラフを生成:
 1. 週次定点・絶対数トップ5
@@ -10,8 +10,8 @@
 5. 月次定点・絶対数トップ5
 6. 月次定点・季節性乖離率トップ5
 
-季節性ベースライン: 同週/同月の過去5年平均を使用 (CDC推奨)
-  第53週だけは、第53週の無い過去年を第52週と翌年第1週の平均で近似する (この表示の慣習。docs/charts.md)
+季節性ベースライン: 同週/同月の過去5年平均。週次の第53週だけは、第53週の無い過去年を
+  第52週と翌年第1週の平均で近似する (この表示で採る近似で、外部の標準手法ではない。docs/charts.md)
 乖離率: (実測値 - ベースライン) / ベースライン x 100
 """
 
@@ -575,21 +575,21 @@ def get_all_months_data(
 
 
 def has_iso_week53(year: int) -> bool:
-    """ISO 8601 の年が第53週を持つか (12月28日は常にその年の最終週に入る)"""
+    """Return whether the ISO 8601 year has a week 53 (December 28 is always in the year's last week)."""
     return date(year, 12, 28).isocalendar().week == 53
 
 
 def _historical_values(
     periods_data: Mapping[int, float], period: int, years: int, period_type: str
 ) -> list[tuple[float, bool]]:
-    """period のベースラインに使う過去years年分の (値, 推定値か) を返す
+    """Return one (value, is_estimate) per past year in the window that has a usable value for period.
 
-    第53週は過去年の多くに同じ週番号が無いため、この表示では次の近似を採る
-    (外部の標準手法ではない。docs/charts.md):
-    - 対象年が ISO 暦で第53週を持たなければ値を返さない (ベースライン無し)
-    - 第53週を持つ過去年は実測の第53週だけを使い、欠測なら推定で埋めずその年を除く
-    - 52週の過去年は、その年の第52週と翌年第1週が両方あるときだけ平均を推定値とする
-    過去年は対象年より前に限るので、翌年第1週も対象週より前の値になる
+    Most past years have no week 53, so weekly week 53 uses this chart's year-end approximation
+    (a display convention, not an external standard; see docs/charts.md):
+    - a target year without ISO week 53 gets no values (no baseline);
+    - a past year with ISO week 53 uses its observed week 53 only, and is skipped when that is missing;
+    - a 52-week past year uses the mean of its week 52 and the next year's week 1, only when both exist.
+    Past years end before the target year, so the next year's week 1 is still earlier than the target.
     """
     year, period_num = divmod(period, 100)
     week53 = period_type == "week" and period_num == 53
@@ -611,18 +611,18 @@ def _historical_values(
 def calculate_seasonal_baseline(
     all_data: dict[str, dict[int, float]], recent_periods: list[int], years: int = 5, period_type: str = "week"
 ) -> dict[str, dict[int, float]]:
-    """季節性ベースラインを計算 (CDCベストプラクティス)
+    """Compute the seasonal baseline: the equally weighted mean of the same week/month in the past years.
 
-    同週/同月の過去N年平均を計算。週次の第53週だけは _historical_values の近似を使う
+    Weekly week 53 takes its past-year values from _historical_values (year-end approximation).
 
     Args:
-        all_data: 全期間のデータ (疾患名 -> {期間番号: 値})
-        recent_periods: 直近の期間リスト (例: [202549, 202550])
-        years: 過去何年分を使うか (デフォルト: 5年)
-        period_type: 期間タイプ ('week' or 'month')。月次には第53週の近似を適用しない
+        all_data: all periods (disease -> {period: value})
+        recent_periods: periods to compute a baseline for (e.g. [202549, 202550])
+        years: number of past years in the window (default 5)
+        period_type: 'week' or 'month'; the week-53 approximation never applies to months
 
     Returns:
-        疾患名 -> {期間番号: ベースライン値}
+        disease -> {period: baseline value}
     """
     baselines: dict[str, dict[int, float]] = {}
 
@@ -647,10 +647,10 @@ def calculate_seasonal_baseline(
 def estimated_baseline_periods(
     all_data: dict[str, dict[int, float]], recent_periods: list[int], years: int = 5, period_type: str = "week"
 ) -> dict[str, set[int]]:
-    """calculate_seasonal_baseline が推定値 (第53週の近似) を含めた期間を疾患ごとに返す
+    """Return, per disease, the periods whose calculate_seasonal_baseline value includes an estimate.
 
     Returns:
-        疾患名 -> 推定値を含む期間番号の集合 (該当期間が無い疾患は含まない)
+        disease -> periods whose baseline uses the week-53 approximation (diseases without any are omitted)
     """
     estimated: dict[str, set[int]] = {}
     for disease, periods_data in all_data.items():
@@ -1072,7 +1072,7 @@ def _setup_chart_labels(ax, xlabel_text: str, ylabel: str, title: str, japanese_
 # 全数週次の最新週は初回公表 (速報) 値で、後日の追加報告で修正される
 _PROVISIONAL_NOTE = "※ 最新週は速報値 (後日の追加報告で修正され、多くは上方修正される)"
 
-# 第53週の無い過去年の値は年末年始の近似 (同じ週の実測ではない) なので、描画に使ったら明示する
+# Past years without week 53 contribute a year-end approximation, not an observed week, so say so when drawn
 _WEEK53_BASELINE_NOTE = "※ 第53週のベースラインは推定値を含む (第53週の無い過去年は第52週と翌年第1週の平均で近似)"
 
 
@@ -1242,8 +1242,8 @@ def generate_deviation_chart(
         eligible_periods: build_ranking_eligibility の戻り値 (順位付けに使える期間)。
             None なら最新期間フィルタだけを適用する
         provisional_latest: 最終期間の値が速報値なら True (凡例とフッターに明示する)
-        estimated_periods: estimated_baseline_periods の戻り値。描画した乖離率が推定ベースラインを
-            使っていればフッターに注記する
+        estimated_periods: estimated_baseline_periods() output; the footer notes the estimate when a drawn
+            rate uses one
     """
     if not data or not baseline:
         print("警告: データが空のため、グラフを生成できません")
