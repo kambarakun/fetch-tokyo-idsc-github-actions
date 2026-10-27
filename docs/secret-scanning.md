@@ -70,6 +70,11 @@ check_secrets: 1 candidate secret(s) in 1 file(s); values are not shown. ...
 - `language_version` は pre-commit が取得する Go toolchain の版。pre-commit は `GOTOOLCHAIN=local` で build するため、gitleaks の `go.mod` の `go` 行以上を保つ。下回ると hook のインストールが失敗する (Dependabot の PR では CI の lint job が落ちる)。Dependabot はこの値を更新しないため手で上げる
 - 版を上げた PR では `uv run pre-commit run gitleaks --all-files --verbose` と `uv run pytest tests/test_secret_scan.py` を実行する
 
+現在の固定の根拠 (2026-10-27 確認):
+
+- gitleaks v8.30.1: タグ `v8.30.1` は commit `83d9cd684c87d95d656c1458ef04895a7f1cbd8e` を直接指す (annotated tag ではない)。GitHub release の公開は 2026-03-21。`gitleaks/gitleaks` の公開 security advisory は 0 件。gitleaks の `go.mod` は `go 1.24.11`
+- Go 1.27.3: [Go のリリース履歴](https://go.dev/doc/devel/release#go1.27.3) で 2026-10-19 公開 (crypto/x509 のセキュリティ修正)。pre-commit は `https://dl.google.com/go/go1.27.3.<os>-<arch>.tar.gz` から取得する。[go.dev/dl](https://go.dev/dl/) が公開する sha256 は linux-amd64 `65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40`、darwin-arm64 `dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2` (pre-commit 自体は照合しない)
+
 ## 対象外と既知の制約
 
 - git の履歴 (過去の commit) は検査しない。全履歴の再監査は行っていない
