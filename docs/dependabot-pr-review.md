@@ -190,7 +190,7 @@ PR ごとに次を貼る。
 - checkout は PR の base revision (`github.event.pull_request.base.sha`) で行う。提案された `uv.lock` を vetter 自身の環境に入れないため。スクリプト・`uv.lock`・`.tool-versions` は base 側のものを使い、提案内容は API 経由でだけ読む
 - 権限: `contents: read` / `pull-requests: read` / `checks: read` のみ。Dependabot トリガでは `GITHUB_TOKEN` が read-only になるが、読み取りしか使わないので影響しない。`pull_request_target` は使わない
 - 終了コード: 0 = BLOCK 無し (WARN は含む)、1 = BLOCK が 1 件以上、2 = 検査自体の失敗 (ネットワーク・パース・引数・想定外の例外)。2 のときは判定を出さず、レポートが無いこともある
-- 複数の PR (`--all-open` や `--pr` の複数指定) を検査して一部の PR だけが失敗したときは、検査できた PR の表を残したまま、失敗した PR を「## PR #N (検査失敗)」(JSON では `"verdict": "ERROR"`、`checks` と `observations` は空) として並べ、終了コードは 2 にする (ほかの PR に BLOCK があっても 2)。失敗した PR は OK とも BLOCK とも扱わず、詳細なエラーは stderr にだけ出す。全 PR が失敗したときは従来どおりレポートを書かない。PyPI の 404 (削除された release など) も、その PR の検査の失敗として扱い、安全な依存とはみなさない。リトライはしないので、一時的な失敗なら再実行する
+- 複数の PR (`--all-open` や `--pr` の複数指定) を検査して一部の PR だけが失敗したときは、検査できた PR の表を残したまま、失敗した PR を「## PR #N (検査失敗)」(JSON では `"verdict": "ERROR"`、`checks` と `observations` は空) として並べ、終了コードは 2 にする (ほかの PR に BLOCK があっても 2)。失敗した PR は OK とも BLOCK とも扱わず、詳細なエラーは stderr にだけ出す。全 PR が失敗したときは従来どおりレポートを書かない。新版 (提案版) の PyPI release JSON の 404 (削除された release など) も、その PR の検査の失敗として扱い、安全な依存とはみなさない。`provenance` の照会だけは別で、旧版の release JSON の 404 は「比較不能」、Integrity API の 404 は「provenance 未提供」として扱い、検査の失敗にはしない (上の「PyPI provenance の補助観測」の表)。リトライはしないので、一時的な失敗なら再実行する
 - 表は `$GITHUB_STEP_SUMMARY` に出し、`report.md` / `report.json` を artifact `dependabot-pr-vetting-report` (30 日保持) に残す
 - `WARN` は `::warning::` 注釈を出すだけでジョブは緑。`BLOCK` と exit 2 はジョブを赤くする
 - required status check にはしていない (マージは止めない)。required 化は人間が ruleset で判断する
