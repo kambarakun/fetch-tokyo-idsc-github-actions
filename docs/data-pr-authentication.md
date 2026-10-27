@@ -91,6 +91,8 @@ gh secret list --repo kambarakun/fetch-tokyo-idsc-github-actions
 
 ### 4.4 有効にする
 
+有効にする前に、7 章の「有効化前の上流確認」を行います。この pin は自動では更新されず、advisory の監視対象でもないためです。
+
 ```zsh
 gh variable set DATA_PR_USE_APP --repo kambarakun/fetch-tokyo-idsc-github-actions --body true
 ```
@@ -141,6 +143,32 @@ gh variable delete DATA_PR_APP_CLIENT_ID --repo kambarakun/fetch-tokyo-idsc-gith
 
 ## 7. 保守
 
-- `actions/create-github-app-token` の SHA pin は `.github/actions/data-pr-token/action.yml` にあります。Dependabot の github-actions 設定 (`directory: "/"`) が走査するのは `.github/workflows/` とリポジトリ直下の `action.yml` だけなので、この pin は Dependabot では更新されません。[docs/development.md](development.md) の SHA pin の手順で手動で確認・更新してください。
+- `actions/create-github-app-token` の SHA pin は `.github/actions/data-pr-token/action.yml` にあります。Dependabot の github-actions 設定 (`directory: "/"`) が走査するのは `.github/workflows/` とリポジトリ直下の `action.yml` だけです。`scripts/vet_dependabot_prs.py` などの依存パイプラインの検査もワークフローしか見ません。そのため、**この pin には自動更新も advisory の監視もありません**。[docs/development.md](development.md) の SHA pin の手順で、手動で確認・更新してください。
+- **有効化前の上流確認**: `DATA_PR_USE_APP=true` にする前と、pin を変えるときは、次を確かめます。
+  1. リリース一覧で、pin の版より新しいリリースや、修正リリースが出ていないか。
+
+     ```zsh
+     gh api repos/actions/create-github-app-token/releases --jq '.[0:5][] | [.tag_name, .published_at] | @tsv'
+     ```
+
+  2. pin の SHA がタグの解決値と一致するか。`v3.3.0` の場合は `64ab729a6294000f5aa4a4bc0b73d1f32bc45510` が出ることを確かめます。
+
+     ```zsh
+     gh api repos/actions/create-github-app-token/git/ref/tags/v3.3.0 --jq .object.sha
+     ```
+
+  3. 公開 advisory が無いか。
+
+     ```zsh
+     gh api repos/actions/create-github-app-token/security-advisories --jq length
+     gh api '/advisories?affects=actions/create-github-app-token&ecosystem=actions' --jq length
+     ```
+
+     どちらも `0` であることを確かめます。
+
+  4. 未解決の不具合報告が無いか ([issues](https://github.com/actions/create-github-app-token/issues))。
+
+  更新が必要なら、PR で `action.yml` の SHA と版コメントを差し替えます。差し替えるときは `tests/test_data_pr_token.py` の期待値もあわせて変えます。
+
 - コミットの author / committer は従来どおり `github-actions[bot]` (各ワークフローの Configure git) です。App が行うのは push と PR 操作です。
 - 失敗通知の issue (`Notify pipeline anomaly`) は引き続き `GITHUB_TOKEN` で作ります。
