@@ -261,7 +261,7 @@ class FetchPlanner:
         return params_list
 
     def _get_report_type(self, data_type: str) -> str:
-        """レポートタイプを取得 (フェッチャーと同じ対応表)"""
+        """Report type of `data_type`, read from the fetcher's table so that a plan and a fetch agree."""
         return EnhancedEpidemicDataFetcher.REPORT_TYPES.get(data_type, "0")
 
 
