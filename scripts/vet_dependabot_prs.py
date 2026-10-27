@@ -12,6 +12,11 @@ workflows, local composite actions, .pre-commit-config.yaml), never from the PR 
 body: #749 was titled "from v3.8.5 to 3.9.8" while its `rev:` said v3.9.8, and PR text is
 untrusted input that must not reach a report agents read (AGENTS.md).
 
+Beside the checks, each uv bump compares who PyPI says published the old and the new sdist
+(issue #765). That comparison is an observation with no verdict of its own, listed apart from
+the table, except when a publisher the old sdist had is gone or replaced (a WARN row). It reads
+PyPI's metadata only: no signature, artifact or wheel is verified.
+
 Exit codes: 0 no BLOCK (WARN allowed), 1 at least one BLOCK, 2 the vetting itself failed.
 A network or parse failure is always 2 -- "could not check" is never reported as OK or BLOCK.
 When several PRs are vetted, one that fails is listed as such beside the others' tables, and the
@@ -47,6 +52,24 @@ from packaging.version import InvalidVersion, Version
 GITHUB_API = "https://api.github.com"
 PYPI_RELEASE = "https://pypi.org/pypi/{name}/{version}/json"
 PYPI_PROJECT = "https://pypi.org/pypi/{name}/json"
+# The Integrity API answers per distribution file (https://docs.pypi.org/api/integrity/): 404 means the file
+# has no provenance, and GitHub's media type gets 406, so it is asked for its own.
+PYPI_INTEGRITY_ROOT = "https://pypi.org/integrity/"
+PYPI_INTEGRITY = PYPI_INTEGRITY_ROOT + "{name}/{version}/{filename}/provenance"
+PYPI_INTEGRITY_ACCEPT = "application/vnd.pypi.integrity.v1+json"
+# The fields that name a Trusted Publisher, per kind, as pypi/pypi-attestations (945dd53a) models them:
+# (required, optional). Claims and refs (`claims`, CircleCI `vcs_ref`) move with every release and are
+# not the publisher. An optional field absent, null or "" is "not set" alike.
+PUBLISHER_IDENTITY: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "GitHub": (("repository", "workflow"), ("environment",)),
+    "GitLab": (("repository", "workflow_filepath"), ("environment",)),
+    "Google": (("email",), ()),
+    "CircleCI": (("project_id", "pipeline_definition_id"), ("vcs_origin",)),
+}
+# Publisher values are third-party text: compared whole, but echoed only when shaped like a repository,
+# a file path, an e-mail address or an ID.
+PUBLISHER_VALUE = re.compile(r"[\w.@/:+-]{1,128}", re.ASCII)
+PROVENANCE_SCOPE = "sdist の publisher metadata の比較のみで、署名・配布物・wheel は検証していない"
 OSV_QUERY = "https://api.osv.dev/v1/query"
 # Repository security advisories (REST "List repository security advisories"): what a maintainer
 # published on GitHub, often days before OSV or GitHub's own database carries it (virtualenv
@@ -122,10 +145,18 @@ REUSABLE_WORKFLOW = re.compile(r"\.github/workflows/[^/]+\.ya?ml")
 # GitHub rejects a comment body over 65,536 characters (the --comment POST then exits 2). Rows come
 # from PR content (one per bump, per pinned action path and, when lines moved, per old x new pin
 # pair), so the table keeps the most severe rows that fit; the verdict line still counts every
-# check and --json keeps them all. The margin leaves room for the omission and verdict lines.
+# check and --json keeps them all. The margin leaves room for the two omission lines (rows and
+# observations) and the verdict line.
 REPORT_BODY_LIMIT = 60_000
 REPORT_TAIL_MARGIN = 200
 VERDICT_ORDER = ("BLOCK", "WARN", "OK")
+OBSERVATION_HEADER = "補助観測 (判定に含めない。PyPI が返す sdist の publisher metadata を旧新で比べただけで、署名・配布物は検証していない):"
+OBSERVATION_LABELS = {
+    "same": "同一",
+    "first_provided": "新版で初めて提供",
+    "both_missing": "旧新とも未提供",
+    "uncomparable": "比較不能",
+}
 # Report cells are plain text: escape what could open a link, image, code span, HTML or a new cell.
 MARKDOWN_SPECIAL = re.compile(r"([\\|`\[\]<])")
 SHORT_SHA = 12
@@ -176,6 +207,18 @@ class CheckResult:
     change: str = "-"
 
 
+@dataclass(frozen=True)
+class Observation:
+    """A comparison with no verdict: reported beside the checks, never counted in the PR's verdict."""
+
+    observation_id: str
+    dependency: str
+    change: str
+    status: str
+    detail: str
+    links: list[str] = field(default_factory=list)
+
+
 @dataclass
 class PullRequestVerdict:
     number: int
@@ -183,6 +226,7 @@ class PullRequestVerdict:
     head_sha: str
     bumps: list[Bump]
     checks: list[CheckResult]
+    observations: list[Observation] = field(default_factory=list)
 
     @property
     def verdict(self) -> str:
@@ -226,7 +270,8 @@ def make_fetchers(token: str | None) -> Fetchers:
     """Build the three network accessors; tests substitute them wholesale."""
 
     def fetch_json(url: str) -> Any:
-        return _http_get(url, token, "application/vnd.github+json").json()
+        accept = PYPI_INTEGRITY_ACCEPT if url.startswith(PYPI_INTEGRITY_ROOT) else "application/vnd.github+json"
+        return _http_get(url, token, accept).json()
 
     def fetch_text(url: str) -> str:
         return _http_get(url, token, "application/vnd.github.raw+json").text
@@ -352,6 +397,8 @@ def _trim_for_fixture(url: str, payload: Any, candidates: dict[str, Version] | N
     without naming any version here.
     """
     parts = urlsplit(url)
+    if url.startswith(PYPI_INTEGRITY_ROOT):
+        return _trim_provenance(payload)
     if parts.hostname == "pypi.org":
         # The release time is the earliest upload and a release counts as yanked when every
         # file is, so one synthetic file per release preserves both answers.
@@ -360,7 +407,10 @@ def _trim_for_fixture(url: str, payload: Any, candidates: dict[str, Version] | N
         # Only repository URLs are read; labels and other URLs are publisher-written text.
         trimmed["info"]["project_urls"] = {str(index): url for index, url in enumerate(_repository_urls(info))}
         if "urls" in payload:
-            trimmed["urls"] = [_compact_files(payload["urls"])] if payload["urls"] else []
+            # The provenance comparison names the sdist by its file name; the other files are compacted.
+            sdists = [_sdist_file(item) for item in payload["urls"] if item.get("packagetype") == "sdist"]
+            others = [item for item in payload["urls"] if item.get("packagetype") != "sdist"]
+            trimmed["urls"] = ([_compact_files(others)] if others else []) + sdists
         if "releases" in payload:
             floor = (candidates or {}).get(parts.path.split("/")[2])
             trimmed["releases"] = {
@@ -378,6 +428,34 @@ def _compact_files(files: list[dict[str, Any]]) -> dict[str, Any]:
         "upload_time_iso_8601": min(item["upload_time_iso_8601"] for item in files),
         "yanked": all(item.get("yanked", False) for item in files),
     }
+
+
+def _sdist_file(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "filename": item["filename"],
+        "packagetype": "sdist",
+        "upload_time_iso_8601": item["upload_time_iso_8601"],
+        "yanked": item.get("yanked", False),
+    }
+
+
+def _bounded(value: str) -> str:
+    # A value the report would not show becomes a digest: still compared exactly, never stored as prose.
+    return value if not value or PUBLISHER_VALUE.fullmatch(value) else f"({_digest(value)})"
+
+
+def _trim_provenance(payload: Any) -> dict[str, Any]:
+    """Each publisher's identity only: the bundles are kilobytes of certificates nothing reads.
+
+    An unreadable publisher keeps nothing and replays as unreadable; a malformed answer is not
+    recorded at all, it fails the check as it would live.
+    """
+    bundles: list[dict[str, Any]] = []
+    for publisher in _publishers(payload):
+        identity = _publisher_identity(publisher)
+        kept = {} if identity is None else {"kind": identity[0]} | {key: _bounded(value) for key, value in identity[1]}
+        bundles.append({"publisher": kept})
+    return {"attestation_bundles": bundles}
 
 
 def make_recording_fetchers(token: str | None, record_dir: Path) -> Fetchers:
@@ -1208,6 +1286,126 @@ def _advisory_refs(found: Sequence[tuple[str, dict[str, Any]]]) -> tuple[str, li
     return _capped(ids, ", "), list(dict.fromkeys(links))[:METADATA_DIFF_LIMIT]
 
 
+Identity = tuple[str, tuple[tuple[str, str], ...]]  # kind, (field, value) in PUBLISHER_IDENTITY order
+
+
+@dataclass(frozen=True)
+class Provenance:
+    """The publishers PyPI names for one file; `complete` is False when any is unreadable or none is named."""
+
+    identities: frozenset[Identity]
+    complete: bool
+
+
+def _publishers(payload: Any) -> list[Any]:
+    """The publisher of each attestation bundle; an answer not shaped like the documented one fails the check."""
+    bundles = payload.get("attestation_bundles") if isinstance(payload, dict) else None
+    if not isinstance(bundles, list) or not all(isinstance(bundle, dict) for bundle in bundles):
+        raise ValueError("the provenance answer is not shaped like the Integrity API's")
+    return [bundle.get("publisher") for bundle in bundles]
+
+
+def _publisher_identity(publisher: Any) -> Identity | None:
+    """None for an unknown kind or a missing or non-text field: never guessed to match anything."""
+    kind = publisher.get("kind") if isinstance(publisher, dict) else None
+    if not isinstance(kind, str) or kind not in PUBLISHER_IDENTITY:
+        return None
+    required, optional = PUBLISHER_IDENTITY[kind]
+    values: list[tuple[str, str]] = []
+    for name in required + optional:
+        value = publisher.get(name)
+        if name in optional and value is None:
+            value = ""
+        if not isinstance(value, str) or (name in required and not value):
+            return None
+        values.append((name, value))
+    return kind, tuple(values)
+
+
+def _provenance(payload: Any) -> Provenance:
+    # A set: bundle order means nothing, and one publisher attesting twice is still that publisher.
+    identities = [_publisher_identity(publisher) for publisher in _publishers(payload)]
+    known = frozenset(identity for identity in identities if identity is not None)
+    return Provenance(known, bool(identities) and None not in identities)
+
+
+def _publisher_text(provenance: Provenance) -> str:
+    def shown(value: str) -> str:
+        return value if PUBLISHER_VALUE.fullmatch(value) else "(なし)" if not value else "(表示できない値)"
+
+    texts = sorted(
+        f"{kind} " + " ".join(f"{key}={shown(value)}" for key, value in values)
+        for kind, values in provenance.identities
+    )
+    if not provenance.complete:
+        texts.append("解釈できない publisher")
+    return _capped(texts, ", ")
+
+
+def _sdist_provenance_urls(fetch_json: FetchJson, bump: Bump) -> tuple[list[str], str | None]:
+    """The Integrity API URL of the old and the new sdist, or why there is no pair to compare."""
+    if bump.old is None:
+        return [], "旧版が無い (新規の依存) ため比較なし"
+    urls: list[str] = []
+    for label, version in (("旧版", bump.old), ("新版", bump.new)):
+        release = _get_or_none(fetch_json, PYPI_RELEASE.format(name=bump.name, version=version))
+        if release is None:
+            return [], f"{label} {version} の PyPI release が 404 のため比較不能"
+        # The file name comes from PyPI, never built from the version; a wheel never stands in.
+        sdists = [item["filename"] for item in release["urls"] if item.get("packagetype") == "sdist"]
+        if len(sdists) != 1:
+            reason = "sdist が無い" if not sdists else f"sdist が {len(sdists)} 件あり 1 つに決められない"
+            return [], f"{label} {version} の release に {reason}ため比較不能"
+        urls.append(PYPI_INTEGRITY.format(name=bump.name, version=version, filename=quote(sdists[0])))
+    return urls, None
+
+
+def _compare_provenance(old: Provenance | None, new: Provenance | None) -> tuple[str, str]:
+    """(status, detail), the status being "WARN" when a publisher the old sdist had is gone or replaced."""
+    if old is None:
+        if new is None:
+            return "both_missing", "旧新とも sdist の provenance を PyPI が提供していない (404)"
+        return "first_provided", f"新版の sdist で初めて提供された ({_publisher_text(new)})。旧版は 404"
+    if new is None:
+        return (
+            "WARN",
+            f"旧版 sdist にあった provenance が新版で提供されていない (404)。旧版の publisher: {_publisher_text(old)}",
+        )
+    if not old.complete:
+        return "uncomparable", "旧版 sdist の publisher に解釈できないもの (未知の kind か欠けた欄) があるため比較不能"
+    if not new.complete:
+        detail = (
+            "新版 sdist の publisher に解釈できないもの (未知の kind か欠けた欄) があり、"
+            f"旧版の publisher ({_publisher_text(old)}) と同じか確認できない"
+        )
+    elif new.identities != old.identities:
+        detail = f"sdist の publisher が変わった: {_publisher_text(old)} → {_publisher_text(new)}"
+    else:
+        return "same", f"旧新とも sdist の publisher は {_publisher_text(new)}"
+    return "WARN", detail
+
+
+def check_provenance(fetch_json: FetchJson, bump: Bump) -> tuple[list[CheckResult], list[Observation]]:
+    """Compare who PyPI says published the old and the new sdist: metadata only, not a signature check.
+
+    Only a publisher the old sdist had going missing or changing is a WARN. Everything else, a match
+    included, is an observation: no provenance is not proof of danger, and a match is no proof of safety.
+    """
+    links, reason = _sdist_provenance_urls(fetch_json, bump)
+    if reason is not None:
+        status, detail = "uncomparable", reason
+    else:
+        old, new = (
+            None if (payload := _get_or_none(fetch_json, url)) is None else _provenance(payload) for url in links
+        )
+        status, detail = _compare_provenance(old, new)
+    detail = f"{detail}。{PROVENANCE_SCOPE}"
+    if status == "WARN":
+        return [_result("provenance", bump, "WARN", detail, links)], []
+    change = f"{bump.old or '(新規)'} → {bump.new}"
+    return [], [Observation("provenance", bump.name, change, status, detail, links)]
+
+
 def check_python_range(fetch_json: FetchJson, bump: Bump, floor: Version) -> list[CheckResult]:
     spec = fetch_json(PYPI_RELEASE.format(name=bump.name, version=bump.new))["info"].get("requires_python")
     if not spec:
@@ -1610,6 +1808,7 @@ def vet_pull_request(
     )
 
     checks: list[CheckResult] = []
+    observations: list[Observation] = []
     for bump in bumps:
         if bump.kind == "pypi":
             checks += check_yanked(fetch_json, bump)
@@ -1627,11 +1826,17 @@ def vet_pull_request(
         checks += check_cooldown(fetch_json, bump, proposed, days)
         checks += check_superseded(fetch_json, bump)
         checks += check_major_bump(bump)
+        if bump.kind == "pypi":
+            # After `superseded`: --record bounds the release history it keeps by the lowest release
+            # fetched so far, and this fetches the old one.
+            warned, observed = check_provenance(fetch_json, bump)
+            checks += warned
+            observations += observed
     for change in action_changes:
         checks += check_action_metadata(fetch_text, change)
     checks += check_pr_hygiene(pr, files, commits, ecosystem, bumps)
     checks += check_ci_green(fetch_json, repo, head_sha)
-    return PullRequestVerdict(number, ecosystem, head_sha, bumps, checks)
+    return PullRequestVerdict(number, ecosystem, head_sha, bumps, checks, observations)
 
 
 def vet_pull_requests(
@@ -1686,7 +1891,8 @@ def render_pull_request(verdict: PullRequestVerdict) -> str:
         "| --- | --- | --- | --- | --- |",
     ]
     rows = [_row(check) for check in verdict.checks]
-    budget = REPORT_BODY_LIMIT - REPORT_TAIL_MARGIN - len("\n".join(lines))
+    header = ["", OBSERVATION_HEADER, ""] if verdict.observations else []
+    budget = REPORT_BODY_LIMIT - REPORT_TAIL_MARGIN - len("\n".join(lines + header))
     kept: set[int] = set()
     for index in sorted(range(len(rows)), key=lambda index: VERDICT_ORDER.index(verdict.checks[index].verdict)):
         if len(rows[index]) + 1 <= budget:
@@ -1696,15 +1902,32 @@ def render_pull_request(verdict: PullRequestVerdict) -> str:
     if omitted := Counter(check.verdict for index, check in enumerate(verdict.checks) if index not in kept):
         counts = " / ".join(f"{level} {omitted[level]}" for level in VERDICT_ORDER if omitted[level])
         lines += ["", f"表に載せきれない {omitted.total()} 行を省略 ({counts})。全件は --json で確認する"]
+    # Observations carry no verdict, so they only take what the rows left: none can push a row out.
+    notes: list[str] = []
+    for note in map(_note, verdict.observations):
+        if len(note) + 1 <= budget:
+            notes.append(note)
+            budget -= len(note) + 1
+    lines += header + notes
+    if dropped := len(verdict.observations) - len(notes):
+        lines += ["", f"載せきれない補助観測 {dropped} 件を省略。全件は --json で確認する"]
     lines += ["", verdict_line(verdict)]
     return "\n".join(lines) + "\n"
 
 
+def _links(links: Sequence[str]) -> str:
+    return " ".join(f"[{index}]({_link(link)})" for index, link in enumerate(links, start=1))
+
+
 def _row(check: CheckResult) -> str:
-    links = " ".join(f"[{index}]({_link(link)})" for index, link in enumerate(check.links, start=1))
-    evidence = f"{_cell(check.detail)} {links}".strip()
+    evidence = f"{_cell(check.detail)} {_links(check.links)}".strip()
     cells = [_cell(check.dependency), _cell(check.change), _cell(check.check_id), _cell(check.verdict), evidence]
     return f"| {' | '.join(cells)} |"
+
+
+def _note(item: Observation) -> str:
+    label = OBSERVATION_LABELS[item.status]
+    return f"- {_cell(item.dependency)} {_cell(item.change)} {label}: {_cell(item.detail)} {_links(item.links)}".strip()
 
 
 def render_failure(failure: VettingFailure) -> str:
@@ -1731,6 +1954,7 @@ def render_json(
             "error": item.reason,
             "bumps": [],
             "checks": [],
+            "observations": [],
         }
         for item in failures
     ]
@@ -1751,6 +1975,18 @@ def render_json(
                     "links": check.links,
                 }
                 for check in verdict.checks
+            ],
+            # Not checks: they never count towards `verdict`.
+            "observations": [
+                {
+                    "id": item.observation_id,
+                    "dependency": item.dependency,
+                    "change": item.change,
+                    "status": item.status,
+                    "detail": item.detail,
+                    "links": item.links,
+                }
+                for item in verdict.observations
             ],
         }
         for verdict in verdicts

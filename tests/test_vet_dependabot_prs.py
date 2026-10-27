@@ -189,7 +189,14 @@ def _pypi(
         }
         responses.setdefault(_advisories_url(f"astral-sh/{name}"), [])
     for version, uploaded in releases.items():
-        files = [{"upload_time_iso_8601": _iso(uploaded), "yanked": version in yanked, "packagetype": "sdist"}]
+        files = [
+            {
+                "filename": f"{name}-{version}.tar.gz",
+                "upload_time_iso_8601": _iso(uploaded),
+                "yanked": version in yanked,
+                "packagetype": "sdist",
+            }
+        ]
         responses[vet.PYPI_RELEASE.format(name=name, version=version)] = {
             "info": {
                 "yanked": version in yanked,
@@ -1113,6 +1120,242 @@ def test_repository_advisory_server_error_exits_two(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 
     assert vet.main(["--repo", REPO, "--pr", "748"]) == 2
+
+
+def _publisher(**fields: Any) -> dict[str, Any]:
+    """A GitHub Trusted Publisher as the Integrity API returns it."""
+    return {
+        "kind": "GitHub",
+        "repository": "astral-sh/ruff",
+        "workflow": "release.yml",
+        "environment": "pypi",
+        **fields,
+    }
+
+
+def _provenance(*publishers: dict[str, Any]) -> dict[str, Any]:
+    """An Integrity API answer; each bundle carries signing material the comparison must never read."""
+    return {
+        "version": 1,
+        "attestation_bundles": [
+            {"publisher": publisher, "attestations": [{"verification_material": {"certificate": "untrusted-cert"}}]}
+            for publisher in publishers
+        ],
+    }
+
+
+def _integrity_url(version: str, filename: str | None = None, name: str = "ruff") -> str:
+    return vet.PYPI_INTEGRITY.format(name=name, version=version, filename=filename or f"{name}-{version}.tar.gz")
+
+
+def _provenance_rows(verdict: vet.PullRequestVerdict) -> list[vet.CheckResult]:
+    return [check for check in verdict.checks if check.check_id == "provenance"]
+
+
+def _without(publisher: dict[str, Any], key: str) -> dict[str, Any]:
+    return {name: value for name, value in publisher.items() if name != key}
+
+
+CIRCLECI = {"kind": "CircleCI", "project_id": "p-1", "pipeline_definition_id": "d-1", "vcs_origin": "github.com/a/b"}
+GITLAB = {"kind": "GitLab", "repository": "astral/ruff", "workflow_filepath": ".gitlab-ci.yml", "environment": None}
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected", "fragments"),
+    [
+        ([_publisher()], [_publisher()], "same", ["GitHub repository=astral-sh/ruff workflow=release.yml"]),
+        (
+            [_publisher(), _publisher(workflow="b.yml")],
+            [_publisher(workflow="b.yml"), _publisher(), _publisher()],
+            "same",
+            [],
+        ),
+        ([_publisher(environment="")], [_without(_publisher(claims={"sha": "1"}), "environment")], "same", ["(なし)"]),
+        ([{**CIRCLECI, "vcs_ref": "refs/tags/v1"}], [{**CIRCLECI, "vcs_ref": "refs/tags/v2"}], "same", ["p-1"]),
+        (None, None, "both_missing", ["404"]),
+        (None, [_publisher()], "first_provided", ["astral-sh/ruff"]),
+        ([{"kind": "Future"}], [_publisher()], "uncomparable", ["解釈できない"]),
+        ([_publisher()], [_publisher(repository="evil/ruff")], "WARN", ["astral-sh/ruff", "→", "evil/ruff"]),
+        ([_publisher()], [GITLAB], "WARN", ["GitLab repository=astral/ruff"]),
+        ([_publisher()], [_publisher(), _publisher(workflow="other.yml")], "WARN", ["other.yml"]),
+        ([_publisher()], None, "WARN", ["404", "astral-sh/ruff"]),
+        ([{"kind": "Future"}], None, "WARN", ["404", "解釈できない publisher"]),
+        ([_publisher()], [{"kind": "Future", "repository": "astral-sh/ruff"}], "WARN", ["確認できない"]),
+        ([_publisher()], [_without(_publisher(), "workflow")], "WARN", ["確認できない"]),
+        ([_publisher()], [_publisher(workflow=7)], "WARN", ["確認できない"]),
+        ([_publisher()], [], "WARN", ["確認できない"]),
+    ],
+    ids=[
+        "same",
+        "order-and-duplicates",
+        "environment-absent-or-empty-and-claims",
+        "circleci-ref-moves",
+        "both-missing",
+        "first-provided",
+        "old-unknown-kind",
+        "repository-changed",
+        "kind-changed",
+        "publisher-added",
+        "disappeared",
+        "unreadable-old-disappeared",
+        "new-unknown-kind",
+        "new-missing-field",
+        "new-field-not-text",
+        "new-without-bundles",
+    ],
+)
+def test_sdist_publishers_are_compared_between_the_old_and_the_new_release(
+    uv_pr: dict[str, Any], old: list[Any] | None, new: list[Any] | None, expected: str, fragments: list[str]
+) -> None:
+    for version, publishers in (("0.16.7", old), ("0.16.8", new)):
+        if publishers is not None:
+            uv_pr[_integrity_url(version)] = _provenance(*publishers)
+
+    verdict = _vet(uv_pr)
+    rows = _provenance_rows(verdict)
+
+    if expected == "WARN":
+        assert [(row.verdict, row.dependency, row.change) for row in rows] == [("WARN", "ruff", "0.16.7 → 0.16.8")]
+        assert verdict.observations == []
+        assert verdict.verdict == "WARN"
+        detail, links = rows[0].detail, rows[0].links
+    else:
+        # Never a check row: "same" proves nothing about the code, and "uncomparable" must not read as OK.
+        assert rows == []
+        observed = [(item.status, item.dependency, item.change) for item in verdict.observations]
+        assert observed == [(expected, "ruff", "0.16.7 → 0.16.8")]
+        assert verdict.verdict == "OK"
+        detail, links = verdict.observations[0].detail, verdict.observations[0].links
+    # Every outcome says what it did not verify.
+    assert "署名" in detail
+    assert "untrusted-cert" not in detail
+    assert all(fragment in detail for fragment in fragments)
+    assert links == [_integrity_url("0.16.7"), _integrity_url("0.16.8")]
+
+
+def _asking(responses: dict[str, Any], asked: list[str]) -> vet.Fetchers:
+    fetch_json, *others = _fetchers(responses)
+
+    def recorded(url: str) -> Any:
+        asked.append(url)
+        return fetch_json(url)
+
+    return (recorded, *others)  # type: ignore[return-value]
+
+
+@pytest.mark.parametrize(
+    ("version", "packagetypes", "fragment"),
+    [("0.16.8", ["bdist_wheel"], "新版 0.16.8 の release に sdist が無い"), ("0.16.7", ["sdist", "sdist"], "2 件")],
+    ids=["wheel-only", "two-sdists"],
+)
+def test_a_release_without_exactly_one_sdist_is_not_compared(
+    uv_pr: dict[str, Any], version: str, packagetypes: list[str], fragment: str
+) -> None:
+    release = uv_pr[vet.PYPI_RELEASE.format(name="ruff", version=version)]
+    upload = release["urls"][0]["upload_time_iso_8601"]
+    release["urls"] = [
+        {"filename": f"ruff-{version}-{index}.whl", "packagetype": kind, "upload_time_iso_8601": upload}
+        for index, kind in enumerate(packagetypes)
+    ]
+    # Provenance exists for every file name one might guess; none of them may be asked or generalised to.
+    for other in ("0.16.7", "0.16.8"):
+        uv_pr[_integrity_url(other)] = _provenance(_publisher())
+    asked: list[str] = []
+
+    verdict = vet.vet_pull_request(*_asking(uv_pr, asked), repo=REPO, number=748)
+
+    assert _provenance_rows(verdict) == []
+    assert [item.status for item in verdict.observations] == ["uncomparable"]
+    assert fragment in verdict.observations[0].detail
+    assert [url for url in asked if "/integrity/" in url] == []
+
+
+def test_the_sdist_is_named_by_the_release_files_not_guessed(uv_pr: dict[str, Any]) -> None:
+    for version in ("0.16.7", "0.16.8"):
+        files = uv_pr[vet.PYPI_RELEASE.format(name="ruff", version=version)]["urls"]
+        files[0]["filename"] = f"Ruff-{version}.zip"
+        files.append({**files[0], "filename": f"ruff-{version}-py3-none-any.whl", "packagetype": "bdist_wheel"})
+        uv_pr[_integrity_url(version, f"Ruff-{version}.zip")] = _provenance(_publisher())
+
+    verdict = _vet(uv_pr)
+
+    assert [item.status for item in verdict.observations] == ["same"]
+    assert verdict.observations[0].links == [_integrity_url(v, f"Ruff-{v}.zip") for v in ("0.16.7", "0.16.8")]
+
+
+def test_an_old_release_missing_from_pypi_is_not_compared(uv_pr: dict[str, Any]) -> None:
+    del uv_pr[vet.PYPI_RELEASE.format(name="ruff", version="0.16.7")]
+    uv_pr[_integrity_url("0.16.8")] = _provenance(_publisher())
+
+    verdict = _vet(uv_pr)
+
+    assert verdict.verdict == "OK"
+    assert [item.status for item in verdict.observations] == ["uncomparable"]
+    assert "旧版 0.16.7 の PyPI release が 404" in verdict.observations[0].detail
+
+
+def test_a_new_dependency_has_nothing_to_compare_and_asks_nothing() -> None:
+    responses: dict[str, Any] = {}
+    _pr(responses, head_ref="dependabot/uv/idna-3.10", files={"uv.lock": (_uv_lock(), _uv_lock(idna="3.10"))})
+    _pypi(responses, "idna", {"3.10": datetime(2026, 9, 1, tzinfo=UTC)})
+    asked: list[str] = []
+
+    verdict = vet.vet_pull_request(*_asking(responses, asked), repo=REPO, number=748)
+
+    assert [(item.status, item.change) for item in verdict.observations] == [("uncomparable", "(新規) → 3.10")]
+    assert "旧版が無い" in verdict.observations[0].detail
+    assert [url for url in asked if "/integrity/" in url] == []
+
+
+@pytest.mark.parametrize("failure", ["503", "403", "invalid-json", "bundles-not-a-list", "bundle-not-an-object"])
+def test_provenance_that_cannot_be_read_fails_that_pr_and_keeps_the_others(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path, failure: str
+) -> None:
+    """404 means "not provided"; any other answer the check cannot read is a failed check (exit 2)."""
+    responses = dict(uv_pr)
+    # Both PRs share the merge base, so #750's lock there must still hold #748's old ruff.
+    _pr(
+        responses,
+        number=750,
+        head_sha="5" * 40,
+        head_ref="dependabot/uv/requests-2.34.3",
+        files={"uv.lock": (_uv_lock(ruff="0.16.7", requests="2.34.2"), _uv_lock(ruff="0.16.7", requests="2.34.3"))},
+    )
+    _pypi(
+        responses, "requests", {"2.34.2": datetime(2026, 9, 1, tzinfo=UTC), "2.34.3": datetime(2026, 9, 2, tzinfo=UTC)}
+    )
+    responses[f"{API}/pulls?state=open&per_page=100&page=1"] = [
+        {"number": number, "user": {"login": vet.DEPENDABOT_AUTHOR}} for number in (748, 750)
+    ]
+    broken = _integrity_url("2.34.3", name="requests")
+    if failure == "bundles-not-a-list":
+        responses[broken] = {"version": 1, "attestation_bundles": {"publisher": _publisher()}}
+    elif failure == "bundle-not-an-object":
+        responses[broken] = {"version": 1, "attestation_bundles": ["publisher"]}
+    fetch_json, *others = _fetchers(responses)
+
+    def failing(url: str) -> Any:
+        if url == broken and failure.isdigit():
+            response = requests.Response()
+            response.status_code = int(failure)
+            raise requests.HTTPError(f"{failure} for {url}", response=response)
+        if url == broken and failure == "invalid-json":
+            raise requests.JSONDecodeError("Expecting value", "<html>", 0)
+        return fetch_json(url)
+
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: (failing, *others))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    report_json = tmp_path / "report.json"
+
+    code = vet.main(["--repo", REPO, "--all-open", "--json", str(report_json)])
+
+    entries = {entry["pr"]: entry for entry in json.loads(report_json.read_text(encoding="utf-8"))}
+    assert code == 2
+    assert (entries[748]["verdict"], [item["status"] for item in entries[748]["observations"]]) == (
+        "OK",
+        ["both_missing"],
+    )
+    assert (entries[750]["verdict"], entries[750]["checks"], entries[750]["observations"]) == ("ERROR", [], [])
 
 
 @pytest.mark.parametrize("comment", ["v7", ""])
@@ -2372,6 +2615,26 @@ def test_omitted_rows_never_hide_a_more_severe_one() -> None:
     assert "判定: BLOCK (1 件)" in report
 
 
+@pytest.mark.parametrize("rows", [1_000, 0])
+def test_observations_fit_in_what_the_rows_leave_and_never_push_one_out(rows: int) -> None:
+    """Observations carry no verdict, so they are the first to go when the report would pass the comment limit."""
+    filler = [vet.CheckResult("cooldown", f"dep{index}", "OK", "x" * 200) for index in range(rows)]
+    severe = [vet.CheckResult("tag_sha", "last", "BLOCK", "b"), vet.CheckResult("provenance", "dep", "WARN", "w")]
+    # Longer than a filler row, so none fits in what 1,000 rows leave over.
+    notes = [vet.Observation("provenance", f"dep{index}", "1 → 2", "both_missing", "y" * 300) for index in range(1_000)]
+    verdict = vet.PullRequestVerdict(1, "uv", HEAD_SHA, [], [*filler, *severe], notes)
+
+    report = vet.render_pull_request(verdict)
+    shown = [line for line in report.splitlines() if line.startswith("- dep")]
+
+    assert len(report) <= vet.REPORT_BODY_LIMIT
+    assert "| last | - | tag_sha | BLOCK |" in report
+    assert "| dep | - | provenance | WARN |" in report
+    assert 0 < len(shown) < len(notes) if rows == 0 else shown == []
+    assert f"載せきれない補助観測 {len(notes) - len(shown)} 件を省略" in report
+    assert report.rstrip().endswith("判定: BLOCK (1 件)")
+
+
 def test_each_row_shows_the_bump_it_was_computed_for(action_pr: dict[str, Any]) -> None:
     # Two bumps of one action: rows must not borrow the other bump's versions.
     path = ".github/workflows/watchdog.yml"
@@ -2695,6 +2958,43 @@ def test_json_mirrors_the_markdown_verdicts(
     assert rows[0][1] == "v10.1.0 → v10.2.0"
 
 
+def test_observations_are_reported_apart_from_the_checks_and_the_verdict(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path
+) -> None:
+    hostile = "release|[x](https://evil.example)<b>`"
+    for version in ("0.16.7", "0.16.8"):
+        uv_pr[_integrity_url(version)] = _provenance(_publisher(environment=hostile))
+    report, report_json = tmp_path / "report.md", tmp_path / "report.json"
+
+    status = _main(monkeypatch, uv_pr, "--pr", "748", "--report", str(report), "--json", str(report_json))
+    markdown = report.read_text(encoding="utf-8")
+    payload = json.loads(report_json.read_text(encoding="utf-8"))
+    lines = markdown.splitlines()
+    observation = next(line for line in lines if line.startswith("- ruff"))
+
+    assert status == 0
+    assert [check["id"] for check in payload[0]["checks"] if check["id"] == "provenance"] == []
+    assert payload[0]["observations"] == [
+        {
+            "id": "provenance",
+            "dependency": "ruff",
+            "change": "0.16.7 → 0.16.8",
+            "status": "same",
+            "detail": payload[0]["observations"][0]["detail"],
+            "links": [_integrity_url("0.16.7"), _integrity_url("0.16.8")],
+        }
+    ]
+    # A publisher value is third-party text: compared as is, shown only when shaped like an identifier.
+    assert "environment=(表示できない値)" in payload[0]["observations"][0]["detail"]
+    assert "evil" not in markdown
+    # Below the table, above the verdict line, which stays last.
+    assert max(i for i, line in enumerate(lines) if line.startswith("| ")) < lines.index(observation)
+    assert lines.index(observation) < lines.index("判定: OK")
+    assert markdown.rstrip().endswith("判定: OK")
+    assert observation.startswith("- ruff 0.16.7 → 0.16.8 同一: ")
+    assert "判定に含めない" in markdown
+
+
 def test_comment_is_refused_inside_github_actions(monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any]) -> None:
     monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
@@ -2728,6 +3028,9 @@ def test_fixture_mode_replays_recorded_responses(
     assert status == 0
     assert "| ruff | 0.16.7 → 0.16.8 | yanked | OK |" in out
     assert out.rstrip().endswith("判定: OK")
+    # Recorded before provenance was read: the replay must say "not compared", never "same".
+    assert "- ruff 0.16.7 → 0.16.8 比較不能: 旧版 0.16.7 の PyPI release が 404 のため比較不能" in out
+    assert "同一" not in out
 
 
 def test_recording_writes_a_fixture_that_replays_identically(
@@ -2747,6 +3050,7 @@ def test_recording_writes_a_fixture_that_replays_identically(
     stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
 
     assert recorded.checks == replayed.checks
+    assert recorded.observations == replayed.observations
     assert "untrusted text" not in stored
     assert "untrusted title" not in stored
     assert "@@ -1 +1 @@" not in stored
@@ -2758,6 +3062,37 @@ def test_recording_writes_a_fixture_that_replays_identically(
     project = json.loads((tmp_path / index[f"GET {vet.PYPI_PROJECT.format(name='ruff')}"]).read_text(encoding="utf-8"))
     # Only releases above the candidate (0.16.8) can supersede it; 0.16.7 is history.
     assert sorted(project["releases"]) == ["0.16.10", "0.16.9"]
+
+
+@pytest.mark.parametrize(
+    ("new", "expected"),
+    [
+        (_publisher(environment="x" * 5_000), "same"),
+        (_publisher(environment="x" * 5_000 + "!"), "WARN"),
+        ({"kind": "Future", "note": "untrusted " * 1_000}, "WARN"),
+    ],
+    ids=["same-long-value", "changed-long-value", "unreadable"],
+)
+def test_recorded_provenance_keeps_only_publisher_identities(
+    monkeypatch: pytest.MonkeyPatch, uv_pr: dict[str, Any], tmp_path: Path, new: dict[str, Any], expected: str
+) -> None:
+    """The bundles are kilobytes of certificates per file; only who published is compared."""
+    uv_pr[_integrity_url("0.16.7")] = _provenance(_publisher(environment="x" * 5_000, claims={"note": "untrusted"}))
+    uv_pr[_integrity_url("0.16.8")] = _provenance(new)
+    monkeypatch.setattr(vet, "make_fetchers", lambda token: _fetchers(uv_pr))
+
+    recorded = vet.vet_pull_request(*vet.make_recording_fetchers(None, tmp_path), REPO, 748)
+    replayed = vet.vet_pull_request(*vet.make_fixture_fetchers(tmp_path), REPO, 748)
+    stored = "".join(path.read_text(encoding="utf-8") for path in tmp_path.iterdir())
+
+    assert (replayed.checks, replayed.observations) == (recorded.checks, recorded.observations)
+    assert [item.status for item in recorded.observations] + [row.verdict for row in _provenance_rows(recorded)] == [
+        expected
+    ]
+    assert "untrusted" not in stored
+    assert "x" * 200 not in stored
+    assert "ruff-0.16.8.tar.gz" in stored
+    assert len(stored) < 300_000
 
 
 @pytest.mark.parametrize(
@@ -3008,11 +3343,15 @@ def test_the_token_never_leaves_the_github_api(monkeypatch: pytest.MonkeyPatch) 
 
     fetch_json(f"{API}/pulls/748")
     fetch_json(vet.PYPI_PROJECT.format(name="ruff"))
+    fetch_json(_integrity_url("0.16.8"))
     post_json(vet.OSV_QUERY, {"package": {"name": "ruff", "ecosystem": "PyPI"}})
 
     assert seen[f"{API}/pulls/748"]["Authorization"] == "Bearer secret-token"
     assert "Authorization" not in seen[vet.PYPI_PROJECT.format(name="ruff")]
     assert "Authorization" not in seen[vet.OSV_QUERY]
+    assert "Authorization" not in seen[_integrity_url("0.16.8")]
+    # The Integrity API answers 406 to GitHub's media type.
+    assert seen[_integrity_url("0.16.8")]["Accept"] == "application/vnd.pypi.integrity.v1+json"
 
 
 def _origin(monkeypatch: pytest.MonkeyPatch, remote: str) -> None:
