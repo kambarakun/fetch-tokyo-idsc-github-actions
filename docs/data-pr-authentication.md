@@ -91,7 +91,16 @@ gh secret list --repo kambarakun/fetch-tokyo-idsc-github-actions
 
 ### 4.4 有効にする
 
-有効にする前に、7 章の「有効化前の上流確認」を行います。この pin は自動では更新されず、advisory の監視対象でもないためです。
+有効にする前に、次の 2 つを確かめます。
+
+1. 7 章の「上流確認」。新しい版の提案は Dependabot が出しますが、いま pin している版に後から出た advisory を知らせる仕組みはありません (7 章)。
+2. Claude コードレビューの使用量。`claude-code-review.yml` は Dependabot 以外の PR の作成・更新 (`opened` / `synchronize`) ごとに走ります。`GITHUB_TOKEN` で作ったデータ PR では承認待ちのまま走りませんが、App に切り替えるとデータ PR ごとに走り、`CLAUDE_CODE_OAUTH_TOKEN` のアカウントの使用量を消費します。直近 30 日のデータ PR の件数で、増える回数の見当を付けます (`<30 日前の日付>` は `2026-09-27` の形)。
+
+   ```zsh
+   gh pr list --repo kambarakun/fetch-tokyo-idsc-github-actions --state all --limit 1000 --search 'created:>=<30 日前の日付>' --json headRefName --jq '[.[] | select(.headRefName | test("^(data-update|data-process|metadata-migration)-"))] | length'
+   ```
+
+   その件数分のレビューが増えても使用量の上限に収まるかを確かめます。収まらない場合は、有効化の前に、データ PR をレビュー対象から外すかどうかを別途決めます (ワークフローの変更は別の PR で行う)。
 
 ```zsh
 gh variable set DATA_PR_USE_APP --repo kambarakun/fetch-tokyo-idsc-github-actions --body true
@@ -122,11 +131,18 @@ gh variable set DATA_PR_USE_APP --repo kambarakun/fetch-tokyo-idsc-github-action
 | push が 403 (`Permission ... denied`)                                                                 | App の Contents が Read and write でない、またはインストール先にこのリポジトリが無い                                                           |
 | PR 作成が `Resource not accessible by integration`                                                    | App の Pull requests が Read and write でない                                                                                                  |
 
-トークンの選択・発行や push で失敗した run では、PR は作られず、データのブランチも push されません。`scripts/create_pr.sh` は push のあとに PR を作るため、PR 作成で失敗した run では、データのブランチ (`data-update-*` / `data-process-*` / `metadata-migration-*`) が remote に残ります。失敗した run のログにある `Creating branch:` のブランチ名で、まずそのブランチの PR を確かめます (確認だけで、何も変更しません)。
+トークンの選択・発行で失敗した run では、push の前に止まるので、PR もデータのブランチもできません。`scripts/create_pr.sh` は push のあとに PR を作るため、PR 作成で失敗した run では、データのブランチ (`data-update-*` / `data-process-*` / `metadata-migration-*`) が remote に残ります。push で失敗した run でも残ることがあります。上の表の 403 のような拒否なら remote は変わりませんが、remote 側で ref が更新された後に応答だけが途切れる通信断では、`git push` が失敗を返してもブランチは remote にあります (この通信断を実際に起こして確かめてはいません)。そのため、push と PR 作成のどちらで失敗した run でも、ログにある `Creating branch:` のブランチ名で、まずそのブランチの PR を確かめます (確認だけで、何も変更しません)。
 
 ```zsh
 BRANCH='<ブランチ名>'
 gh pr list --repo kambarakun/fetch-tokyo-idsc-github-actions --head "$BRANCH" --state all --json number,state,url
+```
+
+ブランチが remote にあるかは次で確かめます (これも確認だけです)。SHA が出ればあり、`Not Found` (HTTP 404) なら残っていません。
+
+```zsh
+BRANCH='<ブランチ名>'
+gh api "repos/kambarakun/fetch-tokyo-idsc-github-actions/git/ref/heads/$BRANCH" --jq .object.sha
 ```
 
 `[]` (PR が無い) のときだけ、ブランチを削除します。次のコマンドは、ブランチ名がデータのブランチの形でない場合、PR の照会に失敗した場合、PR が 1 件でもある場合には、何も削除せずに失敗します。
@@ -163,18 +179,25 @@ gh variable delete DATA_PR_APP_CLIENT_ID --repo kambarakun/fetch-tokyo-idsc-gith
 
 ## 7. 保守
 
-- `actions/create-github-app-token` の SHA pin は `.github/actions/data-pr-token/action.yml` にあります。Dependabot の github-actions 設定 (`directory: "/"`) が走査するのは `.github/workflows/` とリポジトリ直下の `action.yml` だけです。`scripts/vet_dependabot_prs.py` などの依存パイプラインの検査もワークフローしか見ません。そのため、**この pin には自動更新も advisory の監視もありません**。[docs/development.md](development.md) の SHA pin の手順で、手動で確認・更新してください。
-- **有効化前の上流確認**: `DATA_PR_USE_APP=true` にする前と、pin を変えるときは、次を確かめます。
+- `actions/create-github-app-token` の SHA pin は `.github/actions/data-pr-token/action.yml` にあります。自動化されている範囲と、手動で残る範囲は次のとおりです。
+
+  | 対象                                     | 担当                                                                                                                                                                                                                                                                                                                                                |
+  | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | 新しい版の提案                           | 自動。Dependabot の github-actions 設定が `directories` で `/.github/actions/data-pr-token` も走査し (issue #763)、週次で PR を出す (cooldown 7 日、major は ignore)                                                                                                                                                                                |
+  | 提案された版の検査                       | 自動。`scripts/vet_dependabot_prs.py` が workflow と同じ検査 (タグと SHA の一致・cooldown・OSV advisory・後続版・Action metadata の差分) をかける ([docs/dependabot-pr-review.md](dependabot-pr-review.md))。マージは人間                                                                                                                           |
+  | いま pin している版に後から出た advisory | **手動**。vet は PR が来たときに提案版だけを見る。dependency graph にもこの pin は載っていない (2026-10-27 の SBOM で確認。workflow の Action だけが載る) ので、Dependabot alerts も当てにできない。watchdog の検査 4 は `WATCHED_ACTION_DEPENDENCIES` に書いた Action の同梱依存だけを見る ([docs/dependency-pipeline.md](dependency-pipeline.md)) |
+
+- **上流確認** (手動): `DATA_PR_USE_APP=true` にする前に 1 回、有効化後は月 1 回 (月初の月曜の Dependabot 確認と同時) 行います。版コメントの版 (`# vX.Y.Z`) を `<版>`、pin の SHA を `<SHA>` として読みます。
   1. リリース一覧で、pin の版より新しいリリースや、修正リリースが出ていないか。
 
      ```zsh
      gh api repos/actions/create-github-app-token/releases --jq '.[0:5][] | [.tag_name, .published_at] | @tsv'
      ```
 
-  2. pin の SHA がタグの解決値と一致するか。`v3.3.0` の場合は `64ab729a6294000f5aa4a4bc0b73d1f32bc45510` が出ることを確かめます。
+  2. pin の SHA がタグの解決値と一致するか。`<SHA>` と同じ値が出ることを確かめます。
 
      ```zsh
-     gh api repos/actions/create-github-app-token/git/ref/tags/v3.3.0 --jq .object.sha
+     gh api 'repos/actions/create-github-app-token/git/ref/tags/<版>' --jq .object.sha
      ```
 
   3. 公開 advisory が無いか。
@@ -184,11 +207,11 @@ gh variable delete DATA_PR_APP_CLIENT_ID --repo kambarakun/fetch-tokyo-idsc-gith
      gh api '/advisories?affects=actions/create-github-app-token&ecosystem=actions' --jq length
      ```
 
-     どちらも `0` であることを確かめます。
+     どちらも `0` であることを確かめます。`0` でなければ advisory の影響範囲に `<版>` が入るかを照合し、入るなら修正版への更新を急ぎます (Dependabot の PR が cooldown 中なら、その PR の根拠に advisory を書いて前倒しする)。
 
   4. 未解決の不具合報告が無いか ([issues](https://github.com/actions/create-github-app-token/issues))。
 
-  更新が必要なら、PR で `action.yml` の SHA と版コメントを差し替えます。差し替えるときは `tests/test_data_pr_token.py` の期待値もあわせて変えます。
+- 更新は Dependabot の PR で受け取ります (手で差し替えるときも、SHA と同じ行の版コメントを一緒に変える)。`tests/test_data_pr_token.py` は特定の SHA を持たず、公式 Action を 40 桁の SHA と `# vX.Y.Z` の版コメントで pin していることだけを確かめるので、更新 PR でテストを直す必要はありません。
 
 - コミットの author / committer は従来どおり `github-actions[bot]` (各ワークフローの Configure git) です。App が行うのは push と PR 操作です。
 - 失敗通知の issue (`Notify pipeline anomaly`) は引き続き `GITHUB_TOKEN` で作ります。
