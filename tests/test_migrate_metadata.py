@@ -247,7 +247,7 @@ class TestMigrationRegistry:
 
         metadata = {"metadata_version": "1.0"}
         with pytest.raises(ValueError, match="Downgrade is not supported"):
-            registry.migrate(metadata, None, target_version=None)
+            registry.migrate(metadata, None, target_version=None)  # type: ignore[arg-type]  # None on purpose
 
 
 class TestGlobalRegistry:

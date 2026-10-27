@@ -1,9 +1,13 @@
 # See https://pre-commit.com for more information
 # See https://pre-commit.com/hooks.html for more hooks
 repos:
+  # Upstream hooks pin `rev:` to a full commit SHA with the version comment on the same line, like
+  # the workflow actions (AGENTS.md). Plain `pre-commit autoupdate` writes tags back, so use
+  # `pre-commit autoupdate --freeze` when updating by hand. tests/test_dependabot_config.py checks this.
+
   # 基本的なファイルチェック
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
     hooks:
       - id: trailing-whitespace
         name: 末尾の空白を削除
@@ -45,6 +49,8 @@ repos:
   # - `--extra dev`: `uv sync` 未実施の新規 clone でも hook が自己ブートストラップする
   # - `--locked`: uv.lock と pyproject.toml が不整合なら実行せず失敗する (fail closed)
   # - `types_or` / `require_serial` は各上流 hook 定義と同じ値を維持している
+  # - Tool settings (line length, profile, mypy options) live only in pyproject.toml, never in `args:`:
+  #   command-line flags override the config file and would silently mask a change made there.
   - repo: local
     hooks:
       # Pythonコードフォーマット (isort)
@@ -54,7 +60,6 @@ repos:
         language: system
         types_or: [cython, pyi, python]
         require_serial: true
-        args: ["--profile", "black", "--line-length", "120"]
 
       # Pythonコードフォーマット (black)
       - id: black
@@ -63,7 +68,6 @@ repos:
         language: system
         types_or: [python, pyi]
         require_serial: true
-        args: ["--line-length", "120"]
 
       # Pythonコード品質チェック (Ruff リンター)
       # 注: コードフォーマットは black に一任する。ruff-format と black を二重適用すると
@@ -86,12 +90,11 @@ repos:
         language: system
         types_or: [python, pyi]
         require_serial: true
-        args: ["--ignore-missing-imports", "--no-strict-optional", "--python-version=3.11"]
 
   # Markdownファイルのフォーマット
   # mirrors-prettier (pre-commit 公式) は 2024 年にアーカイブされたため後継の rbubley/mirrors-prettier を使用
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.10
+    rev: 331f33fa4dfbcbca7c3da3620c137fde0faab273 # v3.9.10
     hooks:
       - id: prettier
         name: Markdown/YAML/JSONのフォーマット
@@ -117,9 +120,6 @@ repos:
 
   # GitHub Actions ワークフロー静的検証 (issue #308)
   - repo: https://github.com/rhysd/actionlint
-    # SHA pinned (CLAUDE.md sec.2.1 SHA pin方針の pre-commit `rev:` への拡張適用)。
-    # Note: `pre-commit autoupdate` はデフォルトでタグ参照に戻すため、SHA を
-    # 維持したい場合は `pre-commit autoupdate --freeze` を使用する必要がある。
     rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
     hooks:
       - id: actionlint

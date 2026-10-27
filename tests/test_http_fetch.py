@@ -88,6 +88,7 @@ def test_not_found_keeps_the_response_so_callers_can_tell_404_apart(monkeypatch:
     for fetch in (vet.make_fetchers(None)[0], watchdog.make_fetchers(None)[0]):
         with pytest.raises(requests.HTTPError) as excinfo:
             fetch("https://api.github.com/repos/owner/name")
+        assert excinfo.value.response is not None
         assert excinfo.value.response.status_code == 404
         assert vet._is_not_found(excinfo.value)
 

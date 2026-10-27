@@ -242,7 +242,7 @@ class DataCollector:
                 self.stats["failed"] += 1
                 self.stats["errors"].append(rejection)
                 self.logger.error(rejection)
-            elif result.success:
+            elif result.success and result.data is not None:
                 # データ保存
                 if not self.dry_run:
                     # 追加メタデータの準備
@@ -296,7 +296,13 @@ class DataCollector:
 
     def _reject_invalid_response(self, result: FetchResult, data_type: str, params: FetchParams) -> str | None:
         """Return the error message when the body breaks the response contract, else None."""
-        data = result.data or b""
+        data = result.data
+        if data is None:
+            # Checked before the contract, which accepts any body for a data type it has no title for
+            return (
+                f"invalid response for {data_type} {params.start_year}-{params.start_sub_period}: "
+                "success without a body"
+            )
         try:
             validate_response(data, data_type, int(params.start_year), int(params.start_sub_period))
         except InvalidResponseError as e:

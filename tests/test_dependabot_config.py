@@ -5,6 +5,7 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
 import requests
 import yaml
 from packaging.requirements import Requirement
@@ -105,6 +106,79 @@ def test_requests_uses_bundled_type_information(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert 'Argument 1 to "get" has incompatible type "int"' in result.stdout
+
+
+def test_tool_settings_live_only_in_pyproject() -> None:
+    """A hook argument or CI flag overrides pyproject.toml, so a duplicate silently masks a config change.
+
+    Until issue #736 the mypy hook passed `--no-strict-optional`, which kept strict optional off in CI
+    whatever pyproject said, and CI ran pytest with `-p no:warnings`, which disables `filterwarnings`.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    pre_commit = yaml.safe_load((project_root / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    test_workflow = (project_root / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
+    hooks = {hook["id"]: hook for repo in pre_commit["repos"] for hook in repo["hooks"]}
+
+    assert {tool: hooks[tool].get("args") for tool in ("black", "isort", "mypy")} == dict.fromkeys(
+        ("black", "isort", "mypy")
+    )
+    assert "no_strict_optional" not in pyproject["tool"]["mypy"]
+    assert pyproject["tool"]["mypy"].get("strict_optional", True) is True
+    # Black is the only formatter; a `[tool.ruff.format]` table would configure a formatter nobody runs.
+    assert "format" not in pyproject["tool"]["ruff"]
+    assert pyproject["tool"]["pytest"]["ini_options"]["filterwarnings"] == ["error"]
+    assert "no:warnings" not in test_workflow
+
+
+def test_mypy_rejects_optional_misuse_under_project_config(tmp_path: Path) -> None:
+    """The mypy hook passes no arguments, so plain mypy from the project root sees what the hook sees."""
+    project_root = Path(__file__).resolve().parent.parent
+    optional_misuse = tmp_path / "optional_misuse.py"
+    optional_misuse.write_text("def next_week(week: int | None) -> int:\n    return week + 1\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "mypy", "--no-error-summary", str(optional_misuse)],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert 'Unsupported operand types for + ("None" and "int")' in result.stdout
+
+
+def _upstream_revs_are_pinned(pre_commit_text: str) -> bool:
+    """Every upstream hook is pinned like the workflow actions: a full SHA with its version on the same line."""
+    upstream = [repo for repo in yaml.safe_load(pre_commit_text)["repos"] if repo["repo"] not in {"local", "meta"}]
+    # `pre-commit autoupdate --freeze` writes `# frozen: vX`; Dependabot keeps either comment form.
+    rev_lines = re.findall(
+        r"^\s*rev:\s*([0-9a-f]{40})\s+#\s*(?:frozen:\s*)?v\d+(?:\.\d+)*\s*$", pre_commit_text, re.MULTILINE
+    )
+    # YAML reads an all-digit SHA as an int, hence str().
+    return bool(upstream) and [str(repo["rev"]) for repo in upstream] == rev_lines
+
+
+def test_upstream_hook_revs_are_pinned_to_commit_shas() -> None:
+    text = (Path(__file__).resolve().parent.parent / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+    assert _upstream_revs_are_pinned(text)
+
+
+@pytest.mark.parametrize(
+    ("rev_line", "pinned"),
+    [
+        pytest.param(f"rev: {'a' * 40} # v6.0.0", True, id="version-comment"),
+        pytest.param(f"rev: {'a' * 40}  # frozen: v6.0.0", True, id="autoupdate-freeze-comment"),
+        pytest.param("rev: v6.0.0", False, id="tag"),
+        pytest.param(f"rev: {'a' * 40}", False, id="sha-without-version"),
+    ],
+)
+def test_upstream_rev_pin_check_accepts_both_version_comment_forms(rev_line: str, pinned: bool) -> None:
+    text = f"repos:\n  - repo: https://github.com/owner/hooks\n    {rev_line}\n    hooks:\n      - id: hook\n"
+
+    assert _upstream_revs_are_pinned(text) is pinned
 
 
 def _setup_uv_steps(workflows_dir: Path) -> dict[str, dict]:

@@ -635,7 +635,8 @@ def action_pin_changes(before: str | None, after: str | None) -> list[ActionPinC
             # the path rather than guess one; with no old pin there is nothing to compare.
             old_by_sha = {sha: version for _, sha, version in old_uses}
             new_by_sha = {sha: version for _, sha, version in new_uses}
-            pairs = [(old, new) for new in new_by_sha.items() for old in list(old_by_sha.items()) or [(None, None)]]
+            old_candidates: list[Pin] = list(old_by_sha.items()) or [(None, None)]
+            pairs = [(old, new) for new in new_by_sha.items() for old in old_candidates]
         for (old_sha, old_version), (new_sha, new_version) in dict.fromkeys(pairs):
             if old_sha != new_sha:
                 changes.append(ActionPinChange(repo, subpath, old_sha, old_version, new_sha, new_version))
@@ -650,7 +651,7 @@ def workflow_bumps(before: str | None, after: str | None) -> list[Bump]:
     pin is its own bump, so a major jump from any of them still shows.
     """
     old_shas: set[tuple[str, str]] = set()
-    old_versions: dict[str, list[str]] = {}
+    old_versions: dict[str, list[str | None]] = {}
     for (repo, _), uses in _action_pins(before).items():
         for _, sha, version in uses:
             old_shas.add((repo, sha))
@@ -1460,8 +1461,6 @@ def _uncomparable(change: ActionPinChange) -> str | None:
         return "サブパスを解釈できないため比較不能"
     if REUSABLE_WORKFLOW.fullmatch(change.subpath):
         return "再利用ワークフローは action metadata を持たないため比較不能"
-    if change.old_sha is None:
-        return "置き換えた旧 pin が無いため比較不能 (新規追加など)"
     return None
 
 
@@ -1474,6 +1473,9 @@ def check_action_metadata(fetch_text: FetchText, change: ActionPinChange) -> lis
 
     if reason := _uncomparable(change):
         return row("WARN", reason)
+    # Checked here, after the path checks above, so the loop below sees a str old_sha.
+    if change.old_sha is None:
+        return row("WARN", "置き換えた旧 pin が無いため比較不能 (新規追加など)")
     loaded: list[tuple[str, dict[str, Any]]] = []
     links: list[str] = []
     for label, sha in (("旧", change.old_sha), ("新", change.new_sha)):
@@ -1708,7 +1710,7 @@ def render_json(
     verdicts: Sequence[PullRequestVerdict], failures: Sequence[VettingFailure] = ()
 ) -> list[dict[str, Any]]:
     # A failed PR keeps the shape of a vetted one (no bumps, no checks) so `.[].checks[]` still reads it.
-    failed = [
+    failed: list[dict[str, Any]] = [
         {
             "pr": item.number,
             "ecosystem": None,
