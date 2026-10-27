@@ -4,12 +4,12 @@
 
 ## 1. 前提と注意
 
-- **データ提供元への接続**: `fetch-data` は、GitHub Actions のワークフロー (`fetch-data.yml` / `fetch-data-daily.yml` / `fetch-data-weekly.yml`) でもローカルの `uv run fetch-data` でも、データ提供元 (`survey.tmiph.metro.tokyo.lg.jp`) に HTTP リクエストを送ります。`--dry-run` (ワークフローの `dry_run`) を付けても取得は行い、保存と PR 作成だけを省きます。期間・データタイプ・対象週/月を必ず絞ってください。
+- **データ提供元への接続**: `fetch-data` は、GitHub Actions のワークフロー (`fetch-data.yml` / `fetch-data-daily.yml` / `fetch-data-weekly.yml`) でもローカルの `uv run fetch-data` でも、データ提供元 (`survey.tmiph.metro.tokyo.lg.jp`) に HTTP リクエストを送ります。`--dry-run` (ワークフローの `dry_run`) を付けても取得は行い、保存と PR 作成だけを省きます。接続しないのはローカルの `uv run fetch-data --plan-only` (取得候補の JSON 表示) だけです。期間・データタイプ・対象週/月を必ず絞ってください。
 - **使わない操作**: 次の操作は対象が全件に広がるため、修復の手順としては使いません。
   - `uv run process-data --all` と、`target_files` を空欄にした `process-data.yml` (空欄は `--all` と同じ)
   - 引数なしの `uv run fetch-data` (`config/config.yml` の `collection.start_year` から当年までの全データタイプを要求する)
   - `data_types` や期間を省略した `mode=force` の取得
-- **実行するのは人**: `fetch-data` の実行 (`--dry-run` を含め、データ提供元に接続する)、取得ワークフローの dispatch、ワークフローの無効化・再有効化、実 `data/` の書き換えは、人の明示的な指示がある場合に人が行います。エージェントはこれらを実行しません (AGENTS.md の Safety)。
+- **実行するのは人**: `fetch-data` の実行 (`--dry-run` を含め、データ提供元に接続する。接続しない `--plan-only` は除く)、取得ワークフローの dispatch、ワークフローの無効化・再有効化、実 `data/` の書き換えは、人の明示的な指示がある場合に人が行います。エージェントはこれらを実行しません (AGENTS.md の Safety)。
 - **作業は PR 経由**: ブランチを切って作業し、PR で反映します。main へ直接 push しません。データ PR のマージは人が行います (手動実行のワークフローは既定で自動マージしません)。
 - **実データを書き換える手順**: 2.2・3.2・4 の手順はリポジトリの `data/` を書き換えます。始める前に `git status` が clean であることを確かめてください。`process-data` / `check-data-status` を試すときは `--data-dir` に scratch コピーを指定できます。`fetch-data` には `--data-dir` が無く、保存先は `--config` で渡す設定の `storage.base_directory` で決まります。
 - **定期実行との競合**: 取得系の3ワークフローは concurrency グループ `fetch-data` を共有するので、手動の取得中は日次・週次が待ちます。ローカルで作業している間も定期実行は main に PR を作り続けるため、push 前に `git fetch origin` で main の進みを確認してください。
@@ -67,14 +67,14 @@ Actions が使えないときの代替です。ここで示すコマンドはデ
    git status --short
    ```
 
-2. **確認 (ドライラン)**: 取得対象を確かめます。データ提供元に HTTP リクエストを送りますが、保存はしません。
+2. **確認 (オフライン計画)**: 取得対象を確かめます。データ提供元に接続せず、ファイルも作りません。標準出力の JSON の `candidates` が `sentinel_weekly_age_2026_37.csv` の 1 件だけであることを確かめます。データ提供元の応答まで確かめたいときだけ、`--plan-only` を `--dry-run` に替えて実行します (接続します。保存はしません)。
 
    ```bash
-   # データ提供元に接続する (保存はしない)
-   uv run fetch-data --data-types sentinel_weekly_age --start-year 2026 --end-year 2026 --target-weeks 37 --mode force --dry-run
+   # データ提供元に接続しない
+   uv run fetch-data --data-types sentinel_weekly_age --start-year 2026 --end-year 2026 --target-weeks 37 --mode force --plan-only
    ```
 
-3. **実行**: 同じ引数から `--dry-run` だけを外して実行します。データ提供元に接続し、指定した期間の raw とメタデータを保存します (`fetch-data` はコミットしません)。
+3. **実行**: 同じ引数から `--plan-only` だけを外して実行します。データ提供元に接続し、指定した期間の raw とメタデータを保存します (`fetch-data` はコミットしません)。
 
    ```bash
    # データ提供元に接続し、data/raw/ を書き換える

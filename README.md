@@ -627,7 +627,16 @@ uv sync --all-extras --locked
 
 #### ローカルでのデータ取得
 
-> ⚠️ `uv run fetch-data` はデータ提供元 (`survey.tmiph.metro.tokyo.lg.jp`) に HTTP リクエストを送ります。`--dry-run` を付けても取得は行い、保存だけを省きます。CLI は引数なしでも動きますが、そのときは下に書く広い範囲を要求するので、期間とデータタイプは必ず明示し、取得した raw はブランチを切って PR で反映してください (`fetch-data` はコミットしません)。
+> ⚠️ `uv run fetch-data` はデータ提供元 (`survey.tmiph.metro.tokyo.lg.jp`) に HTTP リクエストを送ります。`--dry-run` を付けても取得は行い、保存だけを省きます。接続しないのは `--plan-only` だけです。CLI は引数なしでも動きますが、そのときは下に書く広い範囲を要求するので、期間とデータタイプは必ず明示し、取得した raw はブランチを切って PR で反映してください (`fetch-data` はコミットしません)。
+
+取得計画 (オフライン。データ提供元に接続せず、ファイルもディレクトリも作らない):
+
+```bash
+# 取得候補を JSON で標準出力に表示する
+uv run fetch-data --data-types sentinel_weekly_gender --start-year 2026 --end-year 2026 --plan-only
+```
+
+計画は本実行と同じ規則 (mode・期間・対象週/月・JST の今日までの ISO 週と月・`data/raw/` の既存ファイル) で候補を選び、`candidates` に `data_type`・`year`・`week` または `month`・保存先のファイル名 (`file`)・ローカルに既にあるか (`exists_locally`) を、`counts` / `candidate_count` に件数を出します。データ提供元が公開済みか、内容が全て0か、接続や応答検証が成功するかは確かめられないため、その範囲を `not_verified` に列挙します (取得結果の統計とは別物で、統計ファイルも作りません)。`--dry-run` と `--log-file` は併用できません。
 
 ドライラン (保存しない。データ提供元への HTTP リクエストは発生する):
 
