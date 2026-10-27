@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from requests.exceptions import ChunkedEncodingError, ConnectionError, ContentDecodingError, HTTPError, Timeout
 
@@ -243,7 +243,24 @@ class RateLimiter:
 
 
 class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
-    """拡張版感染症データフェッチャー"""
+    """拡張版感染症データフェッチャー
+
+    Candidate selection (`get_missing_data` and its helpers) is class-level, so `fetch-data --plan-only`
+    can use it without building an HTTP session.
+    """
+
+    # Data types this fetcher supports, mapped to their report type; the keys match `fetch_methods`
+    REPORT_TYPES: ClassVar[dict[str, str]] = {
+        "sentinel_weekly_gender": "1",
+        "sentinel_weekly_age": "0",
+        "sentinel_weekly_health_center": "2",
+        "sentinel_weekly_medical_district": "5",
+        "sentinel_monthly_gender": "15",
+        "sentinel_monthly_age": "10",
+        "sentinel_monthly_health_center": "11",
+        "sentinel_monthly_medical_district": "12",
+        "notifiable_weekly": "20",
+    }
 
     def __init__(self, config: DataFetcherConfig | None = None):
         self.config = config or DataFetcherConfig()
@@ -373,8 +390,9 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return results
 
+    @classmethod
     def get_missing_data(
-        self,
+        cls,
         data_type: str,
         existing_files: list[Path],
         start_year: int = 2000,
@@ -417,7 +435,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         if end_year is None:
             end_year = now.year
 
-        existing_params = self._parse_existing_files(existing_files, data_type)
+        existing_params = cls._parse_existing_files(existing_files, data_type)
         missing_params = []
 
         for year in range(start_year, end_year + 1):
@@ -433,9 +451,9 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         end_year=str(year),
                         end_sub_period=str(month),
                         data_type=data_type,
-                        report_type=self._get_report_type(data_type),
+                        report_type=cls._get_report_type(data_type),
                     )
-                    if not self._is_params_in_existing(params, existing_params):
+                    if not cls._is_params_in_existing(params, existing_params):
                         missing_params.append(params)
             else:  # weekly
                 for week in range(1, max_period + 1):
@@ -448,9 +466,9 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         end_year=str(year),
                         end_sub_period=str(week),
                         data_type=data_type,
-                        report_type=self._get_report_type(data_type),
+                        report_type=cls._get_report_type(data_type),
                     )
-                    if not self._is_params_in_existing(params, existing_params):
+                    if not cls._is_params_in_existing(params, existing_params):
                         missing_params.append(params)
 
         return missing_params
@@ -490,20 +508,10 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
         """指定年の週数を取得"""
         return periods.weeks_in_year(year)
 
-    def _get_report_type(self, data_type: str) -> str:
+    @classmethod
+    def _get_report_type(cls, data_type: str) -> str:
         """データタイプからレポートタイプを取得"""
-        report_type_map = {
-            "sentinel_weekly_gender": "1",
-            "sentinel_weekly_age": "0",
-            "sentinel_weekly_health_center": "2",
-            "sentinel_weekly_medical_district": "5",
-            "sentinel_monthly_gender": "15",
-            "sentinel_monthly_age": "10",
-            "sentinel_monthly_health_center": "11",
-            "sentinel_monthly_medical_district": "12",
-            "notifiable_weekly": "20",
-        }
-        return report_type_map.get(data_type, "0")
+        return cls.REPORT_TYPES.get(data_type, "0")
 
     def _get_source_url(self, data_type: str | None) -> str | None:
         """データタイプからソースURLを構成する
@@ -526,7 +534,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return f"{self.BASE_URL}/{endpoint}"
 
-    def _parse_existing_files(self, files: list[Path], data_type: str) -> list[FetchParams]:
+    @classmethod
+    def _parse_existing_files(cls, files: list[Path], data_type: str) -> list[FetchParams]:
         """既存ファイルからパラメータを解析
 
         新旧両方のファイル名形式に対応:
@@ -570,7 +579,7 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
                         end_year=year,
                         end_sub_period=period,
                         data_type=data_type,
-                        report_type=self._get_report_type(data_type),
+                        report_type=cls._get_report_type(data_type),
                     )
                     params_list.append(params)
                 except (IndexError, ValueError):
@@ -578,7 +587,8 @@ class EnhancedEpidemicDataFetcher(TokyoEpidemicSurveillanceFetcher):
 
         return params_list
 
-    def _is_params_in_existing(self, params: FetchParams, existing_params: list[FetchParams]) -> bool:
+    @staticmethod
+    def _is_params_in_existing(params: FetchParams, existing_params: list[FetchParams]) -> bool:
         """パラメータが既存リストに含まれるか確認"""
         for existing in existing_params:
             if (

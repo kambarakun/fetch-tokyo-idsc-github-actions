@@ -76,14 +76,34 @@ jobs:
           path: coverage_html/
           retention-days: 7
 
-      - name: Test dry run of main script
+      - name: Plan a fetch offline
+        # --plan-only sends no request to the data source and writes nothing, so check the JSON content
+        # (2025 has 52 ISO weeks, so W53 must not be planned) and that data/ is untouched
         run: |
           uv run --locked fetch-data \
-            --dry-run \
+            --plan-only \
+            --mode full \
             --start-year 2025 \
             --end-year 2025 \
-            --data-types "sentinel_weekly_gender" \
-            --log-file tests/temp/test.log
+            --target-weeks 1,52,53 \
+            --data-types "sentinel_weekly_gender" > "$RUNNER_TEMP/fetch-plan.json"
+          uv run --locked python - "$RUNNER_TEMP/fetch-plan.json" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              plan = json.load(f)
+          files = [candidate["file"] for candidate in plan["candidates"]]
+          expected = ["sentinel_weekly_gender_2025_01.csv", "sentinel_weekly_gender_2025_52.csv"]
+          if plan["kind"] != "fetch-plan" or plan["mode"] != "full":
+              sys.exit(f"unexpected plan header: kind={plan['kind']} mode={plan['mode']}")
+          if files != expected or plan["candidate_count"] != len(expected):
+              sys.exit(f"unexpected candidates: {files} (candidate_count={plan['candidate_count']})")
+          if not plan["not_verified"]:
+              sys.exit("not_verified is empty")
+          print(f"fetch plan OK: {files}")
+          PY
+          test -z "$(git status --porcelain --untracked-files=all -- data)"
 
       - name: Check deprecated CLI usage
         run: |
@@ -112,11 +132,11 @@ jobs:
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -f tests/temp/test.log ]; then
+          if [ -f "$RUNNER_TEMP/fetch-plan.json" ]; then
             {
-              echo "### Dry Run Log (last 20 lines)"
-              echo '```'
-              tail -n 20 tests/temp/test.log
+              echo "### Offline Fetch Plan (first 20 lines)"
+              echo '```json'
+              head -n 20 "$RUNNER_TEMP/fetch-plan.json"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi

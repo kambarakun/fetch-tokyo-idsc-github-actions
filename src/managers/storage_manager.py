@@ -45,6 +45,35 @@ EXPECTED_ENCODING = "shift_jis"  # raw dataのデフォルトエンコーディ�
 logger = logging.getLogger(__name__)
 
 
+def data_file_name(data_type: str, year: int, period: int) -> str:
+    """Raw file name of one period (`data_type` already says weekly or monthly)."""
+    return f"{data_type}_{year}_{period:02d}.csv"
+
+
+def find_existing_files(base_path: Path, data_type: str | None = None, year: int | None = None) -> list[Path]:
+    """List the raw CSV files under `base_path` without creating anything (a missing directory lists empty).
+
+    Args:
+        base_path: Flat raw data directory.
+        data_type: Keep only files whose name contains it (optional).
+        year: Keep only files of this year (optional).
+
+    Returns:
+        Matching file paths, sorted.
+    """
+    files = list(base_path.glob("*.csv"))  # flat layout: glob, not rglob
+
+    if data_type:
+        files = [f for f in files if data_type in f.name]
+
+    if year:
+        # Match the year strictly, e.g. sentinel_weekly_2025_01.csv
+        year_pattern = re.compile(rf"_{year}_\d{{2}}\.csv$")
+        files = [f for f in files if year_pattern.search(f.name)]
+
+    return sorted(files)
+
+
 @dataclass
 class SaveResult:
     """ファイル保存操作の結果を表すデータクラス。
@@ -193,7 +222,7 @@ class StorageManager:
 
             # ファイル名生成(タイムスタンプなし、ゼロパディングあり)
             # データタイプ名に既にweekly/monthlyが含まれているため、period_typeは不要
-            filename = f"{data_type}_{year}_{period:02d}.csv"
+            filename = data_file_name(data_type, year, period)
             file_path = dir_path / filename
 
             # パス安全性チェック(保存前に実行 - セキュリティクリティカル)
@@ -934,23 +963,9 @@ class StorageManager:
         Note:
             フラット構造のため、base_path直下のCSVファイルを検索する。
             年でのフィルタリングは正規表現で厳密に行う。
+            `fetch-data --plan-only` lists files with the same `find_existing_files`.
         """
-        pattern = "*.csv"
-
-        # フラット構造なので常にベースパスから検索
-        search_path = self.base_path
-        files = list(search_path.glob(pattern))  # rglobではなくglobを使用
-
-        if data_type:
-            files = [f for f in files if data_type in f.name]
-
-        if year:
-            # 正規表現でより厳密に年をフィルタリング
-            # 例: sentinel_weekly_2025_01.csv にマッチ
-            year_pattern = re.compile(rf"_{year}_\d{{2}}\.csv$")
-            files = [f for f in files if year_pattern.search(f.name)]
-
-        return sorted(files)
+        return find_existing_files(self.base_path, data_type=data_type, year=year)
 
     def get_metadata(self, file_path: Path) -> dict[str, Any] | None:
         """指定されたファイルのメタデータを取得する。

@@ -20,7 +20,7 @@ from src.fetchers import periods
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchParams, FetchResult
 from src.fetchers.response_contract import InvalidResponseError, validate_response
 from src.managers.config_manager import ConfigurationManager, DataCollectionConfig
-from src.managers.storage_manager import StorageManager
+from src.managers.storage_manager import StorageManager, data_file_name, find_existing_files
 
 
 class CollectionMode(StrEnum):
@@ -57,15 +57,27 @@ def setup_logging(log_file: str | None = None, log_level: str = "INFO"):
     return logging.getLogger(__name__)
 
 
-class DataCollector:
-    """データ収集メインクラス"""
+class FetchPlanner:
+    """Selects the periods a run requests, without HTTP requests or writes.
+
+    `fetch-data --plan-only` uses it directly and DataCollector inherits it, so a plan and a real run
+    share the mode, period and candidate rules. Planning builds no HTTP session and no StorageManager:
+    it uses the fetcher's class-level selection helpers and lists existing files read-only.
+    """
+
+    # Shown in every plan: what a plan cannot know without contacting the data source
+    NOT_VERIFIED = (
+        "データ提供元での実在・公開状況 (未公開の週/月は取得後に全ゼロと判定され保存されない)",
+        "取得内容と応答契約 (タイトル・対象期間) の検証結果",
+        "HTTP/TLS 接続とリトライの成否",
+        "full/force で既存ファイルが実際に書き換わるか (同一内容なら書き換えない)",
+        "実行時間上限 (collection.max_execution_time_hours) による途中打ち切り",
+    )
 
     def __init__(
         self,
         config: DataCollectionConfig,
         mode: CollectionMode | str | None = None,
-        dry_run: bool = False,
-        save_all_zero: bool = False,
         target_weeks: list[int] | None = None,
         target_months: list[int] | None = None,
         # 後方互換性のため残す (非推奨)
@@ -73,8 +85,6 @@ class DataCollector:
         force_update: bool | None = None,
     ):
         self.config = config
-        self.dry_run = dry_run
-        self.save_all_zero = save_all_zero
         self.target_weeks = target_weeks
         self.target_months = target_months
         self.logger = logging.getLogger(__name__)
@@ -109,6 +119,188 @@ class DataCollector:
 
         self.logger.info(f"データ収集モード: {self.mode.value}")
 
+    def resolve_targets(
+        self, data_types: list[str] | None, start_year: int | None, end_year: int | None
+    ) -> tuple[list[str], int, int]:
+        """Apply the CLI > config > default precedence to the data types and the year range."""
+        data_types = data_types or self.config.collection.data_types_to_collect
+        start_year = start_year or self.config.collection.start_year
+        # Precedence: --end-year > collection.end_year in config > the current JST year
+        end_year = end_year or self.config.collection.end_year or periods.now_jst().year
+        return data_types, start_year, end_year
+
+    def select_params(self, data_type: str, start_year: int, end_year: int) -> list[FetchParams]:
+        """Periods of `data_type` to request, by mode
+
+        - FORCE: 全データを強制的に再取得
+        - FULL: 全期間のデータを取得し、既存も更新チェック
+        - INCREMENTAL: 欠損データのみ取得 (既存ファイルをスキップ)
+        """
+        is_monthly = "monthly" in data_type
+
+        if self.mode == CollectionMode.FORCE:
+            # FORCEモード: 全データを強制的に再取得
+            self.logger.info(f"[{self.mode.value}] {data_type}の全データを強制再取得")
+            return self._generate_all_params(data_type, start_year, end_year, is_monthly)
+
+        if self.mode == CollectionMode.FULL:
+            # FULLモード: 全期間のデータを取得、既存も更新チェック
+            all_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
+            self.logger.info(f"[{self.mode.value}] {data_type}の{len(all_params)}件を取得 (既存も更新チェック)")
+            return all_params
+
+        if self.mode == CollectionMode.INCREMENTAL:
+            # INCREMENTALモード: 欠損データのみ取得
+            existing_files = self._existing_files(data_type)
+            missing_params = self._missing_params(data_type, existing_files, start_year, end_year)
+            self.logger.info(f"[{self.mode.value}] {data_type}の欠損データ {len(missing_params)}件のみ取得")
+            return missing_params
+
+        # 未知のモード (通常は発生しない)
+        raise ValueError(f"Unknown collection mode: {self.mode}")
+
+    def _existing_files(self, data_type: str) -> list[Path]:
+        return find_existing_files(Path(self.config.storage.base_directory), data_type=data_type)
+
+    def _missing_params(
+        self, data_type: str, existing_files: list[Path], start_year: int, end_year: int
+    ) -> list[FetchParams]:
+        return EnhancedEpidemicDataFetcher.get_missing_data(
+            data_type, existing_files, start_year, end_year, self.target_weeks, self.target_months
+        )
+
+    def plan(
+        self, data_types: list[str] | None = None, start_year: int | None = None, end_year: int | None = None
+    ) -> dict[str, Any]:
+        """Build the machine-readable plan printed by `fetch-data --plan-only`.
+
+        Raises:
+            ValueError: A data type is unknown, or a target week / month is out of range.
+        """
+        data_types, start_year, end_year = self.resolve_targets(data_types, start_year, end_year)
+        unknown = [data_type for data_type in data_types if data_type not in EnhancedEpidemicDataFetcher.REPORT_TYPES]
+        if unknown:
+            # A real run counts every period of these as failed
+            raise ValueError(f"不明なデータタイプ: {unknown}")
+
+        raw_dir = Path(self.config.storage.base_directory)
+        candidates: list[dict[str, Any]] = []
+        counts: dict[str, int] = {}
+        for data_type in data_types:
+            period_key = "month" if "monthly" in data_type else "week"
+            selected = self.select_params(data_type, start_year, end_year)
+            counts[data_type] = len(selected)
+            for params in selected:
+                year, period = int(params.start_year), int(params.start_sub_period)
+                file_name = data_file_name(data_type, year, period)
+                candidates.append(
+                    {
+                        "data_type": data_type,
+                        "year": year,
+                        period_key: period,
+                        "file": file_name,
+                        "exists_locally": (raw_dir / file_name).is_file(),
+                    }
+                )
+
+        return {
+            "kind": "fetch-plan",
+            "planned_at_jst": periods.now_jst().isoformat(timespec="seconds"),
+            "mode": self.mode.value,
+            "start_year": start_year,
+            "end_year": end_year,
+            "target_weeks": self.target_weeks,
+            "target_months": self.target_months,
+            "raw_dir": str(raw_dir),
+            "data_types": data_types,
+            "counts": counts,
+            "candidate_count": len(candidates),
+            "candidates": candidates,
+            "not_verified": list(self.NOT_VERIFIED),
+        }
+
+    def _generate_all_params(
+        self, data_type: str, start_year: int, end_year: int, is_monthly: bool
+    ) -> list[FetchParams]:
+        """全期間のパラメータを生成"""
+        params_list = []
+        now = periods.now_jst()
+
+        for year in range(start_year, end_year + 1):
+            max_period = periods.max_period_for_year(year, monthly=is_monthly, now=now)
+            if is_monthly:
+                for month in range(1, max_period + 1):
+                    # 対象月が指定されている場合はフィルタリング
+                    if self.target_months and month not in self.target_months:
+                        continue
+                    params = FetchParams(
+                        start_year=str(year),
+                        start_sub_period=str(month),
+                        end_year=str(year),
+                        end_sub_period=str(month),
+                        data_type=data_type,
+                        report_type=self._get_report_type(data_type),
+                    )
+                    params_list.append(params)
+            else:
+                for week in range(1, max_period + 1):
+                    # 対象週が指定されている場合はフィルタリング
+                    if self.target_weeks and week not in self.target_weeks:
+                        continue
+                    params = FetchParams(
+                        start_year=str(year),
+                        start_sub_period=str(week),
+                        end_year=str(year),
+                        end_sub_period=str(week),
+                        data_type=data_type,
+                        report_type=self._get_report_type(data_type),
+                    )
+                    params_list.append(params)
+
+        return params_list
+
+    def _get_report_type(self, data_type: str) -> str:
+        """レポートタイプを取得"""
+        report_types = {
+            "sentinel_weekly_gender": "1",
+            "sentinel_weekly_age": "0",
+            "sentinel_weekly_health_center": "2",
+            "sentinel_weekly_medical_district": "5",
+            "sentinel_monthly_gender": "15",
+            "sentinel_monthly_age": "10",
+            "sentinel_monthly_health_center": "11",
+            "sentinel_monthly_medical_district": "12",
+            "notifiable_weekly": "20",
+        }
+        return report_types.get(data_type, "0")
+
+
+class DataCollector(FetchPlanner):
+    """データ収集メインクラス"""
+
+    def __init__(
+        self,
+        config: DataCollectionConfig,
+        mode: CollectionMode | str | None = None,
+        dry_run: bool = False,
+        save_all_zero: bool = False,
+        target_weeks: list[int] | None = None,
+        target_months: list[int] | None = None,
+        # 後方互換性のため残す (非推奨)
+        skip_existing: bool | None = None,
+        force_update: bool | None = None,
+    ):
+        super().__init__(
+            config,
+            mode=mode,
+            target_weeks=target_weeks,
+            target_months=target_months,
+            skip_existing=skip_existing,
+            force_update=force_update,
+        )
+        self.dry_run = dry_run
+        self.save_all_zero = save_all_zero
+
         # フェッチャー初期化
         fetcher_config = DataFetcherConfig(max_retries=3, base_delay=1.0, timeout=30, rate_limit_delay=1.5)
         self.fetcher = EnhancedEpidemicDataFetcher(fetcher_config)
@@ -130,6 +322,18 @@ class DataCollector:
             "end_time": None,
         }
 
+    # A real run reaches the same rules through its own instances: StorageManager.get_existing_files
+    # delegates to find_existing_files, and get_missing_data is a classmethod
+    def _existing_files(self, data_type: str) -> list[Path]:
+        return self.storage.get_existing_files(data_type=data_type)
+
+    def _missing_params(
+        self, data_type: str, existing_files: list[Path], start_year: int, end_year: int
+    ) -> list[FetchParams]:
+        return self.fetcher.get_missing_data(
+            data_type, existing_files, start_year, end_year, self.target_weeks, self.target_months
+        )
+
     def collect_data(
         self, data_types: list[str] | None = None, start_year: int | None = None, end_year: int | None = None
     ) -> dict[str, Any]:
@@ -138,10 +342,7 @@ class DataCollector:
         self.logger.info(f"データ収集開始: {self.stats['start_time']}")
 
         # パラメータ設定
-        data_types = data_types or self.config.collection.data_types_to_collect
-        start_year = start_year or self.config.collection.start_year
-        # Precedence: --end-year > collection.end_year in config > the current JST year
-        end_year = end_year or self.config.collection.end_year or periods.now_jst().year
+        data_types, start_year, end_year = self.resolve_targets(data_types, start_year, end_year)
 
         self.logger.info(f"収集パラメータ: データタイプ={data_types}, 期間={start_year}-{end_year}")
 
@@ -159,42 +360,9 @@ class DataCollector:
         return self.stats
 
     def _collect_data_type(self, data_type: str, start_year: int, end_year: int):
-        """特定のデータタイプを収集
-
-        モードに応じてデータ収集戦略を変更:
-        - FORCE: 全データを強制的に再取得
-        - FULL: 全期間のデータを取得し、既存も更新チェック
-        - INCREMENTAL: 欠損データのみ取得 (既存ファイルをスキップ)
-        """
+        """特定のデータタイプを収集 (対象期間の選択は FetchPlanner.select_params と共通)"""
         is_monthly = "monthly" in data_type
-
-        # モードに応じてパラメータを生成
-        if self.mode == CollectionMode.FORCE:
-            # FORCEモード: 全データを強制的に再取得
-            self.logger.info(f"[{self.mode.value}] {data_type}の全データを強制再取得")
-            missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-
-        elif self.mode == CollectionMode.FULL:
-            # FULLモード: 全期間のデータを取得、既存も更新チェック
-            missing_params = self._generate_all_params(data_type, start_year, end_year, is_monthly)
-            self.logger.info(f"[{self.mode.value}] {data_type}の{len(missing_params)}件を取得 (既存も更新チェック)")
-
-        elif self.mode == CollectionMode.INCREMENTAL:
-            # INCREMENTALモード: 欠損データのみ取得
-            existing_files = self.storage.get_existing_files(data_type=data_type)
-            missing_params = self.fetcher.get_missing_data(
-                data_type,
-                existing_files,
-                start_year,
-                end_year,
-                self.target_weeks,
-                self.target_months,
-            )
-            self.logger.info(f"[{self.mode.value}] {data_type}の欠損データ {len(missing_params)}件のみ取得")
-
-        else:
-            # 未知のモード (通常は発生しない)
-            raise ValueError(f"Unknown collection mode: {self.mode}")
+        missing_params = self.select_params(data_type, start_year, end_year)
 
         # バッチ処理
         batch_size = self.config.collection.batch_size
@@ -323,61 +491,6 @@ class DataCollector:
             return ""
         return "00"
 
-    def _generate_all_params(
-        self, data_type: str, start_year: int, end_year: int, is_monthly: bool
-    ) -> list[FetchParams]:
-        """全期間のパラメータを生成"""
-        params_list = []
-        now = periods.now_jst()
-
-        for year in range(start_year, end_year + 1):
-            max_period = periods.max_period_for_year(year, monthly=is_monthly, now=now)
-            if is_monthly:
-                for month in range(1, max_period + 1):
-                    # 対象月が指定されている場合はフィルタリング
-                    if self.target_months and month not in self.target_months:
-                        continue
-                    params = FetchParams(
-                        start_year=str(year),
-                        start_sub_period=str(month),
-                        end_year=str(year),
-                        end_sub_period=str(month),
-                        data_type=data_type,
-                        report_type=self._get_report_type(data_type),
-                    )
-                    params_list.append(params)
-            else:
-                for week in range(1, max_period + 1):
-                    # 対象週が指定されている場合はフィルタリング
-                    if self.target_weeks and week not in self.target_weeks:
-                        continue
-                    params = FetchParams(
-                        start_year=str(year),
-                        start_sub_period=str(week),
-                        end_year=str(year),
-                        end_sub_period=str(week),
-                        data_type=data_type,
-                        report_type=self._get_report_type(data_type),
-                    )
-                    params_list.append(params)
-
-        return params_list
-
-    def _get_report_type(self, data_type: str) -> str:
-        """レポートタイプを取得"""
-        report_types = {
-            "sentinel_weekly_gender": "1",
-            "sentinel_weekly_age": "0",
-            "sentinel_weekly_health_center": "2",
-            "sentinel_weekly_medical_district": "5",
-            "sentinel_monthly_gender": "15",
-            "sentinel_monthly_age": "10",
-            "sentinel_monthly_health_center": "11",
-            "sentinel_monthly_medical_district": "12",
-            "notifiable_weekly": "20",
-        }
-        return report_types.get(data_type, "0")
-
     def _get_weeks_in_year(self, year: int) -> int:
         """年の週数を取得"""
         return periods.weeks_in_year(year)
@@ -469,7 +582,20 @@ def main():
 
     parser.add_argument("--target-months", type=str, help="対象月を指定(カンマ区切り、例: 1,2,12)")
 
-    parser.add_argument("--dry-run", action="store_true", help="テスト実行(データ保存をスキップ)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="テスト実行(データ源へ接続して取得し、データ保存のみスキップ)。オフラインで確認するには --plan-only",
+    )
+
+    parser.add_argument(
+        "--plan-only",
+        action="store_true",
+        help=(
+            "取得候補を JSON で標準出力に表示して終了する。"
+            "データ源への接続・ファイルやディレクトリの作成・統計ファイル出力をしない"
+        ),
+    )
 
     parser.add_argument(
         "--mode",
@@ -509,6 +635,12 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Rejected before logging is set up, so that a plan never creates the log file
+    if args.plan_only and args.dry_run:
+        parser.error("--plan-only と --dry-run は同時に指定できません (--dry-run はデータ源へ接続します)")
+    if args.plan_only and args.log_file:
+        parser.error("--plan-only と --log-file は同時に指定できません (計画はファイルを作成しません)")
 
     # ロギング設定
     logger = setup_logging(args.log_file, args.log_level)
@@ -554,6 +686,20 @@ def main():
             logger.warning("--save-all-zero が有効です。未発表データ(全て0のデータ)も保存されます。")
             logger.warning("このオプションは通常の運用では不要です。")
             logger.warning("用途: データ収集システムのテスト、未発表データの存在確認など")
+
+        if args.plan_only:
+            planner = FetchPlanner(
+                config=config,
+                mode=args.mode,
+                target_weeks=target_weeks,
+                target_months=target_months,
+                skip_existing=args.skip_existing if args.skip_existing else None,
+                force_update=args.force_update if args.force_update else None,
+            )
+            plan = planner.plan(data_types=data_types, start_year=args.start_year, end_year=args.end_year)
+            # Logs go to stderr, so stdout carries only the JSON
+            print(json.dumps(plan, ensure_ascii=False, indent=2))
+            sys.exit(0)
 
         # データ収集実行
         collector = DataCollector(
