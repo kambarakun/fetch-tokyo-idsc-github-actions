@@ -125,7 +125,8 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # create_pr.sh pushes with the token chosen by .github/actions/data-pr-token, never a persisted one (issue #763)
+          persist-credentials: false
 
       - name: Setup uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -279,24 +280,42 @@ jobs:
             echo "FETCH_TIMESTAMP=$(date +'%Y%m%d_%H%M%S')"
           } >> "$GITHUB_ENV"
 
-      - name: Create Pull Request
+      # Staged in its own step so the PR token is minted only when there is something to propose (issue #763)
+      - name: Stage migrated metadata
+        id: stage
         if: steps.params.outputs.dry_run == 'false' && steps.dry_run.outputs.migrated_count != '0'
+        run: |
+          git add -- data/raw/.metadata data/processed/.metadata
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Minted only when a PR is needed and right before it: an App token expires after an hour (issue #763)
+      - name: Create data PR token
+        id: data-pr-token
+        if: steps.stage.outputs.has_changes == 'true'
+        uses: ./.github/actions/data-pr-token
+        with:
+          use-app: ${{ vars.DATA_PR_USE_APP }}
+          client-id: ${{ vars.DATA_PR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.DATA_PR_APP_PRIVATE_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Pull Request
+        if: steps.stage.outputs.has_changes == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.data-pr-token.outputs.token }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           TARGET_VERSION: ${{ steps.params.outputs.target_version }}
           MIGRATED_COUNT: ${{ steps.dry_run.outputs.migrated_count }}
-        run: |
-          git add -- data/raw/.metadata data/processed/.metadata
-
-          if ! git diff --staged --quiet; then
-            # 共通スクリプトを呼び出し
-            bash scripts/create_pr.sh "migrate-metadata" "メタデータマイグレーション"
-          else
-            echo "No changes to commit"
-          fi
+        # 共通スクリプトを呼び出し
+        run: bash scripts/create_pr.sh "migrate-metadata" "メタデータマイグレーション"
 
       - name: Summary
         if: always()

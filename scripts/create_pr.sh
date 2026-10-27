@@ -16,7 +16,8 @@ set -e
 #   $2 workflow_display_name - PR本文に表示するワークフロー名
 #
 # 必須環境変数:
-#   - GITHUB_TOKEN      : GitHub APIアクセス用トークン
+#   - GITHUB_TOKEN      : push と gh (PR作成・ラベル・自動マージ) の両方に使うトークン。
+#                         ワークフローの .github/actions/data-pr-token が選んだもの (issue #763)
 #   - CURRENT_DATE      : 実行日 (YYYY-MM-DD形式)
 #   - FETCH_TIMESTAMP   : 実行タイムスタンプ (英数字、アンダースコア、ハイフンのみ)
 #   - GITHUB_RUN_ID     : GitHub ActionsのRun ID (数値)
@@ -98,6 +99,9 @@ for var in $REQUIRED_VARS; do
     exit 1
   fi
 done
+
+# gh prefers GH_TOKEN over GITHUB_TOKEN; pin it so the PR is opened with the token that pushed (issue #763)
+export GH_TOKEN="$GITHUB_TOKEN"
 
 # ワークフロー固有の必須環境変数チェック
 case "$WORKFLOW_NAME" in
@@ -287,7 +291,14 @@ if ! git commit -m "$COMMIT_MSG"; then
 fi
 
 # ブランチをプッシュ
-if ! git push origin "$BRANCH_NAME"; then
+# Authenticate with $GITHUB_TOKEN only (issue #763): the helper reads it from the environment, so it
+# never reaches argv, the remote URL or .git/config. The empty values drop any other credential
+# helper and the header actions/checkout writes when it persists credentials.
+# shellcheck disable=SC2016 # $GITHUB_TOKEN is expanded by the helper's shell, not here
+if ! git -c credential.helper= \
+  -c 'credential.helper=!f() { cat >/dev/null; [ "$1" = get ] || return 0; echo username=x-access-token; echo "password=$GITHUB_TOKEN"; }; f' \
+  -c "http.${GITHUB_SERVER_URL}/.extraheader=" \
+  push origin "$BRANCH_NAME"; then
   echo "Error: Failed to push branch '$BRANCH_NAME'" >&2
   exit 1
 fi

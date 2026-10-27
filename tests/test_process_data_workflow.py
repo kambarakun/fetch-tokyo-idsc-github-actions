@@ -187,6 +187,8 @@ def _evaluate_expression(expression: str, env: dict[str, str], inputs: dict[str,
         "github.run_id": "4242",
         "github.server_url": "https://github.invalid",
         "github.repository": "owner/repo",
+        # Output of the `uses:` token step, which the emulation does not run
+        "steps.data-pr-token.outputs.token": "fake-token",
     }
     if expression in fixed:
         return fixed[expression]
@@ -356,6 +358,7 @@ def test_dry_run_with_missing_target_does_not_claim_processing_or_reuse_old_stat
     assert run.env["VALIDATION_STATUS"] == "not_run"
     assert "STATS_TOTAL" not in run.env
     assert run.outcomes["Verify processed data"] == "skipped"
+    assert run.outcomes["Create data PR token"] == "skipped"
     assert run.outcomes["Create Pull Request"] == "skipped"
     assert run.outcomes["Enforce validation result"] == "skipped"
     assert not any("validate-data" in call for call in run.uv_calls)
@@ -451,6 +454,7 @@ def test_validation_pass_sets_validation_passed_and_allows_requested_auto_merge(
     assert run.env["VALIDATION_STATUS"] == "passed"
     assert run.env["VALIDATION_PASSED"] == "true"
     assert run.outcomes["Enforce validation result"] == "success"
+    assert run.outcomes["Create data PR token"] == "would_run"
     assert run.pr_record is not None
     assert run.pr_record["VALIDATION_PASSED"] == "true"
     assert run.pr_record["AUTO_MERGE_GATE_STATUS"] == "passed"

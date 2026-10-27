@@ -523,6 +523,7 @@ flowchart TD
 | **📆 毎週データ徹底チェック** | 毎週木曜日 17:30 JST | 当年の全データ(週次・月次)を強制再取得 (force)<br>(1月は前年分も含む)<br>上流の改訂を反映し、欠落データを補完                                                       | ゲート通過時のみ |
 
 - **PR の作成**: `data/raw/` に変更があるときだけ `scripts/create_pr.sh` がブランチを push して PR を作ります。タイトルは `データ更新: YYYY-MM-DD - N件 (新規X件/更新Y件)`、ラベルは `data-update` / `automated` と種別ラベル (`daily-update` / `weekly-update` / `data-processing` / `metadata-migration`、手動の `fetch-data.yml` には種別ラベルなし) です。本文の書式は `scripts/create_pr.sh` を参照してください。
+- **PR の認証**: 既定では `GITHUB_TOKEN` で push と PR 作成を行うため、データ PR の CI は承認待ちになります。GitHub App への切り替え (既定は無効) は [データ PR の認証](docs/data-pr-authentication.md) を参照してください。
 - **自動マージの条件**: `scripts/auto_merge_gate.sh` が次のゲートをすべて通過したと判定したときだけ、`gh pr merge --auto --squash` を設定します。main のルールセットにはマージ前の必須ステータスチェックが無いため (2026-10-27 時点)、設定すると CI を待たずにマージされます。
   - 取得ワークフロー共通 (`fetch-data.yml` を `auto_merge=true` で手動実行した場合も同じ): 取得の成功、処理の成功 (raw の変更が 0 件のときだけ skipped も可)、処理カバレッジ (`check-data-status --fail-on-incomplete`)、メタデータの JSON Schema 適合、連続性検証 (`check-missing`、猶予 1 期間。日次・週次は常に、手動は `verify_continuity=true` のとき)
   - 日次: 取得前のデータ検証 (`validate-data`) の成功
