@@ -202,8 +202,7 @@ def run_verification(
     }
 
     # StorageManager のインスタンスを作成 (検証ロジックを再利用)
-    config: dict[str, Any] = {"auto_commit": False}
-    storage_manager = StorageManager(base_path=data_dir, config=config)
+    storage_manager = StorageManager(base_path=data_dir, config={})
     quality_validator = QualityValidator(data_dir)
 
     metadata_files = sorted(metadata_dir.glob("*.json"))

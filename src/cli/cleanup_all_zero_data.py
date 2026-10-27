@@ -118,7 +118,7 @@ def main():
         return 1
 
     # ストレージマネージャー初期化
-    config = {"auto_commit": False, "keep_shift_jis": True}
+    config = {"keep_shift_jis": True}
     storage = StorageManager(args.data_dir, config)
 
     # 全て0のファイルを検出

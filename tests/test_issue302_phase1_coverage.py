@@ -35,7 +35,6 @@ from requests.exceptions import HTTPError
 from src.fetchers.enhanced_fetcher import DataFetcherConfig, EnhancedEpidemicDataFetcher, FetchResult, RetryHandler
 from src.managers.config_manager import ConfigurationManager
 from src.managers.storage_manager import StorageManager
-from src.models.metadata import HashInfo, Metadata, TemporalInfo
 from src.validators.gender_sum_validator import GenderSumValidator
 from src.validators.quality_validator import QualityValidator
 
@@ -324,62 +323,10 @@ def test_quality_validator_records_completed_result_with_affected_rows(tmp_path:
     assert len(quality["issues"]) == 1
 
 
-def test_metadata_from_legacy_raw_handles_verification_and_missing_source() -> None:
-    """Test that from_legacy_raw correctly migrates verification status and handles missing sources."""
-    legacy = {
-        "filename": "raw.csv",
-        "year": 2025,
-        "period": 1,
-        "period_type": "weekly",
-        "sha256_hash": "hash",
-        "verification": {"status": "failed", "errors": ["bad"]},
-    }
-
-    metadata = Metadata.from_legacy_raw(legacy)
-
-    assert metadata.verification is not None
-    assert metadata.verification.status == "failed"
-    assert metadata.sources == []
-
-
-def test_metadata_from_legacy_processed_detects_female_and_total_gender() -> None:
-    """Test that from_legacy_processed correctly detects female and total gender markers."""
-    source_meta = Metadata(
-        name="source",
-        filename="source.csv",
-        path="source.csv",
-        profile="tokyo-idsc-raw",
-        data_type="sentinel_weekly_age",
-        temporal=TemporalInfo(year=2025, period=1, period_type="weekly"),
-        bytes=100,
-        hash=HashInfo(algorithm="sha256", value="source_hash"),
-        encoding="shift_jis",
-        created="2025-01-01T00:00:00Z",
-        modified="2025-01-01T00:00:00Z",
-    )
-
-    for marker in ("female", "total"):
-        legacy = {
-            "source": "data/raw/source.csv",
-            "outputs": [{"path": f"data/processed/output_{marker}_file.csv", "size_bytes": 1500}],
-            "metadata": {
-                "year": "2025",
-                "period": "1",
-                "frequency": "weekly",
-                "category": "sentinel",
-                "aggregation": "age",
-            },
-        }
-
-        metadata = Metadata.from_legacy_processed(legacy, source_meta)
-        assert metadata._process is not None
-        assert metadata._process.gender == marker
-
-
 def test_storage_manager_count_lines_returns_none_for_non_bytes_data(tmp_path: Path) -> None:
     """Test that _count_lines returns None for data that is not bytes."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     class BadLineData:
         def __bool__(self) -> bool:
@@ -395,7 +342,7 @@ def test_storage_manager_count_lines_returns_none_for_non_bytes_data(tmp_path: P
 def test_storage_manager_normalize_timestamp_handles_string_input(tmp_path: Path) -> None:
     """Test that _normalize_timestamp correctly handles string timestamps."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     result = storage._normalize_timestamp("2025-01-01T00:00:00")
@@ -407,7 +354,7 @@ def test_storage_manager_normalize_timestamp_handles_string_input(tmp_path: Path
 def test_storage_manager_normalize_timestamp_falls_back_for_invalid_input(tmp_path: Path) -> None:
     """Test that _normalize_timestamp falls back to current time for invalid input."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     result = storage._normalize_timestamp(123)  # type: ignore[arg-type]
@@ -419,7 +366,7 @@ def test_storage_manager_normalize_timestamp_falls_back_for_invalid_input(tmp_pa
 def test_storage_manager_check_file_size_validation_warns_on_threshold(tmp_path: Path) -> None:
     """Test that _check_file_size_validation issues warnings near size threshold."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     with (
@@ -436,7 +383,7 @@ def test_storage_manager_check_file_size_validation_warns_on_threshold(tmp_path:
 def test_storage_manager_check_file_size_validation_fails_on_too_large(tmp_path: Path) -> None:
     """Test that _check_file_size_validation fails when file exceeds maximum size."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     with (
@@ -453,7 +400,7 @@ def test_storage_manager_check_file_size_validation_fails_on_too_large(tmp_path:
 def test_storage_manager_check_encoding_validation_fails_on_decode_error(tmp_path: Path) -> None:
     """Test that _check_encoding_validation fails when data cannot be decoded."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     class BadData:
         def decode(self, *_args, **_kwargs):
@@ -470,7 +417,7 @@ def test_storage_manager_check_encoding_validation_fails_on_decode_error(tmp_pat
 def test_storage_manager_check_csv_format_validation_fails_on_too_many_lines(tmp_path: Path) -> None:
     """Test that _check_csv_format_validation fails when line count exceeds maximum."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     with patch("src.managers.storage_manager.VALIDATION_MAX_LINE_COUNT", 1):
@@ -484,7 +431,7 @@ def test_storage_manager_check_csv_format_validation_fails_on_too_many_lines(tmp
 def test_storage_manager_check_csv_format_validation_fails_on_too_few_lines(tmp_path: Path) -> None:
     """Test that _check_csv_format_validation fails when line count is below minimum."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     with patch("src.managers.storage_manager.VALIDATION_MIN_LINE_COUNT", 3):
@@ -498,7 +445,7 @@ def test_storage_manager_check_csv_format_validation_fails_on_too_few_lines(tmp_
 def test_storage_manager_check_csv_format_validation_fails_on_too_many_columns(tmp_path: Path) -> None:
     """Test that _check_csv_format_validation fails when column count exceeds maximum."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     with patch("src.managers.storage_manager.VALIDATION_MAX_COLUMN_COUNT", 2):
@@ -512,7 +459,7 @@ def test_storage_manager_check_csv_format_validation_fails_on_too_many_columns(t
 def test_storage_manager_check_csv_format_validation_fails_on_csv_error(tmp_path: Path) -> None:
     """Test that _check_csv_format_validation handles csv.Error gracefully."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     # Act
     with patch("src.managers.storage_manager.csv.reader", side_effect=csv.Error("bad csv")):
@@ -526,7 +473,7 @@ def test_storage_manager_check_csv_format_validation_fails_on_csv_error(tmp_path
 def test_storage_manager_check_csv_format_validation_fails_on_os_error(tmp_path: Path) -> None:
     """Test that _check_csv_format_validation handles OSError during decoding."""
     # Arrange
-    storage = StorageManager(tmp_path / "data", {"auto_commit": False})
+    storage = StorageManager(tmp_path / "data", {})
 
     class OsErrorData:
         def decode(self, *_args, **_kwargs):

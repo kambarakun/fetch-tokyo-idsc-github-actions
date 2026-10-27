@@ -1,24 +1,8 @@
 """データモデル
 
-メタデータやデータ構造を定義するモジュール。
+メタデータのスキーマ版の定数を公開するモジュール。
 """
 
-from src.models.metadata import (
-    METADATA_VERSION,
-    FetchInfo,
-    HashInfo,
-    Metadata,
-    ProcessInfo,
-    TemporalInfo,
-    Verification,
-)
+from src.models.metadata import METADATA_VERSION
 
-__all__ = [
-    "METADATA_VERSION",
-    "FetchInfo",
-    "HashInfo",
-    "Metadata",
-    "ProcessInfo",
-    "TemporalInfo",
-    "Verification",
-]
+__all__ = ["METADATA_VERSION"]

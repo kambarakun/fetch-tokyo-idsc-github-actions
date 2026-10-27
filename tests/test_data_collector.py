@@ -39,9 +39,7 @@ class TestDataCollectorOptions(unittest.TestCase):
         self.mock_config.collection.max_execution_time_hours = 6
         self.mock_config.collection.end_year = None
         self.mock_config.storage = Mock()
-        self.mock_config.storage.auto_commit = False
         self.mock_config.storage.base_directory = "data/raw"
-        self.mock_config.storage.commit_message_template = "Test commit"
         self.mock_config.storage.keep_shift_jis = True
 
     @patch("src.cli.fetch_data.StorageManager")
@@ -216,9 +214,7 @@ class TestDataCollectorIntegration(unittest.TestCase):
         mock_config.collection.max_execution_time_hours = 6
         mock_config.collection.end_year = None
         mock_config.storage = Mock()
-        mock_config.storage.auto_commit = False
         mock_config.storage.base_directory = "data/raw"
-        mock_config.storage.commit_message_template = "Test commit"
         mock_config.storage.keep_shift_jis = True
         mock_config_manager.load_config.return_value = mock_config
 

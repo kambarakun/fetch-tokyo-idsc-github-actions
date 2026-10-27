@@ -1,4 +1,4 @@
-"""Phase 3 auxiliary coverage tests for config/storage/metadata/validator branches."""
+"""Phase 3 auxiliary coverage tests for config/storage/validator branches."""
 
 from __future__ import annotations
 
@@ -11,13 +11,12 @@ import yaml
 
 from src.managers.config_manager import ConfigurationManager
 from src.managers.storage_manager import StorageManager
-from src.models.metadata import Metadata
 from src.validators.gender_sum_validator import GenderSumValidator
 
 
 def _build_storage(tmp_path: Path) -> StorageManager:
     """Create storage manager for isolated branch tests."""
-    return StorageManager(tmp_path / "raw", {"auto_commit": False})
+    return StorageManager(tmp_path / "raw", {})
 
 
 def test_config_manager_load_config_emits_warning_logs(tmp_path: Path) -> None:
@@ -121,24 +120,6 @@ def test_normalize_metadata_skips_default_fallbacks_when_fields_already_present(
     assert normalized["checksum_algorithm"] == "sha256"
     assert normalized["temporal"]["year"] is None
     assert normalized["hash"]["value"] == "abc"
-
-
-def test_metadata_from_legacy_processed_handles_filename_without_gender_token() -> None:
-    """from_legacy_processed keeps gender None when filename has no explicit gender token."""
-    # Arrange
-    legacy = {
-        "filename": "normalized_sentinel_weekly_age_2025_01.csv",
-        "path": "processed/normalized_sentinel_weekly_age_2025_01.csv",
-        "source": "raw/sentinel_weekly_age_2025_01.csv",
-        "metadata": {"year": 2025, "period": 1, "frequency": "weekly"},
-    }
-
-    # Act
-    metadata = Metadata.from_legacy_processed(legacy)
-
-    # Assert
-    assert metadata._process is not None
-    assert metadata._process.gender is None
 
 
 def test_gender_sum_validator_clear_cache_empties_entries(tmp_path: Path) -> None:

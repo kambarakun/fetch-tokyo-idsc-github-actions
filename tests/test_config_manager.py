@@ -128,7 +128,7 @@ class TestConfigurationManager(unittest.TestCase):
                 "end_year": 2025,
                 "data_types": ["sentinel_weekly_gender"],
             },
-            "storage": {"base_directory": "/tmp/data", "auto_commit": False},
+            "storage": {"base_directory": "/tmp/data"},
             "quality": {"anomaly_detection_enabled": False},
             "notifications": {"github_issues_enabled": False},
             "data_types": [{"name": "test_type", "enabled": True, "fetch_method": "test_method", "epid_code": "501"}],
