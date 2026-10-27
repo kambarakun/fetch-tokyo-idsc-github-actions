@@ -122,7 +122,12 @@ gh variable set DATA_PR_USE_APP --repo kambarakun/fetch-tokyo-idsc-github-action
 | push が 403 (`Permission ... denied`)                                                                 | App の Contents が Read and write でない、またはインストール先にこのリポジトリが無い                                                           |
 | PR 作成が `Resource not accessible by integration`                                                    | App の Pull requests が Read and write でない                                                                                                  |
 
-失敗した run では PR は作られず、データの変更は push されません。原因を直したあと、必要なら取得ワークフローを再実行します。
+トークンの選択・発行や push で失敗した run では、PR は作られず、データのブランチも push されません。`scripts/create_pr.sh` は push のあとに PR を作るため、PR 作成で失敗した run では、データのブランチ (`data-update-*` / `data-process-*` / `metadata-migration-*`) が remote に残ります。失敗した run のログにある `Creating branch:` のブランチ名で、PR が無いことを確かめてから (下の 1 行目が `0` を返す)、そのブランチを削除します。必要ならそのあと取得ワークフローを再実行します。
+
+```zsh
+gh pr list --repo kambarakun/fetch-tokyo-idsc-github-actions --head '<ブランチ名>' --state all --json number --jq length
+git push origin --delete '<ブランチ名>'
+```
 
 ## 6. 無効化・戻し方
 
