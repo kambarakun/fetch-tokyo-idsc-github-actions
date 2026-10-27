@@ -1048,6 +1048,16 @@ def _footer_bottom(footer_lines: list[str]) -> float:
     return max(0.06, 0.03 * len(footer_lines))
 
 
+def _plot_values(values: list[float | None]) -> list[float]:
+    """Map missing periods (None) to NaN for ax.plot.
+
+    matplotlib draws NaN as a line gap exactly as it draws None, but its type stubs accept numbers
+    only. Callers keep the original list for the latest-value lookup and the annotation, which must
+    skip missing periods rather than see NaN.
+    """
+    return [float("nan") if v is None else v for v in values]
+
+
 def generate_absolute_chart(
     data: dict[str, dict[int, float]],
     output_path: Path,
@@ -1117,7 +1127,7 @@ def generate_absolute_chart(
         plot_kwargs: dict = {"marker": style.marker, "color": style.color} if style else {"marker": "o"}
         line = ax.plot(
             range(len(all_periods)),
-            values,
+            _plot_values(values),
             linewidth=2.5,
             label=label_with_value,
             markersize=_MARKER_SIZE,
@@ -1248,7 +1258,7 @@ def generate_deviation_chart(
         plot_kwargs: dict = {"marker": style.marker, "color": style.color} if style else {"marker": "o"}
         line = ax.plot(
             range(len(all_periods)),
-            values,
+            _plot_values(values),
             linewidth=2.5,
             label=label_with_value,
             markersize=_MARKER_SIZE,

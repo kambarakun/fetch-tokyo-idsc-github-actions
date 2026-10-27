@@ -23,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import pytest
+from matplotlib.path import Path as MplPath
 
 # テスト対象モジュールのインポート
 from scripts import generate_charts
@@ -973,6 +974,88 @@ class TestMainEndToEnd:
         assert "[chart] sentinel_weekly_deviation: 大流行病" in chart_lines
         assert "[chart] notifiable_weekly_deviation: 流行病N" in chart_lines
         assert "[chart] sentinel_monthly_deviation: 月流行病" in chart_lines
+
+
+class TestChartRendering:
+    """Render the charts with Agg and check the drawn lines, legend and annotations."""
+
+    PERIODS = (202601, 202602, 202603, 202604)
+
+    @pytest.fixture
+    def render(self, tmp_path, monkeypatch):
+        # A default FontProperties uses matplotlib's bundled font, so nothing is downloaded
+        monkeypatch.setattr(generate_charts, "get_japanese_font", fm.FontProperties)
+        figures = []
+        original_savefig = plt.savefig
+
+        def capture_savefig(*args, **kwargs):
+            figures.append(plt.gcf())
+            original_savefig(*args, **kwargs)
+
+        monkeypatch.setattr(plt, "savefig", capture_savefig)
+
+        def _render(chart, *args, **kwargs):
+            output_path = tmp_path / "chart.png"
+            chart(*args, output_path=output_path, title="T", data_source="S", **kwargs)
+            assert output_path.stat().st_size > 0
+            (fig,) = figures
+            return fig.axes[0]
+
+        return _render
+
+    @staticmethod
+    def _segments(line) -> list[list[tuple[float, float]]]:
+        """Split the drawn path into its connected runs, the way the renderer sees it."""
+        path = line.get_path().cleaned(remove_nans=True)
+        segments: list[list[tuple[float, float]]] = []
+        for (x, y), code in zip(path.vertices.tolist(), path.codes.tolist(), strict=True):
+            if code == MplPath.MOVETO:
+                segments.append([(x, y)])
+            elif code == MplPath.LINETO:
+                segments[-1].append((x, y))
+        return segments
+
+    @classmethod
+    def _series(cls, ax) -> dict[str, list[list[tuple[float, float]]]]:
+        return {
+            line.get_label(): cls._segments(line) for line in ax.get_lines() if not line.get_label().startswith("_")
+        }
+
+    @staticmethod
+    def _annotations(ax) -> list[tuple[str, tuple[float, float]]]:
+        return [(text.get_text(), tuple(text.xy)) for text in ax.texts]
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_absolute_chart_keeps_zeros_and_breaks_lines_at_missing_periods(self, render):
+        p1, p2, p3, p4 = self.PERIODS
+        data = {
+            "A": {p1: 3.0, p2: 0.0, p4: 5.0},
+            "B": {p1: 1.0, p2: 2.0, p3: 4.0},
+            "C": {p1: 0.0, p2: 0.0, p3: 0.0, p4: 0.0},
+        }
+
+        ax = render(generate_charts.generate_absolute_chart, data, ylabel="Y")
+
+        assert self._series(ax) == {
+            "A (最新: 5.00)": [[(0.0, 3.0), (1.0, 0.0)], [(3.0, 5.0)]],
+            "B (最終 2026年第3週: 4.00)": [[(0.0, 1.0), (1.0, 2.0), (2.0, 4.0)]],
+            "C (最新: 0.00)": [[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)]],
+        }
+        assert [text.get_text() for text in ax.get_legend().get_texts()] == list(self._series(ax))
+        assert self._annotations(ax) == [("5.00", (3, 5.0)), ("4.00", (2, 4.0))]
+
+    @pytest.mark.filterwarnings("ignore:Glyph")
+    def test_deviation_chart_keeps_zero_rates_and_breaks_lines_at_missing_periods(self, render):
+        p1, p2, p3, p4 = self.PERIODS
+        data = {"A": {p1: 20.0, p2: 10.0, p4: 30.0}, "Stopped": {p1: 10.0, p2: 10.0, p3: 40.0}}
+        baseline = {disease: dict.fromkeys(self.PERIODS, 10.0) for disease in data}
+
+        ax = render(generate_charts.generate_deviation_chart, data, baseline)
+
+        # "Stopped" has no value in the latest period, so it is not ranked or drawn
+        assert self._series(ax) == {"A (最新: +200%)": [[(0.0, 100.0), (1.0, 0.0)], [(3.0, 200.0)]]}
+        assert [text.get_text() for text in ax.get_legend().get_texts()] == ["A (最新: +200%)"]
+        assert self._annotations(ax) == [("+200%", (3, 200.0))]
 
 
 class TestWeekTicks:
