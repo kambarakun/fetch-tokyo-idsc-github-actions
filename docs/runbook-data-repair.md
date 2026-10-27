@@ -111,7 +111,7 @@ wc -l < "$LIST"
 
 - 0 件なら backfill は不要です。`--all` に切り替えないでください。一覧が空でも、再処理では直せない raw (名前が想定外・処理できない内容など) は一覧に出ないので、`uv run check-data-status --fail-on-incomplete; echo "rc=$?"` が `rc=0` で終わることも確かめます。`rc=1` なら `uv run check-data-status --verbose` で理由を確かめます。理由ごとの直し方は次のとおりで、どれも再処理 (`process-data`) では直りません。
   - `unprocessable_raw_content` (内容を処理できない): 上流から取り直す (「2. 単一期間の raw 修復」)
-  - `unsupported_raw_filename` (命名規則 `<data_type>_<yyyy>_<nn>.csv` に合わない) / `noncanonical_raw_path` (`data/raw/` 直下にない): 取り直しでは既存のファイルは直らない。正しい名前・場所のファイルが既にあるか確かめ、規約外のファイルの移動・削除は人が判断して PR で行う。正しいファイルが無ければ「2. 単一期間の raw 修復」で取り直す
+  - `unsupported_raw_filename` (命名規則 `<data_type>_<yyyy>_<nn>.csv` に合わない) / `noncanonical_raw_path` (`data/raw/` 直下にない): 既存のファイルは再取得だけでは直らない。正しい名前・場所のファイルが既にあるか確かめ、規約外のファイルの移動・削除は人が判断して PR で行う。正しいファイルが無ければ「2. 単一期間の raw 修復」で取り直す
 - 全件規模の再生成は issue #738 の扱いで、この手順の対象外です。
 
 ### 3.2 処理する
@@ -225,4 +225,8 @@ fi
    uv run check-missing data/raw
    ```
 
-5. PR の差分が、2.1 のレビュー項目のとおり想定したファイルだけであること。
+5. PR の差分が、操作ごとに想定したファイルだけであること。想定する差分は操作によって違います。
+   - raw の取り直し: 2.1 のレビュー項目
+   - Actions での backfill: [docs/manual-data-processing.md](manual-data-processing.md) の「5. PR の差分確認」 (`verify_output=true` の検証レポート `data/logs/validation_report_<timestamp>.json` も入る)
+   - ローカルでの backfill: 3.2 の最後の段落
+   - revert: 4.2 の 3 と 4.3
