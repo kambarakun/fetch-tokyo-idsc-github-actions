@@ -35,7 +35,7 @@ uv run pre-commit run gitleaks --files <path>...      # 指定ファイルだけ
 
 初回は pre-commit が gitleaks の repository を clone し、`language_version` の Go toolchain を `dl.google.com` から取得して build する (数十秒~数分)。以降は pre-commit の cache (`~/.cache/pre-commit`) を再利用する。
 
-所要時間の目安 (2026-10-27、開発機の macOS で計測): `--all-files` は 53,889 ファイル・約 4.3 GB を約 85~100 秒で検査した。大半は `data/logs/` の validation log で、gitleaks の CPU 時間が支配的。commit 時は staged のファイルだけを検査する。
+所要時間の目安 (2026-10-27 計測): `--all-files` は 53,889 ファイル・約 4.3 GB を検査し、開発機の macOS で約 85~100 秒、CI の lint job (GitHub-hosted `ubuntu-latest`) で約 6 分 30 秒かかった。lint job の `Run all pre-commit hooks` は導入前の約 1 分から約 8 分に増える (hook 環境のインストール約 30 秒を含む)。検査バイト数の 96% (約 4.1 GB) は `data/logs/` の validation log で、gitleaks の CPU 時間が支配的。検出範囲を狭めないため `data/logs/` も除外しない。commit 時は staged のファイルだけを検査する。
 
 ## 出力と検出時の対応
 
