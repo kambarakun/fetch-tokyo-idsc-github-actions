@@ -9,8 +9,9 @@
   - `uv run process-data --all` と、`target_files` を空欄にした `process-data.yml` (空欄は `--all` と同じ)
   - 引数なしの `uv run fetch-data` (`config/config.yml` の `collection.start_year` から当年までの全データタイプを要求する)
   - `data_types` や期間を省略した `mode=force` の取得
+- **実行するのは人**: `fetch-data` の実行 (`--dry-run` を含め、データ提供元に接続する)、取得ワークフローの dispatch、ワークフローの無効化・再有効化、実 `data/` の書き換えは、人の明示的な指示がある場合に人が行います。エージェントはこれらを実行しません (AGENTS.md の Safety)。
 - **作業は PR 経由**: ブランチを切って作業し、PR で反映します。main へ直接 push しません。データ PR のマージは人が行います (手動実行のワークフローは既定で自動マージしません)。
-- **実データを書き換える手順**: 2.2・3.2・4 の手順はリポジトリの `data/` を書き換えます。始める前に `git status` が clean であることを確かめ、試す場合は `--data-dir` に scratch コピーを指定してください。
+- **実データを書き換える手順**: 2.2・3.2・4 の手順はリポジトリの `data/` を書き換えます。始める前に `git status` が clean であることを確かめてください。`process-data` / `check-data-status` を試すときは `--data-dir` に scratch コピーを指定できます。`fetch-data` には `--data-dir` が無く、保存先は `--config` で渡す設定の `storage.base_directory` で決まります。
 - **定期実行との競合**: 取得系の3ワークフローは concurrency グループ `fetch-data` を共有するので、手動の取得中は日次・週次が待ちます。ローカルで作業している間も定期実行は main に PR を作り続けるため、push 前に `git fetch origin` で main の進みを確認してください。
 
 ```mermaid
@@ -49,7 +50,7 @@ Actions タブで **📊 東京都感染症データ取得(手動実行)** (`fet
 3. **レビュー**: PR の Files changed で次を確かめます。
    - 変わった raw CSV の数が「指定した期間の数 × データタイプ数」以下で、指定外の期間・データタイプが含まれていない
    - 変わった raw CSV ごとに `data/raw/.metadata/` の JSON と、対応する `data/processed/` の CSV・メタデータがそろっている
-   - それ以外の差分は `README.md` の自動生成ブロックと `docs/images/` の再生成分だけ
+   - それ以外の差分は、`README.md` の自動生成ブロックと `docs/images/` の再生成分、`data/processed/stats.json`、その run のタイムスタンプが付いた `data/logs/` の統計・検証ファイル (`stats_<timestamp>.json` / `validation_before_<timestamp>.json` / `validation_<timestamp>.json` のうち、そのワークフローが作るもの) だけ
    - PR 本文の自動マージゲートの結果 (取得・処理・カバレッジ・スキーマ) が不合格になっていない
 
    想定外のファイルが含まれていればマージせず、原因を調べてください。
@@ -86,7 +87,9 @@ Actions が使えないときの代替です。ここで示すコマンドはデ
    git status --short data/raw
    ```
 
-5. 変わった raw だけを processed に反映し (3.2 と同じ `process-data --files`)、5 の確認を行ってから、変更したパスを明示して `git add` し、PR を作ります。
+   `fetch-data` は実行ごとに `data/logs/stats_<timestamp>.json` も作ります (定期実行の PR と同じく、取得の記録としてコミットしてかまいません)。
+
+5. 変わった raw だけを processed に反映し (3.2 と同じ `process-data --files`)、「5. 修復後の確認」を行ってから、変更したパスを明示して `git add` し、PR を作ります。
 
    ```bash
    uv run process-data --files data/raw/sentinel_weekly_age_2026_37.csv
@@ -101,11 +104,14 @@ raw はあるのに processed が欠けている、または raw の改訂後に
 `check-data-status` はリポジトリ内のファイルを読むだけで、データ提供元には接続しません。`--list-needs-processing` は再処理で直せる raw のパス (`data/raw/<name>.csv`) を 1 行 1 件で出力します。
 
 ```bash
-uv run check-data-status --list-needs-processing > /tmp/needs-processing.txt
-wc -l < /tmp/needs-processing.txt
+LIST="$(mktemp)"
+uv run check-data-status --list-needs-processing > "$LIST"
+wc -l < "$LIST"
 ```
 
-- 0 件なら backfill は不要です。`--all` に切り替えないでください。一覧が空でも、再処理では直せない raw (名前が想定外・処理できない内容など) は一覧に出ないので、`uv run check-data-status --fail-on-incomplete; echo "rc=$?"` が `rc=0` で終わることも確かめます。`rc=1` なら `uv run check-data-status --verbose` で理由を確かめ、raw 側を直してください (2 の手順)。
+- 0 件なら backfill は不要です。`--all` に切り替えないでください。一覧が空でも、再処理では直せない raw (名前が想定外・処理できない内容など) は一覧に出ないので、`uv run check-data-status --fail-on-incomplete; echo "rc=$?"` が `rc=0` で終わることも確かめます。`rc=1` なら `uv run check-data-status --verbose` で理由を確かめます。理由ごとの直し方は次のとおりで、どれも再処理 (`process-data`) では直りません。
+  - `unprocessable_raw_content` (内容を処理できない): 上流から取り直す (「2. 単一期間の raw 修復」)
+  - `unsupported_raw_filename` (命名規則 `<data_type>_<yyyy>_<nn>.csv` に合わない) / `noncanonical_raw_path` (`data/raw/` 直下にない): 取り直しでは既存のファイルは直らない。正しい名前・場所のファイルが既にあるか確かめ、規約外のファイルの移動・削除は人が判断して PR で行う。正しいファイルが無ければ「2. 単一期間の raw 修復」で取り直す
 - 全件規模の再生成は issue #738 の扱いで、この手順の対象外です。
 
 ### 3.2 処理する
@@ -118,11 +124,10 @@ wc -l < /tmp/needs-processing.txt
 uv run process-data --dry-run --files data/raw/sentinel_weekly_age_2026_37.csv
 ```
 
-一覧のファイルを処理します。一覧が空のときは何もしません (空のまま `process-data` を呼ばない)。
+3.1 と同じシェルで、一覧のファイルを処理します。一覧が空のとき (または `LIST` が未設定のとき) は何もしません (空のまま `process-data` を呼ばない)。件数が多いときは引数長の上限にかかるので、ローカルではなく Actions の手順を使います。
 
 ```bash
-LIST=/tmp/needs-processing.txt
-if [ -s "$LIST" ]; then
+if [ -n "${LIST:-}" ] && [ -s "$LIST" ]; then
   files=()
   while IFS= read -r f; do files+=("$f"); done < "$LIST"
   uv run process-data --files "${files[@]}"
@@ -141,7 +146,7 @@ fi
 
 - **週次 FORCE の対象年の内側では効かない**: `fetch-data-weekly.yml` は毎週木曜に当年 (1月は前年も) の全データを `force` で取り直し、ゲートを通れば自動マージします。当年分を revert しても、次の週次で上流の内容に上書きされます。
 - **日次の取り直し**: `fetch-data-daily.yml` は 2週前・前週・当週と前月・当月の未取得の期間を取得するので、この範囲で revert により削除したファイルは翌日に取り直されます。
-- したがって revert が恒久的に効くのは、週次 FORCE の対象年より前の年のデータだけです。当年のデータが上流で誤っているときは、上流が直るまで 4.4 のとおり定期実行を止めるか、上流の修正後に 2 の手順で取り直してください。
+- したがって revert が恒久的に効くのは、週次 FORCE の対象年より前の年のデータだけです。当年のデータが上流で誤っているときは、上流が直るまで 4.4 のとおり定期実行を止めるか、上流の修正後に 「2. 単一期間の raw 修復」の手順で取り直してください。
 
 ### 4.2 revert の PR を作る
 
@@ -160,18 +165,19 @@ fi
    git revert --no-edit <squash-commit>
    ```
 
-3. 衝突せずに終われば、5 の確認を行ってから push して PR を作ります。
+3. revert は取り消す PR が追加した `data/logs/` の統計・検証ファイルも削除します。これは想定どおりの差分です。
+4. 衝突せずに終われば、「5. 修復後の確認」を行ってから push して PR を作ります。
 
 ### 4.3 衝突の解き方
 
 `git revert` で衝突したら、`git status --short` で衝突したファイルを確かめ、次の表のとおりに解きます。
 
-| 衝突したファイル                                         | 解き方                                                                                        |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `README.md`、`docs/images/*.png`                         | main 側を採る (`git checkout --ours -- <path>` の後に `git add`)。次の実行で再生成される      |
-| `data/raw/.metadata/hash_index.json`                     | main 側を採る。現行コードは読み書きしない残存ファイルで、整理は issue #738 が扱う             |
-| revert で消える CSV に対応するメタデータの modify/delete | CSV が衝突なく消えるなら revert 側を採る (`git rm <path>`)。CSV とメタデータの組をそろえる    |
-| `data/raw/*.csv` やそのメタデータの内容の衝突            | `git revert --abort` で中止する。後続の実行が同じファイルを取り直しているので、2 の手順を使う |
+| 衝突したファイル                                         | 解き方                                                                                                          |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `README.md`、`docs/images/*.png`                         | main 側を採る (`git checkout --ours -- <path>` の後に `git add`)。次の実行で再生成される                        |
+| `data/raw/.metadata/hash_index.json`                     | main 側を採る。現行コードは読み書きしない残存ファイルで、整理は issue #738 が扱う                               |
+| revert で消える CSV に対応するメタデータの modify/delete | CSV が衝突なく消えるなら revert 側を採る (`git rm <path>`)。CSV とメタデータの組をそろえる                      |
+| `data/raw/*.csv` やそのメタデータの内容の衝突            | `git revert --abort` で中止する。後続の実行が同じファイルを取り直しているので、「2. 単一期間の raw 修復」を使う |
 
 2026-10-27 時点の main で試した結果: 最新のデータ PR (#812) は衝突なく revert できました。それより前の当年のデータ PR (#712 / #713) は、README・`docs/images`・hash_index.json に加えて、後続の週次で取り直された raw CSV とメタデータでも衝突しました。新規ファイルを含む PR や古い PR ほど衝突しやすく、raw の衝突は「その期間がすでに取り直されている」ことを意味します。
 
@@ -181,7 +187,7 @@ fi
 
 1. Actions タブで **📆 毎週データ徹底チェック** (`fetch-data-weekly.yml`) を選び、右上の「…」から **Disable workflow** を選びます。誤りが日次の範囲 (直近3週・2か月) にあるときは **📅 毎日データ簡易チェック** (`fetch-data-daily.yml`) も止めます。
 2. 止めたことと、再有効化の条件 (上流の修正を確認したら) を issue に書き、担当者を決めます。
-3. 上流の修正を確認したら、同じメニューの **Enable workflow** で再有効化し、2 の手順で該当期間を取り直します。
+3. 上流の修正を確認したら、同じメニューの **Enable workflow** で再有効化し、「2. 単一期間の raw 修復」の手順で該当期間を取り直します。
 4. 再有効化を忘れないよう、Actions タブのワークフロー一覧に disabled の表示が残っていないこと、次の定期実行 (日次は毎日 17:00 JST、週次は木曜 17:30 JST) が実際に走ったことを確かめてから issue を閉じます。
 
 ## 5. 修復後の確認

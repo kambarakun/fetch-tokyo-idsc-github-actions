@@ -105,7 +105,7 @@
 #### Acceptance Criteria
 
 1. WHEN 大量の履歴データを取得する時、THE EnhancedEpidemicDataFetcher SHALL 並列処理でダウンロード時間を短縮する
-   - **実施しない**: 5.1 (連続リクエスト間に最低 1 秒) と衝突し、データ提供元への同時リクエストを増やすため (tasks.md の 15.1 も同じ)
+   - **実施しない (この受け入れ条件は適用しない)**: 5.1 (連続リクエスト間に最低 1 秒) と衝突し、データ提供元への同時リクエストを増やすため。取得は逐次のまま行う (tasks.md の 15.1 も同じ)
 2. WHEN ストレージ容量が制限に近づく時、THE Storage_Manager SHALL 古いデータのアーカイブまたは削除を提案する
 3. WHEN 同一データの重複チェックを行う時、THE Storage_Manager SHALL ハッシュベースの高速比較を使用する
 4. WHEN GitHub_Actionsの実行時間制限に近づく時、THE Automation_System SHALL 処理を分割して継続実行する

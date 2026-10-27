@@ -275,7 +275,7 @@ flowchart TD
     HasChanges -->|No| Blocked{"ゲート不合格?"}
     Blocked -->|Yes| FailRun["run を失敗させる"]
     Blocked -->|No| NoPR["PR を作らずに終了"]
-    CreatePR --> Merge{"自動マージ要求あり<br/>かつゲート通過?"}
+    CreatePR --> Merge{"自動マージ要求あり<br/>かつ (ゲート通過<br/>または強制上書き)?"}
     Merge -->|Yes| AutoMerge["gh pr merge --auto --squash"]
     Merge -->|No| Review["レビュー・手動マージ"]
 
@@ -283,7 +283,7 @@ flowchart TD
     style AutoMerge fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
-自動マージは日次・週次で要求され、手動の `fetch-data.yml` では `auto_merge` 入力 (既定 `false`) で要求します。ゲートの条件は README の「GitHub Actionsワークフロー」と `scripts/auto_merge_gate.sh` を参照してください。
+自動マージは日次・週次で要求され、手動の `fetch-data.yml` では `auto_merge` 入力 (既定 `false`) で要求します。手動実行で `force_merge_on_failure=true` も指定すると、ゲートが不合格でも上書きして自動マージします (データ品質は保証されません)。ゲートの条件は README の「GitHub Actionsワークフロー」と `scripts/auto_merge_gate.sh` を参照してください。
 
 ### ローカル開発時
 
