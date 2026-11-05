@@ -14,11 +14,11 @@
   "lines": 95,
   "hash": {
     "algorithm": "sha256",
-    "value": "636ff6616d0caa20c77c59267cb70624da87aef9779c6cf87968e0b5bfc271dd"
+    "value": "c9bcbf500d90b9070039d00a855ffa5c704cfd629baa3d0b3b5dffc991eb0cdd"
   },
   "encoding": "shift_jis",
   "created": "2026-10-15T08:20:29.861159+00:00",
-  "modified": "2026-10-29T08:44:51.556230+00:00",
+  "modified": "2026-11-05T08:42:18.475197+00:00",
   "sources": [
     {
       "title": "Tokyo IDSC",
@@ -27,13 +27,13 @@
   ],
   "_fetch": {
     "source_url": "https://survey.tmiph.metro.tokyo.lg.jp/epidinfo/dlwzensu.do",
-    "fetch_time_seconds": 0.5578835010528564,
+    "fetch_time_seconds": 0.8574328422546387,
     "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2026-10-29T08:44:51.556419+00:00",
+    "verified_at": "2026-11-05T08:42:18.475434+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -54,7 +54,7 @@
     }
   },
   "quality": {
-    "validation_timestamp": "2026-10-29T08:44:51.556425+00:00",
+    "validation_timestamp": "2026-11-05T08:42:18.475442+00:00",
     "validation_status": "completed",
     "issues": []
   }

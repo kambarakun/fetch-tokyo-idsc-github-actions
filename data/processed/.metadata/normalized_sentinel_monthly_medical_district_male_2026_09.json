@@ -10,15 +10,15 @@
     "period": 9,
     "period_type": "monthly"
   },
-  "bytes": 961,
+  "bytes": 962,
   "lines": 15,
   "hash": {
     "algorithm": "sha256",
-    "value": "d67d01c368e8f095937c1604ed072fd815ed78e62722069465f53ebe10a6956e"
+    "value": "fb6a98db3605d5432d4623e4840c4c897ea47b1695f6ac72a0ce2de0a36c0d48"
   },
   "encoding": "utf-8",
   "created": "2026-10-09T08:23:05.416764+00:00",
-  "modified": "2026-10-09T08:23:05.416764+00:00",
+  "modified": "2026-11-05T08:42:25.322024+00:00",
   "sources": [
     {
       "title": "sentinel_monthly_medical_district_2026_09.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "sentinel_monthly_medical_district_2026_09",
-    "source_hash": "5b6cc8feb98e7034438164cb6da4dedbbe2c5985f28c72f455be5e879f2b8e8e",
-    "processing_time_seconds": 0.0008292198181152344,
+    "source_hash": "c5eb5a34a387ada8055678b7f76b28a3dd0bb1750784611d409a4cab80459f58",
+    "processing_time_seconds": 0.0009968280792236328,
     "gender": "male"
   },
   "quality": {
-    "validation_timestamp": "2026-10-09T08:23:05.416776+00:00",
+    "validation_timestamp": "2026-11-05T08:42:25.322035+00:00",
     "validation_status": "completed",
     "issues": []
   }

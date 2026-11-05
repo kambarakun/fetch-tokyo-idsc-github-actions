@@ -14,11 +14,11 @@
   "lines": 30,
   "hash": {
     "algorithm": "sha256",
-    "value": "87727c68b71d8bd8ccd4139d1f627e79f0d8f720282fdaf35aa9df2839af3223"
+    "value": "3d015313a90ae4be09486efed7966c6f3ebbbad6cca409cc36dfedae420d4ec2"
   },
   "encoding": "shift_jis",
   "created": "2026-10-29T08:14:32.426640+00:00",
-  "modified": "2026-10-29T08:14:32.426640+00:00",
+  "modified": "2026-11-05T08:36:43.711839+00:00",
   "sources": [
     {
       "title": "Tokyo IDSC",
@@ -27,13 +27,13 @@
   ],
   "_fetch": {
     "source_url": "https://survey.tmiph.metro.tokyo.lg.jp/epidinfo/dlwgender.do",
-    "fetch_time_seconds": 0.6773946285247803,
-    "force_overwrite": false,
+    "fetch_time_seconds": 0.8813555240631104,
+    "force_overwrite": true,
     "save_all_zero": false
   },
   "verification": {
     "status": "verified",
-    "verified_at": "2026-10-29T08:14:32.426780+00:00",
+    "verified_at": "2026-11-05T08:36:43.712063+00:00",
     "method": "automated",
     "checks": {
       "file_size": true,
@@ -55,7 +55,7 @@
     }
   },
   "quality": {
-    "validation_timestamp": "2026-10-29T08:14:32.426786+00:00",
+    "validation_timestamp": "2026-11-05T08:36:43.712074+00:00",
     "validation_status": "completed",
     "issues": []
   }
