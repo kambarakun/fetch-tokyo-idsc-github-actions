@@ -18,7 +18,7 @@
   },
   "encoding": "utf-8",
   "created": "2026-11-10T08:13:09.785942+00:00",
-  "modified": "2026-11-10T08:13:09.785942+00:00",
+  "modified": "2026-11-12T08:42:42.203931+00:00",
   "sources": [
     {
       "title": "sentinel_monthly_health_center_2026_10.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "sentinel_monthly_health_center_2026_10",
-    "source_hash": "72fda99edecfda0b4afd50172919f40ebd948e8ef0604a0357a21b22b65f93af",
-    "processing_time_seconds": 0.000705718994140625,
+    "source_hash": "f1c1f0cfcf1436a0ebd930b8a2e17d3ae0aa81acf51cf44d686925389148a13e",
+    "processing_time_seconds": 0.0007262229919433594,
     "gender": "male"
   },
   "quality": {
-    "validation_timestamp": "2026-11-10T08:13:09.785951+00:00",
+    "validation_timestamp": "2026-11-12T08:42:42.203937+00:00",
     "validation_status": "completed",
     "issues": []
   }
