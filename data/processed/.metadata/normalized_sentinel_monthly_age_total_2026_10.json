@@ -14,11 +14,11 @@
   "lines": 18,
   "hash": {
     "algorithm": "sha256",
-    "value": "cb91489a7c192d4ba6627a707b7b9f81da97f7f1fe6ca73ded39b9fea32eb1ff"
+    "value": "d5363128c54505c5df39f0a5b3e9fc866866d1c3e831191d295991e0babee4e8"
   },
   "encoding": "utf-8",
   "created": "2026-11-10T08:13:09.783645+00:00",
-  "modified": "2026-11-10T08:13:09.783645+00:00",
+  "modified": "2026-11-12T08:42:42.201711+00:00",
   "sources": [
     {
       "title": "sentinel_monthly_age_2026_10.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "sentinel_monthly_age_2026_10",
-    "source_hash": "6315b54ecf5011ddd327860b6492771e9bb5f63ccf497c4f2f2ab40c9673df19",
-    "processing_time_seconds": 0.0006492137908935547,
+    "source_hash": "28eb5695aa125147a0d7bd2b2b8d7314ec394be6e90d816eea3febae111b04a4",
+    "processing_time_seconds": 0.0007266998291015625,
     "gender": "total"
   },
   "quality": {
-    "validation_timestamp": "2026-11-10T08:13:09.783653+00:00",
+    "validation_timestamp": "2026-11-12T08:42:42.201717+00:00",
     "validation_status": "completed",
     "issues": []
   }

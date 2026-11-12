@@ -14,11 +14,11 @@
   "lines": 15,
   "hash": {
     "algorithm": "sha256",
-    "value": "f22a837a83829dbd8b6527d02586ecb6170eb6d5ff79db1ab9bc4842dc717da3"
+    "value": "84df69d3d29b62440dc77362a1e93b65b2135cb20256043db574c81405569e72"
   },
   "encoding": "utf-8",
   "created": "2026-11-05T08:14:08.959606+00:00",
-  "modified": "2026-11-05T08:14:08.959606+00:00",
+  "modified": "2026-11-12T08:42:42.221258+00:00",
   "sources": [
     {
       "title": "sentinel_weekly_medical_district_2026_44.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "sentinel_weekly_medical_district_2026_44",
-    "source_hash": "b8ed2a621935d51455b835d4533d43ae677766ded14db8ef6cce0e2bd09327cf",
-    "processing_time_seconds": 0.0005893707275390625,
+    "source_hash": "765634405a5b1c3a57a644f9fb94c3bc419ec8e2e6748b3e9d09f2902fa4cfb8",
+    "processing_time_seconds": 0.000926971435546875,
     "gender": "male"
   },
   "quality": {
-    "validation_timestamp": "2026-11-05T08:14:08.959613+00:00",
+    "validation_timestamp": "2026-11-12T08:42:42.221266+00:00",
     "validation_status": "completed",
     "issues": [
       {
