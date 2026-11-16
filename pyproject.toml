@@ -13,7 +13,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-cov>=7.1.0",
     "pytest-asyncio>=1.4.0",
     "black==26.10.1",
@@ -64,6 +64,8 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+# Keep fixture loops isolated per test, matching pytest-asyncio's future default.
+asyncio_default_fixture_loop_scope = "function"
 # Every warning fails the run. Exempt a dependency warning only with a narrow
 # "ignore:<message>:<Category>:<module>" entry and a comment giving its origin and reason.
 filterwarnings = ["error"]
