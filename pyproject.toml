@@ -64,6 +64,8 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+# Keep fixture loops isolated per test, matching pytest-asyncio's future default.
+asyncio_default_fixture_loop_scope = "function"
 # Every warning fails the run. Exempt a dependency warning only with a narrow
 # "ignore:<message>:<Category>:<module>" entry and a comment giving its origin and reason.
 filterwarnings = ["error"]
