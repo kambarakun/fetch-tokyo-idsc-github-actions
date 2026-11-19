@@ -14,11 +14,11 @@
   "lines": 90,
   "hash": {
     "algorithm": "sha256",
-    "value": "30b60c3fe0124ef8a54fd11daecad17dd194968fbece30c7b8412136474cec29"
+    "value": "c9a6201e9b68d3ee08b5dee6623e87c5fb50a556e9882210b62995ae12c7ce7a"
   },
   "encoding": "utf-8",
   "created": "2026-11-12T08:13:03.171164+00:00",
-  "modified": "2026-11-12T08:13:03.171164+00:00",
+  "modified": "2026-11-19T08:43:22.366755+00:00",
   "sources": [
     {
       "title": "notifiable_weekly_2026_45.csv",
@@ -27,12 +27,12 @@
   ],
   "_process": {
     "source_name": "notifiable_weekly_2026_45",
-    "source_hash": "c31fbb29a347f93bea6751203bb0cfbae8ebcb21e029656b8965c901d2e39097",
-    "processing_time_seconds": 0.00012564659118652344,
+    "source_hash": "9aae637714b44abffb487d8014685e91a1da94a899de22834a87b9352f1db200",
+    "processing_time_seconds": 0.0002536773681640625,
     "gender": null
   },
   "quality": {
-    "validation_timestamp": "2026-11-12T08:13:03.171184+00:00",
+    "validation_timestamp": "2026-11-19T08:43:22.366766+00:00",
     "validation_status": "completed",
     "issues": []
   }
